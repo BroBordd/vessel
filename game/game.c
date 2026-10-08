@@ -58,10 +58,9 @@ int main(int argc, char **argv) {
     printf("SDL %d.%d.%d, %dx%d\n", v.major, v.minor, v.patch, W, H);
     fflush(stdout);
 
-    int audio_ok = audio_init() == 0;
+    if (audio_init() == 0) music_play("third_life.ogg", 0);
+
     menu_init(W, H);
-    /* title flash is tied to the music start */
-    if (audio_ok && music_play("third_life.ogg", 0) == 0) menu_title_flash();
 
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[1024]; int alen = 0;

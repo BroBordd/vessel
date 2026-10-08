@@ -11,7 +11,5 @@ void       menu_init(int w, int h);
 MenuAction menu_touch(int a, int x, int y);
 void       menu_update(float dt);
 void       menu_draw(SDL_Renderer *r);
-/* call when the music starts: title letters flash random colors (8 ticks, 0.5s apart), then back to white */
-void       menu_title_flash(void);
 
 #endif
