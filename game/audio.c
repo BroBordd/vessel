@@ -27,6 +27,7 @@ static int mus_loop;
 /* fade: gain = fade_vol^2 (perceptual), ramps to 0 over fade_frames; guarded by device lock */
 static int   fading;
 static float fade_vol = 1.0f, fade_step;
+static float master = 1.0f;   /* instant master gain, set via music_set_volume */
 
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
@@ -61,6 +62,8 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
         if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
+    if (master != 1.0f)
+        for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
 }
 
@@ -133,6 +136,15 @@ int music_play(const char *file, int loop) {
     if (old) stb_vorbis_close(old);
     free(oldbuf);
     return 0;
+}
+
+void music_set_volume(float v) {
+    if (v < 0.0f) v = 0.0f;
+    if (v > 1.0f) v = 1.0f;
+    if (!dev) { master = v; return; }
+    SDL_LockAudioDevice(dev);
+    master = v;                                  /* takes effect on the very next buffer, no ramp */
+    SDL_UnlockAudioDevice(dev);
 }
 
 void music_fade_out(float seconds) {

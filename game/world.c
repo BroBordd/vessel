@@ -1,8 +1,11 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "world.h"
-#include "font.h"
-#include <string.h>
+#include "char.h"
+#include "dialog.h"
+#include "missions.h"
+#include "npc.h"
+#include "story.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,7 +31,7 @@ static int   moving;
 
 /* analog stick (fixed, bottom-left) */
 static int   sx, sy, sr, kr;        /* centre, base radius, knob radius */
-static int   stick_on;
+static int   stick_on, stick_visible;
 static float kx, ky;                /* knob offset, -1..1 */
 
 static float cam_x, cam_y;
@@ -148,139 +151,6 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
-/* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs.
- * legend: h hair, s skin, c shirt, p pants, b boots. Eyes are drawn on top.
- * Side sprite faces RIGHT; facing LEFT mirrors it, so the face/nose and the
- * hair-at-the-back always point the way you walk. */
-#define SPR_W 10
-#define SPR_H 12
-static const char *body[4] = {
-    "..cccccc..",
-    ".sccccccs.",
-    "..pppppp..",
-    "..bb..bb..",
-};
-static const char *head_front[8] = {
-    "..hhhhhh..",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hssssssh.",
-    ".ssssssss.",
-    ".ssssssss.",
-    ".ssssssss.",
-    "..ssssss..",
-};
-static const char *head_back[8] = {
-    "..hhhhhh..",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    "..hhhhhh..",
-};
-static const char *head_side[8] = {
-    "..hhhhhh..",
-    ".hhhhhhhh.",
-    ".hhhhhhhh.",
-    ".hhhsssss.",
-    ".hhssssss.",
-    ".hhsssssss",       /* nose */
-    ".hhssssss.",
-    "..hsssss..",
-};
-
-static void spr_color(SDL_Renderer *r, char c) {
-    switch (c) {
-    case 'h': col(r, 96, 58, 36, 255);    break;
-    case 's': col(r, 248, 208, 170, 255); break;
-    case 'c': col(r, 214, 60, 60, 255);   break;
-    case 'p': col(r, 52, 70, 140, 255);   break;
-    case 'b': col(r, 40, 30, 30, 255);    break;
-    }
-}
-
-static void draw_player(SDL_Renderer *r, int sxp, int syp) {   /* feet-centre on screen */
-    int frame = moving ? ((int)(walk) & 1) : 0;
-    int bob = (moving && frame) ? 1 : 0;
-    int ox = sxp - (SPR_W / 2) * px, oy = syp - SPR_H * px - bob * px;
-    int flip = facing == 2;                                    /* left = mirrored right */
-
-    col(r, 0, 0, 0, 80);                                       /* shadow */
-    fill(r, sxp - 4 * px, syp - px, 8 * px, 2 * px);
-
-    const char **head = facing == 0 ? head_front : facing == 1 ? head_back : head_side;
-    for (int y = 0; y < SPR_H; y++)
-        for (int x = 0; x < SPR_W; x++) {
-            char c = y < 8 ? head[y][x] : body[y - 8][x];
-            if (c == '.') continue;
-            int dy = y;
-            if (y == 11 && moving) {                           /* lift one foot per step */
-                int left_leg = x < 5;
-                if (left_leg == (frame == 0)) dy = 10;
-            }
-            int dx = flip ? SPR_W - 1 - x : x;
-            spr_color(r, c);
-            fill(r, ox + dx * px, oy + dy * px, px, px);
-        }
-
-    /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
-    if (facing != 1) {
-        int ex[2], n = 0;
-        if (facing == 0) { ex[n++] = 2; ex[n++] = 6; }
-        else             { ex[n++] = flip ? 2 : 6; }
-        for (int i = 0; i < n; i++) {
-            col(r, 28, 22, 40, 255);
-            fill(r, ox + ex[i] * px, oy + 4 * px, 2 * px, 3 * px);
-            col(r, 255, 255, 255, 255);                        /* highlight on the outer-top */
-            int hx = (facing == 0) ? ex[i] : (flip ? ex[i] + 1 : ex[i]);
-            fill(r, ox + hx * px, oy + 4 * px, px, px);
-        }
-    }
-}
-
-/* ---------- welcome window ---------- */
-#define WELCOME_TEXT   "WELCOME, AONIA"
-#define WELCOME_HINT   "TAP TO CONTINUE"
-#define TYPE_CPS       14.0f
-static int   wstate;                /* 0 gone, 1 open, 2 closing */
-static float wt;                    /* <0: waiting for the fade-in */
-
-static void welcome_draw(SDL_Renderer *r) {
-    if (!wstate || wt < 0) return;
-    float u = (W < H ? W : H) / 360.0f;
-    float a = wstate == 2 ? 1.0f - wt / 0.25f : wt / 0.35f;
-    if (a > 1) a = 1;
-    if (a <= 0) return;
-    int A = (int)(255 * a);
-
-    col(r, 0, 0, 0, (int)(110 * a));
-    fill(r, 0, 0, W, H);
-
-    int cell = (int)(3 * u); if (cell < 2) cell = 2;
-    int hcell = (int)(1.5f * u); if (hcell < 1) hcell = 1;
-    int pad = (int)(16 * u), bt = (int)(2 * u); if (bt < 1) bt = 1;
-    int tw = font_width(WELCOME_TEXT, cell), th = font_height(cell);
-    int hw = font_width(WELCOME_HINT, hcell), hh = font_height(hcell);
-    int gap = (int)(14 * u);
-    int bw = tw + 2 * pad, bh = pad + th + gap + hh + pad;
-    int bx = (W - bw) / 2, by = (int)(H * 0.36f) - bh / 2;
-
-    col(r, 255, 255, 255, A);  fill(r, bx, by, bw, bh);
-    col(r, 0, 0, 0, (int)(235 * a));
-    fill(r, bx + bt, by + bt, bw - 2 * bt, bh - 2 * bt);
-
-    int total = (int)strlen(WELCOME_TEXT);
-    int shown = (int)(wt * TYPE_CPS); if (shown > total) shown = total;
-    char buf[32]; memcpy(buf, WELCOME_TEXT, (size_t)shown); buf[shown] = 0;
-    col(r, 255, 255, 255, A);
-    font_draw(r, buf, bx + pad, by + pad, cell);
-
-    if (shown >= total && wstate == 1 && ((int)(wt * 2.0f) & 1) == 0)       /* blinking hint */
-        font_draw(r, WELCOME_HINT, bx + (bw - hw) / 2, by + pad + th + gap, hcell);
-}
-
 /* ---------- API ---------- */
 void world_init(int w, int h) {
     W = w; H = h;
@@ -288,7 +158,7 @@ void world_init(int w, int h) {
     px = (int)(u * 3.0f * ZOOM); if (px < 2) px = 2;
     tile = TILE_U * px;
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
-    wstate = 1; wt = -1.0f;                 /* welcome window opens once the fade-in is done */
+    stick_visible = 1;
 
     gen_map();
     pxp = (MAP_W / 2 + 0.5f) * tile;
@@ -297,17 +167,27 @@ void world_init(int w, int h) {
     int margin = (int)(26 * u);
     sr = (int)(58 * u); kr = (int)(24 * u);
     sx = margin + sr; sy = H - margin - sr;
+
+    dialog_init(w, h);
+    missions_init(w, h);
+    npc_reset(px, tile);
+    story_start();                              /* the script takes it from here (story.c) */
 }
 
+void world_set_stick_visible(int on) {
+    stick_visible = on;
+    if (!on) { stick_on = 0; kx = ky = 0; }
+}
+int world_player_tile_x(void) { return (int)(pxp / tile); }
+int world_player_tile_y(void) { return (int)(pyp / tile); }
+
 void world_touch(int a, int x, int y) {
-    if (wstate) {                                       /* welcome window eats all touches */
-        if (a == 1 && wt >= 0) {
-            float type_done = (float)strlen(WELCOME_TEXT) / TYPE_CPS;
-            if (wstate == 1 && wt < type_done) wt = type_done;      /* first tap: finish typing */
-            else if (wstate == 1) { wstate = 2; wt = 0; }           /* second tap: close */
-        }
+    if (dialog_active()) {                              /* dialogs eat all touches */
+        dialog_touch(a, x, y);
+        stick_on = 0; kx = ky = 0;
         return;
     }
+    if (!stick_visible) return;
     if (a == 0) {
         float dx = (float)(x - sx), dy = (float)(y - sy);
         stick_on = sqrtf(dx * dx + dy * dy) <= sr * 1.5f;      /* generous grab zone */
@@ -327,16 +207,16 @@ static int blocked(float fx, float fy) {           /* feet box centred at fx,fy 
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++)
             if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
-    return 0;
+    return npc_collides(fx, fy, hw, 2 * hh);
 }
 
 void world_update(float dt) {
     t += dt;
-    if (wstate) {
-        wt += dt;
-        if (wstate == 2 && wt >= 0.25f) wstate = 0;
-        kx = ky = 0; stick_on = 0;
-    }
+    story_update(dt);
+    dialog_update(dt);
+    missions_update(dt);
+
+    if (dialog_active()) { kx = ky = 0; stick_on = 0; }       /* frozen while talking */
     float mag = sqrtf(kx * kx + ky * ky);
     moving = mag > 0.15f;
     if (moving) {
@@ -344,10 +224,12 @@ void world_update(float dt) {
         float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
         if (!blocked(pxp + vx, pyp)) pxp += vx;
         if (!blocked(pxp, pyp + vy)) pyp += vy;
-        if (fabsf(kx) > fabsf(ky)) facing = kx < 0 ? 2 : 3;
-        else                       facing = ky < 0 ? 1 : 0;
+        if (fabsf(kx) > fabsf(ky)) facing = kx < 0 ? FACE_LEFT : FACE_RIGHT;
+        else                       facing = ky < 0 ? FACE_UP : FACE_DOWN;
         walk += dt * 8.0f;
     } else walk = 0;
+
+    npc_update(pxp, pyp);
 
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
     float mx = (float)(MAP_W * tile - W), my = (float)(MAP_H * tile - H);
@@ -362,24 +244,31 @@ void world_draw(SDL_Renderer *r) {
     int cx = (int)cam_x, cy = (int)cam_y;
     int tx0 = cx / tile, ty0 = cy / tile;
     int tx1 = (cx + W) / tile, ty1 = (cy + H) / tile;
-    int py_feet = (int)pyp;
 
-    for (int ty = ty0; ty <= ty1 && ty < MAP_H; ty++) {
+    for (int ty = ty0; ty <= ty1 && ty < MAP_H; ty++)
         for (int tx = tx0; tx <= tx1 && tx < MAP_W; tx++)
             draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
-    }
-    draw_player(r, (int)pxp - cx, py_feet - cy);
 
-    /* analog stick */
-    col(r, 255, 255, 255, 40);  disc(r, sx, sy, sr);
-    col(r, 255, 255, 255, 150); ring(r, sx, sy, sr, sr - (px > 1 ? px : 2));
-    int kcx = sx + (int)(kx * (sr - kr * 0.3f)), kcy = sy + (int)(ky * (sr - kr * 0.3f));
-    col(r, 255, 255, 255, stick_on ? 220 : 130); disc(r, kcx, kcy, kr);
+    /* characters, back to front so whoever is lower on screen draws on top */
+    for (int i = 0; i < npc_count(); i++)
+        if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
+    char_draw(r, &VESSEL, (int)pxp - cx, (int)pyp - cy, facing, moving, walk, px);
+    for (int i = 0; i < npc_count(); i++)
+        if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
+
+    if (stick_visible && !dialog_active()) {
+        col(r, 255, 255, 255, 40);  disc(r, sx, sy, sr);
+        col(r, 255, 255, 255, 150); ring(r, sx, sy, sr, sr - (px > 1 ? px : 2));
+        int kcx = sx + (int)(kx * (sr - kr * 0.3f)), kcy = sy + (int)(ky * (sr - kr * 0.3f));
+        col(r, 255, 255, 255, stick_on ? 220 : 130); disc(r, kcx, kcy, kr);
+    }
+
+    missions_draw(r);
 
     if (t < 1.0f) {                                             /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t)));
         fill(r, 0, 0, W, H);
     }
-    welcome_draw(r);
+    dialog_draw(r);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
 }

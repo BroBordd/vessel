@@ -10,6 +10,8 @@ int  music_play(const char *file, int loop);
 void music_stop(void);
 /* ramps the current music to silence over `seconds` (smooth curve), then drops it */
 void music_fade_out(float seconds);
+/* master music volume 0..1, applied instantly (no smoothing). persists across tracks */
+void music_set_volume(float v);
 void audio_quit(void);
 
 #endif

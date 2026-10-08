@@ -10,4 +10,9 @@ void world_touch(int a, int x, int y);
 void world_update(float dt);
 void world_draw(SDL_Renderer *r);
 
+/* scripting helpers (used from story.c) */
+void world_set_stick_visible(int on);
+int  world_player_tile_x(void);
+int  world_player_tile_y(void);
+
 #endif
