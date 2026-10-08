@@ -73,6 +73,11 @@ int main(int argc, char **argv) {
     float bx = 50, by = 50, vx = 3, vy = 4;
     Uint32 last = SDL_GetTicks(); int frames = 0;
 
+    /* fixed 60fps pacing: sleep only the time left in each frame budget */
+    const Uint64 pf = SDL_GetPerformanceFrequency();
+    const Uint64 frame_ticks = pf / 60;
+    Uint64 next_frame = SDL_GetPerformanceCounter() + frame_ticks;
+
     for (;;) {
         char buf[256];
         ssize_t n = read(0, buf, sizeof buf);
@@ -117,7 +122,16 @@ int main(int argc, char **argv) {
             printf("fps %.1f\n", 60000.0 / (now - last)); fflush(stdout);
             last = now; frames = 0;
         }
-        SDL_Delay(16);
+
+        Uint64 now_pc = SDL_GetPerformanceCounter();
+        if (now_pc < next_frame) {
+            SDL_Delay((Uint32)((next_frame - now_pc) * 1000 / pf));
+            next_frame += frame_ticks;
+        } else if (now_pc - next_frame > frame_ticks) {
+            next_frame = now_pc + frame_ticks;   /* fell behind, resync */
+        } else {
+            next_frame += frame_ticks;
+        }
     }
 
     if (ad) SDL_CloseAudioDevice(ad);
