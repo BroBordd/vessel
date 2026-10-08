@@ -7,7 +7,7 @@
  *   dialog_play(lines, count, on_done)      show pages of text (centred window or face popup)
  *   mission_add("Text") / mission_complete(id)   the top-left checklist
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
- *   world_set_stick_visible(0 or 1)         show / hide the analog stick
+ *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
  *   music_set_volume(0.0 .. 1.0)            instant music volume
  *   story_after(seconds, fn)                run something later
  */
@@ -57,9 +57,14 @@ static const DialogLine ALEX_CHAT[] = {
     { &ALEX,   "Welcome. Try not to stand out." },
 };
 
+static const DialogLine ALEX_AGAIN[] = {
+    { &ALEX, "Keep your head down. I will find you when it is time." },
+};
+
+/* runs when the interact button is pressed next to Alex */
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
-    if (alex_met) return;                       /* she only introduces herself once */
+    if (alex_met) { dialog_play(ALEX_AGAIN, 1, NULL); return; }   /* already introduced */
     alex_met = 1;
     mission_complete(mission_talk_alex);
     dialog_play(ALEX_CHAT, 3, NULL);
@@ -72,7 +77,7 @@ static const DialogLine INTRO[] = {
 };
 
 static void intro_done(void) {
-    world_set_stick_visible(1);                 /* controls appear */
+    world_set_controls_visible(1);              /* stick and interact button become usable */
     music_set_volume(0.65f);                    /* music drops to 65%, instantly */
     mission_talk_alex = mission_add("Talk to Alex");
     /* Alex stands 3 tiles right and 4 tiles up from where we spawned */
@@ -87,6 +92,6 @@ void story_start(void) {
     mission_talk_alex = -1;
     alex_met = 0;
     music_set_volume(1.0f);
-    world_set_stick_visible(0);
+    world_set_controls_visible(0);
     story_after(1.0f, intro);                   /* wait for the fade-in, then the welcome window */
 }

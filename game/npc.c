@@ -5,8 +5,8 @@
 #include <math.h>
 
 #define MAX_NPC     16
-#define TALK_RANGE  1.7f            /* tiles: walk this close to start talking */
-#define LEAVE_RANGE 2.2f            /* tiles: walk this far away to be able to talk again */
+#define TALK_RANGE  1.7f            /* tiles: this close and the interact button appears */
+#define LEAVE_RANGE 2.2f            /* tiles: this far and it goes away again */
 
 typedef struct {
     const Person *who;
@@ -17,8 +17,9 @@ typedef struct {
 
 static Npc n[MAX_NPC];
 static int count, s, tile;
+static int nearby = -1;
 
-void npc_reset(int pixel_scale, int tile_size) { count = 0; s = pixel_scale; tile = tile_size; }
+void npc_reset(int pixel_scale, int tile_size) { count = 0; nearby = -1; s = pixel_scale; tile = tile_size; }
 
 int npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int)) {
     if (count >= MAX_NPC) return -1;
@@ -26,17 +27,27 @@ int npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int)) {
     return count++;
 }
 
+/* works out who is in talking range (with a little hysteresis so the button doesn't flicker)
+ * and turns them to face the player. nothing is triggered here: talking is up to the button. */
 void npc_update(float px, float py) {
+    nearby = -1;
+    float best = 1e9f;
     for (int i = 0; i < count; i++) {
         float dx = px - n[i].tx * tile, dy = py - n[i].ty * tile;
         float d = sqrtf(dx * dx + dy * dy) / tile;
-        if (d < TALK_RANGE && !n[i].in_range && !dialog_active()) {
-            n[i].in_range = 1;
-            if (fabsf(dx) > fabsf(dy)) n[i].facing = dx < 0 ? FACE_LEFT : FACE_RIGHT;   /* turn to the player */
-            else                       n[i].facing = dy < 0 ? FACE_UP : FACE_DOWN;
-            if (n[i].on_talk) n[i].on_talk(i);
-        } else if (d > LEAVE_RANGE) n[i].in_range = 0;
+        if (!n[i].in_range && d < TALK_RANGE)  n[i].in_range = 1;
+        else if (n[i].in_range && d > LEAVE_RANGE) n[i].in_range = 0;
+        if (!n[i].in_range) continue;
+        if (fabsf(dx) > fabsf(dy)) n[i].facing = dx < 0 ? FACE_LEFT : FACE_RIGHT;
+        else                       n[i].facing = dy < 0 ? FACE_UP : FACE_DOWN;
+        if (d < best) { best = d; nearby = i; }
     }
+}
+
+int npc_nearby(void) { return nearby; }
+const Person *npc_person(int id) { return n[id].who; }
+void npc_interact(int id) {
+    if (id >= 0 && id < count && n[id].on_talk) n[id].on_talk(id);
 }
 
 int   npc_count(void)          { return count; }

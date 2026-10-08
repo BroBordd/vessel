@@ -14,6 +14,7 @@
 #define MAP_H 80
 #define TILE_U 8                    /* tile edge in "pixel units" */
 #define ZOOM   2.0f                 /* world zoom (pixel-art scale multiplier) */
+#define WALK_TILES_PER_SEC 5.0f     /* walking speed at full stick tilt */
 
 enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE };
 
@@ -31,8 +32,14 @@ static int   moving;
 
 /* analog stick (fixed, bottom-left) */
 static int   sx, sy, sr, kr;        /* centre, base radius, knob radius */
-static int   stick_on, stick_visible;
+static int   stick_on, controls_visible;
 static float kx, ky;                /* knob offset, -1..1 */
+
+/* interact button (fixed, bottom-right). shows the face of whoever you can talk to */
+static int   bcx, bcy, br;          /* centre and radius */
+static int   btn_down, btn_inside;
+static int   near_id = -1;          /* npc in talking range, or -1 */
+static float ui;                    /* screen px per ui unit (screen width / 360) */
 
 static float cam_x, cam_y;
 
@@ -158,15 +165,18 @@ void world_init(int w, int h) {
     px = (int)(u * 3.0f * ZOOM); if (px < 2) px = 2;
     tile = TILE_U * px;
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
-    stick_visible = 1;
+    controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
 
     gen_map();
     pxp = (MAP_W / 2 + 0.5f) * tile;
     pyp = (MAP_H / 2 + 0.9f) * tile;
 
+    ui = u;
     int margin = (int)(26 * u);
     sr = (int)(58 * u); kr = (int)(24 * u);
     sx = margin + sr; sy = H - margin - sr;
+    br = (int)(44 * u);
+    bcx = W - margin - br; bcy = H - margin - br;
 
     dialog_init(w, h);
     missions_init(w, h);
@@ -174,20 +184,38 @@ void world_init(int w, int h) {
     story_start();                              /* the script takes it from here (story.c) */
 }
 
-void world_set_stick_visible(int on) {
-    stick_visible = on;
-    if (!on) { stick_on = 0; kx = ky = 0; }
+void world_set_controls_visible(int on) {
+    controls_visible = on;
+    if (!on) { stick_on = 0; kx = ky = 0; btn_down = 0; }
 }
 int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
 
+static int button_hit(int x, int y) {
+    float dx = (float)(x - bcx), dy = (float)(y - bcy);
+    return sqrtf(dx * dx + dy * dy) <= br * 1.3f;                /* generous hit area */
+}
+
 void world_touch(int a, int x, int y) {
     if (dialog_active()) {                              /* dialogs eat all touches */
         dialog_touch(a, x, y);
-        stick_on = 0; kx = ky = 0;
+        stick_on = 0; kx = ky = 0; btn_down = 0;
         return;
     }
-    if (!stick_visible) return;
+    if (!controls_visible) return;
+
+    /* interact button: press on it, release on it = interact */
+    if (a == 0 && near_id >= 0 && button_hit(x, y)) { btn_down = 1; btn_inside = 1; return; }
+    if (btn_down) {
+        if (a == 2) btn_inside = button_hit(x, y);
+        if (a == 1 || a == 3) {
+            int fire = a == 1 && btn_inside && near_id >= 0;
+            btn_down = btn_inside = 0;
+            if (fire) npc_interact(near_id);
+        }
+        return;
+    }
+
     if (a == 0) {
         float dx = (float)(x - sx), dy = (float)(y - sy);
         stick_on = sqrtf(dx * dx + dy * dy) <= sr * 1.5f;      /* generous grab zone */
@@ -220,7 +248,7 @@ void world_update(float dt) {
     float mag = sqrtf(kx * kx + ky * ky);
     moving = mag > 0.15f;
     if (moving) {
-        float speed = 24.0f * px * (mag > 1 ? 1 : mag);       /* 3 tiles/s at full tilt */
+        float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag);
         float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
         if (!blocked(pxp + vx, pyp)) pxp += vx;
         if (!blocked(pxp, pyp + vy)) pyp += vy;
@@ -230,6 +258,8 @@ void world_update(float dt) {
     } else walk = 0;
 
     npc_update(pxp, pyp);
+    near_id = dialog_active() ? -1 : npc_nearby();
+    if (near_id < 0) btn_down = btn_inside = 0;
 
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
     float mx = (float)(MAP_W * tile - W), my = (float)(MAP_H * tile - H);
@@ -237,6 +267,22 @@ void world_update(float dt) {
     if (cam_x < 0)  cam_x = 0;
     if (cam_y > my) cam_y = my;
     if (cam_y < 0)  cam_y = 0;
+}
+
+/* round button with the face of whoever you are next to. tap it to talk. */
+static void draw_interact_button(SDL_Renderer *r) {
+    int down = btn_down && btn_inside;
+    int rw = (int)(2.5f * ui); if (rw < 2) rw = 2;
+    int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));              /* ring breathes to draw the eye */
+
+    if (down) col(r, 70, 80, 130, 240); else col(r, 24, 28, 48, 235);
+    disc(r, bcx, bcy, br);
+    col(r, 255, 255, 255, down ? 255 : pulse);
+    ring(r, bcx, bcy, br, br - rw);
+
+    int ps = (int)(br * 1.25f / 10); if (ps < 1) ps = 1;
+    int side = 10 * ps;
+    char_draw_portrait(r, npc_person(near_id), bcx - side / 2, bcy - side / 2, ps, 0);
 }
 
 void world_draw(SDL_Renderer *r) {
@@ -256,11 +302,12 @@ void world_draw(SDL_Renderer *r) {
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
 
-    if (stick_visible && !dialog_active()) {
+    if (controls_visible && !dialog_active()) {
         col(r, 255, 255, 255, 40);  disc(r, sx, sy, sr);
         col(r, 255, 255, 255, 150); ring(r, sx, sy, sr, sr - (px > 1 ? px : 2));
         int kcx = sx + (int)(kx * (sr - kr * 0.3f)), kcy = sy + (int)(ky * (sr - kr * 0.3f));
         col(r, 255, 255, 255, stick_on ? 220 : 130); disc(r, kcx, kcy, kr);
+        if (near_id >= 0) draw_interact_button(r);
     }
 
     missions_draw(r);

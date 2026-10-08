@@ -11,7 +11,7 @@ void world_update(float dt);
 void world_draw(SDL_Renderer *r);
 
 /* scripting helpers (used from story.c) */
-void world_set_stick_visible(int on);
+void world_set_controls_visible(int on);   /* analog stick + interact button */
 int  world_player_tile_x(void);
 int  world_player_tile_y(void);
 
