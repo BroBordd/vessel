@@ -4,6 +4,7 @@
 #include "font.h"
 #include "lang.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,8 +19,8 @@ typedef struct { SDL_Rect r; char ch; int kind; } Key;      /* kind: 0 character
 
 static int   W, H;
 static float u;
-static int   is_open, required;
-static float anim, t, hold;
+static int   is_open, closing, required;
+static float pos, target, t, hold;      /* pos: how far the panel is pushed down (px), eased toward target every frame */
 static void (*cb)(const char *);
 
 static char  npc_name[24], npc_line[320];
@@ -69,6 +70,7 @@ void talk_debug_type(const char *s) { for (; *s; s++) add_char((unsigned char)*s
 const char *talk_debug_text(void) { return text; }
 static void fire(int id);
 void talk_debug_send(void) { fire(ID_SEND); }
+int talk_debug_yoff(void) { return yoff; }
 
 /* ---------- layout ---------- */
 static void layout(void) {
@@ -137,7 +139,7 @@ static void layout(void) {
     heard_r = (SDL_Rect){ m, y, W - 2 * m, heard_h };
 }
 
-void talk_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = 0; layout(); }
+void talk_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = closing = 0; layout(); pos = target = (float)(panel.h + 8); }
 
 void talk_open(const char *name, const char *line, const char *const *sugg, int ns, int req, void (*done)(const char *)) {
     snprintf(npc_name, sizeof npc_name, "%s", name ? name : "");
@@ -146,12 +148,14 @@ void talk_open(const char *name, const char *line, const char *const *sugg, int 
     for (int i = 0; i < ns && i < MAX_CHIPS; i++) chips[nchips++] = sugg[i];
     required = req; cb = done;
     text[0] = 0; tlen = 0; reparse();
-    anim = 0; hold = 0; pressed = ID_NONE; t = 0; is_open = 1;
     layout();
+    hold = 0; pressed = ID_NONE; t = 0; is_open = 1;
+    if (!closing) pos = (float)(panel.h + 8);       /* start below the screen (or from wherever a closing slide got to) */
+    closing = 0; target = 0;
 }
 int talk_active(void) { return is_open; }
 
-static void close_overlay(void) { is_open = 0; pressed = ID_NONE; }
+static void close_overlay(void) { is_open = 0; closing = 1; target = (float)(panel.h + 8); pressed = ID_NONE; }   /* it keeps drawing while it slides away */
 
 /* ---------- touch ---------- */
 static int hit_id(int x, int y) {
@@ -196,10 +200,15 @@ void talk_touch(int a, int x, int y) {
 }
 
 void talk_update(float dt) {
-    if (!is_open) return;
+    if (!is_open && !closing) return;
     t += dt;
-    if (anim < 1) { anim += dt / 0.18f; if (anim > 1) anim = 1; }
-    float k = 1.0f - anim; yoff = (int)(k * k * (panel.h + 8));
+    /* exponential lerp toward the target: framerate independent, so it glides at 60 fps just as it
+     * would at 30, and it slows gently into place (like the music fades) */
+    pos += (target - pos) * (1.0f - expf(-14.0f * dt));
+    if (fabsf(target - pos) < 0.6f) pos = target;
+    yoff = (int)(pos + 0.5f);
+    if (closing && pos >= target) closing = 0;
+    if (!is_open) return;
     if (pressed >= 0 && pressed < nkeys && keys[pressed].kind == 1) {      /* hold backspace to repeat */
         float before = hold; hold += dt;
         if (hold > 0.45f) { int n0 = (int)((before - 0.45f) / 0.07f), n1 = (int)((hold - 0.45f) / 0.07f); if (before < 0.45f) n0 = -1; for (int i = n0; i < n1; i++) backspace(); }
@@ -225,8 +234,9 @@ static int wrap(int maxc, int *start, int *len) {
 }
 
 void talk_draw(SDL_Renderer *r) {
-    if (!is_open) return;
+    if (!is_open && !closing) return;
     int dy = yoff;
+    float anim = 1.0f - pos / (float)(panel.h + 8); if (anim < 0) anim = 0;
     int bt = (int)(1.5f * u); if (bt < 1) bt = 1;
     col(r, 0, 0, 0, (int)(120 * anim)); SDL_Rect all = { 0, 0, W, H }; SDL_RenderFillRect(r, &all);
 

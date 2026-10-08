@@ -184,9 +184,9 @@ void dialog_touch(int a, int x, int y) {
 }
 
 void dialog_update(float dt) {
+    talk_update(dt);                            /* the keyboard may still be sliding away after the dialog ended */
     if (!active) return;
     open_t += dt; t += dt;
-    talk_update(dt);
 }
 
 /* ---------- drawing ---------- */
@@ -204,7 +204,7 @@ static void triangle(SDL_Renderer *r, int x, int y, int q) {
 }
 
 void dialog_draw(SDL_Renderer *r) {
-    if (!active) return;
+    if (!active) { talk_draw(r); return; }
     float a = open_t / 0.15f; if (a > 1) a = 1;
     int A = (int)(255 * a);
 

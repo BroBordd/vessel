@@ -45,6 +45,7 @@ static int   bcx, bcy, br;          /* centre and radius */
 static int   btn_down, btn_inside;
 static int   near_id = -1;          /* npc in talking range, or -1 */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
+static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
 
 static float cam_x, cam_y;
 
@@ -147,6 +148,34 @@ static void ring(SDL_Renderer *r, int cx, int cy, int ro, int ri) {
             fill(r, cx - ho, cy + dy, ho - hi, 1);
             fill(r, cx + hi + 1, cy + dy, ho - hi, 1);
         }
+    }
+}
+
+
+/* ---------- pixel circles (the stick and the interact button: no smooth round edges) ----------
+ * everything is built from square cells of `cell` px laid on a grid centred on (cx, cy).
+ * a cell is in when its centre is inside the circle, so the edge is a clean staircase. */
+static int half_cells(float rad_cells, int row) {          /* how many cells reach out each side on this row */
+    float yc = row + 0.5f, d = rad_cells * rad_cells - yc * yc;
+    return d <= 0 ? 0 : (int)floorf(sqrtf(d) + 0.5f);
+}
+static void pdisc(SDL_Renderer *r, int cx, int cy, int rad, int cell) {
+    float R = (float)rad / cell;
+    int n = (int)ceilf(R);
+    for (int j = -n; j < n; j++) {
+        int m = half_cells(R, j);
+        if (m > 0) fill(r, cx - m * cell, cy + j * cell, 2 * m * cell, cell);
+    }
+}
+static void pring(SDL_Renderer *r, int cx, int cy, int rad, int thick_cells, int cell) {
+    float Ro = (float)rad / cell, Ri = Ro - thick_cells;
+    int n = (int)ceilf(Ro);
+    for (int j = -n; j < n; j++) {
+        int mo = half_cells(Ro, j), mi = Ri > 0 ? half_cells(Ri, j) : 0;
+        if (mo <= 0) continue;
+        if (mi <= 0) { fill(r, cx - mo * cell, cy + j * cell, 2 * mo * cell, cell); continue; }
+        fill(r, cx - mo * cell, cy + j * cell, (mo - mi) * cell, cell);
+        fill(r, cx + mi * cell, cy + j * cell, (mo - mi) * cell, cell);
     }
 }
 
@@ -299,6 +328,7 @@ void world_init(int w, int h) {
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
 
     ui = u;
+    ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
     int margin = (int)(26 * u);
     sr = (int)(58 * u); kr = (int)(24 * u);
     sx = margin + sr; sy = H - margin - sr;
@@ -588,10 +618,11 @@ static void draw_interact_button(SDL_Renderer *r) {
     int rw = (int)(2.5f * ui); if (rw < 2) rw = 2;
     int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));              /* ring breathes to draw the eye */
 
+    (void)rw;
     if (down) col(r, 70, 80, 130, 240); else col(r, 24, 28, 48, 235);
-    disc(r, bcx, bcy, br);
+    pdisc(r, bcx, bcy, br, ucell);
     col(r, 255, 255, 255, down ? 255 : pulse);
-    ring(r, bcx, bcy, br, br - rw);
+    pring(r, bcx, bcy, br, 1, ucell);
 
     if (near_hole) {                                             /* pixel arrow pointing down */
         int a = br / 7; if (a < 2) a = 2;
@@ -680,10 +711,11 @@ void world_draw(SDL_Renderer *r) {
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
 
     if (controls_visible && !dialog_active()) {
-        col(r, 255, 255, 255, 40);  disc(r, sx, sy, sr);
-        col(r, 255, 255, 255, 150); ring(r, sx, sy, sr, sr - (px > 1 ? px : 2));
-        int kcx = sx + (int)(kx * (sr - kr * 0.3f)), kcy = sy + (int)(ky * (sr - kr * 0.3f));
-        col(r, 255, 255, 255, stick_on ? 220 : 130); disc(r, kcx, kcy, kr);
+        col(r, 255, 255, 255, 40);  pdisc(r, sx, sy, sr, ucell);
+        col(r, 255, 255, 255, 150); pring(r, sx, sy, sr, 1, ucell);
+        float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
+        int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
+        col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
         if (near_id >= 0 || near_hole) draw_interact_button(r);
     }
 
