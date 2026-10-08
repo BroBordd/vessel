@@ -13,6 +13,9 @@
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near
  *   world_open_hole(x, y, on_enter)         cloud hole in the floor you can jump into
  *   world_fall_to_green(on_up)              jump, fall, land face-first, get up, then on_up()
+ *   hud_set_person(&PERSON)                 change who the ID card shows. a new name flashes, dings + toasts
+ *   hud_set_hp(hp, max)                     the HP bar on the ID card
+ *   dialog_on_page(fn)                      run fn(page) as each page of the NEXT dialog_play begins
  */
 #include "story.h"
 #include "dialog.h"
@@ -20,6 +23,7 @@
 #include "npc.h"
 #include "world.h"
 #include "audio.h"
+#include "hud.h"
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
 #define VESSEL_LATIN "Vas"          /* what Dea calls us before the naming. "Vas" is Latin for vessel */
@@ -109,11 +113,18 @@ static void dea_talk_done(void) {
     world_open_hole(dea_tx, dea_ty + 3, on_enter_hole);         /* a hole of clouds opens in the floor in front of her */
 }
 
+/* page 4 of DEA_TALK is the first line spoken as VESSEL: that is the moment the name sticks */
+#define DEA_NAMING_PAGE 4
+static void dea_talk_page(int page) {
+    if (page == DEA_NAMING_PAGE) hud_set_person(&VESSEL);       /* ID card flashes, coin ding, "You are now Aonia" */
+}
+
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
     if (dea_spoken) { dialog_play(DEA_AGAIN, 1, NULL); return; }
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
+    dialog_on_page(dea_talk_page);
     dialog_play(DEA_TALK, 8, dea_talk_done);
 }
 

@@ -13,6 +13,7 @@ static int   active, armed;         /* armed: the finger went down while a dialo
 static const DialogLine *lines;
 static int   count, idx;
 static void (*on_done)(void);
+static void (*page_hook)(int);      /* see dialog_on_page */
 static float open_t, t;             /* open_t: since the dialog opened, t: since this page began */
 static char  wrapped[MAX_WRAP];
 static int   nlines, widest, total;
@@ -92,6 +93,7 @@ static void start_page(void) {
     wrap_text(lines[idx].text, L.maxchars);
     layout_box();
     t = 0;
+    if (page_hook) page_hook(idx);
 }
 
 static int typing_done(void) { return (int)(t * DIALOG_CPS) >= total; }
@@ -99,7 +101,7 @@ static int typing_done(void) { return (int)(t * DIALOG_CPS) >= total; }
 /* ---------- public API ---------- */
 void dialog_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    active = armed = 0; lines = NULL; on_done = NULL;
+    active = armed = 0; lines = NULL; on_done = NULL; page_hook = NULL;
 }
 
 void dialog_play(const DialogLine *l, int n, void (*done)(void)) {
@@ -111,10 +113,12 @@ void dialog_play(const DialogLine *l, int n, void (*done)(void)) {
 
 int dialog_active(void) { return active; }
 
+void dialog_on_page(void (*fn)(int page)) { page_hook = fn; }
+
 static void next_page(void) {
     if (++idx >= count) {
         void (*cb)(void) = on_done;
-        active = 0; on_done = NULL;
+        active = 0; on_done = NULL; page_hook = NULL;
         if (cb) cb();                   /* may start another dialog */
     } else start_page();
 }

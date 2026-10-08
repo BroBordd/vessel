@@ -16,6 +16,10 @@ typedef struct { const Person *who; const char *text; } DialogLine;
 void dialog_play(const DialogLine *lines, int count, void (*on_done)(void));
 int  dialog_active(void);
 
+/* optional: fn(page) runs every time a page of the NEXT / current dialog begins (page 0 is the first).
+ * it is dropped when that dialog ends, so set it right before dialog_play. */
+void dialog_on_page(void (*fn)(int page));
+
 /* engine hooks, called by the world */
 void dialog_init(int w, int h);
 void dialog_touch(int a, int x, int y);

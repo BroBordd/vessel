@@ -7,6 +7,7 @@
 #include "npc.h"
 #include "story.h"
 #include "nowplaying.h"
+#include "hud.h"
 #include "audio.h"
 #include <math.h>
 #include <stdint.h>
@@ -304,6 +305,7 @@ void world_init(int w, int h) {
 
     dialog_init(w, h);
     missions_init(w, h);
+    hud_init(w, h, &VAS);                       /* the ID card starts out as plain "Vas" */
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
     story_start();                              /* the script takes it from here (story.c) */
 }
@@ -426,6 +428,7 @@ void world_update(float dt) {
     story_update(dt);
     dialog_update(dt);
     missions_update(dt);
+    hud_update(dt);
     if (hole_on && hole_t < HOLE_OPEN_T) hole_t += dt;
 
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
@@ -460,48 +463,61 @@ void world_update(float dt) {
     if (cam_y < 0)  cam_y = 0;
 }
 
-/* ellipse helpers for the hole */
-static void ell(SDL_Renderer *r, int cx, int cy, int rx, int ry) {
-    if (rx < 1 || ry < 1) return;
-    for (int dy = -ry; dy <= ry; dy++) {
-        float f = (float)dy / ry;
-        int hw = (int)(rx * sqrtf(1.0f - f * f));
-        fill(r, cx - hw, cy + dy, hw * 2 + 1, 1);
-    }
-}
-
-/* the hole in the clouds. front_only redraws just the near lip, so a sinking player is "inside" it */
+/* the hole in the clouds, built from the same square pixels as everything else: every cell is one
+ * sprite pixel (px screen px) on the tiles' own grid, so it is pixel art and not a smooth oval.
+ * (cx, cy) is the hole's centre on screen; it always lands exactly on a pixel-grid corner.
+ * three passes keep the depth right: far rim, then the opening, then the near rim in front.
+ * front_only redraws just the near rim, so a sinking player is "inside" the hole. */
 static void draw_hole(SDL_Renderer *r, int cx, int cy, int front_only) {
     float p = hole_t / HOLE_OPEN_T; if (p > 1) p = 1;
     p = 1.0f - (1.0f - p) * (1.0f - p);                     /* opens fast, settles slowly */
-    int rx = (int)(p * 1.4f * tile), ry = (int)(p * 0.75f * tile);
-    if (rx < 2) return;
-    int n = 16, pr = (int)(p * 0.21f * tile); if (pr < 1) pr = 1;
+    p = floorf(p * 14.0f) / 14.0f;                          /* ...in chunky steps, like a sprite animation */
+    float rx = p * 11.0f, ry = p * 5.5f;                    /* radii in pixel units (a tile is 8) */
+    if (rx < 1.0f) return;
+    const float rim = 1.7f, line = 1.0f;                    /* puffy rim thickness, and its outline */
+    float rxo = rx + rim, ryo = ry + rim, rxl = rxo + line, ryl = ryo + line;
+    int R = (int)rxl + 1, Rv = (int)ryl + 1;
+    int tw = (int)(t * 3.0f);                               /* the rim sparkles between two tones */
 
-    if (!front_only) {
-        for (int i = 0; i < n; i++) {                       /* puffy rim, behind */
-            float a = i * 6.2831853f / n;
-            if (sinf(a) > 0.05f) continue;                  /* the far half first */
-            if (i & 1) col(r, 255, 255, 255, 255); else col(r, 226, 234, 250, 255);
-            disc(r, cx + (int)(cosf(a) * rx), cy + (int)(sinf(a) * ry), pr);
+    for (int pass = 0; pass < 3; pass++) {
+        if (front_only && pass < 2) continue;
+        for (int j = -Rv; j < Rv; j++)
+            for (int i = -R; i < R; i++) {
+                float fx = i + 0.5f, fy = j + 0.5f;         /* centre of this cell */
+                float din = fx * fx / (rx * rx) + fy * fy / (ry * ry);
+                int chk = (i + j) & 1;
+                if (din <= 1.0f) {                          /* the opening itself */
+                    if (pass != 1) continue;
+                    float d = din + (chk ? 0.05f : 0.0f);   /* checker dither between the depth bands */
+                    if      (d < 0.28f) col(r, 16, 32, 96, 255);
+                    else if (d < 0.62f) col(r, 26, 54, 134, 255);
+                    else                col(r, 40, 80, 170, 255);
+                    float gy = fy - ry * 0.25f, gx = rx * 0.38f, gyy = ry * 0.34f;
+                    if (fx * fx / (gx * gx) + gy * gy / (gyy * gyy) <= 1.0f) {      /* the green ground, far below */
+                        if (chk) col(r, 66, 148, 84, 255); else col(r, 58, 134, 74, 255);
+                    }
+                } else {
+                    float dout = fx * fx / (rxo * rxo) + fy * fy / (ryo * ryo);
+                    float dlin = fx * fx / (rxl * rxl) + fy * fy / (ryl * ryl);
+                    if (dlin > 1.0f) continue;
+                    if (pass != (j >= 0 ? 2 : 0)) continue;  /* far half behind, near half in front */
+                    float rxm = rx + rim * 0.5f, rym = ry + rim * 0.5f;
+                    int lip = fx * fx / (rxm * rxm) + fy * fy / (rym * rym) <= 1.0f;   /* inner half of the rim sits in shade */
+                    if (dout > 1.0f)               col(r, 124, 156, 214, 255);          /* outline */
+                    else if (lip)                  { if ((chk + tw) & 1) col(r, 196, 212, 242, 255); else col(r, 176, 196, 236, 255); }
+                    else if ((chk + tw) & 1)       col(r, 255, 255, 255, 255);          /* rim, sparkling */
+                    else                           col(r, 226, 234, 250, 255);
+                }
+                fill(r, cx + i * px, cy + j * px, px, px);
+            }
+        if (pass == 1) {                                    /* a slow swirl of light, snapped to the grid */
+            col(r, 255, 255, 255, 190);
+            for (int i = 0; i < 4; i++) {
+                float a = t * 1.6f + i * 1.5708f;
+                int ix = (int)floorf(cosf(a) * rx * 0.62f), iy = (int)floorf(sinf(a) * ry * 0.62f);
+                fill(r, cx + ix * px, cy + iy * px, 2 * px, px);
+            }
         }
-        col(r, 30, 62, 148, 255);                           /* down into the sky */
-        ell(r, cx, cy, rx - pr / 2, ry - pr / 3);
-        col(r, 20, 40, 110, 255);
-        ell(r, cx, cy - ry / 8, (int)((rx - pr) * 0.82f), (int)((ry - pr / 2) * 0.78f));
-        col(r, 66, 148, 84, 255);                           /* the green ground, far below */
-        ell(r, cx, cy + ry / 4, (int)(rx * 0.38f), (int)(ry * 0.34f));
-        col(r, 255, 255, 255, 190);                         /* a slow swirl of light */
-        for (int i = 0; i < 4; i++) {
-            float a = t * 1.6f + i * 1.5708f;
-            fill(r, cx + (int)(cosf(a) * rx * 0.62f) - px, cy + (int)(sinf(a) * ry * 0.62f), 2 * px, px);
-        }
-    }
-    for (int i = 0; i < n; i++) {                           /* near half of the rim, in front */
-        float a = i * 6.2831853f / n;
-        if (sinf(a) <= 0.05f) continue;
-        if (i & 1) col(r, 255, 255, 255, 255); else col(r, 226, 234, 250, 255);
-        disc(r, cx + (int)(cosf(a) * rx), cy + (int)(sinf(a) * ry), pr);
     }
 }
 
@@ -591,6 +607,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (phase == PH_FALL) {                                       /* open sky, no map */
         draw_fall(r);
+        hud_draw(r);
         if (t < 1.0f) { col(r, 0, 0, 0, (int)(255 * (1.0f - t))); fill(r, 0, 0, W, H); }
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
         return;
@@ -666,6 +683,7 @@ void world_draw(SDL_Renderer *r) {
 
     missions_set_offset(nowplaying_offset());                     /* slide under the now-playing card */
     missions_draw(r);
+    hud_draw(r);                                                  /* ID card, top-right */
 
     if (t < 1.0f) {                                               /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t)));

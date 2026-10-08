@@ -30,6 +30,43 @@ static int   fading;
 static float fade_vol = 1.0f, fade_step;
 static float master = 1.0f;   /* instant master gain, set via music_set_volume */
 
+/* ---------- one-shot sound effects ----------
+ * synthesised on the fly (no extra asset files) and mixed on top of the music after the master
+ * volume, so a ding is always heard at the same loudness whatever the music is set to. */
+static int   sfx_on, sfx_pos;                  /* guarded by the device lock (the callback holds it) */
+static float sfx_phase;
+#define COIN_NOTE1_T 0.085f                    /* the short first note, seconds */
+#define COIN_END_T   0.75f                     /* total length */
+
+/* the classic two-note coin: a quick B5, then E6 ringing out */
+void sfx_coin(void) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+
+static void sfx_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)sfx_pos / (float)OUT_RATE;
+        if (tt >= COIN_END_T) { sfx_on = 0; return; }
+        float f, env;
+        if (tt < COIN_NOTE1_T) { f = 987.77f;  env = 1.0f; }
+        else                   { f = 1318.51f; env = expf(-(tt - COIN_NOTE1_T) * 6.5f); }
+        if (tt < 0.003f) env *= tt / 0.003f;                       /* no click on the way in */
+        sfx_phase += f / (float)OUT_RATE;
+        if (sfx_phase >= 1.0f) sfx_phase -= 1.0f;
+        float sq = sfx_phase < 0.5f ? 1.0f : -1.0f;                /* chiptune pulse + a little sine for the shine */
+        float sn = sinf(6.2831853f * sfx_phase);
+        int v = (int)((0.55f * sq + 0.45f * sn) * env * 0.30f * 32767.0f);
+        for (int c = 0; c < 2; c++) {
+            int o = out[i * 2 + c] + v;
+            out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        sfx_pos++;
+    }
+}
+
 /* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ---------- */
 #define FFT_N 512
 static volatile float spec[MUSIC_BANDS];
@@ -126,6 +163,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (master != 1.0f)
         for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
+    if (sfx_on) sfx_mix(out, frames);
 }
 
 int audio_init(void) {
