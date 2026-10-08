@@ -94,9 +94,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 try {
                     int min = AudioTrack.getMinBufferSize(RATE,
                             AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+                    // 2x the minimum (was 4x): less sound queued up = less delay between the game
+                    // mixing a sound and you hearing it (the dialog blips line up with the letters)
                     at = new AudioTrack(AudioManager.STREAM_MUSIC, RATE,
                             AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
-                            min * 4, AudioTrack.MODE_STREAM);
+                            min * 2, AudioTrack.MODE_STREAM);
                     at.play();
                     FileInputStream in = new FileInputStream(fifo); // blocks until game opens it
                     byte[] buf = new byte[4096];

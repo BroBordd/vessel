@@ -191,7 +191,10 @@ void dialog_update(float dt) {
     if (!active) return;
     open_t += dt; t += dt;
     if (!talk_active() && open_t > 0.1f) {          /* a blip for every letter that just appeared (one voice, so at most one per frame) */
-        int upto = (int)(t * DIALOG_CPS); if (upto > total) upto = total;
+        /* the speakers are `audio_latency()` behind what we mix, so look that far ahead: each bop is fired
+         * early enough to be HEARD as its letter appears (capped, so the first few letters of a page still get theirs) */
+        float lead = audio_latency(); if (lead > 0.30f) lead = 0.30f;
+        int upto = (int)((t + lead) * DIALOG_CPS); if (upto > total) upto = total;
         int play = -1;
         for (; blipped < upto; blipped++) if (isalnum((unsigned char)wrapped[blipped])) play = blipped;
         if (play >= 0) {

@@ -1,6 +1,8 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
+#define _GNU_SOURCE
 #include <SDL2/SDL.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +22,28 @@
 #include "audio.h"
 
 #define OUT_RATE 44100
+#ifndef F_SETPIPE_SZ
+#define F_SETPIPE_SZ 1031
+#endif
+
+/* ---------- how far behind the speakers are ----------
+ * the audio goes game -> FIFO -> Java AudioTrack, and every stage fills up completely (the game
+ * writes as fast as they accept), so what we mix now is heard a good while later. we measure it:
+ * frames handed out so far minus what real time could have played = frames still in the pipeline.
+ * the dialog uses this to fire each letter's blip a little BEFORE the letter shows, so they land together. */
+static volatile Uint64 produced_frames;
+static Uint64 t_first;
+static float  lat_smooth = -1.0f;
+
+float audio_latency(void) {
+    if (!t_first) return 0.0f;
+    double el = (double)(SDL_GetPerformanceCounter() - t_first) / (double)SDL_GetPerformanceFrequency();
+    float l = (float)((double)produced_frames / OUT_RATE - el);
+    if (el < 2.0 || l < 0) return lat_smooth < 0 ? 0.0f : lat_smooth;       /* not saturated yet: no trustworthy number */
+    if (l > 1.5f) l = 1.5f;
+    lat_smooth = lat_smooth < 0 ? l : lat_smooth + (l - lat_smooth) * 0.03f;   /* the chunks make it jitter: smooth it */
+    return lat_smooth;
+}
 
 static SDL_AudioDeviceID dev;
 static stb_vorbis *mus;       /* guarded by SDL_LockAudioDevice */
@@ -46,18 +70,20 @@ void sfx_coin(void) {
     SDL_UnlockAudioDevice(dev);
 }
 
-/* ---------- the dialog blip: one short 25%-pulse square "dod" per letter, like every pixel-game text box ----------
- * its own voice, so it never cuts off the coin ding (and the coin never cuts off a blip). */
+/* ---------- the dialog "bop": one short, low, round thump per letter, like a pixel-game text box ----------
+ * a sine with a touch of square for body, dropping in pitch as it fades (the "bo" -> "p").
+ * its own voice, so it never cuts off the coin ding (and the coin never cuts off a bop). */
 static int   blip_on, blip_pos;
 static float blip_phase, blip_f;
-#define BLIP_T 0.050f                          /* seconds per blip */
+#define BLIP_T    0.075f                       /* seconds per bop */
+#define BLIP_HZ   190.0f                       /* base pitch at pitch 1.0 (low) */
 
 void sfx_blip(float pitch) {
     if (!dev) return;
     if (pitch < 0.4f) pitch = 0.4f;
     if (pitch > 2.5f) pitch = 2.5f;
     SDL_LockAudioDevice(dev);
-    blip_on = 1; blip_pos = 0; blip_phase = 0.0f; blip_f = 520.0f * pitch;
+    blip_on = 1; blip_pos = 0; blip_phase = 0.0f; blip_f = BLIP_HZ * pitch;
     SDL_UnlockAudioDevice(dev);
 }
 
@@ -65,17 +91,16 @@ static void blip_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)blip_pos / (float)OUT_RATE;
         if (tt >= BLIP_T) { blip_on = 0; return; }
-        float env = 1.0f - tt / BLIP_T;                              /* snappy linear decay: the "d" then "od" */
-        env *= env;
-        if (tt < 0.002f) env *= tt / 0.002f;                         /* no click on the way in */
-        float f = blip_f * (1.0f - 0.12f * (tt / BLIP_T));           /* a tiny downward chirp gives it the "dod" */
+        float env = expf(-tt * 34.0f);                               /* round decay: a thump, not a beep */
+        if (tt < 0.003f) env *= tt / 0.003f;                         /* no click on the way in */
+        float f = blip_f * (1.0f - 0.32f * (tt / BLIP_T));           /* the pitch sags: "bop" */
         blip_phase += f / (float)OUT_RATE;
         if (blip_phase >= 1.0f) blip_phase -= 1.0f;
-        float sq = blip_phase < 0.25f ? 1.0f : -1.0f;
-        int v = (int)(sq * env * 0.13f * 32767.0f);
-        for (int c = 0; c < 2; c++) {
-            int o = out[i * 2 + c] + v;
-            out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        float sn = sinf(6.2831853f * blip_phase), sq = blip_phase < 0.5f ? 1.0f : -1.0f;
+        int v = (int)((0.72f * sn + 0.28f * sq) * env * 0.20f * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
         }
         blip_pos++;
     }
@@ -165,6 +190,8 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     Sint16 *out = (Sint16 *)stream;
     int frames = len / 4;     /* stereo S16 */
     int done = 0;
+    if (!t_first) t_first = SDL_GetPerformanceCounter();
+    produced_frames += (Uint64)frames;
 
     if (mus) {
         int seeked = 0;
@@ -206,12 +233,20 @@ int audio_init(void) {
     SDL_AudioSpec want, have;
     SDL_zero(want);
     want.freq = OUT_RATE; want.format = AUDIO_S16SYS; want.channels = 2;
-    want.samples = 2048; want.callback = audio_cb;
+    want.samples = 1024; want.callback = audio_cb;      /* 23 ms chunks (was 46) */
     /* blocks until the app opens the read end of the FIFO */
     dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (!dev) { printf("audio: %s\n", SDL_GetError()); fflush(stdout); return -1; }
     printf("audio %dHz ch%d fmt%x\n", have.freq, have.channels, have.format);
     fflush(stdout);
+    {   /* shrink the FIFO from 64 KB (~370 ms of sound) to one page (~23 ms): less sound waiting in line = less lag */
+        int fd = open("audio.pcm", O_WRONLY | O_NONBLOCK);
+        if (fd >= 0) {
+            int got = fcntl(fd, F_SETPIPE_SZ, 4096);
+            printf("audio: fifo now %d bytes\n", got); fflush(stdout);
+            close(fd);
+        }
+    }
     SDL_PauseAudioDevice(dev, 0);
     return 0;
 }

@@ -16,7 +16,8 @@ void audio_quit(void);
 
 /* sound effects, synthesised (no files). they play on top of the music and ignore music volume */
 void sfx_coin(void);                    /* the little coin ding */
-void sfx_blip(float pitch);             /* the typewriter blip for dialog letters. pitch ~0.7..1.4 (1.0 = 520 Hz) */
+void sfx_blip(float pitch);             /* the low "bop" for dialog letters. pitch ~0.7..1.4 (1.0 = 190 Hz) */
+float audio_latency(void);              /* seconds between mixing a sound and hearing it (measured; 0 until known) */
 
 /* live analysis of what is actually being played (the real decoded stream, not a fake animation).
  * MUSIC_BANDS log-spaced frequency bands, low to high, each 0..1. all zero when silent. */
