@@ -16,6 +16,7 @@
 #include "loading.h"
 #include "nowplaying.h"
 #include "lang.h"
+#include "gfx.h"
 
 typedef enum { ST_MENU, ST_LOADING, ST_WORLD } State;
 /* menu music fades during the loading screen; kept a hair shorter so it is silent before the map track starts */
@@ -32,12 +33,18 @@ static void quit_app(void) {
 int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: game w h\n"); return 1; }
     int W = atoi(argv[1]), H = atoi(argv[2]);
+    /* third argument "gpu": the app replays our draw calls with OpenGL ES (see gfx.h).
+     * anything else: draw on the CPU into the shared "fb" pixel file like before. */
+    int gpu = argc > 3 && strcmp(argv[3], "gpu") == 0;
 
-    int fd = open("fb", O_RDWR);
-    if (fd < 0) { perror("open fb"); return 1; }
-    void *px = mmap(NULL, (size_t)W * H * 4, PROT_READ | PROT_WRITE,
-                    MAP_SHARED, fd, 0);
-    if (px == MAP_FAILED) { perror("mmap"); return 1; }
+    void *px = NULL;
+    if (!gpu) {
+        int fd = open("fb", O_RDWR);
+        if (fd < 0) { perror("open fb"); return 1; }
+        px = mmap(NULL, (size_t)W * H * 4, PROT_READ | PROT_WRITE,
+                  MAP_SHARED, fd, 0);
+        if (px == MAP_FAILED) { perror("mmap"); return 1; }
+    }
 
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
@@ -51,19 +58,28 @@ int main(int argc, char **argv) {
         printf("SDL_Init: %s\n", SDL_GetError()); fflush(stdout); return 1;
     }
 
-    /* render into a private back buffer, then copy to the shared fb in one go,
-     * so the app never reads a half-drawn frame (title/buttons are drawn last) */
+    /* CPU mode: render into a private back buffer, then copy to the shared fb in one go,
+     * so the app never reads a half-drawn frame (title/buttons are drawn last).
+     * GPU mode: no pixels at all, the renderer is a stand-in and every draw call is recorded. */
     size_t fbsz = (size_t)W * H * 4;
-    void *back = calloc(1, fbsz);
-    if (!back) { perror("alloc back buffer"); return 1; }
-    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
-        back, W, H, 32, W * 4, SDL_PIXELFORMAT_RGBA32);
-    if (!surf) { printf("surface: %s\n", SDL_GetError()); fflush(stdout); return 1; }
-    SDL_Renderer *r = SDL_CreateSoftwareRenderer(surf);
-    if (!r) { printf("renderer: %s\n", SDL_GetError()); fflush(stdout); return 1; }
+    void *back = NULL;
+    SDL_Surface *surf = NULL;
+    SDL_Renderer *r = NULL;
+    if (gpu) {
+        if (gfx_init_gpu("gfx", W, H) != 0) { printf("gfx init failed\n"); fflush(stdout); return 1; }
+        r = gfx_dummy_renderer();
+    } else {
+        back = calloc(1, fbsz);
+        if (!back) { perror("alloc back buffer"); return 1; }
+        surf = SDL_CreateRGBSurfaceWithFormatFrom(
+            back, W, H, 32, W * 4, SDL_PIXELFORMAT_RGBA32);
+        if (!surf) { printf("surface: %s\n", SDL_GetError()); fflush(stdout); return 1; }
+        r = SDL_CreateSoftwareRenderer(surf);
+        if (!r) { printf("renderer: %s\n", SDL_GetError()); fflush(stdout); return 1; }
+    }
 
     SDL_version v; SDL_GetVersion(&v);
-    printf("SDL %d.%d.%d, %dx%d\n", v.major, v.minor, v.patch, W, H);
+    printf("SDL %d.%d.%d, %dx%d, %s\n", v.major, v.minor, v.patch, W, H, gpu ? "gpu" : "cpu");
     fflush(stdout);
 
     if (audio_init() == 0) music_play("third_life.ogg", 0);
@@ -133,14 +149,14 @@ int main(int argc, char **argv) {
         }
         nowplaying_update(dt); nowplaying_draw(r);       /* on top of every screen */
         SDL_RenderPresent(r);
-        memcpy(px, back, fbsz);
+        if (!gpu) memcpy(px, back, fbsz);
 
         double ft = dt * 1000.0, rt = (double)(SDL_GetPerformanceCounter() - now) * 1000.0 / (double)pf;
         if (ft > worst_ms) worst_ms = ft;
         if (rt > render_ms) render_ms = rt;
         if (++frames == 60) {
             Uint32 tk = SDL_GetTicks();
-            printf("fps %.1f worst %.1fms render %.1fms\n", 60000.0 / (tk - last), worst_ms, render_ms);
+            printf("fps %.1f worst %.1fms render %.1fms rects %u\n", 60000.0 / (tk - last), worst_ms, render_ms, gfx_rect_stat());
             fflush(stdout);
             last = tk; frames = 0; worst_ms = render_ms = 0;
         }
@@ -157,9 +173,11 @@ int main(int argc, char **argv) {
     }
 
     audio_quit();
-    SDL_DestroyRenderer(r);
-    SDL_FreeSurface(surf);
-    free(back);
+    if (!gpu) {
+        SDL_DestroyRenderer(r);
+        SDL_FreeSurface(surf);
+        free(back);
+    }
     SDL_Quit();
     return 0;
 }

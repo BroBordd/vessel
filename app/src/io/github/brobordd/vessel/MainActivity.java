@@ -3,12 +3,15 @@
 package io.github.brobordd.vessel;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.content.pm.ConfigurationInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Bundle;
 import android.system.Os;
@@ -33,11 +36,17 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     static final boolean BURNED_IN = false;
+    /** true: the GPU draws the game (OpenGL ES 3.0, see GfxRenderer); falls back to the CPU path if the device has no ES 3.0.
+     *  false: always the old CPU path. */
+    static final boolean GPU = true;
     static final int SCALE = 2;
     static final int RATE = 44100;
 
-    SurfaceView sv;
-    Process proc;
+    SurfaceView sv;           // CPU path
+    GLSurfaceView gv;         // GPU path
+    GfxRenderer gfx;
+    boolean gpu;
+    volatile Process proc;
     OutputStream stdin;
     ExecutorService inputQ = Executors.newSingleThreadExecutor();
     volatile boolean running;
@@ -51,10 +60,32 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
-        sv = new SurfaceView(this);
-        sv.getHolder().addCallback(this);
-        setContentView(sv);
-        sv.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+        gpu = GPU && hasEs3();
+        if (gpu) {
+            try {
+                gfx = new GfxRenderer(this);
+            } catch (Exception e) {
+                Log.e("game", "gpu: setup failed, using the CPU path", e);
+                gpu = false;
+            }
+        }
+        View v;
+        if (gpu) {
+            gv = new GLSurfaceView(this);
+            gv.setEGLContextClientVersion(3);
+            gv.setEGLConfigChooser(8, 8, 8, 0, 0, 0);
+            gv.setRenderer(gfx);
+            gv.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+            gv.getHolder().addCallback(this);     // for surfaceDestroyed: the game stops with the surface
+            v = gv;
+        } else {
+            sv = new SurfaceView(this);
+            sv.getHolder().addCallback(this);
+            v = sv;
+        }
+        Log.i("game", "render path: " + (gpu ? "gpu" : "cpu"));
+        setContentView(v);
+        v.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -62,11 +93,33 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
 
+    boolean hasEs3() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            ConfigurationInfo ci = am.getDeviceConfigurationInfo();
+            return ci.reqGlEsVersion >= 0x30000;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (gv != null) gv.onPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (gv != null) gv.onResume();
+    }
+
     @Override public void surfaceCreated(SurfaceHolder holder) {}
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int fmt, int width, int height) {
-        if (proc != null) return;
+        if (gpu || proc != null) return;      // the GPU path starts the game from GfxRenderer.onSurfaceChanged
         sw = width; sh = height;
         w = width / SCALE; h = height / SCALE;
         start(holder);
@@ -114,10 +167,58 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }).start();
     }
 
-    void start(final SurfaceHolder holder) {
-        final File bin = BURNED_IN
+    File gameBinary() {
+        return BURNED_IN
                 ? new File(getApplicationInfo().nativeLibraryDir, "libgame.so")
                 : new File(getFilesDir(), "game");
+    }
+
+    /** Starts the game process: "game <w> <h> <gpu|cpu>", stdout goes to logcat (tag "game"), touches go to its stdin. */
+    Process spawn(File bin, String mode) throws Exception {
+        final Process p = new ProcessBuilder(bin.getAbsolutePath(), "" + w, "" + h, mode)
+                .directory(getFilesDir())
+                .redirectErrorStream(true)
+                .start();
+        stdin = p.getOutputStream();
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    BufferedReader r = new BufferedReader(
+                            new InputStreamReader(p.getInputStream()));
+                    String l;
+                    while ((l = r.readLine()) != null) Log.i("game", l);
+                    Log.i("game", "[exited " + p.waitFor() + "]");
+                } catch (Exception e) {
+                    Log.e("game", "reader", e);
+                }
+            }
+        }).start();
+        return p;
+    }
+
+    /** GPU path: called on the GL thread once the surface (and so the game's pixel size) is known. */
+    void startGpu(int gw, int gh) {
+        if (proc != null) return;
+        w = gw; h = gh;
+        final File bin = gameBinary();
+        if (!bin.exists()) {
+            Log.e("game", "NOT FOUND: " + bin);
+            return;
+        }
+        bin.setExecutable(true, false);
+        try {
+            gfx.reset();                       // the game fills the shared file in as it starts
+            running = true;
+            startAudio();
+            proc = spawn(bin, "gpu");
+        } catch (Exception e) {
+            Log.e("game", "start failed", e);
+        }
+    }
+
+    /** CPU path: the game draws pixels into a shared file, a thread copies them to the screen. */
+    void start(final SurfaceHolder holder) {
+        final File bin = gameBinary();
         if (!bin.exists()) {
             Log.e("game", "NOT FOUND: " + bin);
             return;
@@ -134,26 +235,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             running = true;
             startAudio();
 
-            proc = new ProcessBuilder(bin.getAbsolutePath(), "" + w, "" + h)
-                    .directory(getFilesDir())
-                    .redirectErrorStream(true)
-                    .start();
-            stdin = proc.getOutputStream();
-
-            final Process p = proc;
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        BufferedReader r = new BufferedReader(
-                                new InputStreamReader(p.getInputStream()));
-                        String l;
-                        while ((l = r.readLine()) != null) Log.i("game", l);
-                        Log.i("game", "[exited " + p.waitFor() + "]");
-                    } catch (Exception e) {
-                        Log.e("game", "reader", e);
-                    }
-                }
-            }).start();
+            proc = spawn(bin, "cpu");
 
             new Thread(new Runnable() {
                 public void run() {

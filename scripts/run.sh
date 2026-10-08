@@ -19,7 +19,8 @@ EOF
 LIBS=$($SDL/bin/sdl2-config --cflags --static-libs | tr ' ' '\n' \
   | grep -vE 'iconv|pipewire|samplerate' | tr '\n' ' ')
 
-cc -O2 -s -U__ANDROID__ -o build/game game/*.c build/iconv_stub.c \
+# -DGFX_REDIRECT -include game/gfx.h: the SDL render calls go through game/gfx.c (GPU recording, or plain SDL in cpu mode)
+cc -O2 -s -U__ANDROID__ -DGFX_REDIRECT -include game/gfx.h -o build/game game/*.c build/iconv_stub.c \
   $LIBS -lm -Wl,--as-needed
 
 BAD=$(readelf -d build/game | grep NEEDED | grep -vE '\[(libc|libm|libdl|liblog)\.so\]' || true)
@@ -39,7 +40,7 @@ cp $PWD/music/*.ogg \$D/
 chown \$(stat -c %u \$D):\$(stat -c %g \$D) \$D/*.ogg
 chmod 644 \$D/*.ogg
 restorecon \$D/*.ogg
-rm -f \$D/fb \$D/audio.pcm
+rm -f \$D/fb \$D/gfx \$D/audio.pcm
 logcat -c
 am start -n $PKG/.MainActivity
 "
