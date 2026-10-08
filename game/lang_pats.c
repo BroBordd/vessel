@@ -1,0 +1,181 @@
+/* Vessel - Copyright (C) 2026 BroBordd
+ * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
+ *
+ * WHAT THE NPCS UNDERSTAND. lowercase wildcard patterns, matched on whole words:
+ *   *  any run of characters inside one sentence (not across . ! ? ,)
+ *   ?  exactly one character
+ * the longest phrase that starts at a word wins, so "thank you very much" beats "thank*".
+ * every matched phrase is highlighted while the player types. add words freely. */
+#include "lang.h"
+#include "lang_data.h"
+
+const Pat PATS[] = {
+    /* ---- greet ---- */
+    {"hi", I_GREET}, {"hii*", I_GREET}, {"hello*", I_GREET}, {"hey*", I_GREET}, {"hiya", I_GREET},
+    {"howdy", I_GREET}, {"yo", I_GREET}, {"sup", I_GREET}, {"wassup", I_GREET}, {"wazzup", I_GREET},
+    {"whats up", I_GREET}, {"what's up", I_GREET}, {"greetings", I_GREET}, {"salutations", I_GREET},
+    {"good morning", I_GREET}, {"good evening", I_GREET}, {"good afternoon", I_GREET}, {"good day", I_GREET},
+    {"hola", I_GREET}, {"hallo", I_GREET}, {"ahoy", I_GREET}, {"oi", I_GREET}, {"heya", I_GREET},
+    {"nice to meet you*", I_GREET}, {"pleased to meet you*", I_GREET}, {"hail", I_GREET}, {"welcome", I_GREET},
+
+    /* ---- bye ---- */
+    {"bye*", I_BYE}, {"goodbye", I_BYE}, {"good bye", I_BYE}, {"see you*", I_BYE}, {"see ya*", I_BYE},
+    {"cya", I_BYE}, {"later", I_BYE}, {"farewell", I_BYE}, {"gotta go", I_BYE}, {"got to go", I_BYE},
+    {"i have to go", I_BYE}, {"i must go", I_BYE}, {"i need to go", I_BYE}, {"i am leaving", I_BYE},
+    {"im leaving", I_BYE}, {"i'm leaving", I_BYE}, {"take care", I_BYE}, {"good night", I_BYE},
+    {"goodnight", I_BYE}, {"so long", I_BYE}, {"adios", I_BYE}, {"peace out", I_BYE}, {"ttyl", I_BYE},
+    {"im off", I_BYE}, {"i'm off", I_BYE}, {"i am off", I_BYE}, {"until next time", I_BYE},
+
+    /* ---- yes / no / ok ---- */
+    {"yes*", I_YES}, {"yeah*", I_YES}, {"yep*", I_YES}, {"yup*", I_YES}, {"sure*", I_YES}, {"of course", I_YES},
+    {"definitely", I_YES}, {"absolutely", I_YES}, {"i do$", I_YES}, {"i have$", I_YES}, {"i have some*", I_YES},
+    {"i guess", I_YES}, {"indeed", I_YES}, {"correct", I_YES}, {"affirmative", I_YES}, {"aye", I_YES},
+    {"i have a question*", I_YES}, {"i have questions*", I_YES}, {"a few*", I_YES}, {"a couple*", I_YES},
+    {"one question*", I_YES}, {"some questions*", I_YES}, {"many*", I_YES}, {"lots*", I_YES}, {"ya", I_YES},
+    {"no", I_NO}, {"nope*", I_NO}, {"nah*", I_NO}, {"not really", I_NO}, {"i dont have*", I_NO}, {"i don't have*", I_NO}, {"i do not have*", I_NO}, {"i have no*", I_NO}, {"i have none", I_NO},
+    {"nothing*", I_NO}, {"none*", I_NO}, {"never", I_NO}, {"negative", I_NO}, {"no thanks", I_NO},
+    {"no thank you", I_NO}, {"no questions*", I_NO}, {"all good", I_NO}, {"im good", I_NO}, {"i'm good", I_NO},
+    {"i am good", I_NO}, {"i am fine", I_NO}, {"im fine", I_NO}, {"i'm fine", I_NO}, {"nothing at all", I_NO},
+    {"not now", I_NO}, {"not today", I_NO}, {"no way", I_NO}, {"nay", I_NO}, {"no idea", I_CONFUSED},
+    {"ok", I_OK}, {"okay*", I_OK}, {"okey*", I_OK}, {"k", I_OK}, {"kk", I_OK}, {"fine", I_OK}, {"alright*", I_OK},
+    {"got it", I_OK}, {"understood", I_OK}, {"i see", I_OK}, {"i understand*", I_OK}, {"makes sense", I_OK},
+    {"cool", I_OK}, {"noted", I_OK}, {"roger", I_OK}, {"will do", I_OK}, {"as you wish", I_OK}, {"very well", I_OK},
+
+    /* ---- thanks / sorry ---- */
+    {"thank you*", I_THANKS}, {"thank*", I_THANKS}, {"thx", I_THANKS}, {"ty", I_THANKS}, {"tysm", I_THANKS},
+    {"much obliged", I_THANKS}, {"appreciate*", I_THANKS}, {"cheers", I_THANKS}, {"grateful", I_THANKS},
+    {"i owe you*", I_THANKS}, {"bless you", I_THANKS},
+    {"sorry*", I_SORRY}, {"i am sorry", I_SORRY}, {"im sorry", I_SORRY}, {"i'm sorry", I_SORRY}, {"apolog*", I_SORRY},
+    {"forgive me", I_SORRY}, {"my bad", I_SORRY}, {"pardon me", I_SORRY}, {"excuse me", I_SORRY}, {"oops", I_SORRY},
+    {"my fault", I_SORRY}, {"i was wrong", I_SORRY}, {"my mistake", I_SORRY}, {"i regret*", I_SORRY},
+
+    /* ---- small talk about the npc ---- */
+    {"how are you*", I_HOWRU}, {"how r u", I_HOWRU}, {"how are u", I_HOWRU}, {"how do you do", I_HOWRU},
+    {"how is it going", I_HOWRU}, {"hows it going", I_HOWRU}, {"how's it going", I_HOWRU}, {"how you doing", I_HOWRU},
+    {"how have you been", I_HOWRU}, {"how're you*", I_HOWRU}, {"you ok", I_HOWRU}, {"are you ok*", I_HOWRU},
+    {"you alright", I_HOWRU}, {"are you alright", I_HOWRU}, {"how do you feel", I_HOWRU}, {"whats wrong", I_HOWRU},
+    {"what's wrong", I_HOWRU}, {"how is your day", I_HOWRU}, {"how was your day", I_HOWRU}, {"you good", I_HOWRU},
+    {"who are you*", I_WHORU}, {"who r u", I_WHORU}, {"what are you*", I_WHORU}, {"your name*", I_WHORU},
+    {"whats your name", I_WHORU}, {"what's your name", I_WHORU}, {"what is your name", I_WHORU}, {"who is this", I_WHORU},
+    {"who dis", I_WHORU}, {"tell me about yourself", I_WHORU}, {"introduce yourself", I_WHORU}, {"are you god*", I_WHORU},
+    {"are you a god*", I_WHORU}, {"are you the goddess", I_WHORU}, {"you a goddess", I_WHORU}, {"who exactly are you", I_WHORU},
+    {"are you real", I_REAL}, {"is this real", I_REAL}, {"is this a game", I_REAL}, {"am i dreaming", I_REAL},
+    {"dream*", I_REAL}, {"simulation", I_REAL}, {"is this a dream", I_REAL}, {"are you an ai", I_REAL}, {"are you a bot", I_REAL},
+    {"how old*", I_AGE}, {"your age", I_AGE}, {"how long have you*", I_AGE}, {"are you old", I_AGE},
+    {"where am i", I_WHERE}, {"where are we", I_WHERE}, {"where is this*", I_WHERE}, {"where is here", I_WHERE},
+    {"what is this place", I_WHERE}, {"what place is this", I_WHERE}, {"what's this place", I_WHERE}, {"whats this place", I_WHERE},
+    {"where are you", I_WHERE}, {"what is this*place", I_WHERE}, {"which place", I_WHERE}, {"where is everyone", I_WHERE},
+    {"who am i", I_WHOAMI}, {"what am i", I_WHOAMI}, {"what is a vessel*", I_WHOAMI}, {"what's a vessel*", I_WHOAMI},
+    {"why * vessel*", I_WHOAMI}, {"my name*", I_WHOAMI}, {"why am i called*", I_WHOAMI}, {"why aonia", I_WHOAMI},
+    {"why that name", I_WHOAMI}, {"what does aonia mean", I_WHOAMI}, {"why * my name", I_WHOAMI}, {"what is vas", I_WHOAMI},
+    {"my name is *", I_INTRO}, {"my name's *", I_INTRO}, {"call me *", I_INTRO}, {"i am called *", I_INTRO},
+    {"im called *", I_INTRO}, {"name's *", I_INTRO}, {"i go by *", I_INTRO},
+
+    /* ---- the plot ---- */
+    {"mission*", I_MISSION}, {"purpose", I_MISSION}, {"my job", I_MISSION}, {"what do i do", I_MISSION},
+    {"what should i do", I_MISSION}, {"what now", I_MISSION}, {"what next", I_MISSION}, {"what do you want*", I_MISSION},
+    {"what am i supposed to*", I_MISSION}, {"my task*", I_MISSION}, {"tasks", I_MISSION}, {"objective*", I_MISSION},
+    {"goal*", I_MISSION}, {"what is my job", I_MISSION}, {"what are the missions", I_MISSION}, {"what is the plan", I_MISSION},
+    {"what's the plan", I_MISSION}, {"whats the plan", I_MISSION}, {"what happens next", I_MISSION}, {"what is expected*", I_MISSION},
+    {"who sent me", I_MISSION}, {"who gave me*", I_MISSION}, {"what will i do", I_MISSION}, {"what am i for", I_MISSION},
+    {"hole", I_HOLE}, {"holes", I_HOLE}, {"jump*", I_HOLE}, {"fall*", I_HOLE}, {"drop*", I_HOLE}, {"go down*", I_HOLE},
+    {"ground", I_HOLE}, {"land", I_HOLE}, {"landing", I_HOLE}, {"down there", I_HOLE}, {"what is down*", I_HOLE},
+    {"below", I_HOLE}, {"the world", I_HOLE}, {"earth", I_HOLE}, {"the surface", I_HOLE},
+    {"secret*", I_SECRET}, {"hide*", I_SECRET}, {"hidden", I_SECRET}, {"stay secret", I_SECRET}, {"why secret*", I_SECRET},
+    {"in secret", I_SECRET}, {"undercover", I_SECRET}, {"who can know", I_SECRET},
+    {"die", I_LIFE}, {"dying", I_LIFE}, {"death", I_LIFE}, {"dead", I_LIFE}, {"will i die", I_LIFE}, {"my life*", I_LIFE},
+    {"life ends", I_LIFE}, {"live", I_LIFE}, {"alive", I_LIFE}, {"mortal*", I_LIFE}, {"afterlife", I_LIFE},
+    {"what happens when*", I_LIFE}, {"when i die", I_LIFE}, {"my end", I_LIFE},
+    {"alex", I_ALEX}, {"who is alex", I_ALEX}, {"the blond*", I_ALEX},
+    {"sky", I_SKY}, {"skies", I_SKY}, {"cloud*", I_SKY}, {"heaven*", I_SKY}, {"above", I_SKY}, {"up here", I_SKY},
+    {"the air", I_SKY}, {"weather", I_SKY}, {"sun", I_SKY}, {"sunny", I_SKY}, {"rain*", I_SKY}, {"wind", I_SKY}, {"halo", I_SKY},
+    {"music*", I_MUSIC}, {"song*", I_MUSIC}, {"sing*", I_MUSIC}, {"melody", I_MUSIC}, {"tune*", I_MUSIC},
+    {"dance*", I_MUSIC}, {"the beat", I_MUSIC}, {"soundtrack", I_MUSIC},
+
+    /* ---- asking ---- */
+    {"why*", I_WHY}, {"how come", I_WHY}, {"what for", I_WHY}, {"for what reason", I_WHY}, {"reason*", I_WHY},
+    {"how do i*", I_HOW}, {"how can i*", I_HOW}, {"how to*", I_HOW}, {"how does*", I_HOW}, {"how did*", I_HOW},
+    {"how", I_HOW}, {"how much*", I_HOW}, {"how many*", I_HOW}, {"how long*", I_HOW},
+    {"what", I_WHAT}, {"what is *", I_WHAT}, {"what's *", I_WHAT}, {"whats *", I_WHAT}, {"what do you mean*", I_CONFUSED},
+    {"which", I_WHAT}, {"who", I_WHAT}, {"when", I_WHAT}, {"where", I_WHAT},
+    {"help*", I_HELP}, {"assist*", I_HELP}, {"i need help", I_HELP}, {"can you help*", I_HELP}, {"guide me*", I_HELP},
+    {"advice", I_HELP}, {"hint*", I_HELP}, {"tip*", I_HELP}, {"any advice", I_HELP}, {"teach me*", I_HELP}, {"show me*", I_HELP},
+    {"explain*", I_CONFUSED}, {"say more", I_CONFUSED}, {"tell me more", I_CONFUSED}, {"elaborate", I_CONFUSED},
+    {"again", I_REPEAT}, {"repeat*", I_REPEAT}, {"say that again", I_REPEAT}, {"what did you say", I_REPEAT},
+    {"come again", I_REPEAT}, {"pardon", I_REPEAT}, {"once more", I_REPEAT}, {"say it again", I_REPEAT},
+    {"wait*", I_WAIT}, {"hold on", I_WAIT}, {"one sec*", I_WAIT}, {"one moment", I_WAIT}, {"hang on", I_WAIT},
+    {"just a moment", I_WAIT}, {"stop", I_WAIT}, {"not so fast", I_WAIT}, {"slow down", I_WAIT},
+    {"please", I_PLEASE}, {"pretty please", I_PLEASE}, {"pls", I_PLEASE}, {"plz", I_PLEASE}, {"i beg*", I_PLEASE},
+    {"if you please", I_PLEASE}, {"kindly", I_PLEASE},
+
+    /* ---- how the player feels ---- */
+    {"scared", I_SCARED}, {"afraid", I_SCARED}, {"fear*", I_SCARED}, {"worried", I_SCARED}, {"nervous", I_SCARED},
+    {"anxious", I_SCARED}, {"terrified", I_SCARED}, {"i dont want to go", I_SCARED}, {"dont want to go", I_SCARED},
+    {"don't want to go", I_SCARED}, {"dont send me", I_SCARED}, {"don't send me", I_SCARED}, {"frightened", I_SCARED},
+    {"panic*", I_SCARED}, {"spooked", I_SCARED}, {"i am not ready", I_SCARED}, {"not ready", I_SCARED}, {"unsafe", I_SCARED},
+    {"confused", I_CONFUSED}, {"dont understand", I_CONFUSED}, {"do not understand", I_CONFUSED}, {"don't understand", I_CONFUSED},
+    {"dont get it", I_CONFUSED}, {"don't get it", I_CONFUSED}, {"lost", I_CONFUSED}, {"huh*", I_CONFUSED}, {"eh", I_CONFUSED},
+    {"i dont know", I_CONFUSED}, {"i don't know", I_CONFUSED}, {"dunno", I_CONFUSED}, {"unclear", I_CONFUSED}, {"puzzled", I_CONFUSED},
+    {"i am lost", I_CONFUSED}, {"im lost", I_CONFUSED}, {"makes no sense", I_CONFUSED}, {"what is going on", I_CONFUSED},
+    {"angry", I_ANGRY}, {"mad", I_ANGRY}, {"furious", I_ANGRY}, {"pissed*", I_ANGRY}, {"annoyed", I_ANGRY}, {"upset", I_ANGRY},
+    {"rage", I_ANGRY}, {"irritated", I_ANGRY}, {"fed up", I_ANGRY}, {"livid", I_ANGRY},
+    {"sad", I_SAD}, {"lonely", I_SAD}, {"alone", I_SAD}, {"depressed", I_SAD}, {"cry*", I_SAD}, {"miss*", I_SAD},
+    {"tired", I_SAD}, {"hurt*", I_SAD}, {"hopeless", I_SAD}, {"homesick", I_SAD}, {"empty", I_SAD}, {"heartbroken", I_SAD},
+    {"exhausted", I_SAD}, {"unhappy", I_SAD}, {"miserable", I_SAD}, {"gloomy", I_SAD},
+    {"joke*", I_JOKE}, {"funny", I_JOKE}, {"lol", I_JOKE}, {"lmao", I_JOKE}, {"haha*", I_JOKE}, {"hehe*", I_JOKE},
+    {"rofl", I_JOKE}, {"tell me a joke", I_JOKE}, {"make me laugh", I_JOKE}, {"pun", I_JOKE}, {"hilarious", I_JOKE},
+
+    /* ---- how the player treats the npc ---- */
+    {"stupid", I_INSULT}, {"idiot*", I_INSULT}, {"dumb*", I_INSULT}, {"moron*", I_INSULT}, {"shut up", I_INSULT},
+    {"shut it", I_INSULT}, {"hate*", I_INSULT}, {"i hate you", I_INSULT}, {"you suck", I_INSULT}, {"screw you", I_INSULT},
+    {"useless", I_INSULT}, {"ugly", I_INSULT}, {"loser*", I_INSULT}, {"annoying", I_INSULT}, {"bitch*", I_INSULT},
+    {"fuck*", I_INSULT}, {"shit*", I_INSULT}, {"damn*", I_INSULT}, {"asshole*", I_INSULT}, {"crap*", I_INSULT},
+    {"jerk*", I_INSULT}, {"fool*", I_INSULT}, {"trash", I_INSULT}, {"garbage", I_INSULT}, {"pathetic", I_INSULT},
+    {"worthless", I_INSULT}, {"go away", I_INSULT}, {"get lost", I_INSULT}, {"go to hell", I_INSULT}, {"sucks", I_INSULT},
+    {"clown*", I_INSULT}, {"witch", I_INSULT}, {"brat", I_INSULT}, {"liar*", I_INSULT}, {"fake", I_INSULT}, {"bully", I_INSULT},
+    {"hag", I_INSULT}, {"psycho", I_INSULT}, {"crazy", I_INSULT}, {"lame", I_INSULT}, {"scum", I_INSULT}, {"i despise*", I_INSULT},
+    {"rude", I_CALLOUT}, {"mean", I_CALLOUT}, {"toxic", I_CALLOUT}, {"be nice*", I_CALLOUT}, {"nasty", I_CALLOUT},
+    {"why are you so mean", I_CALLOUT}, {"why are you so rude", I_CALLOUT}, {"why are you so toxic", I_CALLOUT}, {"why are you so cruel", I_CALLOUT}, {"why are you so harsh", I_CALLOUT}, {"why are you so nasty", I_CALLOUT}, {"you are so mean", I_CALLOUT}, {"you are so rude", I_CALLOUT}, {"that was mean", I_CALLOUT}, {"unfair", I_CALLOUT},
+    {"cruel", I_CALLOUT}, {"harsh", I_CALLOUT}, {"how dare you", I_CALLOUT}, {"watch your tone", I_CALLOUT},
+    {"pretty", I_PRAISE}, {"beautiful", I_PRAISE}, {"gorgeous", I_PRAISE}, {"lovely", I_PRAISE}, {"nice*", I_PRAISE},
+    {"great*", I_PRAISE}, {"awesome", I_PRAISE}, {"amazing", I_PRAISE}, {"wonderful", I_PRAISE}, {"wise", I_PRAISE},
+    {"kind", I_PRAISE}, {"smart", I_PRAISE}, {"radiant", I_PRAISE}, {"stunning", I_PRAISE}, {"perfect", I_PRAISE},
+    {"good job", I_PRAISE}, {"well done", I_PRAISE}, {"the best", I_PRAISE}, {"i like your *", I_PRAISE}, {"love your *", I_PRAISE},
+    {"you are great", I_PRAISE}, {"you look *", I_PRAISE}, {"impressive", I_PRAISE}, {"brilliant", I_PRAISE},
+    {"i admire*", I_PRAISE}, {"respect*", I_PRAISE}, {"cute", I_PRAISE}, {"elegant", I_PRAISE}, {"graceful", I_PRAISE},
+    {"i love you", I_LOVE}, {"love you", I_LOVE}, {"marry me", I_LOVE}, {"be mine", I_LOVE}, {"date me", I_LOVE},
+    {"kiss*", I_LOVE}, {"crush", I_LOVE}, {"i like you", I_LOVE}, {"i adore*", I_LOVE}, {"love*", I_LOVE},
+    {"be my friend", I_LOVE}, {"friends", I_LOVE}, {"i miss you", I_LOVE},
+    {"praise*", I_WORSHIP}, {"worship*", I_WORSHIP}, {"my goddess", I_WORSHIP}, {"your highness", I_WORSHIP},
+    {"majesty", I_WORSHIP}, {"all hail", I_WORSHIP}, {"bow*", I_WORSHIP}, {"kneel*", I_WORSHIP}, {"holy", I_WORSHIP},
+    {"divine*", I_WORSHIP}, {"i obey", I_WORSHIP}, {"my lady", I_WORSHIP}, {"my queen", I_WORSHIP}, {"your grace", I_WORSHIP},
+    {"i serve you", I_WORSHIP}, {"blessed", I_WORSHIP}, {"almighty", I_WORSHIP},
+    {"you are right", I_AGREE}, {"you're right", I_AGREE}, {"youre right", I_AGREE}, {"i agree*", I_AGREE}, {"true", I_AGREE},
+    {"exactly", I_AGREE}, {"fair enough", I_AGREE}, {"good point", I_AGREE}, {"that is true", I_AGREE}, {"well said", I_AGREE},
+    {"i disagree*", I_DISAGREE}, {"you are wrong", I_DISAGREE}, {"you're wrong", I_DISAGREE}, {"youre wrong", I_DISAGREE},
+    {"thats not true", I_DISAGREE}, {"that's not true", I_DISAGREE}, {"that is not true", I_DISAGREE}, {"lies", I_DISAGREE},
+    {"nonsense", I_DISAGREE}, {"i doubt*", I_DISAGREE}, {"not true", I_DISAGREE}, {"false", I_DISAGREE}, {"wrong", I_DISAGREE},
+    {"boring", I_DONTCARE}, {"bored", I_DONTCARE}, {"whatever", I_DONTCARE}, {"meh", I_DONTCARE}, {"so what", I_DONTCARE},
+    {"who cares", I_DONTCARE}, {"dont care", I_DONTCARE}, {"i dont care", I_DONTCARE}, {"i don't care", I_DONTCARE},
+    {"don't care", I_DONTCARE}, {"i do not care", I_DONTCARE}, {"no one cares", I_DONTCARE}, {"yawn*", I_DONTCARE},
+    {"give me *", I_DEMAND}, {"tell me *", I_DEMAND}, {"let me *", I_DEMAND}, {"i want *", I_DEMAND}, {"i demand*", I_DEMAND},
+    {"i order*", I_DEMAND}, {"do it", I_DEMAND}, {"hurry*", I_DEMAND}, {"answer me", I_DEMAND}, {"i need *", I_DEMAND},
+    {"you must *", I_DEMAND}, {"you will *", I_DEMAND}, {"listen to me", I_DEMAND}, {"obey me", I_DEMAND},
+    {"dea", I_ADDRESS}, {"goddess", I_ADDRESS}, {"lady", I_ADDRESS}, {"madam", I_ADDRESS}, {"ma'am", I_ADDRESS},
+    {"miss", I_ADDRESS}, {"sir", I_ADDRESS}, {"boss", I_ADDRESS}, {"friend", I_ADDRESS}, {"buddy", I_ADDRESS}, {"pal", I_ADDRESS},
+
+    /* ---- feelings in general (only used when nothing above matched) ---- */
+    {"good", I_POS}, {"happy", I_POS}, {"glad", I_POS}, {"fun", I_POS}, {"sweet", I_POS}, {"best", I_POS},
+    {"yay", I_POS}, {"wow", I_POS}, {"excited", I_POS}, {"hope*", I_POS}, {"like*", I_POS}, {"enjoy*", I_POS},
+    {"neat", I_POS}, {"fine", I_POS}, {"safe", I_POS}, {"calm", I_POS}, {"peace*", I_POS}, {"smile*", I_POS}, {"brave", I_POS},
+    {"bad", I_NEG}, {"worst", I_NEG}, {"awful", I_NEG}, {"terrible", I_NEG}, {"horrible", I_NEG}, {"evil", I_NEG},
+    {"disgusting", I_NEG}, {"weird", I_NEG}, {"creepy", I_NEG}, {"hell", I_NEG}, {"curse*", I_NEG}, {"blame*", I_NEG},
+    {"cant stand*", I_NEG}, {"can't stand*", I_NEG}, {"sick of*", I_NEG}, {"ew", I_NEG}, {"ugh", I_NEG}, {"nasty", I_NEG},
+
+    /* ---- safety: a real person might be behind these words ---- */
+    {"kill myself", I_SELFHARM}, {"want to die", I_SELFHARM}, {"wanna die", I_SELFHARM}, {"end it all", I_SELFHARM},
+    {"suicid*", I_SELFHARM}, {"hurt myself", I_SELFHARM}, {"dont want to live", I_SELFHARM}, {"don't want to live", I_SELFHARM},
+    {"do not want to live", I_SELFHARM}, {"end my life", I_SELFHARM}, {"harm myself", I_SELFHARM}, {"kms", I_SELFHARM},
+    {"better off dead", I_SELFHARM}, {"no reason to live", I_SELFHARM}, {"cut myself", I_SELFHARM},
+};
+const int PATS_N = (int)(sizeof PATS / sizeof PATS[0]);

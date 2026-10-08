@@ -8,7 +8,14 @@
 /* one page of dialog. who == NULL -> centred window, no face (narration / system text).
  * who != NULL -> bottom popup with that person's face and name.
  * text is auto-wrapped; use "\n" to force a line break. */
-typedef struct { const Person *who; const char *text; } DialogLine;
+typedef struct { const Person *who; const char *text; int reply; } DialogLine;
+
+/* DialogLine.reply (leave it out for a normal page):
+ *   REPLY_NONE      a normal page: tap the blinking arrow to go on
+ *   REPLY_OPTIONAL  after the text, TALK and SKIP buttons appear. SKIP = say nothing.
+ *   REPLY_REQUIRED  only a TALK button: the player must say something
+ * TALK opens the keyboard overlay (talk.c). what happens next is up to dialog_on_reply. */
+enum { REPLY_NONE = 0, REPLY_OPTIONAL = 1, REPLY_REQUIRED = 2 };
 
 /* plays the lines in order. each page types itself out, then a blinking > appears
  * and a tap moves on. on_done (may be NULL) runs after the last page is dismissed.
@@ -19,6 +26,16 @@ int  dialog_active(void);
 /* optional: fn(page) runs every time a page of the NEXT / current dialog begins (page 0 is the first).
  * it is dropped when that dialog ends, so set it right before dialog_play. */
 void dialog_on_page(void (*fn)(int page));
+
+/* optional: fn(page, text) runs when the player answers a REPLY page. text is what they typed, or
+ * NULL if they pressed SKIP. afterwards the dialog moves to the next page, UNLESS fn started a new
+ * dialog_play (that is how conversations keep going). dropped when the dialog ends. set it right
+ * before dialog_play, like dialog_on_page. */
+void dialog_on_reply(void (*fn)(int page, const char *text));
+
+/* optional: suggestion chips shown above the keyboard ("No", "Yes" ...). the list must stay alive
+ * while the dialog plays (make it static). dropped when the dialog ends. */
+void dialog_suggest(const char *const *list, int count);
 
 /* engine hooks, called by the world */
 void dialog_init(int w, int h);

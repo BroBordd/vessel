@@ -16,6 +16,8 @@
  *   hud_set_person(&PERSON)                 change who the ID card shows. a new name flashes, dings + toasts
  *   hud_set_hp(hp, max)                     the HP bar on the ID card
  *   dialog_on_page(fn)                      run fn(page) as each page of the NEXT dialog_play begins
+ *   convo_ask_questions(&P, &MIND, on_end)  "do you have any questions?" then a free typed chat (convo.h)
+ *   convo_open(&P, &MIND, again, on_end)    the npc speaks first, the player may type or skip
  */
 #include "story.h"
 #include "dialog.h"
@@ -24,6 +26,8 @@
 #include "world.h"
 #include "audio.h"
 #include "hud.h"
+#include "convo.h"
+#include "lang.h"
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
 #define VESSEL_LATIN "Vas"          /* what Dea calls us before the naming. "Vas" is Latin for vessel */
@@ -36,6 +40,11 @@ const Person ALEX   = { "Alex",       { 236, 196, 84 }, { 244, 200, 164 }, { 60,
 /* "dea" is Latin for goddess. white shades, a halo, all in white and gold */
 const Person DEA    = { "Dea",        { 252, 240, 190 }, { 252, 228, 206 }, { 255, 244, 200 }, { 250, 232, 170 }, { 226, 190, 90 }, 1,
                         ACC_SHADES | ACC_HALO };
+
+/* ---------- minds: how each npc talks (see lang.h) ----------
+ *                          name    style          mood warmth toxic patience(replies) */
+static Persona DEA_MIND  = { "Dea",  STYLE_DIVINE,   0,   30,   65,   8 };     /* the goddess: toxic, condescending, "i do not care" */
+static Persona ALEX_MIND = { "Alex", STYLE_STREET,  10,   70,    5,  12 };
 
 /* ---------- timers ---------- */
 #define MAX_TIMERS 8
@@ -70,17 +79,15 @@ static const DialogLine ALEX_CHAT[] = {
     { &ALEX,   "Welcome. Try not to stand out." },
 };
 
-static const DialogLine ALEX_AGAIN[] = {
-    { &ALEX, "Keep your head down. I will find you when it is time." },
-};
+static void alex_chat_done(void) { convo_ask_questions(&ALEX, &ALEX_MIND, NULL); }
 
 /* runs when the interact button is pressed next to Alex */
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
-    if (alex_met) { dialog_play(ALEX_AGAIN, 1, NULL); return; }   /* already introduced */
+    if (alex_met) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }   /* already introduced: free chat */
     alex_met = 1;
     mission_complete(mission_talk_alex);
-    dialog_play(ALEX_CHAT, 3, NULL);
+    dialog_play(ALEX_CHAT, 3, alex_chat_done);
 }
 
 /* the player just got back on their feet after the fall: the real mission starts here */
@@ -99,33 +106,30 @@ static const DialogLine DEA_TALK[] = {
     { &VESSEL, VESSEL_NAME ". I will remember it." },
     { &DEA,    "Your purpose is to carry out missions. Nothing more, nothing less." },
     { &DEA,    "Finish each one, and stay secret. When your job is done, your life ends." },
-    { &DEA,    "Now go." },
 };
-
-static const DialogLine DEA_AGAIN[] = {
-    { &DEA, "Now go, " VESSEL_NAME ". The hole is waiting." },
-};
+/* then Dea asks "do you have any questions?" (convo.c) and the hole opens when the chat is over */
 
 /* pressed the arrow button at the hole */
 static void on_enter_hole(void) { world_fall_to_green(landed); }
 
-static void dea_talk_done(void) {
+static void open_the_hole(void) {
     world_open_hole(dea_tx, dea_ty + 3, on_enter_hole);         /* a hole of clouds opens in the floor in front of her */
 }
+static void dea_talk_done(void) { convo_ask_questions(&DEA, &DEA_MIND, open_the_hole); }
 
 /* page 4 of DEA_TALK is the first line spoken as VESSEL: that is the moment the name sticks */
 #define DEA_NAMING_PAGE 4
 static void dea_talk_page(int page) {
-    if (page == DEA_NAMING_PAGE) hud_set_person(&VESSEL);       /* ID card flashes, coin ding, "You are now Aonia" */
+    if (page == DEA_NAMING_PAGE) { hud_set_person(&VESSEL); convo_set_player(&VESSEL); }   /* ID card flashes, coin ding, "You are now Aonia" */
 }
 
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
-    if (dea_spoken) { dialog_play(DEA_AGAIN, 1, NULL); return; }
+    if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
     dialog_on_page(dea_talk_page);
-    dialog_play(DEA_TALK, 8, dea_talk_done);
+    dialog_play(DEA_TALK, 7, dea_talk_done);
 }
 
 /* ---------- scene 1: welcome, up in the clouds ---------- */
@@ -155,6 +159,8 @@ void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     mission_talk_dea = mission_talk_alex = -1;
     dea_spoken = alex_met = 0;
+    DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
+    convo_set_player(&VAS);
     music_set_volume(1.0f);
     world_set_controls_visible(0);
     story_after(1.0f, intro);                   /* wait for the fade-in, then the welcome window */

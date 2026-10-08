@@ -8,6 +8,7 @@
 #include "story.h"
 #include "nowplaying.h"
 #include "hud.h"
+#include "minimap.h"
 #include "audio.h"
 #include <math.h>
 #include <stdint.h>
@@ -16,7 +17,8 @@
 #define MAP_MAX 80                  /* biggest map we can hold */
 #define TILE_U 8                    /* tile edge in "pixel units" */
 #define ZOOM   2.0f                 /* world zoom (pixel-art scale multiplier) */
-#define WALK_TILES_PER_SEC 5.0f     /* walking speed at full stick tilt */
+#define WALK_TILES_PER_SEC 5.0f
+#define MAX_MARKS 20     /* walking speed at full stick tilt */
 
 enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY };
 
@@ -306,6 +308,10 @@ void world_init(int w, int h) {
     dialog_init(w, h);
     missions_init(w, h);
     hud_init(w, h, &VAS);                       /* the ID card starts out as plain "Vas" */
+    {   /* the minimap hangs right under the ID card, same right edge */
+        int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
+        minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u));
+    }
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
     story_start();                              /* the script takes it from here (story.c) */
 }
@@ -681,6 +687,14 @@ void world_draw(SDL_Renderer *r) {
         if (near_id >= 0 || near_hole) draw_interact_button(r);
     }
 
+    if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
+        static const Rgb PAL[] = {                                /* same order as the T_* enum */
+            { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 } };
+        MiniMark marks[MAX_MARKS]; int nm = 0;
+        for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
+        if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
+    }
     missions_set_offset(nowplaying_offset());                     /* slide under the now-playing card */
     missions_draw(r);
     hud_draw(r);                                                  /* ID card, top-right */

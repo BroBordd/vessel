@@ -60,6 +60,7 @@ void npc_interact(int id) {
 }
 
 int   npc_count(void)          { return count; }
+void  npc_tile(int id, float *tx, float *ty) { *tx = n[id].tx; *ty = n[id].ty; }
 float npc_foot_y(int id)       { return n[id].ty * tile; }
 
 void npc_draw(SDL_Renderer *r, int id, int cam_x, int cam_y) {

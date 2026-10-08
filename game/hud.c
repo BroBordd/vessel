@@ -48,6 +48,8 @@ void hud_init(int w, int h, const Person *p) {
     flash_t = toast_t = -1;
 }
 
+void hud_card_rect(int *x, int *y, int *w, int *h) { *x = card_x; *y = card_y; *w = CW * q; *h = CH * q; }
+
 void hud_set_hp(int v, int vmax) {
     if (vmax < 1) vmax = 1;
     hp_max = vmax;

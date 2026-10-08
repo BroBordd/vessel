@@ -20,6 +20,7 @@ int   npc_nearby(void);                                         /* id of the clo
 const Person *npc_person(int id);                               /* for drawing their face on the button */
 void  npc_interact(int id);                                     /* runs the npc's on_talk */
 int   npc_count(void);
+void  npc_tile(int id, float *tx, float *ty);                   /* feet position in tiles (for the minimap) */
 float npc_foot_y(int id);                                       /* world px, for draw ordering */
 void  npc_draw(SDL_Renderer *r, int id, int cam_x, int cam_y);
 int   npc_collides(float feet_x, float feet_y, float half_w, float h);   /* blocks the player */
