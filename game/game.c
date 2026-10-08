@@ -1,3 +1,5 @@
+/* Vessel - Copyright (C) 2026 BroBordd
+ * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -56,7 +58,7 @@ int main(int argc, char **argv) {
     printf("SDL %d.%d.%d, %dx%d\n", v.major, v.minor, v.patch, W, H);
     fflush(stdout);
 
-    if (audio_init() == 0) music_play("third_life.ogg", 1);
+    if (audio_init() == 0) music_play("third_life.ogg", 0);
 
     menu_init(W, H);
 

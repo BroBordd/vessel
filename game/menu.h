@@ -1,3 +1,5 @@
+/* Vessel - Copyright (C) 2026 BroBordd
+ * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #ifndef MENU_H
 #define MENU_H
 #include <SDL2/SDL.h>

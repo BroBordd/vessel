@@ -1,3 +1,5 @@
+/* Vessel - Copyright (C) 2026 BroBordd
+ * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #ifndef FONT_H
 #define FONT_H
 #include <SDL2/SDL.h>
