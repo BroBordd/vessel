@@ -7,6 +7,10 @@
 
 #define NSNOW   170
 #define TWO_PI  6.2831853f
+#define TITLE   "VESSEL"
+#define TITLE_N 6
+#define FLASH_TICKS    8        /* random-color ticks, then one more tick back to white */
+#define FLASH_PERIOD   500      /* ms between ticks */
 
 typedef struct { float x, y, vx, vy, z, ph, fr; } Flake;
 typedef struct { int x, y, w, h; const char *label; } Button;
@@ -15,6 +19,9 @@ static Flake  fl[NSNOW];
 static Button btn[2] = { { 0, 0, 0, 0, "PLAY" }, { 0, 0, 0, 0, "EXIT" } };
 static int    W, H, title_cell, title_x, title_y, label_cell;
 static float  u, t;                 /* u: px per "design unit", t: sim time (s) */
+static uint8_t tc[TITLE_N][3];      /* per-letter title color */
+static int    flash_on, flash_next;  /* flash_next: index of the next tick to fire (0..FLASH_TICKS) */
+static Uint32 flash_t0;
 static int    pressed = -1;         /* button index under the finger since touch-down */
 static int    inside;               /* finger still over that button */
 
@@ -30,6 +37,40 @@ static float wind(float time) {
             + 40.0f * sinf(TWO_PI * time / 7.0f)
             + 18.0f * sinf(TWO_PI * time / 3.1f + 1.7f);
     return -g * u;
+}
+
+/* fully saturated random hue: always vivid on black, never white */
+static void rand_color(uint8_t *c) {
+    float x = frand() * 6.0f, f = x - (int)x, q = 1.0f - f, R, G, B;
+    switch ((int)x % 6) {
+    case 0:  R = 1; G = f; B = 0; break;
+    case 1:  R = q; G = 1; B = 0; break;
+    case 2:  R = 0; G = 1; B = f; break;
+    case 3:  R = 0; G = q; B = 1; break;
+    case 4:  R = f; G = 0; B = 1; break;
+    default: R = 1; G = 0; B = q; break;
+    }
+    c[0] = (uint8_t)(R * 255); c[1] = (uint8_t)(G * 255); c[2] = (uint8_t)(B * 255);
+}
+
+static void flash_tick(int k) {
+    for (int i = 0; i < TITLE_N; i++) {
+        if (k < FLASH_TICKS) rand_color(tc[i]);
+        else tc[i][0] = tc[i][1] = tc[i][2] = 255;      /* final tick: all white */
+    }
+}
+
+/* fire every tick whose time has come (wall clock, so a slow frame can't stretch the 0.5s spacing) */
+static void flash_step(void) {
+    while (flash_on && SDL_GetTicks() - flash_t0 >= (Uint32)flash_next * FLASH_PERIOD) {
+        flash_tick(flash_next++);
+        if (flash_next > FLASH_TICKS) flash_on = 0;
+    }
+}
+
+void menu_title_flash(void) {
+    flash_on = 1; flash_next = 0; flash_t0 = SDL_GetTicks();
+    flash_step();                                       /* tick 0 fires immediately */
 }
 
 static int flake_size(const Flake *f) {
@@ -48,6 +89,8 @@ void menu_init(int w, int h) {
     W = w; H = h;
     u = (w < h ? w : h) / 360.0f;
     t = 0; pressed = -1; inside = 0;
+    flash_on = 0;
+    for (int i = 0; i < TITLE_N; i++) tc[i][0] = tc[i][1] = tc[i][2] = 255;
 
     for (int i = 0; i < NSNOW; i++) {
         float r = frand();
@@ -70,7 +113,7 @@ void menu_init(int w, int h) {
     }
     label_cell = (int)(3 * u); if (label_cell < 1) label_cell = 1;
     title_cell = (int)(7 * u); if (title_cell < 2) title_cell = 2;
-    title_x = (W - font_width("VESSEL", title_cell)) / 2;
+    title_x = (W - font_width(TITLE, title_cell)) / 2;
     title_y = (int)(H * 0.22f) - font_height(title_cell) / 2;
 }
 
@@ -97,6 +140,7 @@ MenuAction menu_touch(int a, int x, int y) {
 }
 
 void menu_update(float dt) {
+    flash_step();
     t += dt;
     float w = wind(t);
     for (int i = 0; i < NSNOW; i++) {
@@ -135,8 +179,11 @@ void menu_draw(SDL_Renderer *r) {
         SDL_RenderFillRect(r, &q);
     }
 
-    SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
-    font_draw(r, "VESSEL", title_x, title_y, title_cell);
+    for (int i = 0; i < TITLE_N; i++) {
+        char ch[2] = { TITLE[i], 0 };
+        SDL_SetRenderDrawColor(r, tc[i][0], tc[i][1], tc[i][2], 255);
+        font_draw(r, ch, title_x + i * 6 * title_cell, title_y, title_cell);
+    }
 
     int bt = (int)(2 * u); if (bt < 1) bt = 1;
     for (int i = 0; i < 2; i++) {
