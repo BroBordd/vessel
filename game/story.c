@@ -81,7 +81,6 @@ static void on_talk_alex(int npc_id) {
 
 /* the player just got back on their feet after the fall: the real mission starts here */
 static void landed(void) {
-    music_set_volume(0.65f);
     mission_talk_alex = mission_add("Talk to Alex");
     /* Alex stands 3 tiles right and 4 tiles up from where we landed */
     npc_add(&ALEX, world_player_tile_x() + 3, world_player_tile_y() - 4, on_talk_alex);
@@ -119,14 +118,11 @@ static void on_talk_dea(int npc_id) {
 }
 
 /* ---------- scene 1: welcome, up in the clouds ---------- */
-static const DialogLine INTRO[] = {
-    { NULL, "Hello, " VESSEL_LATIN "!" },
-    { NULL, "You have been summoned. Talk to Goddess." },
-};
+static const DialogLine HELLO[]  = { { NULL, "Hello, " VESSEL_LATIN "!" } };
+static const DialogLine SUMMON[] = { { NULL, "You have been summoned. Talk to Goddess." } };
 
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
-    music_set_volume(0.65f);                    /* music drops to 65%, instantly */
     mission_talk_dea = mission_add("Talk to Goddess");
     /* Dea stands 8 tiles above where we spawned, looking down at us */
     dea_tx = world_player_tile_x();
@@ -135,7 +131,13 @@ static void intro_done(void) {
     npc_set_facing(id, FACE_DOWN);
 }
 
-static void intro(void) { dialog_play(INTRO, 2, intro_done); }
+/* the music starts at 100% and drops to 65% the moment the hello message is dismissed. it stays there. */
+static void hello_done(void) {
+    music_set_volume(0.65f);
+    dialog_play(SUMMON, 1, intro_done);
+}
+
+static void intro(void) { dialog_play(HELLO, 1, hello_done); }
 
 /* ---------- entry point ---------- */
 void story_start(void) {

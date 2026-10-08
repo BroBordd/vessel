@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
         } else if (state == ST_LOADING) {
             if (loading_update(dt)) {
                 world_init(W, H);
-                music_play("divine_tale.ogg", 1);
+                music_play("ascendant_soul.ogg", 1);       /* cloud map music (the ground gets divine_tale later) */
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             } else loading_draw(r);

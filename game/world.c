@@ -7,6 +7,7 @@
 #include "npc.h"
 #include "story.h"
 #include "nowplaying.h"
+#include "audio.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -164,19 +165,50 @@ static void draw_sky_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 
 static void draw_cloud_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     uint32_t h = hash2(tx, ty, 77);
-    col(r, 238 + (h & 1) * 3, 243 + (h & 1) * 2, 254, 255);
+    float wave = sinf(t * 0.7f + tx * 0.5f + ty * 0.4f);                /* the whole floor breathes slowly */
+    int b = (int)(wave * 4.0f);
+    col(r, 240 + b / 2, 245 + b / 2, 255, 255);
     fill(r, x, y, tile, tile);
-    col(r, 255, 255, 255, 255);                         /* bright puffs */
-    fill(r, x + (h & 7) * px, y + ((h >> 3) & 7) * px, 2 * px, px);
-    fill(r, x + ((h >> 6) & 7) * px, y + ((h >> 9) & 7) * px, px, px);
-    col(r, 208, 222, 244, 255);                         /* faint blue-grey shading */
-    fill(r, x + ((h >> 12) & 7) * px, y + ((h >> 15) & 7) * px, 2 * px, px);
-    if (ty + 1 < mh && map[ty + 1][tx] == T_SKY) {      /* underside of the cloud where it meets the sky */
-        col(r, 196, 212, 240, 255);
-        fill(r, x, y + 6 * px, tile, 2 * px);
-        col(r, 214, 226, 246, 255);
-        fill(r, x, y + 5 * px, tile, px);
+    for (int k = 0; k < 3; k++) {                                       /* soft blobs drifting like mist */
+        float a = t * (0.35f + 0.1f * k) + (float)((h >> (k * 5)) & 31) * 0.4f;
+        int w = 3 + (int)((h >> (9 + k)) & 1), hh = 2;
+        int bx = 2 + (int)(sinf(a) * 2.2f), by = 1 + k * 2 + (int)(cosf(a * 0.8f) * 1.2f);
+        if (bx < 0) bx = 0;
+        if (bx > 8 - w) bx = 8 - w;
+        if (by < 0) by = 0;
+        if (by > 6) by = 6;
+        if (k == 1) col(r, 255, 255, 255, 255); else col(r, 218, 230, 250, 255);
+        fill(r, x + bx * px, y + by * px, w * px, hh * px);
+        fill(r, x + (bx + 1) * px, y + (by - 1 < 0 ? 0 : by - 1) * px, (w - 2) * px, px);
     }
+}
+
+/* mario-style scalloped edge: round puffs bulging out of every cloud tile that touches the sky.
+ * two passes (outline, then fill) so neighbouring puffs merge into one bumpy rim. */
+static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, int tx1, int ty1) {
+    static const int dx4[4] = { 0, 0, -1, 1 }, dy4[4] = { -1, 1, 0, 0 };
+    for (int pass = 0; pass < 2; pass++)
+        for (int ty = ty0 - 1; ty <= ty1 + 1; ty++)
+            for (int tx = tx0 - 1; tx <= tx1 + 1; tx++) {
+                if (tx < 0 || ty < 0 || tx >= mw || ty >= mh || map[ty][tx] != T_CLOUD) continue;
+                int x = tx * tile - cx, y = ty * tile - cy;
+                for (int d = 0; d < 4; d++) {
+                    int nx = tx + dx4[d], ny = ty + dy4[d];
+                    if (nx >= 0 && ny >= 0 && nx < mw && ny < mh && map[ny][nx] != T_SKY) continue;
+                    for (int k = 0; k < 3; k++) {                       /* 3 puffs per edge */
+                        float along = (1.0f + k * 3.0f) * px;           /* 1, 4, 7 units along the edge */
+                        float bob = sinf(t * 1.6f + tx * 0.9f + ty * 1.3f + k * 2.0f + d);
+                        int rad = (int)((2.1f + 0.3f * bob) * px) + (pass == 0 ? px : 0);
+                        int bx, by;
+                        if (d == 0)      { bx = x + (int)along;  by = y; }
+                        else if (d == 1) { bx = x + (int)along;  by = y + tile; }
+                        else if (d == 2) { bx = x;               by = y + (int)along; }
+                        else             { bx = x + tile;        by = y + (int)along; }
+                        if (pass == 0) col(r, 170, 196, 236, 255); else col(r, 252, 253, 255, 255);
+                        disc(r, bx, by, rad);
+                    }
+                }
+            }
 }
 
 static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
@@ -188,7 +220,10 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 
     if (bg == 0)      col(r, 48, 98, 196, 255);
     else if (bg == 1) col(r, 224, 204, 144, 255);
-    else              col(r, 76 + (h & 3) * 3, 162 + ((h >> 2) & 3) * 3, 78, 255);
+    else {                                              /* grass: a slow wind shimmer rolls across the field */
+        int sh = (int)(sinf(t * 1.1f + tx * 0.45f + ty * 0.3f) * 4.0f);
+        col(r, 76 + (h & 3) * 3 + sh / 2, 162 + ((h >> 2) & 3) * 3 + sh, 78 + sh / 2, 255);
+    }
     fill(r, x, y, tile, tile);
 
     if (v == T_WATER) {
@@ -202,10 +237,20 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
         fill(r, x + ((h >> 6) & 7) * px, y + ((h >> 9) & 7) * px, px, px);
     } else {
         col(r, 58, 140, 62, 255);                       /* grass tufts */
-        fill(r, x + (h & 7) * px, y + ((h >> 3) & 7) * px, px, 2 * px);
-        fill(r, x + ((h >> 8) & 7) * px, y + ((h >> 11) & 7) * px, px, 2 * px);
+        float ph = t * 2.4f + tx * 0.8f + ty * 0.55f;
+        int sw1 = (int)floorf(sinf(ph) * 1.4f + 0.5f), sw2 = (int)floorf(sinf(ph + 2.1f) * 1.4f + 0.5f);
+        int x1 = (int)(h & 7) + sw1, x2 = (int)((h >> 8) & 7) + sw2;
+        if (x1 < 0) x1 = 0;
+        if (x1 > 7) x1 = 7;
+        if (x2 < 0) x2 = 0;
+        if (x2 > 7) x2 = 7;
+        fill(r, x + x1 * px, y + ((h >> 3) & 7) * px, px, 2 * px);        /* blades lean with the wind */
+        fill(r, x + x2 * px, y + ((h >> 11) & 7) * px, px, 2 * px);
         if (v == T_FLOWER) {
-            int fx = 2 + (h & 3), fy = 2 + ((h >> 4) & 3);
+            int fx = 2 + (h & 3) + sw1 / 1, fy = 2 + ((h >> 4) & 3);
+            if (fx < 0) fx = 0;
+            if (fx > 6) fx = 6;
+            if (((int)(t * 2.0f + (h & 7)) & 3) == 0 && fy > 0) fy--;        /* little bob */
             col(r, (h >> 9) & 1 ? 250 : 240, (h >> 9) & 1 ? 230 : 120, (h >> 9) & 1 ? 90 : 170, 255);
             fill(r, x + fx * px, y + fy * px, px, px);
             fill(r, x + (fx + 1) * px, y + fy * px, px, px);
@@ -218,11 +263,12 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
             fill(r, x + 1 * px, y + 6 * px, 6 * px, 2 * px);
             col(r, 102, 66, 32, 255);                    /* trunk */
             fill(r, x + 3 * px, y + 5 * px, 2 * px, 3 * px);
+            int ts = (int)floorf(sinf(t * 1.3f + tx * 0.7f + ty) * 0.9f + 0.5f);   /* canopy sways */
             col(r, 28, 104, 40, 255);                    /* canopy */
-            fill(r, x + 1 * px, y + 1 * px, 6 * px, 4 * px);
-            fill(r, x + 2 * px, y, 4 * px, 6 * px);
+            fill(r, x + (1 + ts) * px, y + 1 * px, 6 * px, 4 * px);
+            fill(r, x + (2 + ts) * px, y, 4 * px, 6 * px);
             col(r, 52, 142, 56, 255);
-            fill(r, x + 2 * px, y + 1 * px, 2 * px, 2 * px);
+            fill(r, x + (2 + ts) * px, y + 1 * px, 2 * px, 2 * px);
         }
     }
 }
@@ -278,6 +324,7 @@ void world_fall_to_green(void (*on_up)(void)) {
     world_set_controls_visible(0);
     phase = hole_on ? PH_SINK : PH_FALL;
     sink_x0 = pxp; sink_y0 = pyp;
+    music_fade_out(SINK_T + FALL_T - 0.3f);             /* the cloud music dies away as we drop (volume stays as is) */
 }
 
 static int button_hit(int x, int y) {
@@ -346,6 +393,7 @@ static void phase_update(float dt) {
     case PH_FALL:
         if (ph_t >= FALL_T) {
             load_map(MAP_GREEN);                        /* we are on the ground now. face-first. */
+            music_play("divine_tale.ogg", 1);           /* the ground has its own music */
             phase = PH_LAND; ph_t = 0;
         }
         break;
@@ -564,6 +612,8 @@ void world_draw(SDL_Renderer *r) {
     for (int ty = ty0; ty <= ty1 && ty < mh; ty++)
         for (int tx = tx0; tx <= tx1 && tx < mw; tx++)
             draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
+
+    if (cur_map == MAP_CLOUD) draw_cloud_rim(r, cx, cy, tx0, ty0, tx1, ty1);
 
     int hcx = 0, hcy = 0;
     if (hole_on) {
