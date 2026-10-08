@@ -1,10 +1,18 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #define STB_VORBIS_NO_PUSHDATA_API
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wtautological-compare"
+#endif
 #include "third_party/stb_vorbis.c"
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 #include "audio.h"
 
@@ -12,6 +20,7 @@
 
 static SDL_AudioDeviceID dev;
 static stb_vorbis *mus;       /* guarded by SDL_LockAudioDevice */
+static unsigned char *mus_buf; /* encoded file, must outlive mus */
 static int mus_loop;
 
 static void audio_cb(void *ud, Uint8 *stream, int len) {
@@ -49,18 +58,25 @@ int audio_init(void) {
     return 0;
 }
 
-static stb_vorbis *try_open(const char *path) {
-    int err = 0;
-    stb_vorbis *v = stb_vorbis_open_filename(path, &err, NULL);
-    if (v) { printf("music: %s\n", path); fflush(stdout); }
-    return v;
+static unsigned char *slurp(const char *path, int *len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    unsigned char *b = n > 0 ? malloc((size_t)n) : NULL;
+    if (b && fread(b, 1, (size_t)n, f) != (size_t)n) { free(b); b = NULL; }
+    fclose(f);
+    if (b) *len = (int)n;
+    return b;
 }
 
 int music_play(const char *file, int loop) {
     if (!dev) return -1;
 
-    char path[1024], dir[1024];
-    stb_vorbis *v = NULL;
+    char path[1024], dir[900];
+    unsigned char *buf = NULL;
+    int len = 0;
 
     ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);
     if (n > 0) {
@@ -69,11 +85,19 @@ int music_play(const char *file, int loop) {
         if (slash) {
             *slash = 0;
             snprintf(path, sizeof path, "%s/%s", dir, file);
-            v = try_open(path);
+            buf = slurp(path, &len);
+            if (buf) { printf("music: %s\n", path); fflush(stdout); }
         }
     }
-    if (!v) v = try_open(file);            /* cwd */
-    if (!v) { printf("music: %s not found\n", file); fflush(stdout); return -1; }
+    if (!buf) {                                  /* cwd */
+        buf = slurp(file, &len);
+        if (buf) { printf("music: ./%s\n", file); fflush(stdout); }
+    }
+    if (!buf) { printf("music: %s not found\n", file); fflush(stdout); return -1; }
+
+    int err = 0;
+    stb_vorbis *v = stb_vorbis_open_memory(buf, len, &err, NULL);
+    if (!v) { printf("music: bad ogg (err %d)\n", err); fflush(stdout); free(buf); return -1; }
 
     stb_vorbis_info vi = stb_vorbis_get_info(v);
     printf("music: %u Hz, %d ch\n", vi.sample_rate, vi.channels);
@@ -82,20 +106,22 @@ int music_play(const char *file, int loop) {
     fflush(stdout);
 
     SDL_LockAudioDevice(dev);
-    stb_vorbis *old = mus;
-    mus = v; mus_loop = loop;
+    stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
+    mus = v; mus_buf = buf; mus_loop = loop;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
+    free(oldbuf);
     return 0;
 }
 
 void music_stop(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
-    stb_vorbis *old = mus;
-    mus = NULL;
+    stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
+    mus = NULL; mus_buf = NULL;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
+    free(oldbuf);
 }
 
 void audio_quit(void) {

@@ -33,12 +33,21 @@ int main(int argc, char **argv) {
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     SDL_setenv("SDL_AUDIODRIVER", "disk", 1);
     SDL_setenv("SDL_DISKAUDIOFILE", "audio.pcm", 1);
+    /* disk driver sleeps a fixed ~46ms per buffer by default, which paces slightly
+     * under real time and drains the cushion. 0 = let the app's blocking FIFO read
+     * pace us instead (pipe gives ~350ms of slack). override via env if needed. */
+    SDL_setenv("SDL_DISKAUDIODELAY", "0", 0);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_AUDIO) != 0) {
         printf("SDL_Init: %s\n", SDL_GetError()); fflush(stdout); return 1;
     }
 
+    /* render into a private back buffer, then copy to the shared fb in one go,
+     * so the app never reads a half-drawn frame (title/buttons are drawn last) */
+    size_t fbsz = (size_t)W * H * 4;
+    void *back = calloc(1, fbsz);
+    if (!back) { perror("alloc back buffer"); return 1; }
     SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
-        px, W, H, 32, W * 4, SDL_PIXELFORMAT_RGBA32);
+        back, W, H, 32, W * 4, SDL_PIXELFORMAT_RGBA32);
     if (!surf) { printf("surface: %s\n", SDL_GetError()); fflush(stdout); return 1; }
     SDL_Renderer *r = SDL_CreateSoftwareRenderer(surf);
     if (!r) { printf("renderer: %s\n", SDL_GetError()); fflush(stdout); return 1; }
@@ -60,6 +69,7 @@ int main(int argc, char **argv) {
     Uint64 prev = SDL_GetPerformanceCounter();
     Uint64 next_frame = prev + frame_ticks;
     Uint32 last = SDL_GetTicks(); int frames = 0;
+    double worst_ms = 0, render_ms = 0;
 
     for (;;) {
         char buf[256];
@@ -90,11 +100,16 @@ int main(int argc, char **argv) {
         menu_update(dt);
         menu_draw(r);
         SDL_RenderPresent(r);
+        memcpy(px, back, fbsz);
 
+        double ft = dt * 1000.0, rt = (double)(SDL_GetPerformanceCounter() - now) * 1000.0 / (double)pf;
+        if (ft > worst_ms) worst_ms = ft;
+        if (rt > render_ms) render_ms = rt;
         if (++frames == 60) {
             Uint32 tk = SDL_GetTicks();
-            printf("fps %.1f\n", 60000.0 / (tk - last)); fflush(stdout);
-            last = tk; frames = 0;
+            printf("fps %.1f worst %.1fms render %.1fms\n", 60000.0 / (tk - last), worst_ms, render_ms);
+            fflush(stdout);
+            last = tk; frames = 0; worst_ms = render_ms = 0;
         }
 
         Uint64 now_pc = SDL_GetPerformanceCounter();
@@ -111,6 +126,7 @@ int main(int argc, char **argv) {
     audio_quit();
     SDL_DestroyRenderer(r);
     SDL_FreeSurface(surf);
+    free(back);
     SDL_Quit();
     return 0;
 }
