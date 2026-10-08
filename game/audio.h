@@ -8,6 +8,8 @@ int  audio_init(void);
 /* streams an .ogg looked up next to the executable (then cwd). returns 0 on success */
 int  music_play(const char *file, int loop);
 void music_stop(void);
+/* ramps the current music to silence over `seconds` (smooth curve), then drops it */
+void music_fade_out(float seconds);
 void audio_quit(void);
 
 #endif

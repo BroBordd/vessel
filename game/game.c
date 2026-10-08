@@ -12,6 +12,10 @@
 
 #include "audio.h"
 #include "menu.h"
+#include "world.h"
+
+typedef enum { ST_MENU, ST_WORLD } State;
+#define MUSIC_FADE_SECONDS 6.0f
 
 /* The game is a child of the app process. Closing the activity needs Java,
  * so for now exit == take the parent app down with us. */
@@ -61,6 +65,7 @@ int main(int argc, char **argv) {
     if (audio_init() == 0) music_play("third_life.ogg", 0);
 
     menu_init(W, H);
+    State state = ST_MENU;
 
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[1024]; int alen = 0;
@@ -85,9 +90,18 @@ int main(int argc, char **argv) {
                 *nl = 0;
                 int a, x, y;
                 if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
-                    MenuAction act = menu_touch(a, x, y);
-                    if (act == MENU_PLAY) { printf("menu: play\n"); fflush(stdout); }
-                    if (act == MENU_EXIT) quit_app();
+                    if (state == ST_MENU) {
+                        MenuAction act = menu_touch(a, x, y);
+                        if (act == MENU_PLAY) {
+                            printf("menu: play\n"); fflush(stdout);
+                            world_init(W, H);
+                            music_fade_out(MUSIC_FADE_SECONDS);   /* slow fade as the map appears */
+                            state = ST_WORLD;
+                        }
+                        if (act == MENU_EXIT) quit_app();
+                    } else {
+                        world_touch(a, x, y);
+                    }
                 }
                 s = nl + 1;
             }
@@ -99,8 +113,8 @@ int main(int argc, char **argv) {
         prev = now;
         if (dt > 0.05f) dt = 0.05f;
 
-        menu_update(dt);
-        menu_draw(r);
+        if (state == ST_MENU) { menu_update(dt); menu_draw(r); }
+        else                  { world_update(dt); world_draw(r); }
         SDL_RenderPresent(r);
         memcpy(px, back, fbsz);
 

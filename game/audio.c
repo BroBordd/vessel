@@ -24,6 +24,9 @@ static SDL_AudioDeviceID dev;
 static stb_vorbis *mus;       /* guarded by SDL_LockAudioDevice */
 static unsigned char *mus_buf; /* encoded file, must outlive mus */
 static int mus_loop;
+/* fade: gain = fade_vol^2 (perceptual), ramps to 0 over fade_frames; guarded by device lock */
+static int   fading;
+static float fade_vol = 1.0f, fade_step;
 
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
@@ -41,7 +44,22 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
             stb_vorbis_seek_start(mus);
             seeked = 1;
         }
-        if (done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
+        if (fading) {
+            for (int i = 0; i < done; i++) {
+                float g = fade_vol * fade_vol;
+                out[i * 2]     = (Sint16)(out[i * 2]     * g);
+                out[i * 2 + 1] = (Sint16)(out[i * 2 + 1] * g);
+                fade_vol -= fade_step;
+                if (fade_vol <= 0.0f) {             /* silent: drop the stream */
+                    done = i + 1;                   /* rest of the buffer is zeroed below */
+                    stb_vorbis_close(mus); mus = NULL;
+                    free(mus_buf); mus_buf = NULL;
+                    fading = 0; fade_vol = 1.0f;
+                    break;
+                }
+            }
+        }
+        if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
 }
@@ -110,17 +128,26 @@ int music_play(const char *file, int loop) {
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
     mus = v; mus_buf = buf; mus_loop = loop;
+    fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
     return 0;
 }
 
+void music_fade_out(float seconds) {
+    if (!dev) return;
+    if (seconds < 0.05f) seconds = 0.05f;
+    SDL_LockAudioDevice(dev);
+    if (mus) { fade_step = 1.0f / (seconds * OUT_RATE); fading = 1; }
+    SDL_UnlockAudioDevice(dev);
+}
+
 void music_stop(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
-    mus = NULL; mus_buf = NULL;
+    mus = NULL; mus_buf = NULL; fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
