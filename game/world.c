@@ -241,7 +241,7 @@ static void draw_player(SDL_Renderer *r, int sxp, int syp) {   /* feet-centre on
 }
 
 /* ---------- welcome window ---------- */
-#define WELCOME_TEXT   "WELCOME, UNUS"
+#define WELCOME_TEXT   "WELCOME, AONIA"
 #define WELCOME_HINT   "TAP TO CONTINUE"
 #define TYPE_CPS       14.0f
 static int   wstate;                /* 0 gone, 1 open, 2 closing */
