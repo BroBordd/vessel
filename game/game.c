@@ -13,9 +13,11 @@
 #include "audio.h"
 #include "menu.h"
 #include "world.h"
+#include "loading.h"
 
-typedef enum { ST_MENU, ST_WORLD } State;
-#define MUSIC_FADE_SECONDS 6.0f
+typedef enum { ST_MENU, ST_LOADING, ST_WORLD } State;
+/* menu music fades during the loading screen; kept a hair shorter so it is silent before the map track starts */
+#define MUSIC_FADE_SECONDS (LOADING_SECONDS - 0.1f)
 
 /* The game is a child of the app process. Closing the activity needs Java,
  * so for now exit == take the parent app down with us. */
@@ -94,12 +96,12 @@ int main(int argc, char **argv) {
                         MenuAction act = menu_touch(a, x, y);
                         if (act == MENU_PLAY) {
                             printf("menu: play\n"); fflush(stdout);
-                            world_init(W, H);
-                            music_fade_out(MUSIC_FADE_SECONDS);   /* slow fade as the map appears */
-                            state = ST_WORLD;
+                            loading_init(W, H);
+                            music_fade_out(MUSIC_FADE_SECONDS);
+                            state = ST_LOADING;
                         }
                         if (act == MENU_EXIT) quit_app();
-                    } else {
+                    } else if (state == ST_WORLD) {
                         world_touch(a, x, y);
                     }
                 }
@@ -113,8 +115,18 @@ int main(int argc, char **argv) {
         prev = now;
         if (dt > 0.05f) dt = 0.05f;
 
-        if (state == ST_MENU) { menu_update(dt); menu_draw(r); }
-        else                  { world_update(dt); world_draw(r); }
+        if (state == ST_MENU) {
+            menu_update(dt); menu_draw(r);
+        } else if (state == ST_LOADING) {
+            if (loading_update(dt)) {
+                world_init(W, H);
+                music_play("divine_tale.ogg", 1);
+                state = ST_WORLD;
+                world_update(0); world_draw(r);
+            } else loading_draw(r);
+        } else {
+            world_update(dt); world_draw(r);
+        }
         SDL_RenderPresent(r);
         memcpy(px, back, fbsz);
 

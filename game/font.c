@@ -5,8 +5,8 @@
 #include <string.h>
 #include <stdint.h>
 
-/* 7 rows per glyph, low 5 bits = columns left to right. A-Z then 0-9. */
-static const uint8_t G[36][7] = {
+/* 7 rows per glyph, low 5 bits = columns left to right. A-Z, 0-9, then , . ! */
+static const uint8_t G[39][7] = {
     {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, /* A */
     {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, /* B */
     {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, /* C */
@@ -43,6 +43,9 @@ static const uint8_t G[36][7] = {
     {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, /* 7 */
     {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, /* 8 */
     {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, /* 9 */
+    {0x00,0x00,0x00,0x00,0x0C,0x04,0x08}, /* , */
+    {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, /* . */
+    {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, /* ! */
 };
 
 void font_draw(SDL_Renderer *r, const char *s, int x, int y, int cell) {
@@ -52,6 +55,9 @@ void font_draw(SDL_Renderer *r, const char *s, int x, int y, int cell) {
         int c = toupper((unsigned char)*s), gi = -1;
         if (c >= 'A' && c <= 'Z') gi = c - 'A';
         else if (c >= '0' && c <= '9') gi = 26 + c - '0';
+        else if (c == ',') gi = 36;
+        else if (c == '.') gi = 37;
+        else if (c == '!') gi = 38;
         if (gi < 0) continue;
         for (int row = 0; row < 7; row++)
             for (int col = 0; col < 5; col++)
