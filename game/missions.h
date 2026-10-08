@@ -11,6 +11,7 @@ void mission_complete(int id);            /* ticks it off, then it fades away */
 /* engine hooks, called by the world */
 void missions_init(int w, int h);         /* also clears the list */
 void missions_update(float dt);
+void missions_set_offset(int px);         /* push the list down (screen px), e.g. under the now-playing card */
 void missions_draw(SDL_Renderer *r);
 
 #endif

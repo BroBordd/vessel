@@ -4,7 +4,9 @@
 #define STORY_H
 #include "char.h"
 
-extern const Person VESSEL;         /* the player */
+extern const Person VESSEL;         /* the player, once Dea has named them */
+extern const Person VAS;            /* the player before the naming: same look, just "Vas" */
+extern const Person DEA;            /* the goddess in the clouds */
 extern const Person ALEX;
 
 /* called by the world when the map appears / every frame */

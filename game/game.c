@@ -14,6 +14,7 @@
 #include "menu.h"
 #include "world.h"
 #include "loading.h"
+#include "nowplaying.h"
 
 typedef enum { ST_MENU, ST_LOADING, ST_WORLD } State;
 /* menu music fades during the loading screen; kept a hair shorter so it is silent before the map track starts */
@@ -67,6 +68,7 @@ int main(int argc, char **argv) {
     if (audio_init() == 0) music_play("third_life.ogg", 0);
 
     menu_init(W, H);
+    nowplaying_init(W, H);
     State state = ST_MENU;
 
     fcntl(0, F_SETFL, O_NONBLOCK);
@@ -127,6 +129,7 @@ int main(int argc, char **argv) {
         } else {
             world_update(dt); world_draw(r);
         }
+        nowplaying_update(dt); nowplaying_draw(r);       /* on top of every screen */
         SDL_RenderPresent(r);
         memcpy(px, back, fbsz);
 

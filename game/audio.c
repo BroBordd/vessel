@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <math.h>
 
 #define STB_VORBIS_NO_PUSHDATA_API
 #if defined(__clang__)
@@ -28,6 +29,64 @@ static int mus_loop;
 static int   fading;
 static float fade_vol = 1.0f, fade_step;
 static float master = 1.0f;   /* instant master gain, set via music_set_volume */
+
+/* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ---------- */
+#define FFT_N 512
+static volatile float spec[MUSIC_BANDS];
+static char  title[48];
+static unsigned serial;
+
+static void fft(float *re, float *im) {
+    for (int i = 1, j = 0; i < FFT_N; i++) {              /* bit-reversal permutation */
+        int bit = FFT_N >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) { float t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (int len = 2; len <= FFT_N; len <<= 1) {
+        float ang = -2.0f * (float)M_PI / len, wr = cosf(ang), wi = sinf(ang);
+        for (int i = 0; i < FFT_N; i += len) {
+            float cr = 1, ci = 0;
+            for (int k = 0; k < len / 2; k++) {
+                int a = i + k, b = i + k + len / 2;
+                float xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+                re[b] = re[a] - xr; im[b] = im[a] - xi;
+                re[a] += xr;        im[a] += xi;
+                float nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+            }
+        }
+    }
+}
+
+/* pcm: stereo S16, `frames` long. uses the last FFT_N frames (about 12 ms). */
+static void spectrum_feed(const Sint16 *pcm, int frames) {
+    if (frames < FFT_N) { for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0; return; }
+    float re[FFT_N], im[FFT_N];
+    const Sint16 *src = pcm + (frames - FFT_N) * 2;
+    for (int i = 0; i < FFT_N; i++) {
+        float m = (src[i * 2] + src[i * 2 + 1]) * (0.5f / 32768.0f);
+        re[i] = m * (0.5f - 0.5f * cosf(2.0f * (float)M_PI * i / (FFT_N - 1)));   /* Hann window */
+        im[i] = 0;
+    }
+    fft(re, im);
+    for (int b = 0; b < MUSIC_BANDS; b++) {
+        int lo = (int)powf(150.0f, (float)b / MUSIC_BANDS);                         /* ~86 Hz .. ~13 kHz, log spaced */
+        int hi = (int)powf(150.0f, (float)(b + 1) / MUSIC_BANDS);
+        if (hi <= lo) hi = lo + 1;
+        float peak = 0;
+        for (int k = lo; k < hi && k < FFT_N / 2; k++) {
+            float mag = sqrtf(re[k] * re[k] + im[k] * im[k]) / (FFT_N / 4.0f);     /* full-scale sine = 1.0 */
+            if (mag > peak) peak = mag;
+        }
+        float db = 20.0f * log10f(peak + 1e-9f);
+        float lvl = (db + 62.0f + 0.7f * b) / 46.0f;                                /* tilt: highs are naturally quieter */
+        spec[b] = lvl < 0 ? 0 : lvl > 1 ? 1 : lvl;
+    }
+}
+
+void music_spectrum(float *bands) { for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = spec[i]; }
+const char *music_title(void) { return title; }
+unsigned music_serial(void) { return serial; }
 
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
@@ -62,6 +121,8 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
         if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
+    if (done >= FFT_N) spectrum_feed(out, done);      /* before master volume, so the bars ignore the volume knob */
+    else               for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0;
     if (master != 1.0f)
         for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
@@ -135,6 +196,18 @@ int music_play(const char *file, int loop) {
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
+
+    /* title from the file name: "divine_tale.ogg" -> "Divine Tale" */
+    const char *base = strrchr(file, '/'); base = base ? base + 1 : file;
+    size_t k = 0; int cap = 1;
+    for (; base[k] && base[k] != '.' && k < sizeof title - 1; k++) {
+        char c = base[k] == '_' ? ' ' : base[k];
+        if (cap && c >= 'a' && c <= 'z') c = (char)(c - 32);
+        cap = c == ' ';
+        title[k] = c;
+    }
+    title[k] = 0;
+    serial++;
     return 0;
 }
 

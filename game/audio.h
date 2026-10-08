@@ -14,4 +14,12 @@ void music_fade_out(float seconds);
 void music_set_volume(float v);
 void audio_quit(void);
 
+/* live analysis of what is actually being played (the real decoded stream, not a fake animation).
+ * MUSIC_BANDS log-spaced frequency bands, low to high, each 0..1. all zero when silent. */
+#define MUSIC_BANDS 24
+void music_spectrum(float *bands);
+/* name of the current track ("Third Life") and a counter that goes up every time music_play succeeds */
+const char *music_title(void);
+unsigned    music_serial(void);
+
 #endif

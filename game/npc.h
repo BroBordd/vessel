@@ -9,6 +9,10 @@
  * interact button while standing near them. returns the npc id, or -1 if full. */
 int  npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int npc_id));
 
+/* the way they stand when nobody is close (default: facing down). they turn to look at the
+ * player while in talking range, and go back to this once the player walks away. */
+void npc_set_facing(int id, int facing);
+
 /* engine hooks, called by the world */
 void  npc_reset(int pixel_scale, int tile_size);                /* clears all npcs */
 void  npc_update(float player_x, float player_y);                /* player feet position, world px */

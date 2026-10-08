@@ -12,6 +12,9 @@ typedef struct { const char *text; int used, done; float done_t, born; } Mission
 static Mission m[MAX_MISSIONS];
 static int   W, H;
 static float u;
+static int   y_off;
+
+void missions_set_offset(int px) { y_off = px; }
 
 void missions_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
@@ -70,7 +73,7 @@ void missions_draw(SDL_Renderer *r) {
     int title_h = 9 * cell;
     int pw = pad + box + gap + widest + pad;
     int ph = pad + title_h + n * rowh + pad - cell * 2;
-    int x0 = (int)(10 * u), y0 = (int)(14 * u);
+    int x0 = (int)(10 * u), y0 = (int)(14 * u) + y_off;
 
     SDL_SetRenderDrawColor(r, 0, 0, 0, 150);
     fillr(r, x0, y0, pw, ph);

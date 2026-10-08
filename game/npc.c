@@ -11,7 +11,7 @@
 typedef struct {
     const Person *who;
     float tx, ty;                   /* feet position in tiles */
-    int   facing, in_range;
+    int   facing, rest_facing, in_range;   /* rest_facing: default stance, restored on leaving */
     void (*on_talk)(int);
 } Npc;
 
@@ -23,7 +23,7 @@ void npc_reset(int pixel_scale, int tile_size) { count = 0; nearby = -1; s = pix
 
 int npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int)) {
     if (count >= MAX_NPC) return -1;
-    n[count] = (Npc){ who, tile_x + 0.5f, tile_y + 0.9f, FACE_DOWN, 0, on_talk };
+    n[count] = (Npc){ who, tile_x + 0.5f, tile_y + 0.9f, FACE_DOWN, FACE_DOWN, 0, on_talk };
     return count++;
 }
 
@@ -36,12 +36,21 @@ void npc_update(float px, float py) {
         float dx = px - n[i].tx * tile, dy = py - n[i].ty * tile;
         float d = sqrtf(dx * dx + dy * dy) / tile;
         if (!n[i].in_range && d < TALK_RANGE)  n[i].in_range = 1;
-        else if (n[i].in_range && d > LEAVE_RANGE) n[i].in_range = 0;
+        else if (n[i].in_range && d > LEAVE_RANGE) {
+            n[i].in_range = 0;
+            n[i].facing = n[i].rest_facing;                 /* player walked away: back to the default stance */
+        }
         if (!n[i].in_range) continue;
         if (fabsf(dx) > fabsf(dy)) n[i].facing = dx < 0 ? FACE_LEFT : FACE_RIGHT;
         else                       n[i].facing = dy < 0 ? FACE_UP : FACE_DOWN;
         if (d < best) { best = d; nearby = i; }
     }
+}
+
+void npc_set_facing(int id, int facing) {
+    if (id < 0 || id >= count) return;
+    n[id].rest_facing = facing;
+    if (!n[id].in_range) n[id].facing = facing;
 }
 
 int npc_nearby(void) { return nearby; }

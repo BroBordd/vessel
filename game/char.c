@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "char.h"
+#include <math.h>
 
 /* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs.
  * legend: h hair, s skin, c shirt, p pants, b boots. Eyes are drawn on top.
@@ -103,18 +104,95 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             fill(r, ox + hx * s, oy + 4 * s, s, s);
         }
     }
+
+    /* white shades over the eyes (rows 4-5): one wide bar from the front, one lens + temple from the side */
+    if ((p->acc & ACC_SHADES) && facing != FACE_UP) {
+        SDL_SetRenderDrawColor(r, 250, 250, 255, 255);
+        if (facing == FACE_DOWN) {
+            fill(r, ox + 1 * s, oy + 4 * s, 3 * s, 2 * s);
+            fill(r, ox + 6 * s, oy + 4 * s, 3 * s, 2 * s);
+            fill(r, ox + 4 * s, oy + 4 * s, 2 * s, s);               /* bridge */
+        } else {
+            int lx = flip ? SPR_W - 1 - 8 : 5;                       /* lens: sprite columns 5..8 */
+            fill(r, ox + lx * s, oy + 4 * s, 4 * s, 2 * s);
+            int tx = flip ? SPR_W - 1 - 4 : 2;                       /* temple arm back over the hair */
+            fill(r, ox + tx * s, oy + 4 * s, 3 * s, s);
+        }
+        SDL_SetRenderDrawColor(r, 170, 180, 205, 255);               /* a little shade under the lens */
+        if (facing == FACE_DOWN) {
+            fill(r, ox + 1 * s, oy + 5 * s, 3 * s, s / 2 > 0 ? s / 2 : 1);
+            fill(r, ox + 6 * s, oy + 5 * s, 3 * s, s / 2 > 0 ? s / 2 : 1);
+        }
+    }
+}
+
+/* floating halo above the head, drawn separately because it sits outside the sprite box */
+static void draw_halo(SDL_Renderer *r, int ox, int oy, int s) {
+    int bob = ((SDL_GetTicks() / 450) & 1) ? s / 2 : 0;
+    int y = oy - 4 * s - bob;
+    SDL_SetRenderDrawColor(r, 255, 236, 140, 70);                    /* soft glow */
+    fill(r, ox + 1 * s, y - s, 8 * s, 5 * s);
+    SDL_SetRenderDrawColor(r, 255, 214, 70, 255);
+    fill(r, ox + 3 * s, y, 4 * s, s);                                /* top arc */
+    fill(r, ox + 2 * s, y + s, s, s);
+    fill(r, ox + 7 * s, y + s, s, s);
+    fill(r, ox + 1 * s, y + 2 * s, s, s);                            /* sides */
+    fill(r, ox + 8 * s, y + 2 * s, s, s);
+    fill(r, ox + 2 * s, y + 3 * s, s, s);
+    fill(r, ox + 7 * s, y + 3 * s, s, s);
+    fill(r, ox + 3 * s, y + 4 * s - s / 2, 4 * s, s);                /* bottom arc */
+    SDL_SetRenderDrawColor(r, 255, 250, 205, 255);                   /* highlight */
+    fill(r, ox + 3 * s, y, 2 * s, s);
+}
+
+void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
+                   int facing, int moving, float walk, int s) {
+    int frame = moving ? ((int)walk & 1) : 0;
+    int bob = (moving && frame) ? 1 : 0;
+    int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s - bob * s;
+    draw_sprite(r, p, facing, ox, oy, s, SPR_H, moving ? frame : -1);
+    if (p->acc & ACC_HALO) draw_halo(r, ox, oy, s);
 }
 
 void char_draw(SDL_Renderer *r, const Person *p, int x, int y,
                int facing, int moving, float walk, int s) {
-    int frame = moving ? ((int)walk & 1) : 0;
-    int bob = (moving && frame) ? 1 : 0;
-
     SDL_SetRenderDrawColor(r, 0, 0, 0, 80);                    /* shadow */
     fill(r, x - 4 * s, y - s, 8 * s, 2 * s);
+    char_draw_air(r, p, x, y, facing, moving, walk, s);
+}
 
-    draw_sprite(r, p, facing, x - (SPR_W / 2) * s, y - SPR_H * s - bob * s, s, SPR_H,
-                moving ? frame : -1);
+void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift) {
+    if (lift < 0) lift = 0;
+    if (lift > 1) lift = 1;
+    int up = (int)(lift * 3.0f + 0.5f) * s;                      /* upper body rises, legs stay */
+    int ox = x - 6 * s, oy = y - 6 * s;                          /* body is 12 wide, rows -1..5 */
+
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 80);                      /* shadow stays on the ground */
+    fill(r, ox - s, oy + 1 * s, 14 * s, 6 * s);
+
+    use(r, p->pants);                                            /* legs, feet to the right */
+    fill(r, ox + 8 * s, oy + 0 * s, 2 * s, 2 * s);
+    fill(r, ox + 8 * s, oy + 3 * s, 2 * s, 2 * s);
+    use(r, p->boots);
+    fill(r, ox + 10 * s, oy + 0 * s, 2 * s, 2 * s);
+    fill(r, ox + 10 * s, oy + 3 * s, 2 * s, 2 * s);
+
+    use(r, p->shirt);                                            /* torso and sleeves */
+    fill(r, ox + 4 * s, oy + 0 * s - up, 4 * s, 5 * s);
+    fill(r, ox + 4 * s, oy - 1 * s - up, 3 * s, s);
+    fill(r, ox + 4 * s, oy + 5 * s - up, 3 * s, s);
+    use(r, p->skin);                                             /* hands pushing on the ground */
+    fill(r, ox + 2 * s, oy - 1 * s - up / 2, 2 * s, s);
+    fill(r, ox + 2 * s, oy + 5 * s - up / 2, 2 * s, s);
+
+    use(r, p->hair);                                             /* back of the head */
+    fill(r, ox + 0 * s, oy + 0 * s - up, 4 * s, 5 * s);
+    fill(r, ox + 0 * s + s, oy - s / 2 - up, 3 * s, s);
+    if (p->long_hair) fill(r, ox + 3 * s, oy + 0 * s - up, 2 * s, 5 * s);
+    if (lift > 0.35f) {                                          /* face turning up as they rise */
+        use(r, p->skin);
+        fill(r, ox + 0 * s, oy + 2 * s - up, s, 2 * s);
+    }
 }
 
 void char_draw_portrait(SDL_Renderer *r, const Person *p, int x, int y, int s, int talking) {
