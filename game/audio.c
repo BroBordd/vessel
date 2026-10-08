@@ -46,6 +46,41 @@ void sfx_coin(void) {
     SDL_UnlockAudioDevice(dev);
 }
 
+/* ---------- the dialog blip: one short 25%-pulse square "dod" per letter, like every pixel-game text box ----------
+ * its own voice, so it never cuts off the coin ding (and the coin never cuts off a blip). */
+static int   blip_on, blip_pos;
+static float blip_phase, blip_f;
+#define BLIP_T 0.050f                          /* seconds per blip */
+
+void sfx_blip(float pitch) {
+    if (!dev) return;
+    if (pitch < 0.4f) pitch = 0.4f;
+    if (pitch > 2.5f) pitch = 2.5f;
+    SDL_LockAudioDevice(dev);
+    blip_on = 1; blip_pos = 0; blip_phase = 0.0f; blip_f = 520.0f * pitch;
+    SDL_UnlockAudioDevice(dev);
+}
+
+static void blip_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)blip_pos / (float)OUT_RATE;
+        if (tt >= BLIP_T) { blip_on = 0; return; }
+        float env = 1.0f - tt / BLIP_T;                              /* snappy linear decay: the "d" then "od" */
+        env *= env;
+        if (tt < 0.002f) env *= tt / 0.002f;                         /* no click on the way in */
+        float f = blip_f * (1.0f - 0.12f * (tt / BLIP_T));           /* a tiny downward chirp gives it the "dod" */
+        blip_phase += f / (float)OUT_RATE;
+        if (blip_phase >= 1.0f) blip_phase -= 1.0f;
+        float sq = blip_phase < 0.25f ? 1.0f : -1.0f;
+        int v = (int)(sq * env * 0.13f * 32767.0f);
+        for (int c = 0; c < 2; c++) {
+            int o = out[i * 2 + c] + v;
+            out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        blip_pos++;
+    }
+}
+
 static void sfx_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)sfx_pos / (float)OUT_RATE;
@@ -164,6 +199,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
     if (sfx_on) sfx_mix(out, frames);
+    if (blip_on) blip_mix(out, frames);
 }
 
 int audio_init(void) {

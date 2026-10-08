@@ -49,6 +49,14 @@ static int   ucell;                 /* one chunky pixel of the controls (same gr
 
 static float cam_x, cam_y;
 
+/* talking to an npc: the view lerps in on the point halfway between the player and the npc, and back out afterwards */
+#define ZOOM_TALK  1.6f             /* how far we zoom in while talking */
+#define ZOOM_SPEED 5.0f             /* exponential lerp rate (1/s): framerate independent, eases into place */
+static float zoom = 1.0f, zoom_target = 1.0f;
+static float zoom_fx, zoom_fy;      /* the point we zoom toward, world px (kept while zooming back out) */
+static int   talk_npc = -1;         /* npc we are talking to, or -1 */
+static SDL_Texture *ztex; static SDL_Renderer *zren;   /* the scene is drawn here first while zoomed, then scaled up to the screen */
+
 /* the hole that opens in the cloud map. only exists once the script opens it */
 #define HOLE_OPEN_T 1.4f            /* seconds to grow open */
 #define HOLE_RANGE  1.6f            /* tiles: this close and the interact button shows an arrow */
@@ -137,17 +145,6 @@ static void disc(SDL_Renderer *r, int cx, int cy, int rad) {
     for (int dy = -rad; dy <= rad; dy++) {
         int hw = (int)sqrtf((float)(rad * rad - dy * dy));
         fill(r, cx - hw, cy + dy, hw * 2 + 1, 1);
-    }
-}
-static void ring(SDL_Renderer *r, int cx, int cy, int ro, int ri) {
-    for (int dy = -ro; dy <= ro; dy++) {
-        int ho = (int)sqrtf((float)(ro * ro - dy * dy));
-        int hi = abs(dy) < ri ? (int)sqrtf((float)(ri * ri - dy * dy)) : -1;
-        if (hi < 0) fill(r, cx - ho, cy + dy, ho * 2 + 1, 1);
-        else {
-            fill(r, cx - ho, cy + dy, ho - hi, 1);
-            fill(r, cx + hi + 1, cy + dy, ho - hi, 1);
-        }
     }
 }
 
@@ -312,7 +309,7 @@ static void load_map(int which) {
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
-    near_id = -1; btn_down = btn_inside = 0;
+    near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = (mw / 2 + 0.5f) * tile;
     pyp = (mh / 2 + (which == MAP_CLOUD ? 4.9f : 0.9f)) * tile;     /* the cloud spawn sits 4 tiles below the middle */
     facing = FACE_DOWN;
@@ -326,6 +323,7 @@ void world_init(int w, int h) {
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
+    zoom = zoom_target = 1.0f; talk_npc = -1;
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -350,6 +348,7 @@ void world_set_controls_visible(int on) {
     controls_visible = on;
     if (!on) { stick_on = 0; kx = ky = 0; btn_down = 0; }
 }
+float world_debug_zoom(void) { return zoom; }
 int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
 
@@ -388,7 +387,7 @@ void world_touch(int a, int x, int y) {
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_hole) { if (hole_cb) hole_cb(); }
-                else npc_interact(near_id);
+                else { talk_npc = near_id; npc_interact(near_id); }
             }
         }
         return;
@@ -490,6 +489,18 @@ void world_update(float dt) {
         near_id = (dialog_active() || near_hole) ? -1 : npc_nearby();
         if (near_id < 0 && !near_hole) btn_down = btn_inside = 0;
     }
+
+    if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
+        float nx, ny; npc_tile(talk_npc, &nx, &ny);
+        zoom_fx = (pxp + nx * tile) / 2.0f;
+        zoom_fy = (pyp + ny * tile) / 2.0f - 5.0f * px;           /* aim at torsos, not feet */
+        zoom_target = ZOOM_TALK;
+    } else {
+        zoom_target = 1.0f;
+        if (!dialog_active()) talk_npc = -1;
+    }
+    zoom += (zoom_target - zoom) * (1.0f - expf(-ZOOM_SPEED * dt));
+    if (fabsf(zoom_target - zoom) < 0.002f) zoom = zoom_target;
 
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
     float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
@@ -639,18 +650,9 @@ static void draw_interact_button(SDL_Renderer *r) {
     char_draw_portrait(r, npc_person(near_id), bcx - side / 2, bcy - side / 2, ps, 0);
 }
 
-void world_draw(SDL_Renderer *r) {
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-
-    if (phase == PH_FALL) {                                       /* open sky, no map */
-        draw_fall(r);
-        hud_draw(r);
-        if (t < 1.0f) { col(r, 0, 0, 0, (int)(255 * (1.0f - t))); fill(r, 0, 0, W, H); }
-        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
-        return;
-    }
-
-    int cx = (int)cam_x, cy = (int)cam_y;
+/* everything that lives on the map (tiles, hole, characters) seen from a camera at (camx, camy) */
+static void draw_scene(SDL_Renderer *r, float camx, float camy) {
+    int cx = (int)camx, cy = (int)camy;
     if (phase == PH_LAND && ph_t < 0.5f) {                        /* thud: the screen shakes */
         float k = (0.5f - ph_t) / 0.5f;
         cx += (int)(sinf(ph_t * 95.0f) * 7.0f * ui * k);
@@ -709,6 +711,47 @@ void world_draw(SDL_Renderer *r) {
 
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
+}
+
+void world_draw(SDL_Renderer *r) {
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+
+    if (phase == PH_FALL) {                                       /* open sky, no map */
+        draw_fall(r);
+        hud_draw(r);
+        if (t < 1.0f) { col(r, 0, 0, 0, (int)(255 * (1.0f - t))); fill(r, 0, 0, W, H); }
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+        return;
+    }
+
+    float zk = (zoom - 1.0f) / (ZOOM_TALK - 1.0f);
+    if (zk > 0.004f && !(phase == PH_LAND || phase == PH_GETUP || phase == PH_SINK)) {
+        if (zren != r || !ztex) {
+            if (ztex) SDL_DestroyTexture(ztex);
+            ztex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, W, H); zren = r;
+        }
+    }
+    if (zk > 0.004f && ztex && phase == PH_PLAY) {
+        /* the camera centre slides from the player to the focus point as the zoom grows (never past the map edge),
+         * the scene is drawn at normal scale, then the middle W/zoom x H/zoom of it is stretched to the screen */
+        if (zk > 1) zk = 1;
+        float ccx = (cam_x + W / 2.0f) + (zoom_fx - (cam_x + W / 2.0f)) * zk - W / 2.0f;
+        float ccy = (cam_y + H / 2.0f) + (zoom_fy - (cam_y + H / 2.0f)) * zk - H / 2.0f;
+        float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
+        if (ccx > mx) ccx = mx;
+        if (ccx < 0)  ccx = 0;
+        if (ccy > my) ccy = my;
+        if (ccy < 0)  ccy = 0;
+        SDL_SetRenderTarget(r, ztex);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        draw_scene(r, ccx, ccy);
+        SDL_SetRenderTarget(r, NULL);
+        SDL_Rect src = { (int)(W / 2.0f - W / (2.0f * zoom)), (int)(H / 2.0f - H / (2.0f * zoom)), (int)(W / zoom), (int)(H / zoom) };
+        SDL_RenderCopy(r, ztex, &src, NULL);
+    } else {
+        draw_scene(r, cam_x, cam_y);
+    }
+
 
     if (controls_visible && !dialog_active()) {
         col(r, 255, 255, 255, 40);  pdisc(r, sx, sy, sr, ucell);

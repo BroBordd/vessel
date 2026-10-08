@@ -14,6 +14,7 @@ void world_draw(SDL_Renderer *r);
 enum { MAP_GREEN, MAP_CLOUD };
 
 /* scripting helpers (used from story.c) */
+float world_debug_zoom(void);              /* current zoom (1 = none), for tests */
 void world_set_controls_visible(int on);   /* analog stick + interact button */
 int  world_player_tile_x(void);
 int  world_player_tile_y(void);

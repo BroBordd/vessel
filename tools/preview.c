@@ -35,6 +35,17 @@ int main(void) {
     for (int i = 0; i < 2; i++) { run(1.5f); tap(W / 2, H / 2); }   /* dismiss "Hello" and "You have been summoned" */
     run(1.0f);
     shot("build/shot_world.bmp");
+    {   /* walk up to Dea, press the interact button, and watch the zoom lerp in */
+        int u1 = 26 * W / 360, sr = 58 * W / 360, sx = u1 + sr, sy = H - u1 - sr;
+        world_touch(0, sx, sy); world_touch(2, sx, sy - 60);
+        run(1.9f);
+        world_touch(1, sx, sy - 60); run(0.3f);
+        int br = 44 * W / 360, bx = W - u1 - br, by = H - u1 - br;
+        tap(bx, by);
+        for (int i = 0; i < 12; i++) { run(0.1f); printf("zoom %.3f\n", world_debug_zoom()); }
+        run(3.0f);
+        shot("build/shot_zoom.bmp");
+    }
     /* the conversation screens, driven directly (no need to walk to Dea) */
     extern const Person DEA, VESSEL;
     static Persona mind = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };

@@ -3,6 +3,8 @@
 #include "dialog.h"
 #include "font.h"
 #include "talk.h"
+#include "audio.h"
+#include <ctype.h>
 #include <string.h>
 
 #define DIALOG_CPS  28.0f           /* typing speed, characters per second */
@@ -17,6 +19,7 @@ static void (*on_done)(void);
 static void (*page_hook)(int);      /* see dialog_on_page */
 static void (*reply_hook)(int, const char *);   /* see dialog_on_reply */
 static const char *const *sugg; static int nsugg;
+static int   blipped;               /* how many letters of this page already had their blip */
 static int   reply_mode, gen, btn_press;        /* reply_mode: the current page's DialogLine.reply; gen: bumps on every dialog_play */
 static SDL_Rect talk_btn, skip_btn;
 static float open_t, t;             /* open_t: since the dialog opened, t: since this page began */
@@ -103,7 +106,7 @@ static void layout_box(void) {
 
 static void start_page(void) {
     reply_mode = lines[idx].reply;
-    btn_press = 0;
+    btn_press = 0; blipped = 0;
     layout_base(lines[idx].who != NULL);
     wrap_text(lines[idx].text, L.maxchars);
     layout_box();
@@ -187,6 +190,18 @@ void dialog_update(float dt) {
     talk_update(dt);                            /* the keyboard may still be sliding away after the dialog ended */
     if (!active) return;
     open_t += dt; t += dt;
+    if (!talk_active() && open_t > 0.1f) {          /* a blip for every letter that just appeared (one voice, so at most one per frame) */
+        int upto = (int)(t * DIALOG_CPS); if (upto > total) upto = total;
+        int play = -1;
+        for (; blipped < upto; blipped++) if (isalnum((unsigned char)wrapped[blipped])) play = blipped;
+        if (play >= 0) {
+            const char *nm = lines[idx].who ? lines[idx].who->name : "";
+            unsigned h = 7; for (; *nm; nm++) h = h * 31 + (unsigned char)*nm;
+            float voice = 0.82f + (float)(h % 9) * 0.05f;                         /* every speaker has their own pitch */
+            float letter = ((unsigned char)wrapped[play] * 7 % 5) * 0.035f;        /* and the letters wobble around it */
+            sfx_blip(voice + letter);
+        }
+    }
 }
 
 /* ---------- drawing ---------- */

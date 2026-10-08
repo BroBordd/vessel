@@ -137,6 +137,7 @@ static const DialogLine HELLO[]  = { { NULL, "Hello, " VESSEL_LATIN "!" } };
 static const DialogLine SUMMON[] = { { NULL, "You have been summoned. Talk to Goddess." } };
 
 static void intro_done(void) {
+    music_set_volume(0.65f);                    /* the cloud music drops to 65% the moment the "Talk to Goddess" window is dismissed. it stays there. */
     world_set_controls_visible(1);              /* stick and interact button become usable */
     mission_talk_dea = mission_add("Talk to Goddess");
     /* Dea stands 8 tiles above where we spawned, looking down at us */
@@ -146,9 +147,8 @@ static void intro_done(void) {
     npc_set_facing(id, FACE_DOWN);
 }
 
-/* the music starts at 100% and drops to 65% the moment the hello message is dismissed. it stays there. */
+/* the music stays at 100% through the hello message; it drops in intro_done, after "Talk to Goddess" */
 static void hello_done(void) {
-    music_set_volume(0.65f);
     dialog_play(SUMMON, 1, intro_done);
 }
 
