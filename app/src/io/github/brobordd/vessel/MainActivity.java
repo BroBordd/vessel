@@ -158,12 +158,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     while (running) {
                         map.rewind();
                         bmp.copyPixelsFromBuffer(map);
-                        Canvas c = holder.lockCanvas();
+                        // GPU-backed canvas (API 26+); CPU lockCanvas() was the bottleneck.
+                        // Posting is paced by the buffer queue (vsync), so no sleep there.
+                        boolean hw = Build.VERSION.SDK_INT >= 26;
+                        Canvas c = hw ? holder.lockHardwareCanvas() : holder.lockCanvas();
                         if (c != null) {
                             c.drawBitmap(bmp, null, dst, null);
                             holder.unlockCanvasAndPost(c);
                         }
-                        try { Thread.sleep(16); } catch (InterruptedException e) { return; }
+                        if (!hw) {
+                            try { Thread.sleep(16); } catch (InterruptedException e) { return; }
+                        }
                     }
                 }
             }).start();
