@@ -19,6 +19,33 @@ float music_volume(void);
  * track changes until resumed, so a new map's music does not blast over someone who paused it */
 void music_pause(int paused);
 int  music_paused(void);
+/* loop flag of the playing track (the jukebox decides who may change it, see jukebox.h) */
+int  music_loop(void);
+void music_set_loop(int on);
+
+/* ---- where we are in the track, and moving around in it ----
+ * music_duration / music_position are in seconds (0 when nothing is playing / the length is unknown).
+ * music_position is what is HEARD (it subtracts the output latency); while a scrub is on it is the tape head. */
+double music_duration(void);
+double music_position(void);
+void   music_seek(double sec);              /* plain jump, no scrub sound (fade-in of ~30 ms) */
+
+/* TAPE SCRUB, for dragging the progress bar. the head chases the finger like a tape deck: it plays backwards when
+ * the finger goes back, faster than normal (higher pitch) when it goes forward, and stops when the finger rests.
+ * going backwards needs the decoded track in memory, so the music window asks for that while it is open:
+ *   music_scrub_prepare()  - start decoding the current track (and every track after it) in a background thread
+ *   music_scrub_release()  - drop the decoded copy
+ * music_scrub_begin returns 0 when the scrub started, -1 when it can not (no copy yet, track too long...):
+ * then the caller should use music_seek when the finger lifts. */
+void   music_scrub_prepare(void);
+void   music_scrub_release(void);
+int    music_scrub_begin(double sec);       /* finger down at `sec` */
+void   music_scrub_to(double sec);          /* finger moved */
+void   music_scrub_end(double sec);         /* finger up: plays on from `sec` (sec < 0: from where the head is) */
+int    music_scrubbing(void);
+float  music_scrub_rate(void);              /* tape speed right now: 1 = normal, negative = backwards */
+float  music_scrub_ready(void);             /* 0..1: how much of the track is decoded (test hook) */
+
 /* file name of what is playing right now (\"third_life.ogg\"), \"\" when nothing is */
 const char *music_current_file(void);
 /* \"divine_tale.ogg\" -> \"Divine Tale\" */

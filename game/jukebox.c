@@ -10,6 +10,7 @@ static char scene_file[128];          /* what the current screen / map wants (""
 static int  scene_loop;
 static char custom_file[128];         /* what the player picked ("" = nothing yet) */
 static int  count;
+static int  custom_loop = 1;          /* the player's loop checkbox (custom mode) */
 
 static int index_of(const char *file) {
     if (!file[0]) return -1;
@@ -19,7 +20,7 @@ static int index_of(const char *file) {
 
 static void play_custom(void) {
     if (!custom_file[0]) return;
-    if (music_play(custom_file, 1) == 0) music_pause(0);      /* the player chose this: they want to hear it */
+    if (music_play(custom_file, custom_loop) == 0) music_pause(0);      /* the player chose this: they want to hear it */
 }
 
 void jukebox_init(void) { count = music_scan(); }
@@ -48,12 +49,17 @@ void jukebox_set_mode(JbMode m) {
         const char *now = music_current_file();
         if (!custom_file[0] && index_of(now) >= 0) {           /* nothing picked yet: keep the song that is on, now locked in */
             snprintf(custom_file, sizeof custom_file, "%s", now);
+            music_set_loop(custom_loop);                       /* it keeps playing, but the loop flag is the player's now */
             return;
         }
         if (!custom_file[0] && count > 0) snprintf(custom_file, sizeof custom_file, "%s", music_scan_file(0));
-        if (strcmp(now, custom_file) != 0) play_custom();      /* same song already playing: leave it running */
+        if (strcmp(now, custom_file) != 0) play_custom();
+        else music_set_loop(custom_loop);                      /* same song already playing: leave it running */
     } else {
-        if (scene_file[0]) { if (strcmp(music_current_file(), scene_file) != 0) { if (music_play(scene_file, scene_loop) == 0) music_pause(0); } }
+        if (scene_file[0]) {
+            if (strcmp(music_current_file(), scene_file) != 0) { if (music_play(scene_file, scene_loop) == 0) music_pause(0); }
+            else music_set_loop(scene_loop);                   /* the map's song is already on: give the loop flag back to the map */
+        }
         else music_stop();                                     /* this screen has no music of its own */
     }
 }
@@ -63,4 +69,15 @@ void jukebox_pick(int i) {
     snprintf(custom_file, sizeof custom_file, "%s", music_scan_file(i));
     mode = JB_CUSTOM;
     play_custom();
+}
+
+int jukebox_loop(void) {
+    if (mode == JB_MAP) return scene_file[0] ? scene_loop : music_loop();
+    return custom_loop;
+}
+int jukebox_loop_locked(void) { return mode == JB_MAP; }
+void jukebox_set_loop(int on) {
+    if (mode != JB_CUSTOM) return;
+    custom_loop = on ? 1 : 0;
+    music_set_loop(custom_loop);
 }

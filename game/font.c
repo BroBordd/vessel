@@ -5,8 +5,8 @@
 #include <string.h>
 #include <stdint.h>
 
-/* 7 rows per glyph, low 5 bits = columns left to right. A-Z, 0-9, then , . ! ? ' - % */
-static const uint8_t G[43][7] = {
+/* 7 rows per glyph, low 5 bits = columns left to right. A-Z, 0-9, then , . ! ? ' - % : */
+static const uint8_t G[44][7] = {
     {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, /* A */
     {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, /* B */
     {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, /* C */
@@ -50,6 +50,7 @@ static const uint8_t G[43][7] = {
     {0x04,0x04,0x08,0x00,0x00,0x00,0x00}, /* ' */
     {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, /* - */
     {0x19,0x19,0x02,0x04,0x08,0x13,0x13}, /* % */
+    {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00}, /* : */
 };
 
 void font_draw(SDL_Renderer *r, const char *s, int x, int y, int cell) {
@@ -66,6 +67,7 @@ void font_draw(SDL_Renderer *r, const char *s, int x, int y, int cell) {
         else if (c == '\'') gi = 40;
         else if (c == '-') gi = 41;
         else if (c == '%') gi = 42;
+        else if (c == ':') gi = 43;
         if (gi < 0) continue;
         for (int row = 0; row < 7; row++)
             for (int col = 0; col < 5; col++)

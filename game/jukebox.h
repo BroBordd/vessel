@@ -36,4 +36,10 @@ int         jukebox_custom_index(void);          /* index of the chosen custom t
 int         jukebox_playing_index(void);         /* index of what is audible right now, -1 if nothing / not in the list */
 void        jukebox_pick(int i);                 /* play track i as the custom track (switches to custom mode) */
 
+/* looping. map mode: the map decides (what it passed to jukebox_scene), the player can not change it. custom mode:
+ * the player's checkbox, on by default */
+int         jukebox_loop(void);                  /* 1 = the music loops, as it is right now */
+int         jukebox_loop_locked(void);           /* 1 = map mode, the checkbox is greyed out */
+void        jukebox_set_loop(int on);            /* custom mode only, ignored otherwise */
+
 #endif

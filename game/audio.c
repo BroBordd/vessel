@@ -59,6 +59,10 @@ static float master = MUSIC_DEFAULT_VOLUME;   /* instant master gain, set via mu
 static volatile int mus_paused;
 static float pg = 1.0f;
 static char  cur_file[128];
+/* where the decoder is in the track, in SOURCE frames (what mus_read has consumed), and the track length */
+static double play_pos;
+static int    mus_len, mus_enc_len;
+static volatile int scrub_on;     /* the tape scrub is running: the audio thread reads the decoded copy instead of the stream */
 
 /* ---------- reading the stream, resampled when the file is not 44100 Hz ----------
  * a custom ogg can be 48000 / 32000 / 22050 Hz. rather than playing it at the wrong speed we read it through a
@@ -83,6 +87,7 @@ static int rs_next(Sint16 *f) {              /* next input frame, 0 at the end o
         if (rs_len <= 0) { rs_len = 0; return 0; }
     }
     f[0] = rs_buf[rs_idx * 2]; f[1] = rs_buf[rs_idx * 2 + 1]; rs_idx++;
+    play_pos += 1.0;
     return 1;
 }
 
@@ -92,9 +97,10 @@ static int mus_read(Sint16 *out, int frames) {
     if (mus_rate == OUT_RATE) {
         while (done < frames) {
             int got = stb_vorbis_get_samples_short_interleaved(mus, 2, out + done * 2, (frames - done) * 2);
-            if (got > 0) { done += got; reseeked = 0; continue; }
+            if (got > 0) { done += got; play_pos += got; reseeked = 0; continue; }
             if (!mus_loop || reseeked) break;       /* end, or broken stream */
             stb_vorbis_seek_start(mus);
+            play_pos = 0;
             reseeked = 1;
         }
         return done;
@@ -105,7 +111,7 @@ static int mus_read(Sint16 *out, int frames) {
             Sint16 f[2];
             if (!rs_next(f)) {
                 if (!mus_loop || reseeked) return done;
-                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; reseeked = 1;
+                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; play_pos = 0; reseeked = 1;
                 if (!rs_next(f)) return done;
             } else reseeked = 0;
             rs_a[0] = rs_b[0]; rs_a[1] = rs_b[1]; rs_b[0] = f[0]; rs_b[1] = f[1];
@@ -302,6 +308,114 @@ void music_spectrum(float *bands) { for (int i = 0; i < MUSIC_BANDS; i++) bands[
 const char *music_title(void) { return title; }
 unsigned music_serial(void) { return serial; }
 
+/* ---------- the tape scrub ----------
+ * stb_vorbis can only decode forwards, and a tape plays backwards, so while the music window is open a background
+ * thread decodes the whole track into plain PCM (cache). the scrub then reads that copy at any speed in any direction
+ * with linear interpolation (that is also where the tape-ish squeal at high speed comes from).
+ *
+ * the head chases the finger: it closes 1/SC_TAU of the gap per second, never faster than SC_MAXR times normal speed,
+ * and the speed itself is smoothed (~30 ms) so it has weight. finger rests -> head arrives -> the tape stops (silence).
+ * everything below sc_* is touched by the audio thread, and by the game thread only under SDL_LockAudioDevice. */
+#define SC_TAU           0.20f                 /* seconds: a 1 s gap makes 5x speed */
+#define SC_MAXR          10.0f                 /* fastest the tape goes, either way */
+#define SC_LEAD          (SC_TAU * SC_MAXR)    /* the head never aims further than this (seconds) from itself */
+#define SC_MAX_BYTES     (96.0 * 1024 * 1024)  /* longer tracks do not get a copy: they only get plain seeking */
+
+static Sint16 *cache;                          /* decoded track, stereo S16, at the file's own rate */
+static int     cache_cap;                      /* frames the copy has room for */
+static volatile int cache_ready;               /* frames decoded so far (written by the decoder thread, release / acquire) */
+static SDL_Thread *dec_thread;
+static volatile int dec_stop;
+static int     want_cache;                     /* the music window is open: keep a copy of whatever plays */
+static double  sc_pos, sc_finger;              /* head and finger, in source frames */
+static float   sc_rate;                        /* smoothed tape speed (1 = normal) */
+
+typedef struct { unsigned char *enc; int enc_len; Sint16 *pcm; int cap; } DecJob;
+
+static int dec_main(void *p) {
+    DecJob *j = (DecJob *)p;
+    int err = 0;
+    SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
+    stb_vorbis *d = stb_vorbis_open_memory(j->enc, j->enc_len, &err, NULL);   /* its own decoder over its own copy of the file */
+    if (d) {
+        int done = 0;
+        while (!dec_stop && done < j->cap) {
+            int want = j->cap - done; if (want > 4096) want = 4096;
+            int got = stb_vorbis_get_samples_short_interleaved(d, 2, j->pcm + (size_t)done * 2, want * 2);
+            if (got <= 0) break;
+            done += got;
+            __atomic_store_n(&cache_ready, done, __ATOMIC_RELEASE);
+        }
+        stb_vorbis_close(d);
+    }
+    free(j->enc); free(j);
+    return 0;
+}
+
+static void cache_free(void) {                 /* game thread */
+    if (dec_thread) { dec_stop = 1; SDL_WaitThread(dec_thread, NULL); dec_thread = NULL; }
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    Sint16 *old = cache;
+    cache = NULL; cache_cap = 0; cache_ready = 0; scrub_on = 0;
+    SDL_UnlockAudioDevice(dev);
+    free(old);
+}
+
+static void cache_start(void) {                /* game thread: a copy of the track that plays right now */
+    cache_free();
+    if (!dev || mus_len <= 0 || mus_enc_len <= 0 || (double)mus_len * 4.0 > SC_MAX_BYTES) return;
+    Sint16 *pcm = (Sint16 *)malloc((size_t)mus_len * 4);
+    unsigned char *enc = pcm ? (unsigned char *)malloc((size_t)mus_enc_len) : NULL;
+    DecJob *j = enc ? (DecJob *)malloc(sizeof *j) : NULL;
+    if (!j) { free(enc); free(pcm); return; }
+    SDL_LockAudioDevice(dev);                  /* the audio thread frees mus_buf when a fade ends: copy it while holding the lock */
+    if (!mus || !mus_buf) { SDL_UnlockAudioDevice(dev); free(j); free(enc); free(pcm); return; }
+    memcpy(enc, mus_buf, (size_t)mus_enc_len);
+    cache = pcm; cache_cap = mus_len; cache_ready = 0;
+    SDL_UnlockAudioDevice(dev);
+    *j = (DecJob){ enc, mus_enc_len, pcm, mus_len };
+    dec_stop = 0;
+    dec_thread = SDL_CreateThread(dec_main, "oggdec", j);
+    if (!dec_thread) { free(enc); free(j); cache_free(); }
+}
+
+/* head -> output, `frames` stereo frames. always fills the whole buffer (silence while the tape is stopped) */
+static int scrub_read(Sint16 *out, int frames) {
+    int ready = __atomic_load_n(&cache_ready, __ATOMIC_ACQUIRE);
+    int hi = ready - 2; if (hi < 0) hi = 0;
+    const double lead = (double)SC_LEAD * mus_rate;
+    const float  ratio = (float)mus_rate / (float)OUT_RATE;
+    const float  k = 1.0f - expf(-1.0f / (0.030f * OUT_RATE));
+    for (int i = 0; i < frames; i++) {
+        double tgt = sc_finger;
+        if (tgt > sc_pos + lead) tgt = sc_pos + lead; else if (tgt < sc_pos - lead) tgt = sc_pos - lead;
+        float want = (float)((tgt - sc_pos) / (double)mus_rate / (double)SC_TAU);
+        sc_rate += (want - sc_rate) * k;
+        sc_pos += (double)sc_rate * ratio;
+        if (sc_pos < 0)  { sc_pos = 0;  sc_rate = 0; }
+        if (sc_pos > hi) { sc_pos = hi; sc_rate = 0; }
+        int ip = (int)sc_pos; float fr = (float)(sc_pos - ip);
+        float gain = fabsf(sc_rate) * 6.0f; if (gain > 1.0f) gain = 1.0f;       /* a (nearly) stopped tape is silent, not a DC buzz */
+        for (int c = 0; c < 2; c++) {
+            float a = ready > 1 ? cache[ip * 2 + c] : 0.0f, b = ready > 1 ? cache[(ip + 1) * 2 + c] : 0.0f;
+            out[i * 2 + c] = (Sint16)((a + (b - a) * fr) * gain);
+        }
+    }
+    return frames;
+}
+
+/* jump the decoder to `fr` source frames. device lock held. fades in over ~30 ms (pg ramps up from 0) */
+static void seek_locked(double fr) {
+    if (!mus) return;
+    if (mus_len > 0 && fr > mus_len - 1) fr = mus_len - 1;
+    if (fr < 0) fr = 0;
+    if (!stb_vorbis_seek(mus, (unsigned)fr)) { stb_vorbis_seek_start(mus); fr = 0; }
+    rs_reset(mus_rate);
+    play_pos = fr;
+    pg = 0.0f;
+}
+
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
     Sint16 *out = (Sint16 *)stream;
@@ -310,10 +424,11 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (!t_first) t_first = SDL_GetPerformanceCounter();
     produced_frames += (Uint64)frames;
 
-    int idle = mus_paused && pg <= 0.0f;                  /* paused and fully ramped down: leave the stream alone */
+    int idle = mus_paused && pg <= 0.0f && !scrub_on;     /* paused and fully ramped down: leave the stream alone (a scrub still sounds) */
     if (mus && !idle) {
-        done = mus_read(out, frames);
-        if (mus_paused || pg < 1.0f) {                    /* the pause / resume ramp (~30 ms), so it never clicks */
+        if (scrub_on) done = scrub_read(out, frames);     /* dragging the progress bar: the tape head, not the stream */
+        else          done = mus_read(out, frames);
+        if (!scrub_on && (mus_paused || pg < 1.0f)) {                    /* the pause / resume ramp (~30 ms), so it never clicks */
             float tgt = mus_paused ? 0.0f : 1.0f, st = 1.0f / (0.030f * OUT_RATE);
             for (int i = 0; i < done; i++) {
                 if (pg < tgt) { pg += st; if (pg > tgt) pg = tgt; }
@@ -332,7 +447,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
                     done = i + 1;                   /* rest of the buffer is zeroed below */
                     stb_vorbis_close(mus); mus = NULL;
                     free(mus_buf); mus_buf = NULL;
-                    fading = 0; fade_vol = 1.0f;
+                    fading = 0; fade_vol = 1.0f; scrub_on = 0;
                     break;
                 }
             }
@@ -418,14 +533,18 @@ int music_play(const char *file, int loop) {
         printf("music: resampling %u Hz -> %d Hz\n", vi.sample_rate, OUT_RATE);
     fflush(stdout);
 
+    cache_free();                                /* the old track's decoded copy is useless now (also ends a scrub) */
+    int total = (int)stb_vorbis_stream_length_in_samples(v);      /* before the stream is shared with the audio thread */
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
     mus = v; mus_buf = buf; mus_loop = loop;
+    mus_len = total > 0 ? total : 0; mus_enc_len = len; play_pos = 0; scrub_on = 0;
     rs_reset((int)vi.sample_rate);
     fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
+    if (want_cache) cache_start();
 
     snprintf(cur_file, sizeof cur_file, "%s", file);
     music_title_of(file, title, sizeof title);
@@ -450,6 +569,83 @@ const char *music_current_file(void) { return mus ? cur_file : ""; }
 float music_volume(void) { return master; }
 int   music_paused(void) { return mus_paused; }
 void  music_pause(int p) { mus_paused = p ? 1 : 0; }     /* the audio thread ramps pg towards the new state */
+
+int  music_loop(void) { return mus_loop; }
+void music_set_loop(int on) {
+    if (!dev) { mus_loop = on ? 1 : 0; return; }
+    SDL_LockAudioDevice(dev);
+    mus_loop = on ? 1 : 0;
+    SDL_UnlockAudioDevice(dev);
+}
+
+/* ---------- position, seeking, scrub (the music window's progress bar) ---------- */
+double music_duration(void) { return mus && mus_len > 0 ? (double)mus_len / (double)mus_rate : 0.0; }
+
+double music_position(void) {
+    double d = music_duration();
+    if (d <= 0.0) return 0.0;
+    double p = scrub_on ? sc_pos / (double)mus_rate : play_pos / (double)mus_rate - (double)audio_latency();
+    return p < 0.0 ? 0.0 : p > d ? d : p;
+}
+
+void music_seek(double sec) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    if (!scrub_on) seek_locked(sec * (double)mus_rate);
+    SDL_UnlockAudioDevice(dev);
+}
+
+void music_scrub_prepare(void) { want_cache = 1; if (!cache && !dec_thread) cache_start(); }
+void music_scrub_release(void) { want_cache = 0; cache_free(); }
+
+int music_scrub_begin(double sec) {
+    if (!dev) return -1;
+    int ret = -1;
+    SDL_LockAudioDevice(dev);
+    int ready = cache ? __atomic_load_n(&cache_ready, __ATOMIC_ACQUIRE) : 0;
+    if (mus && cache && mus_len > 0 && (ready >= 2 * mus_rate || ready >= mus_len)) {    /* wait until there is something to play with */
+        double hi = (double)(ready - 2 > 0 ? ready - 2 : 0);
+        double f = sec * (double)mus_rate;
+        if (f < 0) f = 0;
+        if (f > hi) f = hi;
+        sc_finger = f;
+        if (fabs(f - play_pos) < 2.0 * mus_rate) {           /* finger landed on the head: carry on at the current speed, no jump */
+            sc_pos = play_pos < hi ? play_pos : hi;
+            sc_rate = mus_paused ? 0.0f : 1.0f;
+        } else { sc_pos = f; sc_rate = 0.0f; }               /* a tap somewhere else: the head jumps there and the tape rests */
+        scrub_on = 1;
+        ret = 0;
+    }
+    SDL_UnlockAudioDevice(dev);
+    return ret;
+}
+
+void music_scrub_to(double sec) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    if (scrub_on) {
+        double f = sec * (double)mus_rate;
+        sc_finger = f < 0 ? 0 : f > mus_len - 1 ? mus_len - 1 : f;
+    }
+    SDL_UnlockAudioDevice(dev);
+}
+
+void music_scrub_end(double sec) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    if (scrub_on) {
+        scrub_on = 0;
+        seek_locked(sec < 0 ? sc_pos : sec * (double)mus_rate);
+    }
+    SDL_UnlockAudioDevice(dev);
+}
+
+int   music_scrubbing(void) { return scrub_on; }
+float music_scrub_rate(void) { return scrub_on ? sc_rate : 0.0f; }
+float music_scrub_ready(void) {
+    int r = __atomic_load_n(&cache_ready, __ATOMIC_ACQUIRE);
+    return cache && cache_cap > 0 ? (float)r / (float)cache_cap : 0.0f;
+}
 
 /* ---------- the list of tracks the player can pick from ---------- */
 static char tracks[MUSIC_MAX_TRACKS][128];
@@ -509,7 +705,7 @@ void music_stop(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
-    mus = NULL; mus_buf = NULL; fading = 0; fade_vol = 1.0f;
+    mus = NULL; mus_buf = NULL; fading = 0; fade_vol = 1.0f; scrub_on = 0;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
@@ -517,5 +713,6 @@ void music_stop(void) {
 
 void audio_quit(void) {
     music_stop();
+    want_cache = 0; cache_free();
     if (dev) { SDL_CloseAudioDevice(dev); dev = 0; }
 }
