@@ -293,7 +293,7 @@ static void spectrum_feed(const Sint16 *pcm, int frames) {
             if (mag > peak) peak = mag;
         }
         float db = 20.0f * log10f(peak + 1e-9f);
-        float lvl = (db + 62.0f + 0.7f * b) / 46.0f;                                /* tilt: highs are naturally quieter */
+        float lvl = (db + 58.0f + 0.7f * b) / 58.0f;                                /* tilt: highs are naturally quieter. top = 0 dBFS, so the bars have headroom and follow the volume knob */
         spec[b] = lvl < 0 ? 0 : lvl > 1 ? 1 : lvl;
     }
 }
@@ -339,15 +339,14 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
         if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
-    an_feed(out, done);                               /* drums / notes for the music window (also before master volume) */
-    if (done >= FFT_N) spectrum_feed(out, done);      /* before master volume, so the bars ignore the volume knob */
-    else               for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0;
+    an_feed(out, done);                               /* drums / notes for the music window: the song only, before master volume */
     if (master != 1.0f)
         for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
+    voices_mix(out, frames);                          /* the piano keys the player plays */
+    spectrum_feed(out, frames);                       /* the equalizer: song after the volume knob + the piano keys (not the ding / blips) */
     if (sfx_on) sfx_mix(out, frames);
     if (blip_on) blip_mix(out, frames);
-    voices_mix(out, frames);
 }
 
 int audio_init(void) {
