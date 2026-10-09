@@ -41,6 +41,13 @@ static float seek_f;                                    /* where the finger is o
 static int   flash_kind;                                /* what the flashing hint says: 0 map-mode track list, 1 loop is the map's */
 static int   ctrl_h, mode_h, rowh, lrows, scroll_max;
 static int   list_scroll, list_down_y, list_scroll0, list_moved, list_row;
+/* fling: after a drag the list keeps going, like an android list. velocity is px/s of list_scroll (positive = further down the list),
+ * measured from the last drag events, and it fades with friction */
+#define FLING_FRICTION 3.2f                             /* 1/s: the speed falls to 1/e every 0.31 s (a 2000 px/s flick travels ~625 px) */
+#define FLING_MIN      18.0f                            /* px/s: slower than this the list stops */
+static float list_vel, list_scrollf;
+static int   fling_on;
+static Uint32 drag_t;                                   /* ms of the last drag event */
 static float flash;                                     /* the status line shows a hint for a moment after a blocked tap */
 static int   grab;                                      /* what the current touch started on: 0 nothing, 1 piano, 2 close, 3 outside,
                                                            4 pause, 5 volume slider, 6 MAP button, 7 CUSTOM button, 8 track list,
@@ -78,6 +85,7 @@ static int key_at(int x, int y) {
     return -1;
 }
 int musicwin_debug_key_at(int x, int y) { return key_at(x, y); }
+int musicwin_debug_scroll(void) { return list_scroll; }
 
 /* ---------- layout ---------- */
 static void layout(void) {
@@ -158,7 +166,7 @@ static void layout(void) {
 
 void musicwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1; flash = 0; list_scroll = 0;
+    is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1; flash = 0; list_scroll = 0; fling_on = 0;
     memset(lvl, 0, sizeof lvl); memset(peak, 0, sizeof peak); memset(hold, 0, sizeof hold);
     memset(nv, 0, sizeof nv); memset(dr, 0, sizeof dr); memset(rg, 0, sizeof rg);
     layout();
@@ -170,7 +178,7 @@ void musicwin_open(void) {
     layout();
     is_open = 1; closing = 0; grab = 0; held_midi = -1; t = 0; flash = 0;
     int sel = jukebox_mode() == JB_CUSTOM ? jukebox_custom_index() : jukebox_playing_index();
-    list_scroll = 0;
+    list_scroll = 0; fling_on = 0;
     if (sel >= 0) {                                         /* bring the current track into view */
         int top = sel * rowh, view = list_r.h - 2 * bt;
         if (top + rowh > view) list_scroll = top + rowh - view;
@@ -215,7 +223,11 @@ int musicwin_touch(int a, int x, int y) {
         else if (inside(loop_r, x, y)) grab = 10;
         else if (inside(mode_r[0], x, y)) grab = 6;
         else if (inside(mode_r[1], x, y)) grab = 7;
-        else if (inside(list_r, x, y)) { grab = 8; list_down_y = y; list_scroll0 = list_scroll; list_moved = 0; list_row = row_at(y); }
+        else if (inside(list_r, x, y)) {
+            grab = 8; list_down_y = y; list_scroll0 = list_scroll; list_moved = 0; list_row = row_at(y);
+            list_vel = 0; drag_t = SDL_GetTicks();
+            if (fling_on) { fling_on = 0; list_row = -1; }          /* touching a flying list stops it, and is not a tap on a row */
+        }
         else if (!inside(win, x, y)) grab = 3;
         else grab = 0;
         return 1;
@@ -232,10 +244,17 @@ int musicwin_touch(int a, int x, int y) {
         } else if (grab == 8) {
             int dy = y - list_down_y, thr = (int)(4 * u); if (thr < 4) thr = 4;
             if (list_moved || dy > thr || dy < -thr) {          /* a drag scrolls the list, a tap picks a track */
+                int before = list_scroll;
                 list_moved = 1;
                 list_scroll = list_scroll0 - dy;
                 if (list_scroll < 0) list_scroll = 0;
                 if (list_scroll > scroll_max) list_scroll = scroll_max;
+                Uint32 now = SDL_GetTicks();
+                if (now > drag_t) {                             /* smoothed finger velocity (events are irregular) */
+                    float inst = (float)(list_scroll - before) * 1000.0f / (float)(now - drag_t);
+                    list_vel = list_vel * 0.4f + inst * 0.6f;
+                    drag_t = now;
+                }
             }
         }
         return 1;
@@ -256,6 +275,14 @@ int musicwin_touch(int a, int x, int y) {
         else if (a == 1 && grab == 7 && inside(mode_r[1], x, y)) {
             if (jukebox_count() > 0) { jukebox_set_mode(JB_CUSTOM); flash = 0; } else set_flash(0);
         }
+        else if (grab == 8 && list_moved) {
+            float cap = 9.0f * (float)rowh * 12.0f, v = list_vel;   /* a sane top speed */
+            if (v > cap) v = cap;
+            if (v < -cap) v = -cap;
+            if (a == 1 && SDL_GetTicks() - drag_t < 90 && fabsf(v) > 60.0f && scroll_max > 0) {   /* the finger was still moving when it lifted */
+                list_vel = v; list_scrollf = (float)list_scroll; fling_on = 1;
+            }
+        }
         else if (a == 1 && grab == 8 && !list_moved && list_row >= 0) {
             if (jukebox_mode() == JB_CUSTOM) jukebox_pick(list_row);
             else set_flash(0);                                  /* map mode: explain how to pick */
@@ -271,6 +298,14 @@ void musicwin_update(float dt) {
     if (!is_open && !closing) return;
     t += dt;
     if (flash > 0) flash -= dt;
+    if (fling_on && grab != 8) {                                                   /* the list coasting after a flick */
+        list_scrollf += list_vel * dt;
+        list_vel *= expf(-FLING_FRICTION * dt);
+        if (list_scrollf <= 0.0f)                { list_scrollf = 0.0f;                fling_on = 0; }   /* hit an end: stop there */
+        else if (list_scrollf >= (float)scroll_max) { list_scrollf = (float)scroll_max; fling_on = 0; }
+        if (fabsf(list_vel) < FLING_MIN) fling_on = 0;
+        list_scroll = (int)(list_scrollf + 0.5f);
+    }
     float target = is_open ? 1.0f : 0.0f;
     anim += (target - anim) * (1.0f - expf(-14.0f * dt));
     if (fabsf(target - anim) < 0.01f) anim = target;

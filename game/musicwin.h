@@ -26,5 +26,6 @@ void musicwin_draw(SDL_Renderer *r);
 
 /* test hooks */
 int  musicwin_debug_key_at(int x, int y);  /* midi note under a screen point, -1 if none */
+int  musicwin_debug_scroll(void);          /* track list scroll offset in px */
 
 #endif
