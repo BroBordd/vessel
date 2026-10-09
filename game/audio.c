@@ -20,6 +20,7 @@
 #endif
 
 #include "audio.h"
+#include "analyze.h"
 
 #define OUT_RATE 44100
 #ifndef F_SETPIPE_SZ
@@ -128,6 +129,57 @@ static void sfx_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the piano in the music window ----------
+ * a few overlapping voices (a chord or a slide of the finger works), each a soft piano-ish tone:
+ * a few harmonics with a quick attack, a slow fade while the key is held, a short release after.
+ * mixed after the master volume like the other effects, and NOT fed to the analyzer, so the keys
+ * you play never light up as if they were part of the song. */
+#define VOICES 8
+typedef struct { int on, midi, held; float ph, t, rel, f; } Voice;
+static Voice voice[VOICES];
+
+void sfx_note_on(int midi) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    int pick = -1;
+    for (int i = 0; i < VOICES && pick < 0; i++) if (!voice[i].on) pick = i;
+    if (pick < 0) { float oldest = -1; for (int i = 0; i < VOICES; i++) if (voice[i].t > oldest) { oldest = voice[i].t; pick = i; } }
+    voice[pick] = (Voice){ 1, midi, 1, 0.0f, 0.0f, 1.0f, 440.0f * powf(2.0f, (float)(midi - 69) / 12.0f) };
+    SDL_UnlockAudioDevice(dev);
+}
+
+void sfx_note_off(int midi) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    for (int i = 0; i < VOICES; i++) if (voice[i].on && voice[i].held && voice[i].midi == midi) voice[i].held = 0;
+    SDL_UnlockAudioDevice(dev);
+}
+
+static void voices_mix(Sint16 *out, int frames) {
+    for (int vi = 0; vi < VOICES; vi++) {
+        Voice *v = &voice[vi];
+        if (!v->on) continue;
+        float step = v->f / (float)OUT_RATE;
+        float decay = 1.4f + v->f / 900.0f;                         /* higher notes die away faster */
+        for (int i = 0; i < frames; i++) {
+            float tt = v->t;
+            float env = expf(-tt * decay);
+            if (tt < 0.004f) env *= tt / 0.004f;                    /* no click on the way in */
+            if (!v->held) { v->rel *= 0.99935f; if (v->rel < 0.002f) { v->on = 0; break; } }   /* ~50 ms release */
+            else if (env < 0.003f && tt > 0.05f) { v->on = 0; break; }
+            v->ph += step; if (v->ph >= 1.0f) v->ph -= 1.0f;
+            float a = 6.2831853f * v->ph;
+            float w = sinf(a) + 0.45f * sinf(2 * a) + 0.2f * sinf(3 * a) + 0.08f * sinf(4 * a);
+            int val = (int)(w * env * v->rel * 0.17f * 32767.0f);
+            for (int c = 0; c < 2; c++) {
+                int o = out[i * 2 + c] + val;
+                out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+            }
+            v->t += 1.0f / (float)OUT_RATE;
+        }
+    }
+}
+
 /* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ---------- */
 #define FFT_N 512
 static volatile float spec[MUSIC_BANDS];
@@ -221,6 +273,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
         if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
+    an_feed(out, done);                               /* drums / notes for the music window (also before master volume) */
     if (done >= FFT_N) spectrum_feed(out, done);      /* before master volume, so the bars ignore the volume knob */
     else               for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0;
     if (master != 1.0f)
@@ -228,6 +281,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
     if (sfx_on) sfx_mix(out, frames);
     if (blip_on) blip_mix(out, frames);
+    voices_mix(out, frames);
 }
 
 int audio_init(void) {

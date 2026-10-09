@@ -17,6 +17,10 @@ void audio_quit(void);
 /* sound effects, synthesised (no files). they play on top of the music and ignore music volume */
 void sfx_coin(void);                    /* the little coin ding */
 void sfx_blip(float pitch);             /* the clean "deek" for dialog letters. pitch ~0.7..1.4 (1.0 = 256.5 Hz) */
+/* piano notes for the music window: the note rings while the key is held (a short release after).
+ * midi 60 = middle C. several can sound at once. not part of the music analysis. */
+void sfx_note_on(int midi);
+void sfx_note_off(int midi);
 float audio_latency(void);              /* seconds between mixing a sound and hearing it (measured; 0 until known) */
 
 /* live analysis of what is actually being played (the real decoded stream, not a fake animation).

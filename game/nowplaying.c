@@ -3,6 +3,7 @@
 #include "nowplaying.h"
 #include "audio.h"
 #include "font.h"
+#include "musicwin.h"
 #include <math.h>
 #include <string.h>
 
@@ -16,6 +17,7 @@ enum { HIDDEN, IN, OUT };
 static int   W, H, state;
 static float u, x, st;
 static unsigned seen;
+static int   pdown;                                           /* a touch that started on the card */
 static char  title[48];
 static float lvl[MUSIC_BANDS], peak[MUSIC_BANDS], hold[MUSIC_BANDS];
 
@@ -130,4 +132,14 @@ void nowplaying_draw(SDL_Renderer *r) {
         fillr(r, cx, ey + eq_h, q, 1);
     }
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+}
+
+static int on_card(int tx, int ty) { return state != HIDDEN && tx >= (int)x && tx < (int)x + pw && ty >= top && ty < top + ph; }
+
+int nowplaying_touch(int a, int tx, int ty) {
+    if (a == 0) { if (on_card(tx, ty)) { pdown = 1; return 1; } return 0; }
+    if (!pdown) return 0;
+    if (a == 1) { pdown = 0; if (on_card(tx, ty)) musicwin_open(); return 1; }
+    if (a == 3) pdown = 0;
+    return 1;
 }

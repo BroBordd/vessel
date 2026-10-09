@@ -16,4 +16,8 @@ void nowplaying_draw(SDL_Renderer *r);
  * follows the card as it slides in and out, 0 when the card is gone. */
 int  nowplaying_offset(void);
 
+/* tapping the card opens the music window (musicwin.h). returns 1 when the touch belonged to the card, so the
+ * game underneath should not also see it. a = Android MotionEvent action. */
+int  nowplaying_touch(int a, int x, int y);
+
 #endif

@@ -387,7 +387,14 @@ void world_touch(int a, int x, int y) {
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_hole) { if (hole_cb) hole_cb(); }
-                else { talk_npc = near_id; npc_interact(near_id); }
+                else {
+                    talk_npc = near_id;
+                    float nx, ny; npc_tile(near_id, &nx, &ny);       /* turn to face them before the talk starts */
+                    float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
+                    if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
+                    else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
+                    npc_interact(near_id);
+                }
             }
         }
         return;

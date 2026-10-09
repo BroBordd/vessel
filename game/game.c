@@ -15,6 +15,7 @@
 #include "world.h"
 #include "loading.h"
 #include "nowplaying.h"
+#include "musicwin.h"
 #include "lang.h"
 #include "gfx.h"
 
@@ -87,6 +88,7 @@ int main(int argc, char **argv) {
     lang_seed((unsigned)SDL_GetTicks() * 2654435761u + 12345u);
     menu_init(W, H);
     nowplaying_init(W, H);
+    musicwin_init(W, H);
     State state = ST_MENU;
 
     fcntl(0, F_SETFL, O_NONBLOCK);
@@ -112,7 +114,11 @@ int main(int argc, char **argv) {
                 *nl = 0;
                 int a, x, y;
                 if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
-                    if (state == ST_MENU) {
+                    if (musicwin_touch(a, x, y)) {
+                        /* the music window is open: it takes every touch */
+                    } else if (nowplaying_touch(a, x, y)) {
+                        /* the card was tapped: it opens the music window */
+                    } else if (state == ST_MENU) {
                         MenuAction act = menu_touch(a, x, y);
                         if (act == MENU_PLAY) {
                             printf("menu: play\n"); fflush(stdout);
@@ -148,6 +154,7 @@ int main(int argc, char **argv) {
             world_update(dt); world_draw(r);
         }
         nowplaying_update(dt); nowplaying_draw(r);       /* on top of every screen */
+        musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
         SDL_RenderPresent(r);
         if (!gpu) memcpy(px, back, fbsz);
 
