@@ -7,6 +7,7 @@
 #include "npc.h"
 #include "story.h"
 #include "nowplaying.h"
+#include "toast.h"
 #include "hud.h"
 #include "minimap.h"
 #include "audio.h"
@@ -338,6 +339,7 @@ void world_init(int w, int h) {
 
     dialog_init(w, h);
     missions_init(w, h);
+    toast_init(w, h);
     hud_init(w, h, &VAS);                       /* the ID card starts out as plain "Vas" */
     {   /* the minimap hangs right under the ID card, same right edge */
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
@@ -473,6 +475,7 @@ void world_update(float dt) {
     story_update(dt);
     dialog_update(dt);
     missions_update(dt);
+    toast_update(dt);
     hud_update(dt);
     if (hole_on && hole_t < HOLE_OPEN_T) hole_t += dt;
 
@@ -782,6 +785,7 @@ void world_draw(SDL_Renderer *r) {
     }
     missions_set_offset(nowplaying_offset());                     /* slide under the now-playing card */
     missions_draw(r);
+    toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
     hud_draw(r);                                                  /* ID card, top-right */
 
     if (t < 1.0f) {                                               /* fade in from black */

@@ -6,6 +6,7 @@
  *
  *   dialog_play(lines, count, on_done)      show pages of text (centred window or face popup)
  *   mission_add("Text") / mission_complete(id)   the top-left checklist
+ *   task_toast("Text")                      like mission_add, plus a coin ding and a "New task added" toast (toast.h)
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
  *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
  *   story_after(seconds, fn)                run something later
@@ -22,6 +23,7 @@
 #include "story.h"
 #include "dialog.h"
 #include "missions.h"
+#include "toast.h"
 #include "npc.h"
 #include "world.h"
 #include "audio.h"

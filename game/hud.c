@@ -158,7 +158,7 @@ static void draw_name(SDL_Renderer *r) {
 }
 
 /* 7x7 coin; squashed horizontally over time so it looks like it is spinning */
-static void draw_coin(SDL_Renderer *r, int tx, int ty, float tt) {
+void hud_draw_coin(SDL_Renderer *r, int tx, int ty, int q, float tt) {
     static const char *P[7] = {
         "..ooo..", ".oOhOo.", "oOhOOOo", "oOhxOOo", "oOhOOOo", ".oOOOo.", "..ooo..",
     };
@@ -204,7 +204,7 @@ static void draw_toast(SDL_Renderer *r) {
 
     /* the coin and the text fade with the toast: fade is done by dimming toward the panel colour */
     int cx = bx + 4 * q, cy = by + 3 * q;
-    draw_coin(r, cx, cy, toast_t);
+    hud_draw_coin(r, cx, cy, q, toast_t);
     if (A < 255) { col(r, 12, 14, 30, 255 - A); SDL_Rect cv = { cx, cy, 7 * q, 7 * q }; SDL_RenderFillRect(r, &cv); }   /* fade */
     int tx = bx + 13 * q, ty = by + 3 * q;
     col(r, 255, 255, 255, A);   font_draw(r, pre, tx, ty, q);

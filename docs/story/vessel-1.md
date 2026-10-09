@@ -90,7 +90,7 @@ Mark `[x]` when the chunk is pushed.
 - [x] **1. Story doc** — this file.
 - [x] **2. Grasslands + empty landing zone** — player-facing name "the Grasslands"; remove Alex from the landing area (no NPCs near the fall spot; Alex is not spawned yet).
 - [x] **3. Dialog highlight markup** — engine: mark spans of a dialog line (e.g. `{...}` or a tag) to draw highlighted (green+underlined), plus an optional callback when the highlighted span has been typed out.
-- [ ] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
+- [x] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
 - [ ] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
 - [ ] **6. Landing complaint** — after getting up from the fall: "That hurts" + complaint dialog with the player's face, then controls return.
 - [ ] **7. Thinking bar (engine)** — `game/thought.c/.h`: `thought_say(text, seconds)`, slides in/out, portrait, non-interactive, doesn't overlap the ID card / now-playing card.
@@ -120,7 +120,8 @@ Mark `[x]` when the chunk is pushed.
 - `game/dialog.c/.h` — paged dialog, `DialogLine`, `dialog_on_page`, `dialog_on_reply`, `{highlight}` markup + `dialog_on_highlight(fn(page, span))`.
 - `game/convo.c/.h`, `game/talk.c/.h`, `game/lang*.c` — free typed chat with NPC personas.
 - `game/npc.c/.h` — static NPCs (`npc_add`, facing). No movement/removal yet.
-- `game/missions.c/.h` — top-left checklist (`mission_add`, `mission_complete`).
+- `game/missions.c/.h` — top-left checklist (`mission_add`, `mission_complete`, `missions_bottom`).
+- `game/toast.c/.h` — "New task added" toast under the checklist: `task_toast("Find the orb")` = `mission_add` + coin ding + toast (extra toasts queue).
 - `game/hud.c/.h` — ID card (`hud_set_person`, `hud_set_hp`, name-change toast).
 - `game/world.c/.h` — maps, camera, hole, fall (`world_fall_to_green`).
 - `game/audio.c/.h` — music + synthesized sfx (`sfx_coin`, `sfx_blip`).
@@ -130,3 +131,4 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-09: story written, chunks planned.
 - 2026-10-09: chunk 2 done (GRASSLANDS / SKYLAND_NAME + world_map_name in world.h; Alex placeholder chat and spawn removed from story.c, `landed()` is an empty stub). Next: chunk 3.
 - 2026-10-09: chunk 3 done (`{...}` markup in `DialogLine.text` draws green + underlined, spans may wrap over lines; `dialog_on_highlight(fn(page, span))` fires once when a span has been typed out; tested with `tools/dialogtest.c`). Next: chunk 4.
+- 2026-10-09: chunk 4 done (`task_toast(text)` in `game/toast.c`: adds the mission, plays the coin ding, drops a NEW TASK ADDED panel under the checklist, queues up to 4; `hud_draw_coin` is now shared; `tools/toasttest.c` renders it on a PC). Next: chunk 5.

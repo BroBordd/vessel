@@ -15,6 +15,9 @@ void hud_set_hp(int hp, int hp_max);              /* the bar eases down, leaving
 /* where the card is (screen px), so other widgets can sit next to it */
 void hud_card_rect(int *x, int *y, int *w, int *h);
 
+/* the little spinning coin (7x7 cells of `cell` px, tt = seconds since it appeared), shared with the task toast */
+void hud_draw_coin(SDL_Renderer *r, int x, int y, int cell, float tt);
+
 /* engine hooks, called by the world */
 void hud_update(float dt);
 void hud_draw(SDL_Renderer *r);
