@@ -70,12 +70,13 @@ void sfx_coin(void) {
     SDL_UnlockAudioDevice(dev);
 }
 
-/* ---------- the dialog "bop": one short, low, round thump per letter, like a pixel-game text box ----------
- * a sine with a touch of square for body, dropping in pitch as it fades (the "bo" -> "p").
- * its own voice, so it never cuts off the coin ding (and the coin never cuts off a bop). */
+/* ---------- the dialog "deek": one short, clean tick per letter, like a modern text-box blip ----------
+ * a pure sine at a steady pitch (no square wave, no pitch slide: nothing to make it buzzy or noisy),
+ * with a quick attack and a smooth fade so it never clicks.
+ * its own voice, so it never cuts off the coin ding (and the coin never cuts off a deek). */
 static int   blip_on, blip_pos;
 static float blip_phase, blip_f;
-#define BLIP_T    0.075f                       /* seconds per bop */
+#define BLIP_T    0.060f                       /* seconds per deek */
 #define BLIP_HZ   256.5f                       /* base pitch at pitch 1.0 (was 190 Hz; +35% = 256.5 Hz) */
 #define BLIP_GAIN 0.50f                        /* peak level, fraction of full scale (was 0.20; the coin is 0.30) */
 
@@ -92,13 +93,12 @@ static void blip_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)blip_pos / (float)OUT_RATE;
         if (tt >= BLIP_T) { blip_on = 0; return; }
-        float env = expf(-tt * 34.0f);                               /* round decay: a thump, not a beep */
+        float env = expf(-tt * 22.0f);                               /* crisp decay: a tick, not a ring */
         if (tt < 0.003f) env *= tt / 0.003f;                         /* no click on the way in */
-        float f = blip_f * (1.0f - 0.32f * (tt / BLIP_T));           /* the pitch sags: "bop" */
-        blip_phase += f / (float)OUT_RATE;
+        if (tt > BLIP_T - 0.010f) env *= (BLIP_T - tt) / 0.010f;     /* no click on the way out */
+        blip_phase += blip_f / (float)OUT_RATE;                      /* steady pitch, no sag */
         if (blip_phase >= 1.0f) blip_phase -= 1.0f;
-        float sn = sinf(6.2831853f * blip_phase), sq = blip_phase < 0.5f ? 1.0f : -1.0f;
-        int v = (int)((0.72f * sn + 0.28f * sq) * env * BLIP_GAIN * 32767.0f);
+        int v = (int)(sinf(6.2831853f * blip_phase) * env * BLIP_GAIN * 32767.0f);   /* pure sine */
         for (int ch = 0; ch < 2; ch++) {
             int o = out[i * 2 + ch] + v;
             out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
