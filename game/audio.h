@@ -10,8 +10,23 @@ int  music_play(const char *file, int loop);
 void music_stop(void);
 /* ramps the current music to silence over `seconds` (smooth curve), then drops it */
 void music_fade_out(float seconds);
-/* master music volume 0..1, applied instantly (no smoothing). persists across tracks */
-void music_set_volume(float v);
+/* master music volume 0..1, applied instantly (no smoothing). persists across tracks.
+ * starts at MUSIC_DEFAULT_VOLUME (65%); nothing in the game changes it behind the player's back */
+#define MUSIC_DEFAULT_VOLUME 0.65f
+void  music_set_volume(float v);
+float music_volume(void);
+/* pause / resume the music (the stream keeps its place; a ~30 ms ramp avoids a click). stays paused across
+ * track changes until resumed, so a new map's music does not blast over someone who paused it */
+void music_pause(int paused);
+int  music_paused(void);
+/* file name of what is playing right now (\"third_life.ogg\"), \"\" when nothing is */
+const char *music_current_file(void);
+/* \"divine_tale.ogg\" -> \"Divine Tale\" */
+void music_title_of(const char *file, char *out, int cap);
+/* every .ogg next to the executable (cwd if there are none there), sorted by name. rescans each call */
+#define MUSIC_MAX_TRACKS 64
+int  music_scan(void);                     /* returns how many were found */
+const char *music_scan_file(int i);        /* file name of track i (valid until the next scan) */
 void audio_quit(void);
 
 /* sound effects, synthesised (no files). they play on top of the music and ignore music volume */

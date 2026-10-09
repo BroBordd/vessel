@@ -8,6 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <dirent.h>
 
 #define STB_VORBIS_NO_PUSHDATA_API
 #if defined(__clang__)
@@ -53,7 +54,70 @@ static int mus_loop;
 /* fade: gain = fade_vol^2 (perceptual), ramps to 0 over fade_frames; guarded by device lock */
 static int   fading;
 static float fade_vol = 1.0f, fade_step;
-static float master = 1.0f;   /* instant master gain, set via music_set_volume */
+static float master = MUSIC_DEFAULT_VOLUME;   /* instant master gain, set via music_set_volume */
+/* pause: pg is the music's gain ramp (1 playing .. 0 paused). once it reaches 0 the stream is not read at all. */
+static volatile int mus_paused;
+static float pg = 1.0f;
+static char  cur_file[128];
+
+/* ---------- reading the stream, resampled when the file is not 44100 Hz ----------
+ * a custom ogg can be 48000 / 32000 / 22050 Hz. rather than playing it at the wrong speed we read it through a
+ * tiny linear resampler. 44100 Hz files take the straight (fast) path. all of this belongs to the audio thread
+ * and is only reset under the device lock in music_play. */
+static int    mus_rate = OUT_RATE;
+static float  rs_pos;                        /* fractional position between rs_a and rs_b */
+static Sint16 rs_a[2], rs_b[2];
+static Sint16 rs_buf[1024 * 2];
+static int    rs_len, rs_idx;
+
+static void rs_reset(int rate) {
+    mus_rate = (rate >= 8000 && rate <= 192000) ? rate : OUT_RATE;
+    rs_pos = 2.0f; rs_len = rs_idx = 0;
+    rs_a[0] = rs_a[1] = rs_b[0] = rs_b[1] = 0;
+}
+
+static int rs_next(Sint16 *f) {              /* next input frame, 0 at the end of the stream */
+    if (rs_idx >= rs_len) {
+        rs_len = stb_vorbis_get_samples_short_interleaved(mus, 2, rs_buf, 1024 * 2);
+        rs_idx = 0;
+        if (rs_len <= 0) { rs_len = 0; return 0; }
+    }
+    f[0] = rs_buf[rs_idx * 2]; f[1] = rs_buf[rs_idx * 2 + 1]; rs_idx++;
+    return 1;
+}
+
+/* fills up to `frames` stereo frames at OUT_RATE, looping if asked. returns how many it produced (less = the end) */
+static int mus_read(Sint16 *out, int frames) {
+    int done = 0, reseeked = 0;
+    if (mus_rate == OUT_RATE) {
+        while (done < frames) {
+            int got = stb_vorbis_get_samples_short_interleaved(mus, 2, out + done * 2, (frames - done) * 2);
+            if (got > 0) { done += got; reseeked = 0; continue; }
+            if (!mus_loop || reseeked) break;       /* end, or broken stream */
+            stb_vorbis_seek_start(mus);
+            reseeked = 1;
+        }
+        return done;
+    }
+    float step = (float)mus_rate / (float)OUT_RATE;
+    while (done < frames) {
+        while (rs_pos >= 1.0f) {
+            Sint16 f[2];
+            if (!rs_next(f)) {
+                if (!mus_loop || reseeked) return done;
+                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; reseeked = 1;
+                if (!rs_next(f)) return done;
+            } else reseeked = 0;
+            rs_a[0] = rs_b[0]; rs_a[1] = rs_b[1]; rs_b[0] = f[0]; rs_b[1] = f[1];
+            rs_pos -= 1.0f;
+        }
+        out[done * 2]     = (Sint16)(rs_a[0] + (rs_b[0] - rs_a[0]) * rs_pos);
+        out[done * 2 + 1] = (Sint16)(rs_a[1] + (rs_b[1] - rs_a[1]) * rs_pos);
+        rs_pos += step;
+        done++;
+    }
+    return done;
+}
 
 /* ---------- one-shot sound effects ----------
  * synthesised on the fly (no extra asset files) and mixed on top of the music after the master
@@ -246,15 +310,17 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (!t_first) t_first = SDL_GetPerformanceCounter();
     produced_frames += (Uint64)frames;
 
-    if (mus) {
-        int seeked = 0;
-        while (done < frames) {
-            int got = stb_vorbis_get_samples_short_interleaved(
-                mus, 2, out + done * 2, (frames - done) * 2);
-            if (got > 0) { done += got; seeked = 0; continue; }
-            if (!mus_loop || seeked) break;       /* end, or broken stream */
-            stb_vorbis_seek_start(mus);
-            seeked = 1;
+    int idle = mus_paused && pg <= 0.0f;                  /* paused and fully ramped down: leave the stream alone */
+    if (mus && !idle) {
+        done = mus_read(out, frames);
+        if (mus_paused || pg < 1.0f) {                    /* the pause / resume ramp (~30 ms), so it never clicks */
+            float tgt = mus_paused ? 0.0f : 1.0f, st = 1.0f / (0.030f * OUT_RATE);
+            for (int i = 0; i < done; i++) {
+                if (pg < tgt) { pg += st; if (pg > tgt) pg = tgt; }
+                else if (pg > tgt) { pg -= st; if (pg < tgt) pg = tgt; }
+                out[i * 2]     = (Sint16)(out[i * 2]     * pg);
+                out[i * 2 + 1] = (Sint16)(out[i * 2 + 1] * pg);
+            }
         }
         if (fading) {
             for (int i = 0; i < done; i++) {
@@ -350,30 +416,78 @@ int music_play(const char *file, int loop) {
     stb_vorbis_info vi = stb_vorbis_get_info(v);
     printf("music: %u Hz, %d ch\n", vi.sample_rate, vi.channels);
     if (vi.sample_rate != OUT_RATE)
-        printf("music: WARNING expected %d Hz, will play at wrong speed\n", OUT_RATE);
+        printf("music: resampling %u Hz -> %d Hz\n", vi.sample_rate, OUT_RATE);
     fflush(stdout);
 
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
     mus = v; mus_buf = buf; mus_loop = loop;
+    rs_reset((int)vi.sample_rate);
     fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
     if (old) stb_vorbis_close(old);
     free(oldbuf);
 
-    /* title from the file name: "divine_tale.ogg" -> "Divine Tale" */
-    const char *base = strrchr(file, '/'); base = base ? base + 1 : file;
-    size_t k = 0; int cap = 1;
-    for (; base[k] && base[k] != '.' && k < sizeof title - 1; k++) {
-        char c = base[k] == '_' ? ' ' : base[k];
-        if (cap && c >= 'a' && c <= 'z') c = (char)(c - 32);
-        cap = c == ' ';
-        title[k] = c;
-    }
-    title[k] = 0;
+    snprintf(cur_file, sizeof cur_file, "%s", file);
+    music_title_of(file, title, sizeof title);
     serial++;
     return 0;
 }
+
+/* "divine_tale.ogg" -> "Divine Tale" (also strips any folder in front) */
+void music_title_of(const char *file, char *out, int cap) {
+    const char *base = strrchr(file, '/'); base = base ? base + 1 : file;
+    int k = 0, cp = 1;
+    for (; base[k] && base[k] != '.' && k < cap - 1; k++) {
+        char c = base[k] == '_' ? ' ' : base[k];
+        if (cp && c >= 'a' && c <= 'z') c = (char)(c - 32);
+        cp = c == ' ';
+        out[k] = c;
+    }
+    out[k] = 0;
+}
+
+const char *music_current_file(void) { return mus ? cur_file : ""; }
+float music_volume(void) { return master; }
+int   music_paused(void) { return mus_paused; }
+void  music_pause(int p) { mus_paused = p ? 1 : 0; }     /* the audio thread ramps pg towards the new state */
+
+/* ---------- the list of tracks the player can pick from ---------- */
+static char tracks[MUSIC_MAX_TRACKS][128];
+static int  ntracks;
+
+static int cmp_names(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
+
+static int scan_dir(const char *dir) {
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int n = 0;
+    while ((e = readdir(d)) && n < MUSIC_MAX_TRACKS) {
+        size_t nl = strlen(e->d_name);
+        if (nl < 5 || nl >= sizeof tracks[0] || strcasecmp(e->d_name + nl - 4, ".ogg") != 0) continue;
+        memcpy(tracks[n], e->d_name, nl + 1);
+        n++;
+    }
+    closedir(d);
+    if (n > 1) qsort(tracks, (size_t)n, sizeof tracks[0], cmp_names);
+    return n;
+}
+
+int music_scan(void) {
+    char dir[900];
+    ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);
+    ntracks = 0;
+    if (n > 0) {                                  /* same lookup order as music_play: next to the executable ... */
+        dir[n] = 0;
+        char *slash = strrchr(dir, '/');
+        if (slash) { *slash = 0; ntracks = scan_dir(dir); }
+    }
+    if (ntracks == 0) ntracks = scan_dir(".");    /* ... then the working directory */
+    return ntracks;
+}
+
+const char *music_scan_file(int i) { return i >= 0 && i < ntracks ? tracks[i] : ""; }
 
 void music_set_volume(float v) {
     if (v < 0.0f) v = 0.0f;

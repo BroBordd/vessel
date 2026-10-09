@@ -1,7 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  * top buttons over time (silent dummy audio), writes build/ui_*.bmp:
- *   cc -O1 $(sdl2-config --cflags) -Igame -o build/uishot tools/uishot.c game/audio.c game/analyze.c game/musicwin.c game/nowplaying.c game/pausebtn.c game/font.c $(sdl2-config --libs) -lm
+ *   cc -O1 $(sdl2-config --cflags) -Igame -o build/uishot tools/uishot.c game/audio.c game/analyze.c game/jukebox.c game/musicwin.c game/nowplaying.c game/pausebtn.c game/font.c $(sdl2-config --libs) -lm
  *   cd music && ../build/uishot 540 1170 */
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>

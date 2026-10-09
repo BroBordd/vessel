@@ -8,7 +8,6 @@
  *   mission_add("Text") / mission_complete(id)   the top-left checklist
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
  *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
- *   music_set_volume(0.0 .. 1.0)            instant music volume
  *   story_after(seconds, fn)                run something later
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near
  *   world_open_hole(x, y, on_enter)         cloud hole in the floor you can jump into
@@ -137,7 +136,6 @@ static const DialogLine HELLO[]  = { { NULL, "Hello, " VESSEL_LATIN "!" } };
 static const DialogLine SUMMON[] = { { NULL, "You have been summoned. Talk to Goddess." } };
 
 static void intro_done(void) {
-    music_set_volume(0.65f);                    /* the cloud music drops to 65% the moment the "Talk to Goddess" window is dismissed. it stays there. */
     world_set_controls_visible(1);              /* stick and interact button become usable */
     mission_talk_dea = mission_add("Talk to Goddess");
     /* Dea stands 8 tiles above where we spawned, looking down at us */
@@ -147,7 +145,6 @@ static void intro_done(void) {
     npc_set_facing(id, FACE_DOWN);
 }
 
-/* the music stays at 100% through the hello message; it drops in intro_done, after "Talk to Goddess" */
 static void hello_done(void) {
     dialog_play(SUMMON, 1, intro_done);
 }
@@ -161,7 +158,6 @@ void story_start(void) {
     dea_spoken = alex_met = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
-    music_set_volume(1.0f);
     world_set_controls_visible(0);
     story_after(1.0f, intro);                   /* wait for the fade-in, then the welcome window */
 }

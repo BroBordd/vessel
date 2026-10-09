@@ -4,6 +4,7 @@
 #include "analyze.h"
 #include "audio.h"
 #include "font.h"
+#include "jukebox.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,7 +33,13 @@ static SDL_Rect win, close_r, eq_r, lane_r, hint_r, piano_r;
 static int   eq_q, eq_gap, eq_bw, eq_bg;
 static int   header_h;
 
-static int   grab;                                      /* what the current touch started on: 0 nothing, 1 piano, 2 close, 3 outside */
+/* the player controls: pause button + volume slider, the MAP / CUSTOM switch, the track list */
+static SDL_Rect pause_r, vol_r, mode_r[2], stat_r, list_r;
+static int   ctrl_h, mode_h, rowh, lrows, scroll_max;
+static int   list_scroll, list_down_y, list_scroll0, list_moved, list_row;
+static float flash;                                     /* the status line shows a hint for a moment after a blocked tap */
+static int   grab;                                      /* what the current touch started on: 0 nothing, 1 piano, 2 close, 3 outside,
+                                                           4 pause, 5 volume slider, 6 MAP button, 7 CUSTOM button, 8 track list */
 static int   held_midi = -1;
 
 static C3 mix(C3 a, C3 b, float k) { return (C3){ (int)(a.r + (b.r - a.r) * k), (int)(a.g + (b.g - a.g) * k), (int)(a.b + (b.b - a.b) * k) }; }
@@ -85,8 +92,15 @@ static void layout(void) {
     int hint_h = font_height(c2) + g;
     int piano_h = (int)(80 * u);
     int eq_h = (int)(110 * u);
-    int full = header_h + eq_h + lane_h + hint_h + piano_h + 3 * pad;
+    ctrl_h = (int)(28 * u); if (ctrl_h < 18) ctrl_h = 18;
+    mode_h = (int)(22 * u); if (mode_h < 14) mode_h = 14;
+    rowh   = (int)(18 * u); if (rowh < font_height(c2) + 4) rowh = font_height(c2) + 4;
+    lrows  = 4;
+    int stat_h = font_height(c2);
+    int ctl_total = ctrl_h + pad + mode_h + g + stat_h + pad + (lrows * rowh + 2 * bt) + pad;
+    int full = header_h + eq_h + ctl_total + lane_h + hint_h + piano_h + 3 * pad;
     int avail = H - 2 * m;
+    while (full > avail && lrows > 2) { lrows--; full -= rowh; }       /* short screens: fewer visible tracks first */
     if (full > avail) { int cut = full - avail; int e = cut < eq_h - (int)(30 * u) ? cut : eq_h - (int)(30 * u); eq_h -= e; cut -= e; piano_h -= cut; full = avail; }
     int wy = (H - full) / 2;
     win = (SDL_Rect){ m, wy, W - 2 * m, full };
@@ -103,6 +117,21 @@ static void layout(void) {
     eq_r = (SDL_Rect){ inner_x + (inner_w - eq_w) / 2, y, eq_w, eq_h };
     y += eq_h + pad;
 
+    int bs = ctrl_h;                                                    /* row 1: pause button + volume slider */
+    pause_r = (SDL_Rect){ inner_x, y, bs, bs };
+    vol_r   = (SDL_Rect){ inner_x + bs + g * 2, y, inner_w - bs - g * 2, bs };
+    y += ctrl_h + pad;
+    int half = (inner_w - g) / 2;                                       /* row 2: MAP MUSIC | CUSTOM MUSIC */
+    mode_r[0] = (SDL_Rect){ inner_x, y, half, mode_h };
+    mode_r[1] = (SDL_Rect){ inner_x + half + g, y, inner_w - half - g, mode_h };
+    y += mode_h + g;
+    stat_r = (SDL_Rect){ inner_x, y, inner_w, stat_h };
+    y += stat_h + pad;
+    list_r = (SDL_Rect){ inner_x, y, inner_w, lrows * rowh + 2 * bt };  /* row 3: the tracks */
+    y += list_r.h + pad;
+    scroll_max = jukebox_count() * rowh - (list_r.h - 2 * bt); if (scroll_max < 0) scroll_max = 0;
+    if (list_scroll > scroll_max) list_scroll = scroll_max;
+
     lane_r = (SDL_Rect){ inner_x, y, inner_w, lane_h };
     y += lane_h + pad;
     hint_r = (SDL_Rect){ inner_x, y, inner_w, hint_h };
@@ -113,22 +142,46 @@ static void layout(void) {
     /* the real height of the window: everything up to the bottom of the piano plus a pad */
     win.h = piano_r.y + piano_r.h + pad - win.y;
     win.y = (H - win.h) / 2; { int dy = win.y - wy;
-        close_r.y += dy; eq_r.y += dy; lane_r.y += dy; hint_r.y += dy; piano_r.y += dy; }
+        close_r.y += dy; eq_r.y += dy; lane_r.y += dy; hint_r.y += dy; piano_r.y += dy;
+        pause_r.y += dy; vol_r.y += dy; mode_r[0].y += dy; mode_r[1].y += dy; stat_r.y += dy; list_r.y += dy; }
 }
 
 void musicwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1;
+    is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1; flash = 0; list_scroll = 0;
     memset(lvl, 0, sizeof lvl); memset(peak, 0, sizeof peak); memset(hold, 0, sizeof hold);
     memset(nv, 0, sizeof nv); memset(dr, 0, sizeof dr); memset(rg, 0, sizeof rg);
     layout();
 }
 
-void musicwin_open(void) { layout(); is_open = 1; closing = 0; grab = 0; held_midi = -1; t = 0; }
+void musicwin_open(void) {
+    jukebox_rescan();                                       /* oggs dropped in the folder since last time show up now */
+    layout();
+    is_open = 1; closing = 0; grab = 0; held_midi = -1; t = 0; flash = 0;
+    int sel = jukebox_mode() == JB_CUSTOM ? jukebox_custom_index() : jukebox_playing_index();
+    list_scroll = 0;
+    if (sel >= 0) {                                         /* bring the current track into view */
+        int top = sel * rowh, view = list_r.h - 2 * bt;
+        if (top + rowh > view) list_scroll = top + rowh - view;
+        if (list_scroll > scroll_max) list_scroll = scroll_max;
+    }
+}
 int  musicwin_active(void) { return is_open || closing; }
 
 static void release(void) { if (held_midi >= 0) { sfx_note_off(held_midi); held_midi = -1; } }
 static void close_win(void) { release(); is_open = 0; closing = 1; grab = 0; }
+
+static void set_volume_from_x(int x) {                      /* the slider: the knob centre follows the finger */
+    int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
+    float v = (float)(x - (vol_r.x + kw2 / 2)) / (float)(vol_r.w - kw2);
+    music_set_volume(v < 0 ? 0 : v > 1 ? 1 : v);
+}
+static int row_at(int y) {                                  /* track under a screen y, -1 if none */
+    int ry = y - yoff - (list_r.y + bt) + list_scroll;
+    if (ry < 0) return -1;
+    int i = ry / rowh;
+    return i < jukebox_count() ? i : -1;
+}
 
 int musicwin_touch(int a, int x, int y) {
     if (!is_open) return closing;                          /* sliding away: swallow touches, do nothing */
@@ -136,6 +189,11 @@ int musicwin_touch(int a, int x, int y) {
         int k = key_at(x, y);
         if (k >= 0) { grab = 1; held_midi = k; sfx_note_on(k); }
         else if (inside(close_r, x, y)) grab = 2;
+        else if (inside(pause_r, x, y)) grab = 4;
+        else if (inside(vol_r, x, y)) { grab = 5; set_volume_from_x(x); }
+        else if (inside(mode_r[0], x, y)) grab = 6;
+        else if (inside(mode_r[1], x, y)) grab = 7;
+        else if (inside(list_r, x, y)) { grab = 8; list_down_y = y; list_scroll0 = list_scroll; list_moved = 0; list_row = row_at(y); }
         else if (!inside(win, x, y)) grab = 3;
         else grab = 0;
         return 1;
@@ -144,6 +202,16 @@ int musicwin_touch(int a, int x, int y) {
         if (grab == 1) {
             int k = key_at(x, y);
             if (k != held_midi) { release(); if (k >= 0) { held_midi = k; sfx_note_on(k); } }
+        } else if (grab == 5) {
+            set_volume_from_x(x);
+        } else if (grab == 8) {
+            int dy = y - list_down_y, thr = (int)(4 * u); if (thr < 4) thr = 4;
+            if (list_moved || dy > thr || dy < -thr) {          /* a drag scrolls the list, a tap picks a track */
+                list_moved = 1;
+                list_scroll = list_scroll0 - dy;
+                if (list_scroll < 0) list_scroll = 0;
+                if (list_scroll > scroll_max) list_scroll = scroll_max;
+            }
         }
         return 1;
     }
@@ -151,6 +219,15 @@ int musicwin_touch(int a, int x, int y) {
         if (grab == 1) release();
         else if (a == 1 && grab == 2 && inside(close_r, x, y)) close_win();
         else if (a == 1 && grab == 3 && !inside(win, x, y)) close_win();
+        else if (a == 1 && grab == 4 && inside(pause_r, x, y)) music_pause(!music_paused());
+        else if (a == 1 && grab == 6 && inside(mode_r[0], x, y)) { jukebox_set_mode(JB_MAP); flash = 0; }
+        else if (a == 1 && grab == 7 && inside(mode_r[1], x, y)) {
+            if (jukebox_count() > 0) { jukebox_set_mode(JB_CUSTOM); flash = 0; } else flash = 2.0f;
+        }
+        else if (a == 1 && grab == 8 && !list_moved && list_row >= 0) {
+            if (jukebox_mode() == JB_CUSTOM) jukebox_pick(list_row);
+            else flash = 2.0f;                                  /* map mode: explain how to pick */
+        }
         grab = 0;
         return 1;
     }
@@ -160,6 +237,7 @@ int musicwin_touch(int a, int x, int y) {
 void musicwin_update(float dt) {
     if (!is_open && !closing) return;
     t += dt;
+    if (flash > 0) flash -= dt;
     float target = is_open ? 1.0f : 0.0f;
     anim += (target - anim) * (1.0f - expf(-14.0f * dt));
     if (fabsf(target - anim) < 0.01f) anim = target;
@@ -210,6 +288,103 @@ static void draw_eq(SDL_Renderer *r) {
         SDL_SetRenderDrawColor(r, 255, 255, 255, 40);
         fillr(r, cx, eq_r.y + eq_r.h, eq_bw, 1);
     }
+}
+
+/* ---------- the player controls ---------- */
+static void draw_pause_icon(SDL_Renderer *r, SDL_Rect q, int playing_icon) {
+    int ic = q.w / 14; if (ic < 1) ic = 1;                              /* a little smaller than the button, so it has padding */
+    int ox = q.x + (q.w - 10 * ic) / 2, oy = q.y + (q.h - 10 * ic) / 2;
+    SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+    if (!playing_icon) {                                                /* music is playing: show the "pause" bars */
+        fillr(r, ox + 2 * ic, oy, 2 * ic, 10 * ic);
+        fillr(r, ox + 6 * ic, oy, 2 * ic, 10 * ic);
+    } else {                                                            /* music is paused: show "play" (pixel stairs) */
+        for (int i = 0; i < 5; i++) { int hh = (10 - i * 2) * ic; fillr(r, ox + i * 2 * ic, oy + (10 * ic - hh) / 2, 2 * ic, hh); }
+    }
+}
+
+static void draw_volume(SDL_Renderer *r) {
+    int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
+    int lh = font_height(c2);
+    float v = music_volume();
+    SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
+    font_draw(r, "VOLUME", vol_r.x, vol_r.y + yoff, c2);
+    char pc[8]; snprintf(pc, sizeof pc, "%d%%", (int)(v * 100.0f + 0.5f));
+    SDL_SetRenderDrawColor(r, 255, 214, 110, 255);
+    font_draw(r, pc, vol_r.x + vol_r.w - font_width(pc, c2), vol_r.y + yoff, c2);
+
+    int zone = vol_r.h - lh - g;                                        /* the bit under the label */
+    int th = (int)(5 * u); if (th < 3) th = 3;
+    int kh = zone < (int)(18 * u) ? zone : (int)(18 * u);
+    int cy = vol_r.y + lh + g + zone / 2;
+    SDL_Rect tr = { vol_r.x, cy - th / 2, vol_r.w, th };
+    col(r, (C3){ 90, 96, 130 }, 220); fillr(r, tr.x, tr.y, tr.w, tr.h);
+    col(r, (C3){ 14, 18, 36 }, 255);  fillr(r, tr.x + 1, tr.y + 1, tr.w - 2, tr.h - 2);
+    int kx = vol_r.x + (int)((vol_r.w - kw2) * v);
+    col(r, COL_HELD, 255);            fillr(r, tr.x + 1, tr.y + 1, kx + kw2 / 2 - tr.x - 1, tr.h - 2);
+    int dx = vol_r.x + (int)((vol_r.w - kw2) * MUSIC_DEFAULT_VOLUME) + kw2 / 2;   /* tiny tick where the default sits */
+    col(r, (C3){ 130, 138, 170 }, 255); fillr(r, dx, tr.y + tr.h, 1, th / 2 + 1);
+    SDL_Rect kn = { kx, cy - kh / 2, kw2, kh };
+    col(r, grab == 5 ? (C3){ 255, 255, 255 } : (C3){ 236, 238, 246 }, 255); fillr(r, kn.x, kn.y, kn.w, kn.h);
+    col(r, (C3){ 10, 12, 24 }, 255);    fillr(r, kn.x, kn.y, kn.w, 1); fillr(r, kn.x, kn.y + kn.h - 1, kn.w, 1);
+}
+
+static void draw_mode(SDL_Renderer *r) {
+    static const char *NAME[2] = { "MAP MUSIC", "CUSTOM MUSIC" };
+    JbMode md = jukebox_mode();
+    int mc = font_width("CUSTOM MUSIC", cell) < mode_r[1].w - 2 * pad ? cell : c2;
+    for (int i = 0; i < 2; i++) {
+        int on = (int)md == i, pr = grab == 6 + i;
+        C3 fill = on ? COL_HELD : pr ? (C3){ 38, 46, 84 } : (C3){ 24, 28, 48 };
+        box(r, mode_r[i], fill, on ? (C3){ 255, 244, 200 } : (C3){ 255, 255, 255 }, on ? 255 : 170);
+        if (on) SDL_SetRenderDrawColor(r, 20, 16, 8, 255); else SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+        label_center(r, NAME[i], mode_r[i], mc);
+    }
+    int show_flash = flash > 0 && (jukebox_count() == 0 || md == JB_MAP);     /* the hint is only true in map mode */
+    const char *msg = show_flash ? (jukebox_count() == 0 ? "NO OGG FILES NEXT TO THE GAME" : "SWITCH TO CUSTOM MUSIC TO PICK A TRACK")
+                                : md == JB_MAP ? "FOLLOWS THE MAP YOU ARE ON" : "THIS TRACK PLAYS ON EVERY MAP";
+    if (show_flash) SDL_SetRenderDrawColor(r, 255, 214, 110, 255); else SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
+    font_draw(r, msg, stat_r.x, stat_r.y + yoff, c2);
+}
+
+static void draw_tracks(SDL_Renderer *r) {
+    int n = jukebox_count();
+    int custom = jukebox_mode() == JB_CUSTOM;
+    col(r, custom ? (C3){ 255, 255, 255 } : (C3){ 90, 96, 130 }, custom ? 170 : 200); fillr(r, list_r.x, list_r.y, list_r.w, list_r.h);
+    col(r, (C3){ 14, 18, 36 }, 255); fillr(r, list_r.x + bt, list_r.y + bt, list_r.w - 2 * bt, list_r.h - 2 * bt);
+    SDL_Rect clip = { list_r.x + bt, list_r.y + bt + yoff, list_r.w - 2 * bt, list_r.h - 2 * bt };
+    SDL_RenderSetClipRect(r, &clip);
+    if (n == 0) {
+        SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
+        font_draw(r, "NO OGG FILES FOUND", list_r.x + pad, list_r.y + bt + (rowh - font_height(c2)) / 2 + yoff, c2);
+    }
+    int sel = custom ? jukebox_custom_index() : jukebox_playing_index();      /* custom: the pick. map: what the map is playing */
+    for (int i = 0; i < n; i++) {
+        int ry = list_r.y + bt + i * rowh - list_scroll;
+        if (ry + rowh < list_r.y || ry > list_r.y + list_r.h) continue;
+        int is_sel = i == sel, pr = grab == 8 && !list_moved && i == list_row && custom;
+        if (pr)          { col(r, (C3){ 38, 46, 84 }, 255); fillr(r, list_r.x + bt, ry, list_r.w - 2 * bt, rowh); }
+        else if (is_sel) { col(r, custom ? (C3){ 40, 44, 84 } : (C3){ 24, 28, 48 }, 255); fillr(r, list_r.x + bt, ry, list_r.w - 2 * bt, rowh); }
+        int mk = (int)(3 * u); if (mk < 2) mk = 2;                              /* the marker square in front of the picked / playing track */
+        if (is_sel) { col(r, custom ? COL_HELD : (C3){ 130, 138, 170 }, 255); fillr(r, list_r.x + pad, ry + (rowh - mk) / 2, mk, mk); }
+        char nm[64]; music_title_of(jukebox_file(i), nm, sizeof nm);
+        if (custom) SDL_SetRenderDrawColor(r, 255, 255, 255, 255); else SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
+        font_draw(r, nm, list_r.x + pad + mk + pad, ry + (rowh - font_height(c2)) / 2 + yoff, c2);
+    }
+    if (scroll_max > 0) {                                                       /* scroll thumb */
+        int view = list_r.h - 2 * bt, th2 = view * view / (view + scroll_max); if (th2 < 6) th2 = 6;
+        int ty2 = list_r.y + bt + (view - th2) * list_scroll / scroll_max;
+        col(r, (C3){ 130, 138, 170 }, 200); fillr(r, list_r.x + list_r.w - bt - 3, ty2, 3, th2);
+    }
+    SDL_RenderSetClipRect(r, NULL);
+}
+
+static void draw_controls(SDL_Renderer *r) {
+    box(r, pause_r, grab == 4 ? (C3){ 70, 80, 130 } : (C3){ 24, 28, 48 }, (C3){ 255, 255, 255 }, 170);
+    draw_pause_icon(r, pause_r, music_paused());
+    draw_volume(r);
+    draw_mode(r);
+    draw_tracks(r);
 }
 
 static void draw_lanes(SDL_Renderer *r) {
@@ -289,7 +464,7 @@ void musicwin_draw(SDL_Renderer *r) {
 
     int tx = win.x + pad, ty = win.y + pad;
     SDL_SetRenderDrawColor(r, 255, 214, 110, 255);
-    font_draw(r, "NOW PLAYING", tx, ty + dy, cell);
+    font_draw(r, music_paused() ? "PAUSED" : "NOW PLAYING", tx, ty + dy, cell);
     ty += font_height(cell) + cell * 2;
     SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
     font_draw(r, music_title(), tx, ty + dy, cell);
@@ -300,6 +475,7 @@ void musicwin_draw(SDL_Renderer *r) {
     label_center(r, "X", close_r, cell);
 
     draw_eq(r);
+    draw_controls(r);
     draw_lanes(r);
     SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
     font_draw(r, "TAP OR SLIDE ON THE KEYS TO PLAY", hint_r.x, hint_r.y + dy, c2);

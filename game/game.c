@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 
 #include "audio.h"
+#include "jukebox.h"
 #include "menu.h"
 #include "world.h"
 #include "loading.h"
@@ -84,7 +85,7 @@ int main(int argc, char **argv) {
     printf("SDL %d.%d.%d, %dx%d, %s\n", v.major, v.minor, v.patch, W, H, gpu ? "gpu" : "cpu");
     fflush(stdout);
 
-    if (audio_init() == 0) music_play("third_life.ogg", 0);
+    if (audio_init() == 0) { jukebox_init(); jukebox_scene("third_life.ogg", 0); }
 
     lang_seed((unsigned)SDL_GetTicks() * 2654435761u + 12345u);
     menu_init(W, H);
@@ -127,7 +128,7 @@ int main(int argc, char **argv) {
                         if (act == MENU_PLAY) {
                             printf("menu: play\n"); fflush(stdout);
                             loading_init(W, H);
-                            music_fade_out(MUSIC_FADE_SECONDS);
+                            jukebox_scene_fade(MUSIC_FADE_SECONDS);
                             state = ST_LOADING;
                         }
                         if (act == MENU_EXIT) quit_app();
@@ -150,7 +151,7 @@ int main(int argc, char **argv) {
         } else if (state == ST_LOADING) {
             if (loading_update(dt)) {
                 world_init(W, H);
-                music_play("ascendant_soul.ogg", 1);       /* cloud map music (the ground gets divine_tale later) */
+                jukebox_scene("ascendant_soul.ogg", 1);      /* cloud map music (the ground gets divine_tale later) */
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             } else loading_draw(r);

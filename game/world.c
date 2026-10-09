@@ -10,6 +10,7 @@
 #include "hud.h"
 #include "minimap.h"
 #include "audio.h"
+#include "jukebox.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -361,7 +362,7 @@ void world_fall_to_green(void (*on_up)(void)) {
     world_set_controls_visible(0);
     phase = hole_on ? PH_SINK : PH_FALL;
     sink_x0 = pxp; sink_y0 = pyp;
-    music_fade_out(SINK_T + FALL_T - 0.3f);             /* the cloud music dies away as we drop (volume stays as is) */
+    jukebox_scene_fade(SINK_T + FALL_T - 0.3f);         /* the cloud music dies away as we drop (map music only; a custom track keeps playing) */
 }
 
 static int button_hit(int x, int y) {
@@ -437,7 +438,7 @@ static void phase_update(float dt) {
     case PH_FALL:
         if (ph_t >= FALL_T) {
             load_map(MAP_GREEN);                        /* we are on the ground now. face-first. */
-            music_play("divine_tale.ogg", 1);           /* the ground has its own music */
+            jukebox_scene("divine_tale.ogg", 1);          /* the ground has its own music (map music only) */
             phase = PH_LAND; ph_t = 0;
         }
         break;
