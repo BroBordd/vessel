@@ -16,6 +16,7 @@
 #include "loading.h"
 #include "nowplaying.h"
 #include "musicwin.h"
+#include "pausebtn.h"
 #include "lang.h"
 #include "gfx.h"
 
@@ -89,6 +90,7 @@ int main(int argc, char **argv) {
     menu_init(W, H);
     nowplaying_init(W, H);
     musicwin_init(W, H);
+    pausebtn_init(W, H);
     State state = ST_MENU;
 
     fcntl(0, F_SETFL, O_NONBLOCK);
@@ -112,12 +114,14 @@ int main(int argc, char **argv) {
             char *s = acc, *nl;
             while ((nl = memchr(s, '\n', acc + alen - s))) {
                 *nl = 0;
-                int a, x, y;
+                int a, x, y, pr;
                 if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
                     if (musicwin_touch(a, x, y)) {
                         /* the music window is open: it takes every touch */
                     } else if (nowplaying_touch(a, x, y)) {
-                        /* the card was tapped: it opens the music window */
+                        /* the music button / card was tapped: it opens the music window */
+                    } else if ((pr = pausebtn_touch(a, x, y)) != 0) {
+                        if (pr == 2) world_touch(3, 0, 0);          /* just paused: let go of the stick */
                     } else if (state == ST_MENU) {
                         MenuAction act = menu_touch(a, x, y);
                         if (act == MENU_PLAY) {
@@ -151,9 +155,13 @@ int main(int argc, char **argv) {
                 world_update(0); world_draw(r);
             } else loading_draw(r);
         } else {
-            world_update(dt); world_draw(r);
+            if (!pausebtn_paused()) world_update(dt);
+            world_draw(r);
         }
-        nowplaying_update(dt); nowplaying_draw(r);       /* on top of every screen */
+        pausebtn_set_enabled(state == ST_WORLD);
+        pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
+        nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
+        pausebtn_draw(r);
         musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
         SDL_RenderPresent(r);
         if (!gpu) memcpy(px, back, fbsz);
