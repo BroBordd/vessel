@@ -316,6 +316,8 @@ static void load_map(int which) {
     facing = FACE_DOWN;
 }
 
+const char *world_map_name(int which) { return which == MAP_CLOUD ? SKYLAND_NAME : GRASSLANDS; }
+
 void world_init(int w, int h) {
     W = w; H = h;
     float u = (w < h ? w : h) / 360.0f;

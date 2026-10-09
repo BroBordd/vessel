@@ -13,6 +13,11 @@ void world_draw(SDL_Renderer *r);
 /* the maps the story can be on. world_init starts on the cloud map. */
 enum { MAP_GREEN, MAP_CLOUD };
 
+/* player-facing names of the maps. always use these in text, never the enum names. */
+#define SKYLAND_NAME   "the Sky"
+#define GRASSLANDS     "the Grasslands"       /* the ground map (MAP_GREEN) */
+const char *world_map_name(int which);
+
 /* scripting helpers (used from story.c) */
 float world_debug_zoom(void);              /* current zoom (1 = none), for tests */
 void world_set_controls_visible(int on);   /* analog stick + interact button */

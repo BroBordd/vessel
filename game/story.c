@@ -67,33 +67,16 @@ void story_update(float dt) {
 }
 
 /* ---------- state ---------- */
-static int mission_talk_dea = -1, mission_talk_alex = -1;
-static int dea_spoken, alex_met;
+static int mission_talk_dea = -1;
+static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
 
-/* ---------- scene 3: down on the ground, Alex ---------- */
-static const DialogLine ALEX_CHAT[] = {
-    { &ALEX,   "Hi! You must be new here." },
-    { &VESSEL, "Hello. Yes, I just arrived." },
-    { &ALEX,   "Welcome. Try not to stand out." },
-};
+/* ---------- scene 3: down on the ground ---------- */
+/* nobody stands near the landing spot: the player lands alone in GRASSLANDS.
+ * Alex is placed far away in a later chunk (docs/story/vessel-1.md, chunks 8-9). */
 
-static void alex_chat_done(void) { convo_ask_questions(&ALEX, &ALEX_MIND, NULL); }
-
-/* runs when the interact button is pressed next to Alex */
-static void on_talk_alex(int npc_id) {
-    (void)npc_id;
-    if (alex_met) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }   /* already introduced: free chat */
-    alex_met = 1;
-    mission_complete(mission_talk_alex);
-    dialog_play(ALEX_CHAT, 3, alex_chat_done);
-}
-
-/* the player just got back on their feet after the fall: the real mission starts here */
+/* the player just got back on their feet after the fall */
 static void landed(void) {
-    mission_talk_alex = mission_add("Talk to Alex");
-    /* Alex stands 3 tiles right and 4 tiles up from where we landed */
-    npc_add(&ALEX, world_player_tile_x() + 3, world_player_tile_y() - 4, on_talk_alex);
 }
 
 /* ---------- scene 2: Dea ---------- */
@@ -154,8 +137,8 @@ static void intro(void) { dialog_play(HELLO, 1, hello_done); }
 /* ---------- entry point ---------- */
 void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
-    mission_talk_dea = mission_talk_alex = -1;
-    dea_spoken = alex_met = 0;
+    mission_talk_dea = -1;
+    dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);

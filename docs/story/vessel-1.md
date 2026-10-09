@@ -88,7 +88,7 @@ her scolding). Leave a clean hook (e.g. `story_vessel_died()` stub) but do not b
 Mark `[x]` when the chunk is pushed.
 
 - [x] **1. Story doc** — this file.
-- [ ] **2. Grasslands + empty landing zone** — player-facing name "the Grasslands"; remove Alex from the landing area (no NPCs near the fall spot; Alex is not spawned yet).
+- [x] **2. Grasslands + empty landing zone** — player-facing name "the Grasslands"; remove Alex from the landing area (no NPCs near the fall spot; Alex is not spawned yet).
 - [ ] **3. Dialog highlight markup** — engine: mark spans of a dialog line (e.g. `{...}` or a tag) to draw highlighted (green+underlined), plus an optional callback when the highlighted span has been typed out.
 - [ ] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
 - [ ] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
@@ -127,4 +127,5 @@ Mark `[x]` when the chunk is pushed.
 
 ## Status log
 
-- 2026-10-09: story written, chunks planned. Next: chunk 2.
+- 2026-10-09: story written, chunks planned.
+- 2026-10-09: chunk 2 done (GRASSLANDS / SKYLAND_NAME + world_map_name in world.h; Alex placeholder chat and spawn removed from story.c, `landed()` is an empty stub). Next: chunk 3.
