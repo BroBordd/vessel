@@ -71,6 +71,7 @@ void story_update(float dt) {
 
 /* ---------- state ---------- */
 static int mission_talk_dea = -1;
+static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
 
@@ -91,7 +92,9 @@ static const DialogLine DEA_TALK[] = {
     { &VESSEL, VESSEL_NAME ". I will remember it." },
     { &DEA,    "Your purpose is to carry out missions. Nothing more, nothing less." },
     { &DEA,    "Finish each one, and stay secret. When your job is done, your life ends." },
+    { &DEA,    "Now, your first mission. I {dropped my orb in the Grasslands}. Find it and bring it back to me." },
 };
+#define DEA_TALK_COUNT  ((int)(sizeof DEA_TALK / sizeof DEA_TALK[0]))
 /* then Dea asks "do you have any questions?" (convo.c) and the hole opens when the chat is over */
 
 /* pressed the arrow button at the hole */
@@ -108,13 +111,22 @@ static void dea_talk_page(int page) {
     if (page == DEA_NAMING_PAGE) { hud_set_person(&VESSEL); convo_set_player(&VESSEL); }   /* ID card flashes, coin ding, "You are now Aonia" */
 }
 
+/* the last page of DEA_TALK holds the highlighted orb sentence. the moment those words have been
+ * typed out, the task coins in: ding + "New task added" toast + "Find the orb" on the checklist */
+#define DEA_ORB_PAGE  (DEA_TALK_COUNT - 1)
+static void dea_talk_highlight(int page, int span) {
+    if (page == DEA_ORB_PAGE && span == 0 && mission_find_orb < 0)
+        mission_find_orb = task_toast("Find the orb");
+}
+
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
     if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
     dialog_on_page(dea_talk_page);
-    dialog_play(DEA_TALK, 7, dea_talk_done);
+    dialog_on_highlight(dea_talk_highlight);
+    dialog_play(DEA_TALK, DEA_TALK_COUNT, dea_talk_done);
 }
 
 /* ---------- scene 1: welcome, up in the clouds ---------- */
@@ -141,6 +153,7 @@ static void intro(void) { dialog_play(HELLO, 1, hello_done); }
 void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     mission_talk_dea = -1;
+    mission_find_orb = -1;
     dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

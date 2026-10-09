@@ -91,7 +91,7 @@ Mark `[x]` when the chunk is pushed.
 - [x] **2. Grasslands + empty landing zone** — player-facing name "the Grasslands"; remove Alex from the landing area (no NPCs near the fall spot; Alex is not spawned yet).
 - [x] **3. Dialog highlight markup** — engine: mark spans of a dialog line (e.g. `{...}` or a tag) to draw highlighted (green+underlined), plus an optional callback when the highlighted span has been typed out.
 - [x] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
-- [ ] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
+- [x] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
 - [ ] **6. Landing complaint** — after getting up from the fall: "That hurts" + complaint dialog with the player's face, then controls return.
 - [ ] **7. Thinking bar (engine)** — `game/thought.c/.h`: `thought_say(text, seconds)`, slides in/out, portrait, non-interactive, doesn't overlap the ID card / now-playing card.
 - [ ] **8. First thought + Alex placement** — after landing: "I need to find that orb." Alex spawns far from the landing tile; proximity trigger fires the thought about asking her and the task "Ask Alex".
@@ -132,3 +132,4 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-09: chunk 2 done (GRASSLANDS / SKYLAND_NAME + world_map_name in world.h; Alex placeholder chat and spawn removed from story.c, `landed()` is an empty stub). Next: chunk 3.
 - 2026-10-09: chunk 3 done (`{...}` markup in `DialogLine.text` draws green + underlined, spans may wrap over lines; `dialog_on_highlight(fn(page, span))` fires once when a span has been typed out; tested with `tools/dialogtest.c`). Next: chunk 4.
 - 2026-10-09: chunk 4 done (`task_toast(text)` in `game/toast.c`: adds the mission, plays the coin ding, drops a NEW TASK ADDED panel under the checklist, queues up to 4; `hud_draw_coin` is now shared; `tools/toasttest.c` renders it on a PC). Next: chunk 5.
+- 2026-10-09: chunk 5 done (`DEA_TALK` has a new last page: "Now, your first mission. I {dropped my orb in the Grasslands}. Find it and bring it back to me."; `dea_talk_highlight` in `story.c` calls `task_toast("Find the orb")` once that span has typed out; page count is now `DEA_TALK_COUNT`). Next: chunk 6.
