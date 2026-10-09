@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "analyze.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define NN 8192                       /* long window for notes: 5.4 Hz per bin */
 #define DN 2048                       /* short window for drums: 21.5 Hz per bin, 46 ms */
@@ -111,7 +114,115 @@ static void analyze_notes(void) {
     for (int i = 0; i < AN_NOTES; i++) note_v[i] = out[i];
 }
 
+
+/* ---------- precomputed data: the .vsd file ----------
+ * little endian:  "VSD1" | u32 notes | u32 hits | u32 duration_ms
+ *   notes (sorted by start): u32 start_ms, u16 dur_ms, u8 midi, u8 velocity   (8 bytes each)
+ *   hits  (sorted by time):  u32 ms, u8 drum (0 kick, 1 snare, 2 hat), u8 strength   (6 bytes each) */
+typedef struct { unsigned start, dur; int midi; float vel; } VNote;
+typedef struct { unsigned ms; int drum; float str; } VHit;
+static VNote *vn; static int nvn; static unsigned vmaxdur;
+static VHit  *vh; static int nvh;
+static volatile int vsd_on;                    /* the audio thread only ever looks at this flag */
+static char vsd_name[128];                     /* what an_track() last tried, found or not */
+static double vsd_last = -1.0;
+
+static unsigned rd32(const unsigned char *p) { return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24; }
+
+static void vsd_unload(void) {
+    vsd_on = 0;
+    free(vn); free(vh); vn = NULL; vh = NULL; nvn = nvh = 0; vmaxdur = 0; vsd_last = -1.0;
+}
+
+int an_load_file(const char *path) {
+    vsd_unload();
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    unsigned char hd[16];
+    if (fread(hd, 1, 16, f) != 16 || memcmp(hd, "VSD1", 4) != 0) { fclose(f); return 0; }
+    unsigned n = rd32(hd + 4), m = rd32(hd + 8);
+    if (n > 200000 || m > 200000) { fclose(f); return 0; }
+    unsigned char *nb = malloc((size_t)n * 8 + 1), *hb = malloc((size_t)m * 6 + 1);
+    VNote *a = malloc(sizeof(VNote) * (n + 1)); VHit *b = malloc(sizeof(VHit) * (m + 1));
+    int ok = nb && hb && a && b && fread(nb, 8, n, f) == n && fread(hb, 6, m, f) == m;
+    fclose(f);
+    if (!ok) { free(nb); free(hb); free(a); free(b); return 0; }
+    for (unsigned i = 0; i < n; i++) {
+        const unsigned char *q = nb + i * 8;
+        int midi = q[6];
+        while (midi < AN_NOTE_LO) midi += 12;                 /* fold what is outside the keyboard back onto it */
+        while (midi >= AN_NOTE_LO + AN_NOTES) midi -= 12;
+        a[i].start = rd32(q); a[i].dur = q[4] | q[5] << 8; a[i].midi = midi; a[i].vel = q[7] / 255.0f;
+        if (a[i].dur < 30) a[i].dur = 30;
+        if (a[i].dur > vmaxdur) vmaxdur = a[i].dur;
+    }
+    for (unsigned i = 0; i < m; i++) {
+        const unsigned char *q = hb + i * 6;
+        b[i].ms = rd32(q); b[i].drum = q[4] > 2 ? 2 : q[4]; b[i].str = q[5] / 255.0f;
+    }
+    free(nb); free(hb);
+    vn = a; nvn = (int)n; vh = b; nvh = (int)m;
+    for (int i = 0; i < AN_NOTES; i++) note_v[i] = 0;
+    vsd_on = 1;
+    return 1;
+}
+
+int an_track(const char *ogg) {
+    if (strcmp(ogg, vsd_name) == 0) return vsd_on;           /* same track as last time (found or not) */
+    snprintf(vsd_name, sizeof vsd_name, "%s", ogg);
+    vsd_unload();
+    for (int i = 0; i < AN_NOTES; i++) note_v[i] = 0;
+    if (!ogg[0]) return 0;
+    char base[256]; snprintf(base, sizeof base, "%s", ogg);
+    char *dot = strrchr(base, '.'); if (dot) *dot = 0;
+    char path[1200], dir[900];
+    ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);       /* same lookup order as music_play */
+    if (n > 0) {
+        dir[n] = 0;
+        char *slash = strrchr(dir, '/');
+        if (slash) { *slash = 0; snprintf(path, sizeof path, "%s/%s.vsd", dir, base); if (an_load_file(path)) return 1; }
+    }
+    snprintf(path, sizeof path, "%s.vsd", base);
+    return an_load_file(path);
+}
+
+int an_has_data(void) { return vsd_on; }
+
+void an_at(double pos) {
+    if (!vsd_on) return;
+    if (pos < 0) {                                           /* nothing audible */
+        for (int i = 0; i < AN_NOTES; i++) note_v[i] = 0;
+        vsd_last = -1.0;
+        return;
+    }
+    unsigned t = (unsigned)(pos * 1000.0);
+    float lv[AN_NOTES];
+    for (int i = 0; i < AN_NOTES; i++) lv[i] = 0;
+    unsigned from = t > vmaxdur ? t - vmaxdur : 0;           /* first note that could still be sounding */
+    int lo = 0, hi = nvn;
+    while (lo < hi) { int mid = (lo + hi) / 2; if (vn[mid].start < from) lo = mid + 1; else hi = mid; }
+    for (int i = lo; i < nvn && vn[i].start <= t; i++) {
+        if (t >= vn[i].start + vn[i].dur) continue;
+        float age = (float)(t - vn[i].start) / (float)vn[i].dur;
+        float v = (0.35f + 0.65f * vn[i].vel) * (1.0f - 0.35f * age);          /* a note fades a little as it rings */
+        int k = vn[i].midi - AN_NOTE_LO;
+        if (v > lv[k]) lv[k] = v;
+    }
+    for (int i = 0; i < AN_NOTES; i++) note_v[i] = lv[i];
+
+    /* drum hits that happened since the last call. a seek / scrub / loop jump resyncs without firing */
+    if (vsd_last >= 0 && pos > vsd_last && pos - vsd_last < 0.5) {
+        unsigned a = (unsigned)(vsd_last * 1000.0);
+        lo = 0; hi = nvh;
+        while (lo < hi) { int mid = (lo + hi) / 2; if (vh[mid].ms <= a) lo = mid + 1; else hi = mid; }
+        for (int i = lo; i < nvh && vh[i].ms <= t; i++)
+            if (vh[i].str > drum_hit[vh[i].drum]) drum_hit[vh[i].drum] = vh[i].str;
+    }
+    vsd_last = pos;
+}
+
 void an_feed(const short *pcm, int frames) {
+    if (vsd_on) return;                                 /* precomputed data is in use: nothing to listen for */
     for (int i = 0; i < frames; i++) {
         ring[rpos] = (pcm[i * 2] + pcm[i * 2 + 1]) * (0.5f / 32768.0f);
         rpos = (rpos + 1) % NN;

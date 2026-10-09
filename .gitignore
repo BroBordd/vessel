@@ -2,3 +2,4 @@ build/
 *.apk
 *.idsig
 debug.jks
+__pycache__/

@@ -321,6 +321,11 @@ void musicwin_update(float dt) {
         else if (hold[i] > 0)  hold[i] -= dt;
         else                   { peak[i] -= dt * 0.9f; if (peak[i] < lvl[i]) peak[i] = lvl[i]; }
     }
+    an_track(music_current_file());                                             /* precomputed notes / drums (.vsd) when the track has them */
+    {
+        int audible = music_current_file()[0] && !music_paused() && !(music_scrubbing() && fabsf(music_scrub_rate()) < 0.05f);
+        an_at(audible ? music_position() : -1.0);
+    }
     float nt[AN_NOTES]; an_notes(nt);
     for (int i = 0; i < AN_NOTES; i++) {
         if (nt[i] > nv[i]) nv[i] += (nt[i] - nv[i]) * (dt * 30.0f > 1 ? 1 : dt * 30.0f);

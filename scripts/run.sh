@@ -37,9 +37,10 @@ chown \$(stat -c %u \$D):\$(stat -c %g \$D) \$D/game
 chmod 755 \$D/game
 restorecon \$D/game
 cp $PWD/music/*.ogg \$D/
-chown \$(stat -c %u \$D):\$(stat -c %g \$D) \$D/*.ogg
-chmod 644 \$D/*.ogg
-restorecon \$D/*.ogg
+cp $PWD/music/*.vsd \$D/ 2>/dev/null || true
+chown \$(stat -c %u \$D):\$(stat -c %g \$D) \$D/*.ogg \$D/*.vsd 2>/dev/null || true
+chmod 644 \$D/*.ogg \$D/*.vsd 2>/dev/null || true
+restorecon \$D/*.ogg \$D/*.vsd 2>/dev/null || true
 rm -f \$D/fb \$D/gfx \$D/audio.pcm
 logcat -c
 am start -n $PKG/.MainActivity
