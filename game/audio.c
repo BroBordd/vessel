@@ -76,7 +76,8 @@ void sfx_coin(void) {
 static int   blip_on, blip_pos;
 static float blip_phase, blip_f;
 #define BLIP_T    0.075f                       /* seconds per bop */
-#define BLIP_HZ   190.0f                       /* base pitch at pitch 1.0 (low) */
+#define BLIP_HZ   256.5f                       /* base pitch at pitch 1.0 (was 190 Hz; +35% = 256.5 Hz) */
+#define BLIP_GAIN 0.50f                        /* peak level, fraction of full scale (was 0.20; the coin is 0.30) */
 
 void sfx_blip(float pitch) {
     if (!dev) return;
@@ -97,7 +98,7 @@ static void blip_mix(Sint16 *out, int frames) {
         blip_phase += f / (float)OUT_RATE;
         if (blip_phase >= 1.0f) blip_phase -= 1.0f;
         float sn = sinf(6.2831853f * blip_phase), sq = blip_phase < 0.5f ? 1.0f : -1.0f;
-        int v = (int)((0.72f * sn + 0.28f * sq) * env * 0.20f * 32767.0f);
+        int v = (int)((0.72f * sn + 0.28f * sq) * env * BLIP_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {
             int o = out[i * 2 + ch] + v;
             out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
