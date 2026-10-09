@@ -79,8 +79,16 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* nobody stands near the landing spot: the player lands alone in GRASSLANDS.
  * Alex is placed far away in a later chunk (docs/story/vessel-1.md, chunks 8-9). */
 
+/* what the player says out loud after the fall (face popup). the controls are hidden while a
+ * dialog is open and come back by themselves when it ends (world.c) */
+static const DialogLine LANDING[] = {
+    { &VESSEL, "Ow. That hurts." },
+    { &VESSEL, "She could at least have warned me." },
+};
+
 /* the player just got back on their feet after the fall */
 static void landed(void) {
+    dialog_play(LANDING, (int)(sizeof LANDING / sizeof LANDING[0]), NULL);
 }
 
 /* ---------- scene 2: Dea ---------- */
