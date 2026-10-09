@@ -211,10 +211,11 @@ void an_at(double pos) {
     for (int i = 0; i < AN_NOTES; i++) note_v[i] = lv[i];
 
     /* drum hits that happened since the last call. a seek / scrub / loop jump resyncs without firing */
-    if (vsd_last >= 0 && pos > vsd_last && pos - vsd_last < 0.5) {
-        unsigned a = (unsigned)(vsd_last * 1000.0);
+    int fresh = vsd_last < 0 && pos < 0.35;                  /* the sound just arrived at the start of a track: its first hits count */
+    if (fresh || (vsd_last >= 0 && pos > vsd_last && pos - vsd_last < 0.5)) {
+        unsigned a = fresh ? 0 : (unsigned)(vsd_last * 1000.0);
         lo = 0; hi = nvh;
-        while (lo < hi) { int mid = (lo + hi) / 2; if (vh[mid].ms <= a) lo = mid + 1; else hi = mid; }
+        if (!fresh) while (lo < hi) { int mid = (lo + hi) / 2; if (vh[mid].ms <= a) lo = mid + 1; else hi = mid; }
         for (int i = lo; i < nvh && vh[i].ms <= t; i++)
             if (vh[i].str > drum_hit[vh[i].drum]) drum_hit[vh[i].drum] = vh[i].str;
     }

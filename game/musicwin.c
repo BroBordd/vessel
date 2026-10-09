@@ -324,7 +324,8 @@ void musicwin_update(float dt) {
     an_track(music_current_file());                                             /* precomputed notes / drums (.vsd) when the track has them */
     {
         int audible = music_current_file()[0] && !music_paused() && !(music_scrubbing() && fabsf(music_scrub_rate()) < 0.05f);
-        an_at(audible ? music_position() : -1.0);
+        double hp = music_heard_position();                                     /* what the ear hears: < 0 = the new sound has not arrived yet */
+        an_at(audible && hp >= 0.0 ? hp : -1.0);
     }
     float nt[AN_NOTES]; an_notes(nt);
     for (int i = 0; i < AN_NOTES; i++) {

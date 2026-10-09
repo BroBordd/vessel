@@ -19,6 +19,7 @@ float music_volume(void);
  * track changes until resumed, so a new map's music does not blast over someone who paused it */
 void music_pause(int paused);
 int  music_paused(void);
+int  music_fading(void);                   /* a fade-out is running (the track is about to be dropped) */
 /* loop flag of the playing track (the jukebox decides who may change it, see jukebox.h) */
 int  music_loop(void);
 void music_set_loop(int on);
@@ -28,6 +29,11 @@ void music_set_loop(int on);
  * music_position is what is HEARD (it subtracts the output latency); while a scrub is on it is the tape head. */
 double music_duration(void);
 double music_position(void);
+/* same, but not clamped at 0 and the one the music window syncs to: < 0 means a new track's first sound has not
+ * reached the speakers yet. MUSIC_HW_LATENCY is the delay we can not measure (Android's mixer / the hardware): if the
+ * lit notes still lead the sound make it bigger, if they trail it make it smaller (seconds) */
+#define MUSIC_HW_LATENCY 0.15f
+double music_heard_position(void);
 void   music_seek(double sec);              /* plain jump, no scrub sound (fade-in of ~30 ms) */
 
 /* TAPE SCRUB, for dragging the progress bar. the head chases the finger like a tape deck: it plays backwards when

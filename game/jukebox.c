@@ -68,6 +68,11 @@ void jukebox_pick(int i) {
     if (i < 0 || i >= count) return;
     snprintf(custom_file, sizeof custom_file, "%s", music_scan_file(i));
     mode = JB_CUSTOM;
+    if (strcmp(music_current_file(), custom_file) == 0 && !music_fading()) {      /* that song is already on: do not restart it */
+        music_set_loop(custom_loop);
+        music_pause(0);                                                           /* (a paused one just resumes where it was) */
+        return;
+    }
     play_custom();
 }
 

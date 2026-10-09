@@ -62,6 +62,7 @@ static char  cur_file[128];
 /* where the decoder is in the track, in SOURCE frames (what mus_read has consumed), and the track length */
 static double play_pos;
 static int    mus_len, mus_enc_len;
+static volatile int wrapped;      /* the track has looped since it started / was last seeked (heard position wraps with it) */
 static volatile int scrub_on;     /* the tape scrub is running: the audio thread reads the decoded copy instead of the stream */
 
 /* ---------- reading the stream, resampled when the file is not 44100 Hz ----------
@@ -100,7 +101,7 @@ static int mus_read(Sint16 *out, int frames) {
             if (got > 0) { done += got; play_pos += got; reseeked = 0; continue; }
             if (!mus_loop || reseeked) break;       /* end, or broken stream */
             stb_vorbis_seek_start(mus);
-            play_pos = 0;
+            play_pos = 0; wrapped = 1;
             reseeked = 1;
         }
         return done;
@@ -111,7 +112,7 @@ static int mus_read(Sint16 *out, int frames) {
             Sint16 f[2];
             if (!rs_next(f)) {
                 if (!mus_loop || reseeked) return done;
-                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; play_pos = 0; reseeked = 1;
+                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; play_pos = 0; wrapped = 1; reseeked = 1;
                 if (!rs_next(f)) return done;
             } else reseeked = 0;
             rs_a[0] = rs_b[0]; rs_a[1] = rs_b[1]; rs_b[0] = f[0]; rs_b[1] = f[1];
@@ -250,9 +251,14 @@ static void voices_mix(Sint16 *out, int frames) {
     }
 }
 
+static float vis_delay(void);
+
 /* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ---------- */
 #define FFT_N 512
 static volatile float spec[MUSIC_BANDS];
+#define SPEC_HIST 128                                   /* ~3 s of 1024-frame chunks, the delay line for the bars */
+static float spec_hist[SPEC_HIST][MUSIC_BANDS];
+static volatile unsigned spec_n;                        /* chunks pushed so far (one per audio callback) */
 static char  title[48];
 static unsigned serial;
 
@@ -279,8 +285,14 @@ static void fft(float *re, float *im) {
 }
 
 /* pcm: stereo S16, `frames` long. uses the last FFT_N frames (about 12 ms). */
+static void spec_push(void) {
+    unsigned n = spec_n;
+    for (int i = 0; i < MUSIC_BANDS; i++) spec_hist[n % SPEC_HIST][i] = spec[i];
+    spec_n = n + 1;
+}
+
 static void spectrum_feed(const Sint16 *pcm, int frames) {
-    if (frames < FFT_N) { for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0; return; }
+    if (frames < FFT_N) { for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0; spec_push(); return; }
     float re[FFT_N], im[FFT_N];
     const Sint16 *src = pcm + (frames - FFT_N) * 2;
     for (int i = 0; i < FFT_N; i++) {
@@ -302,9 +314,18 @@ static void spectrum_feed(const Sint16 *pcm, int frames) {
         float lvl = (db + 58.0f + 0.7f * b) / 58.0f;                                /* tilt: highs are naturally quieter. top = 0 dBFS, so the bars have headroom and follow the volume knob */
         spec[b] = lvl < 0 ? 0 : lvl > 1 ? 1 : lvl;
     }
+    spec_push();
 }
 
-void music_spectrum(float *bands) { for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = spec[i]; }
+/* the bars show what is HEARD: the chunk that was mixed vis_delay() seconds ago, not the one being mixed now */
+void music_spectrum(float *bands) {
+    unsigned n = spec_n;
+    unsigned back = (unsigned)(vis_delay() * (float)OUT_RATE / 1024.0f + 0.5f);
+    if (back > SPEC_HIST - 2) back = SPEC_HIST - 2;
+    if (n == 0 || back >= n) { for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = 0; return; }
+    const float *s = spec_hist[(n - 1 - back) % SPEC_HIST];
+    for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = s[i];
+}
 const char *music_title(void) { return title; }
 unsigned music_serial(void) { return serial; }
 
@@ -412,7 +433,7 @@ static void seek_locked(double fr) {
     if (fr < 0) fr = 0;
     if (!stb_vorbis_seek(mus, (unsigned)fr)) { stb_vorbis_seek_start(mus); fr = 0; }
     rs_reset(mus_rate);
-    play_pos = fr;
+    play_pos = fr; wrapped = 0;
     pg = 0.0f;
 }
 
@@ -538,7 +559,7 @@ int music_play(const char *file, int loop) {
     SDL_LockAudioDevice(dev);
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
     mus = v; mus_buf = buf; mus_loop = loop;
-    mus_len = total > 0 ? total : 0; mus_enc_len = len; play_pos = 0; scrub_on = 0;
+    mus_len = total > 0 ? total : 0; mus_enc_len = len; play_pos = 0; wrapped = 0; scrub_on = 0;
     rs_reset((int)vi.sample_rate);
     fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
@@ -568,6 +589,7 @@ void music_title_of(const char *file, char *out, int cap) {
 const char *music_current_file(void) { return mus ? cur_file : ""; }
 float music_volume(void) { return master; }
 int   music_paused(void) { return mus_paused; }
+int   music_fading(void) { return fading; }
 void  music_pause(int p) { mus_paused = p ? 1 : 0; }     /* the audio thread ramps pg towards the new state */
 
 int  music_loop(void) { return mus_loop; }
@@ -581,11 +603,24 @@ void music_set_loop(int on) {
 /* ---------- position, seeking, scrub (the music window's progress bar) ---------- */
 double music_duration(void) { return mus && mus_len > 0 ? (double)mus_len / (double)mus_rate : 0.0; }
 
-double music_position(void) {
+/* seconds between what we mix and what the ear gets: the measured pipeline (game -> FIFO -> AudioTrack) plus the
+ * part nobody can measure from here (Android's mixer / the hardware), MUSIC_HW_LATENCY */
+static float vis_delay(void) { return audio_latency() + MUSIC_HW_LATENCY; }
+
+/* where the track is in what the ear hears right now. NOT clamped at 0: negative = the start of a new track is
+ * still on its way to the speakers (the music window stays dark until it arrives) */
+double music_heard_position(void) {
     double d = music_duration();
     if (d <= 0.0) return 0.0;
-    double p = scrub_on ? sc_pos / (double)mus_rate : play_pos / (double)mus_rate - (double)audio_latency();
-    return p < 0.0 ? 0.0 : p > d ? d : p;
+    if (scrub_on) return sc_pos / (double)mus_rate > d ? d : sc_pos / (double)mus_rate;
+    double p = play_pos / (double)mus_rate - (double)vis_delay();
+    if (p < 0.0 && wrapped) p += d;              /* the loop restarted in the decoder, the ear is still at the end */
+    return p > d ? d : p;
+}
+
+double music_position(void) {
+    double p = music_heard_position();
+    return p < 0.0 ? 0.0 : p;
 }
 
 void music_seek(double sec) {
