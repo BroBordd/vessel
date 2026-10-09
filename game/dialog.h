@@ -7,7 +7,11 @@
 
 /* one page of dialog. who == NULL -> centred window, no face (narration / system text).
  * who != NULL -> bottom popup with that person's face and name.
- * text is auto-wrapped; use "\n" to force a line break. */
+ * text is auto-wrapped; use "\n" to force a line break.
+ * HIGHLIGHT MARKUP: put { } around words to draw them green + underlined (same look as the matched
+ * words in the typed chat), e.g. "I dropped my {orb} in the Grasslands." A span may cover several
+ * words and may wrap over lines. Spans are numbered 0, 1, 2 ... in the order they appear on the page
+ * (max 8 per page). Use dialog_on_highlight to react when one has been typed out. */
 typedef struct { const Person *who; const char *text; int reply; } DialogLine;
 
 /* DialogLine.reply (leave it out for a normal page):
@@ -26,6 +30,11 @@ int  dialog_active(void);
 /* optional: fn(page) runs every time a page of the NEXT / current dialog begins (page 0 is the first).
  * it is dropped when that dialog ends, so set it right before dialog_play. */
 void dialog_on_page(void (*fn)(int page));
+
+/* optional: fn(page, span) runs once when the {highlighted} span number `span` (0 = the first one on
+ * that page) has finished typing out. page is the same index dialog_on_page gets. dropped when the
+ * dialog ends, so set it right before dialog_play. fn may start a new dialog_play. */
+void dialog_on_highlight(void (*fn)(int page, int span));
 
 /* optional: fn(page, text) runs when the player answers a REPLY page. text is what they typed, or
  * NULL if they pressed SKIP. afterwards the dialog moves to the next page, UNLESS fn started a new

@@ -15,6 +15,7 @@
  *   hud_set_person(&PERSON)                 change who the ID card shows. a new name flashes, dings + toasts
  *   hud_set_hp(hp, max)                     the HP bar on the ID card
  *   dialog_on_page(fn)                      run fn(page) as each page of the NEXT dialog_play begins
+ *   dialog_on_highlight(fn)                 run fn(page, span) when a {highlighted} span of the NEXT dialog_play has been typed out
  *   convo_ask_questions(&P, &MIND, on_end)  "do you have any questions?" then a free typed chat (convo.h)
  *   convo_open(&P, &MIND, again, on_end)    the npc speaks first, the player may type or skip
  */

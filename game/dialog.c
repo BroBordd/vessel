@@ -26,32 +26,60 @@ static float open_t, t;             /* open_t: since the dialog opened, t: since
 static char  wrapped[MAX_WRAP];
 static int   nlines, widest, total;
 
+/* highlight markup: {words} in a page's text are drawn green + underlined (see dialog.h) */
+#define MAX_SPANS 8
+static void (*hl_hook)(int page, int span);         /* see dialog_on_highlight */
+static char  plain[MAX_WRAP];                       /* the page text with the { } markup taken out */
+static unsigned char src_span[MAX_WRAP];            /* per char of plain: 0 = normal, n = inside highlighted span n (1-based) */
+static unsigned char wspan[MAX_WRAP];               /* the same, lined up with `wrapped` */
+static int   nspan, spans_fired, span_end[MAX_SPANS + 1];   /* span_end[n]: letters of `wrapped` typed once span n is complete */
+
 typedef struct {
     int bottom, cell, lineh, pad, bt, q, ps, side, margin, maxchars;
     int bx, by, bw, bh, tx, ty, nx, ny, fx, fy;
 } Layout;
 static Layout L;
 
+/* ---------- highlight markup ---------- */
+/* plain <- src without the braces, src_span <- which {span} every letter belongs to.
+ * an unclosed { runs to the end of the page, a stray } is ignored, spans past MAX_SPANS are drawn normal */
+static void parse_markup(const char *src) {
+    int n = 0, cur = 0;
+    nspan = 0;
+    for (; *src && n < MAX_WRAP - 1; src++) {
+        if (*src == '{') { if (!cur && nspan < MAX_SPANS) cur = ++nspan; continue; }
+        if (*src == '}') { cur = 0; continue; }
+        plain[n] = *src; src_span[n++] = (unsigned char)cur;
+    }
+    plain[n] = 0;
+}
+
 /* ---------- text wrapping ---------- */
-static void wrap_text(const char *src, int maxchars) {
+/* wraps `plain` into `wrapped` and carries the span ids along into `wspan` */
+static void wrap_text(int maxchars) {
+    const char *src = plain;
     char *o = wrapped, *end = wrapped + MAX_WRAP - 2;
-    int col = 0;
+    int col = 0, gap = 0;               /* gap: span id of the last space we skipped (so a span can cover the spaces inside it) */
     nlines = 1; widest = 0;
     while (*src && o < end) {
-        if (*src == '\n') { *o++ = '\n'; if (col > widest) widest = col; col = 0; nlines++; src++; continue; }
-        if (*src == ' ')  { src++; continue; }
+        int si = (int)(src - plain);
+        if (*src == '\n') { wspan[o - wrapped] = 0; *o++ = '\n'; if (col > widest) widest = col; col = 0; nlines++; src++; gap = 0; continue; }
+        if (*src == ' ')  { gap = src_span[si]; src++; continue; }
         const char *q = src;
         while (*q && *q != ' ' && *q != '\n') q++;
         int wl = (int)(q - src);
         if (col > 0 && col + 1 + wl > maxchars) {
-            *o++ = '\n'; if (col > widest) widest = col; col = 0; nlines++;
-        } else if (col > 0) { *o++ = ' '; col++; }
+            wspan[o - wrapped] = 0; *o++ = '\n'; if (col > widest) widest = col; col = 0; nlines++;
+        } else if (col > 0) { wspan[o - wrapped] = (gap && gap == src_span[si]) ? (unsigned char)gap : 0; *o++ = ' '; col++; }
         if (o + wl >= end) break;
-        memcpy(o, src, (size_t)wl); o += wl; col += wl; src = q;
+        memcpy(o, src, (size_t)wl); memcpy(&wspan[o - wrapped], &src_span[si], (size_t)wl);
+        o += wl; col += wl; src = q; gap = 0;
     }
     if (col > widest) widest = col;
-    *o = 0;
+    *o = 0; wspan[o - wrapped] = 0;
     total = (int)(o - wrapped);
+    for (int n = 1; n <= MAX_SPANS; n++) span_end[n] = 0;
+    for (int i = 0; i < total; i++) if (wspan[i]) span_end[wspan[i]] = i + 1;
 }
 
 /* ---------- layout ---------- */
@@ -108,7 +136,9 @@ static void start_page(void) {
     reply_mode = lines[idx].reply;
     btn_press = 0; blipped = 0;
     layout_base(lines[idx].who != NULL);
-    wrap_text(lines[idx].text, L.maxchars);
+    parse_markup(lines[idx].text);
+    wrap_text(L.maxchars);
+    spans_fired = 0;
     layout_box();
     t = 0;
     if (page_hook) page_hook(idx);
@@ -119,7 +149,7 @@ static int typing_done(void) { return (int)(t * DIALOG_CPS) >= total; }
 /* ---------- public API ---------- */
 void dialog_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    active = armed = 0; lines = NULL; on_done = NULL; page_hook = NULL; reply_hook = NULL; sugg = NULL; nsugg = 0; reply_mode = 0;
+    active = armed = 0; lines = NULL; on_done = NULL; page_hook = NULL; reply_hook = NULL; hl_hook = NULL; sugg = NULL; nsugg = 0; reply_mode = 0;
     talk_init(w, h);
 }
 
@@ -134,12 +164,13 @@ int dialog_active(void) { return active; }
 
 void dialog_on_page(void (*fn)(int page)) { page_hook = fn; }
 void dialog_on_reply(void (*fn)(int page, const char *text)) { reply_hook = fn; }
+void dialog_on_highlight(void (*fn)(int page, int span)) { hl_hook = fn; }
 void dialog_suggest(const char *const *list, int count) { sugg = list; nsugg = count; }
 
 static void next_page(void) {
     if (++idx >= count) {
         void (*cb)(void) = on_done;
-        active = 0; on_done = NULL; page_hook = NULL; reply_hook = NULL; sugg = NULL; nsugg = 0; reply_mode = 0;
+        active = 0; on_done = NULL; page_hook = NULL; reply_hook = NULL; hl_hook = NULL; sugg = NULL; nsugg = 0; reply_mode = 0;
         if (cb) cb();                   /* may start another dialog */
     } else start_page();
 }
@@ -173,7 +204,7 @@ void dialog_touch(int a, int x, int y) {
         else if (a == 1) {
             int b = btn_press && btn_at(x, y) == btn_press ? btn_press : 0;
             btn_press = 0;
-            if (b == 1) talk_open(lines[idx].who ? lines[idx].who->name : "", lines[idx].text, sugg, nsugg, reply_mode == REPLY_REQUIRED, on_talk_result);
+            if (b == 1) talk_open(lines[idx].who ? lines[idx].who->name : "", plain, sugg, nsugg, reply_mode == REPLY_REQUIRED, on_talk_result);
             else if (b == 2) do_reply(NULL);
         }
         return;
@@ -190,6 +221,14 @@ void dialog_update(float dt) {
     talk_update(dt);                            /* the keyboard may still be sliding away after the dialog ended */
     if (!active) return;
     open_t += dt; t += dt;
+    {   /* a highlighted span is complete once its last letter has been typed */
+        int typed = (int)(t * DIALOG_CPS), g = gen, pg = idx;
+        while (spans_fired < nspan && typed >= span_end[spans_fired + 1]) {
+            int sp = spans_fired++;
+            if (hl_hook) hl_hook(pg, sp);
+            if (g != gen || !active) return;        /* the hook started another dialog: it has its own state now */
+        }
+    }
     if (!talk_active() && open_t > 0.1f) {          /* a blip for every letter that just appeared (one voice, so at most one per frame) */
         /* the speakers are `audio_latency()` behind what we mix, so look that far ahead: each bop is fired
          * early enough to be HEARD as its letter appears (capped, so the first few letters of a page still get theirs) */
@@ -248,20 +287,29 @@ void dialog_draw(SDL_Renderer *r) {
         font_draw(r, p->name, L.nx, L.ny, L.cell);
     }
 
-    /* typewriter text, one wrapped line at a time */
+    /* typewriter text, one wrapped line at a time. {highlighted} runs are green + underlined */
     int remaining = (int)(t * DIALOG_CPS);
-    SDL_SetRenderDrawColor(r, 255, 255, 255, A);
     const char *p = wrapped;
-    int ly = L.ty;
+    int ly = L.ty, base = 0;            /* base: index of p inside wrapped (lines up with wspan) */
     while (*p && remaining > 0) {
         const char *e = strchr(p, '\n');
         int len = e ? (int)(e - p) : (int)strlen(p);
         int n = remaining < len ? remaining : len;
-        char tmp[96]; if (n > 95) n = 95;
-        memcpy(tmp, p, (size_t)n); tmp[n] = 0;
-        font_draw(r, tmp, L.tx, ly, L.cell);
+        if (n > 95) n = 95;
+        for (int i = 0; i < n; ) {                      /* runs of letters that share a highlight state */
+            int on = wspan[base + i] != 0, j = i;
+            char run[96];
+            while (j < n && (wspan[base + j] != 0) == on) { run[j - i] = p[j]; j++; }
+            run[j - i] = 0;
+            int rx = L.tx + i * 6 * L.cell;
+            if (on) SDL_SetRenderDrawColor(r, 120, 235, 170, A); else SDL_SetRenderDrawColor(r, 255, 255, 255, A);
+            font_draw(r, run, rx, ly, L.cell);
+            if (on) fillr(r, rx, ly + 8 * L.cell, (j - i) * 6 * L.cell - L.cell, L.cell);
+            i = j;
+        }
         remaining -= len + 1;
         ly += L.lineh;
+        base += len + 1;
         p += len;
         if (*p == '\n') p++; else break;
     }

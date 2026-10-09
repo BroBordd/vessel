@@ -89,7 +89,7 @@ Mark `[x]` when the chunk is pushed.
 
 - [x] **1. Story doc** — this file.
 - [x] **2. Grasslands + empty landing zone** — player-facing name "the Grasslands"; remove Alex from the landing area (no NPCs near the fall spot; Alex is not spawned yet).
-- [ ] **3. Dialog highlight markup** — engine: mark spans of a dialog line (e.g. `{...}` or a tag) to draw highlighted (green+underlined), plus an optional callback when the highlighted span has been typed out.
+- [x] **3. Dialog highlight markup** — engine: mark spans of a dialog line (e.g. `{...}` or a tag) to draw highlighted (green+underlined), plus an optional callback when the highlighted span has been typed out.
 - [ ] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
 - [ ] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
 - [ ] **6. Landing complaint** — after getting up from the fall: "That hurts" + complaint dialog with the player's face, then controls return.
@@ -117,7 +117,7 @@ Mark `[x]` when the chunk is pushed.
 ## Code map (what exists today)
 
 - `game/story.c` — all scripted scenes (sky: Dea; ground: Alex placeholder). Helpers listed in its header comment.
-- `game/dialog.c/.h` — paged dialog, `DialogLine`, `dialog_on_page`, `dialog_on_reply`.
+- `game/dialog.c/.h` — paged dialog, `DialogLine`, `dialog_on_page`, `dialog_on_reply`, `{highlight}` markup + `dialog_on_highlight(fn(page, span))`.
 - `game/convo.c/.h`, `game/talk.c/.h`, `game/lang*.c` — free typed chat with NPC personas.
 - `game/npc.c/.h` — static NPCs (`npc_add`, facing). No movement/removal yet.
 - `game/missions.c/.h` — top-left checklist (`mission_add`, `mission_complete`).
@@ -129,3 +129,4 @@ Mark `[x]` when the chunk is pushed.
 
 - 2026-10-09: story written, chunks planned.
 - 2026-10-09: chunk 2 done (GRASSLANDS / SKYLAND_NAME + world_map_name in world.h; Alex placeholder chat and spawn removed from story.c, `landed()` is an empty stub). Next: chunk 3.
+- 2026-10-09: chunk 3 done (`{...}` markup in `DialogLine.text` draws green + underlined, spans may wrap over lines; `dialog_on_highlight(fn(page, span))` fires once when a span has been typed out; tested with `tools/dialogtest.c`). Next: chunk 4.
