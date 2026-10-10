@@ -38,6 +38,7 @@
 #include "brainwin.h"
 #include "npc.h"
 #include "world.h"
+#include "grave.h"
 #include "audio.h"
 #include "jukebox.h"
 #include "heart.h"
@@ -305,6 +306,12 @@ static int death_hold_done;                 /* (tests) how many times the hold a
  * story keeps them so that chunk 20 can put Alex and the shrine back exactly as they were. alex_dealt / alex_seen / shrine_fouled
  * are simply not reset. */
 static struct { int alex_tx, alex_ty, alex_there; int shrine_tx, shrine_ty, shrine_there, shrine_polluted; } green;
+
+/* the graves (chunks 21-22): every vessel that died on the Grasslands keeps a stone where it fell, with its own face on it. the world forgets
+ * props when a map loads, so the story keeps the list (the tile where each one died, and who it was) and puts them all back on every
+ * landing (landed_again). nothing here knows which vessel it is: world_player() at the moment of death is the Person on the stone. */
+static struct { int tx, ty; const Person *who; } graves[GRAVE_MAX];
+static int grave_n;
 static void green_remember(void) {
     memset(&green, 0, sizeof green);
     if (alex_id >= 0) { float fx, fy; npc_tile(alex_id, &fx, &fy); green.alex_tx = (int)fx; green.alex_ty = (int)fy; green.alex_there = 1; }
@@ -397,6 +404,7 @@ static void story_vessel_died(void) {
     lives++;
     green_remember();
     death_tx = world_player_tile_x(); death_ty = world_player_tile_y();
+    if (grave_n < GRAVE_MAX) { graves[grave_n].tx = death_tx; graves[grave_n].ty = death_ty; graves[grave_n].who = world_player(); grave_n++; }
     world_fade_to_black(DEATH_FADE_T, death_to_limbo);
 }
 int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0; return e; }
@@ -481,14 +489,18 @@ static void landing_done(void) {
 
 /* the second landing (chunk 20): the Grasslands are exactly as vessel 1 left them. gen_map() makes the same ground every time; what stood
  * on it is put back from `green`: Alex where she was (she remembers the deal: alex_dealt / alex_seen stayed), the shrine where it was,
- * still polluted. nothing is added to the task list (vessel 2's own mission is planned later) and there is no complaint. the only
- * thing said is the placeholder line below; chunks 21-24 add the grave. */
+ * still polluted. a stone stands where each earlier vessel died (chunk 22). nothing is added to the task list (vessel 2's own mission is
+ * planned later) and there is no complaint. the only thing said is the placeholder line below; chunk 23 adds the thought at the grave. */
 static void landed_again(void) {
     if (green.alex_there) {
         alex_id = npc_add(&ALEX, green.alex_tx, green.alex_ty, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
     }
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
+    for (int i = 0; i < grave_n; i++) {                     /* a stone where each one died: that tile, or the nearest where it fits */
+        int gx, gy;
+        if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) world_place_grave(gx, gy, graves[i].who);
+    }
     think("Here we go again.", NULL, BRAIN_SCENE_GRASS, THOUGHT_AGAIN, 1);
 }
 
@@ -599,7 +611,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
-    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0;
+    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

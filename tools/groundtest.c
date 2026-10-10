@@ -36,6 +36,26 @@ static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch
 static void shot(const char *name) { SDL_RenderPresent(rr); SDL_SaveBMP(surf, name); printf("wrote %s\n", name); }
 static void put_player(float tx, float ty) { pxp = tx * tile; pyp = ty * tile; }   /* teleport (world.c's statics) */
 
+/* the old photo on a grave: on the screen, a face (not flat), colourless, none of the person's real skin colour, in a dark frame.
+ * the camera is the world's own (cam_x, cam_y), so the player must have been drawn once near the grave. *
+static void check_photo(int gi, const Person *who, const char *what) {
+    int cx = (int)cam_x, cy = (int)cam_y, rx, ry, rw, rh; grave_portrait_rect(gi, cx, cy, &rx, &ry, &rw, &rh);
+    Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, n = 0, grey = 0, rawskin = 0, frame = 0, lo = 255, hi = 0;
+    for (int y = ry; y < ry + rh; y++) for (int x = rx; x < rx + rw; x++) {
+        if (x < 0 || y < 0 || x >= TW || y >= TH) continue;
+        Uint8 *c = pix + y * pitch + x * 4; n++;
+        if (abs(c[0] - c[1]) <= 14 && abs(c[1] - c[2]) <= 14) grey++;                         /* greyed: hardly any colour left */
+        if (c[0] == who->skin.r && c[1] == who->skin.g && c[2] == who->skin.b) rawskin++;
+        if (c[0] < lo) lo = c[0]; if (c[0] > hi) hi = c[0];
+    }
+    for (int x = rx - 1; x <= rx + rw; x++) { Uint8 *c = pix + (ry - 1) * pitch + x * 4; if (x >= 0 && c[0] == 46 && c[1] == 36 && c[2] == 30) frame++; }
+    CHECK(n > 400 && rx > 0 && ry > 0 && rx + rw < TW && ry + rh < TH, "%s: the portrait is not on the screen (%d,%d %dx%d)", what, rx, ry, rw, rh);
+    CHECK(grey * 100 >= n * 95, "%s: the portrait is not greyed (%d of %d pixels colourless)", what, grey, n);
+    CHECK(rawskin == 0, "%s: the portrait still has the real skin colour (%d pixels)", what, rawskin);
+    CHECK(frame * 100 >= (rw + 2) * 90, "%s: no dark frame over the photo (%d of %d)", what, frame, rw + 2);
+    CHECK(hi - lo > 40, "%s: the portrait is one flat colour (%d..%d)", what, lo, hi);
+}
+
 int limbo_done_calls;
 static void limbo_test_done(void) { limbo_done_calls++; }
 
@@ -447,9 +467,27 @@ int main(void) {
         CHECK(missions_count() == 0, "a task came with the second landing (%d)", missions_count());
         CHECK(brainwin_count() == 1 && thought_active(), "the landing line is not the one thought (%d in the head)", brainwin_count());
         shot("build/ground_again.bmp"); }
+    /* chunk 22: a stone stands where vessel 1 died (or the nearest tile where it fits), with Aonia's face on it, clear of the shrine,
+     * Alex and the player; it blocks, and walking up to it the portrait is on the screen */
+    {   CHECK(world_grave_count() == 1 && grave_person(0) == &VESSEL, "no grave for vessel 1 on the second landing (%d)", world_grave_count());
+        float gx, gy, sx, sy, ex, ey; grave_tile(0, &gx, &gy); world_shrine_tile(&sx, &sy); npc_tile(alex_id, &ex, &ey);
+        float to_death = sqrtf((gx - 0.5f - death_tx) * (gx - 0.5f - death_tx) + (gy - 0.9f - death_ty) * (gy - 0.9f - death_ty));
+        printf("vessel 1 died on tile %d,%d, the grave is on %d,%d (%.1f tiles away)\n", death_tx, death_ty, (int)gx, (int)gy, to_death);
+        CHECK(to_death <= 6.0f, "the grave is too far from where he died (%.1f tiles)", to_death);
+        CHECK(sqrtf((gx - sx) * (gx - sx) + (gy - sy) * (gy - sy)) >= 3.0f, "the grave touches the shrine");
+        CHECK(sqrtf((gx - ex) * (gx - ex) + (gy - ey) * (gy - ey)) >= 2.5f, "the grave stands on Alex");
+        CHECK(sqrtf((gx - pxp / tile) * (gx - pxp / tile) + (gy - pyp / tile) * (gy - pyp / tile)) >= 3.0f, "the grave stands on the player");
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) CHECK(!solid_tile((int)gx + i, (int)gy + j), "the grave stands on water or a tree");
+        CHECK(grave_collides(gx * tile, gy * tile, 3.0f * px, 3.0f * px), "the grave does not block the player");
+        float home_x = pxp, home_y = pyp;
+        put_player(gx, gy + 3.0f); frame(0.016f); frame(0.016f);              /* walk up to it: three tiles below the stone */
+        shot("build/ground_grave_vessel1.bmp");
+        check_photo(0, &VESSEL, "vessel 1's grave");
+        pxp = home_x; pyp = home_y; frame(0.016f); }
     /* chunk 21: the grave prop. a stone with the dead vessel's framed portrait, greyed like an old photo; it blocks the player, shows on
      * the minimap (a grey block, see the screenshot) and goes away with the map. placed on the grass 3 tiles from the player */
     {   int ptx = world_player_tile_x(), pty = world_player_tile_y(), gtx = ptx + 3, gty = pty - 1;
+        grave_reset(px, tile);                                       /* (chunk 22 has put the real one there: this block tests the prop on its own) */
         CHECK(world_grave_count() == 0, "a grave is there before one was placed");
         CHECK(!solid_tile(gtx, gty) && !solid_tile(gtx, gty + 1), "the test spot for the grave is not open ground");
         int gi = world_place_grave(gtx, gty, &VESSEL);
@@ -464,24 +502,7 @@ int main(void) {
         CHECK(blocked(footx, footy) && !blocked(pxp, pyp), "the player's own walls do not know the grave (or the player is stuck)");
         run(0.3f);
         shot("build/ground_grave.bmp");
-        {   int cx = (int)(pxp - (TW / 2.0f)), cy = (int)(pyp - (TH / 2.0f));     /* the camera sits on the player (no zoom here) */
-            int rx, ry, rw, rh; grave_portrait_rect(0, cx, cy, &rx, &ry, &rw, &rh);
-            Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, n = 0, grey = 0, rawskin = 0, frame = 0;
-            for (int y = ry; y < ry + rh; y++) for (int x = rx; x < rx + rw; x++) {
-                if (x < 0 || y < 0 || x >= TW || y >= TH) continue;
-                Uint8 *c = pix + y * pitch + x * 4; n++;
-                if (abs(c[0] - c[1]) <= 14 && abs(c[1] - c[2]) <= 14) grey++;                 /* greyed: hardly any colour left */
-                if (c[0] == VESSEL.skin.r && c[1] == VESSEL.skin.g && c[2] == VESSEL.skin.b) rawskin++;
-            }
-            for (int x = rx - 1; x <= rx + rw; x++) { Uint8 *c = pix + (ry - 1) * pitch + x * 4; if (x >= 0 && c[0] == 46 && c[1] == 36 && c[2] == 30) frame++; }
-            CHECK(n > 400 && rx > 0 && ry > 0 && rx + rw < TW && ry + rh < TH, "the portrait is not on the screen (%d,%d %dx%d)", rx, ry, rw, rh);
-            CHECK(grey * 100 >= n * 95, "the portrait is not greyed (%d of %d pixels colourless)", grey, n);
-            CHECK(rawskin == 0, "the portrait still has the vessel's real skin colour (%d pixels)", rawskin);
-            CHECK(frame * 100 >= (rw + 2) * 90, "no dark frame over the photo (%d of %d)", frame, rw + 2);
-            /* the portrait is a face: it must not be one flat colour */
-            int lo = 255, hi = 0;
-            for (int y = ry; y < ry + rh; y++) for (int x = rx; x < rx + rw; x++) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] < lo) lo = c[0]; if (c[0] > hi) hi = c[0]; }
-            CHECK(hi - lo > 40, "the portrait is one flat colour (%d..%d)", lo, hi); }
+        check_photo(0, &VESSEL, "the test grave");
         /* a grave is not the shrine: nothing to use, nothing to talk to; a new map clears it */
         CHECK(!shrine_enabled() && near_id < 0 && !near_shrine, "the grave turned into something to interact with");
         grave_reset(px, tile);

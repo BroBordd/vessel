@@ -47,6 +47,9 @@ void world_restore_shrine(int tile_x, int tile_y, int polluted);   /* the shrine
  * current map (it blocks the player and shows as a grey block on the minimap) and returns its index (-1 = none free). like the shrine,
  * the graves go away when a new map loads. */
 int  world_place_grave(int tile_x, int tile_y, const Person *dead);
+/* the nearest tile to (want_tx, want_ty) where a grave fits (chunk 22): open ground all around it, clear of the shrine, the npcs, the other
+ * graves and the player. looks 30 tiles around; returns 0 when there is no such tile. call it after the other props are placed. */
+int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty);
 int  world_grave_count(void);
 void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */
 int  world_shrine_exists(void);                /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */

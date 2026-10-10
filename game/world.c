@@ -449,6 +449,32 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
     return 1;
 }
 
+/* a spot for a big prop near a wanted tile (chunk 22, the graves). a grave is 18 units wide (a bit over two tiles) and about as tall, so
+ * the tile and all eight around it must be open ground, and it keeps clear of what is already standing there: the shrine, the npcs,
+ * the other graves and the player (so it never lands on top of anyone or touches another prop). returns the nearest such tile. */
+static float tile_dist(float ax, float ay, float bx, float by) { return sqrtf((ax - bx) * (ax - bx) + (ay - by) * (ay - by)); }
+static int prop_spot_ok(int x, int y) {
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) return 0;
+    float fx = x + 0.5f, fy = y + 0.9f, ox, oy;
+    if (shrine_exists()) { shrine_tile(&ox, &oy); if (tile_dist(fx, fy, ox, oy) < 3.0f) return 0; }
+    for (int i = 0; i < npc_count(); i++) { npc_tile(i, &ox, &oy); if (tile_dist(fx, fy, ox, oy) < 2.5f) return 0; }
+    for (int i = 0; i < grave_count(); i++) { grave_tile(i, &ox, &oy); if (tile_dist(fx, fy, ox, oy) < 3.5f) return 0; }
+    return tile_dist(fx, fy, pxp / tile, pyp / tile) >= 3.0f;
+}
+int world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty) {
+    enum { REACH = 30 };                                        /* tiles around the wanted one that are looked at */
+    int best = -1, bx = 0, by = 0;
+    for (int dy = -REACH; dy <= REACH; dy++)
+        for (int dx = -REACH; dx <= REACH; dx++) {
+            int d = dx * dx + dy * dy;
+            if (best >= 0 && d >= best) continue;
+            if (prop_spot_ok(want_tx + dx, want_ty + dy)) { best = d; bx = want_tx + dx; by = want_ty + dy; }
+        }
+    if (best < 0) return 0;
+    *out_tx = bx; *out_ty = by;
+    return 1;
+}
+
 int  world_shrine_exists(void) { return shrine_exists(); }
 int  world_shrine_polluted(void) { return shrine_polluted(); }
 void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
