@@ -36,6 +36,14 @@ int  world_find_far_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y)
  * with the same range do not end up on top of each other. avoid_dist 0 = no restriction. */
 int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_ty, int avoid_dist, int *tile_x, int *tile_y);
 
+/* HOUSES (chunk: Alex's house): world_find_house_spot is world_find_far_spot for a house: the same walk, but the 9x7 area around the spot
+ * (the house and a margin) must be inside the map. world_place_house stamps a small house on the current map, centred on that tile
+ * (7x5 tiles: walls round a 5x3 wooden room, one door in the middle of the bottom wall; the margin and the doorstep are cleared of
+ * water and trees) and puts `label` on a sign above it. whoever stands on the centre tile is inside. returns 0 if it does not fit.
+ * the house goes away when a new map loads (story.c puts it back). */
+int  world_find_house_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y);
+int  world_place_house(int centre_tx, int centre_ty, const char *label);
+
 /* Dia's shrine (shrine.h): world_place_shrine puts the prop on the current map (it blocks the player, but nothing
  * happens yet); world_enable_shrine switches it on: the interact button shows a sludge drop next to it, HOLDING it
  * pollutes it, and on_done runs once it is done. the shrine goes away when a new map loads. */

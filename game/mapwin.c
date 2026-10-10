@@ -19,7 +19,7 @@ static char lines[6][128];
 static float ppt, min_ppt, max_ppt, ccx, ccy;               /* zoom (px per tile), the tile at the centre of the view */
 static int drag, lx, ly, pressed;                           /* pressed: 1 close, 2 zoom in, 3 zoom out, 4 you */
 
-static const char HELP[] = "DRAG TO MOVE THE MAP. TAP THE PLUS AND MINUS BUTTONS TO ZOOM. TAP YOU TO CENTER ON YOURSELF. TAP X TO CLOSE.";
+static const char HELP[] = "DRAG TO MOVE THE MAP.";
 
 static int inside(SDL_Rect q, int x, int y) { return x >= q.x && y >= q.y && x < q.x + q.w && y < q.y + q.h; }
 static void fill(SDL_Renderer *r, SDL_Rect q) { SDL_RenderFillRect(r, &q); }
@@ -55,7 +55,7 @@ static void layout(void) {
     int x = win.x + bt + pad;
     zout_r = (SDL_Rect){ x, cy, hb, hb };                                x += hb + gap;
     zin_r  = (SDL_Rect){ x, cy, hb, hb };                                x += hb + gap;
-    you_r  = (SDL_Rect){ x, cy, (int)(font_width("YOU", help_cell + 1)) + 2 * pad, hb };
+    you_r  = (SDL_Rect){ x, cy, hb, hb };                                /* a square button with a dot, like the locate button of a maps app */
     view = (SDL_Rect){ win.x + bt, hdr.y + hb + bt, win.w - 2 * bt, cy - pad - (hdr.y + hb + bt) };
 }
 
@@ -130,6 +130,25 @@ static void text_center(SDL_Renderer *r, const char *s, SDL_Rect q, int cell) {
     font_draw(r, s, q.x + (q.w - font_width(s, cell)) / 2, q.y + (q.h - font_height(cell)) / 2, cell);
 }
 
+/* a pixel disc / ring on a grid of `cell` px (the same staircase edge as the rest of the game) */
+static void disc(SDL_Renderer *r, int cx, int cy, int rad, int cell, int hole_rad) {
+    float R = (float)rad / cell, Ri = (float)hole_rad / cell; int n = (int)ceilf(R);
+    for (int j = -n; j < n; j++) {
+        float yc = j + 0.5f, d = R * R - yc * yc; if (d <= 0) continue;
+        int m = (int)floorf(sqrtf(d) + 0.5f), mi = 0;
+        float di = Ri * Ri - yc * yc; if (hole_rad > 0 && di > 0) mi = (int)floorf(sqrtf(di) + 0.5f);
+        SDL_Rect a = { cx - m * cell, cy + j * cell, (m - mi) * cell, cell }, b = { cx + mi * cell, cy + j * cell, (m - mi) * cell, cell };
+        if (mi <= 0) { a.w = 2 * m * cell; SDL_RenderFillRect(r, &a); }
+        else { SDL_RenderFillRect(r, &a); SDL_RenderFillRect(r, &b); }
+    }
+}
+static void locate_glyph(SDL_Renderer *r, SDL_Rect q) {                /* a blue dot in a pale ring: "where I am" */
+    int cell = q.h / 14; if (cell < 1) cell = 1;
+    int cx = q.x + q.w / 2, cy = q.y + q.h / 2, R = q.h * 5 / 14;
+    SDL_SetRenderDrawColor(r, 255, 255, 255, 255); disc(r, cx, cy, R, cell, R - 2 * cell);
+    SDL_SetRenderDrawColor(r, 66, 133, 244, 255); disc(r, cx, cy, R * 11 / 20, cell, 0);
+}
+
 static int SX(int i) { return view.x + view.w / 2 + (int)floorf((i - ccx) * ppt); }
 static int SY(int j) { return view.y + view.h / 2 + (int)floorf((j - ccy) * ppt); }
 
@@ -179,6 +198,12 @@ void mapwin_draw(SDL_Renderer *r) {
         SDL_Rect e = { mx - ms / 2 - 1, my - ms / 2 - 1, ms + 2, ms + 2 }, c = { mx - ms / 2, my - ms / 2, ms, ms };
         SDL_SetRenderDrawColor(r, ER, EG, EB, 255); fill(r, e);
         SDL_SetRenderDrawColor(r, CR, CG, CB, 255); fill(r, c);
+        if (mv.marks[k].label && mv.marks[k].label[0]) {                                           /* what the dot is, next to it */
+            int lc = (int)(2.0f * u); if (lc < 1) lc = 1;
+            int lx = mx + ms / 2 + lc * 2, ly = my - font_height(lc) / 2;
+            SDL_SetRenderDrawColor(r, 0, 0, 0, 255); font_draw(r, mv.marks[k].label, lx + lc, ly + lc, lc);     /* a dark shadow keeps it readable on any ground */
+            SDL_SetRenderDrawColor(r, 255, 255, 255, 255); font_draw(r, mv.marks[k].label, lx, ly, lc);
+        }
     }
     {   int px = view.x + view.w / 2 + (int)((mv.ptx - ccx) * ppt), py = view.y + view.h / 2 + (int)((mv.pty - ccy) * ppt);
         int d = ms + 2, blink = ((int)(tt * 3.0f) & 1);                                           /* the player: blinking, with a nose */
@@ -193,7 +218,7 @@ void mapwin_draw(SDL_Renderer *r) {
 
     button(r, zout_r, pressed == 3); glyph_bar(r, zout_r, 0);
     button(r, zin_r, pressed == 2);  glyph_bar(r, zin_r, 1);
-    button(r, you_r, pressed == 4);  text_center(r, "YOU", you_r, help_cell + 1);
+    button(r, you_r, pressed == 4);  locate_glyph(r, you_r);
     int lh = font_height(help_cell) + help_cell, pad = (int)(6 * u);
     SDL_SetRenderDrawColor(r, 190, 198, 224, 255);
     for (int k = 0; k < nlines; k++) font_draw(r, lines[k], win.x + (int)(1.5f * u) + pad, help_y + pad + k * lh, help_cell);

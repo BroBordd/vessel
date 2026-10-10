@@ -23,6 +23,7 @@
 #include "gfx.h"
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -32,7 +33,7 @@
 #define WALK_TILES_PER_SEC 5.0f
 #define MAX_MARKS 20     /* walking speed at full stick tilt */
 
-enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY };
+enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_WALL, T_FLOOR };
 
 static uint8_t map[MAP_MAX][MAP_MAX];
 static int   mw, mh, cur_map;       /* size of the loaded map, and which one it is */
@@ -141,7 +142,18 @@ static float vnoise(float x, float y, uint32_t seed) {
 
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
-    return map[ty][tx] == T_WATER || map[ty][tx] == T_TREE || map[ty][tx] == T_SKY;
+    return map[ty][tx] == T_WATER || map[ty][tx] == T_TREE || map[ty][tx] == T_SKY || map[ty][tx] == T_WALL;
+}
+
+/* the house (see world_place_house): 7x5 tiles round its centre, plus a margin of one tile that nothing else is put on */
+#define HOUSE_HW 3
+#define HOUSE_HH 2
+static int  house_on, house_cx, house_cy;
+static char house_label[24];
+static int  house_room_wanted;      /* world_find_spot_away is looking for a house spot: the 9x7 area must fit in the map */
+static int in_house(int x, int y, int margin) {
+    return house_on && x >= house_cx - HOUSE_HW - margin && x <= house_cx + HOUSE_HW + margin &&
+                       y >= house_cy - HOUSE_HH - margin && y <= house_cy + HOUSE_HH + margin;
 }
 
 static void gen_map(void) {
@@ -303,6 +315,23 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     uint8_t v = map[ty][tx];
     if (v == T_SKY)   { draw_sky_tile(r, tx, ty, x, y);   return; }
     if (v == T_CLOUD) { draw_cloud_tile(r, tx, ty, x, y); return; }
+    if (v == T_FLOOR) {                                 /* wooden planks, seen from above (the house has no roof: you look in) */
+        uint32_t fh = hash2(tx, ty, 55);
+        col(r, 190 + (fh & 3) * 3, 140 + (fh & 3) * 3, 88, 255); fill(r, x, y, tile, tile);
+        col(r, 150, 104, 62, 255);
+        fill(r, x, y + 3 * px, tile, px); fill(r, x, y + 7 * px, tile, px);                       /* the gaps between planks */
+        fill(r, x + (int)((fh >> 3) & 7) * px, y, px, 3 * px); fill(r, x + (int)((fh >> 7) & 7) * px, y + 4 * px, px, 3 * px);
+        if (tx > 0 && ty + 1 < mh && map[ty + 1][tx] == T_WALL) { col(r, 0, 0, 0, 60); fill(r, x, y + 6 * px, tile, 2 * px); }   /* the wall's shadow */
+        return;
+    }
+    if (v == T_WALL) {                                  /* brick, with a red cap on the top wall so it reads as a roofline */
+        col(r, 150, 92, 70, 255); fill(r, x, y, tile, tile);
+        col(r, 112, 66, 50, 255);
+        fill(r, x, y + 3 * px, tile, px); fill(r, x, y + 7 * px, tile, px);                        /* mortar rows */
+        fill(r, x + ((ty & 1) ? 2 : 5) * px, y, px, 3 * px); fill(r, x + ((ty & 1) ? 5 : 2) * px, y + 4 * px, px, 3 * px);
+        if (ty == 0 || map[ty - 1][tx] != T_WALL) { col(r, 182, 54, 48, 255); fill(r, x, y, tile, 3 * px); col(r, 214, 92, 80, 255); fill(r, x, y, tile, px); }
+        return;
+    }
     uint32_t h = hash2(tx, ty, 99);
     int bg = v == T_WATER ? 0 : v == T_SAND ? 1 : 2;
 
@@ -363,19 +392,19 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 
 /* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks */
 static const Rgb MAP_PAL[] = {
-    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 } };
+    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 150, 92, 70 }, { 190, 140, 88 } };
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
-    for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
-    if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
-    if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
-    for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
-    if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
+    for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; marks[nm].label = npc_person(i)->name; nm++; }
+    if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; marks[nm].label = "Shrine"; nm++; }
+    if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; marks[nm].label = "Hammer"; nm++; }   /* the hammer, once there is a shrine to break */
+    for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; marks[nm].label = "Grave"; nm++; }   /* graves: grey blocks */
+    if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; marks[nm].label = "Hole"; nm++; }
     return nm;
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 7;
+    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 9;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -390,7 +419,7 @@ static void load_map(int which) {
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
-    near_shrine = 0; mm_down = 0;
+    near_shrine = 0; mm_down = 0; house_on = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = (mw / 2 + 0.5f) * tile;
@@ -490,6 +519,8 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
         int open = 1;                                           /* all 8 neighbours walkable too */
         for (int j = -1; j <= 1 && open; j++)
             for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) { open = 0; break; }
+        if (open && in_house(x, y, 1)) open = 0;                /* nothing else is put in or at the house */
+        if (open && house_room_wanted && (x - HOUSE_HW - 1 < 1 || x + HOUSE_HW + 1 > mw - 2 || y - HOUSE_HH - 1 < 1 || y + HOUSE_HH + 1 > mh - 2)) open = 0;
         if (open && avoid_dist > 0 && sqrtf((float)((x - avoid_tx) * (x - avoid_tx) + (y - avoid_ty) * (y - avoid_ty))) < avoid_dist) open = 0;
         if (open) {
             float d = sqrtf((float)((x - x0) * (x - x0) + (y - y0) * (y - y0)));
@@ -517,6 +548,7 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
 static float tile_dist(float ax, float ay, float bx, float by) { return sqrtf((ax - bx) * (ax - bx) + (ay - by) * (ay - by)); }
 static int prop_spot_ok(int x, int y) {
     for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) return 0;
+    if (in_house(x, y, 2)) return 0;
     float fx = x + 0.5f, fy = y + 0.9f, ox, oy;
     if (shrine_exists()) { shrine_tile(&ox, &oy); if (tile_dist(fx, fy, ox, oy) < 3.0f) return 0; }
     for (int i = 0; i < npc_count(); i++) { npc_tile(i, &ox, &oy); if (tile_dist(fx, fy, ox, oy) < 2.5f) return 0; }
@@ -534,6 +566,28 @@ int world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty
         }
     if (best < 0) return 0;
     *out_tx = bx; *out_ty = by;
+    return 1;
+}
+
+int world_find_house_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) {
+    house_room_wanted = 1;
+    int ok = world_find_spot_away(min_tiles, max_tiles, 0, 0, 0, out_tx, out_ty);
+    house_room_wanted = 0;
+    return ok;
+}
+int world_place_house(int cx, int cy, const char *label) {
+    if (cx - HOUSE_HW - 1 < 1 || cx + HOUSE_HW + 1 > mw - 2 || cy - HOUSE_HH - 1 < 1 || cy + HOUSE_HH + 1 > mh - 2) return 0;
+    for (int y = cy - HOUSE_HH - 1; y <= cy + HOUSE_HH + 1; y++)            /* the margin (and the doorstep): no water, no trees */
+        for (int x = cx - HOUSE_HW - 1; x <= cx + HOUSE_HW + 1; x++)
+            if (map[y][x] == T_WATER || map[y][x] == T_TREE) map[y][x] = T_GRASS;
+    for (int y = cy - HOUSE_HH; y <= cy + HOUSE_HH; y++)
+        for (int x = cx - HOUSE_HW; x <= cx + HOUSE_HW; x++) {
+            int wall = x == cx - HOUSE_HW || x == cx + HOUSE_HW || y == cy - HOUSE_HH || y == cy + HOUSE_HH;
+            map[y][x] = wall ? T_WALL : T_FLOOR;
+        }
+    map[cy + HOUSE_HH][cx] = T_FLOOR;                                       /* the door: a gap in the middle of the bottom wall */
+    house_on = 1; house_cx = cx; house_cy = cy;
+    snprintf(house_label, sizeof house_label, "%s", label ? label : "");
     return 1;
 }
 
@@ -1079,6 +1133,13 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
     for (int i = 0; i < grave_count(); i++)
         if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
+    if (house_on && house_label[0]) {                             /* the sign above the house: who lives there */
+        int cell = px; if (cell < 2) cell = 2;
+        int tw = font_width(house_label, cell), th = font_height(cell), pad = 2 * cell;
+        int sxm = (int)((house_cx + 0.5f) * tile) - cx, syt = (house_cy - HOUSE_HH) * tile - cy - th - 2 * pad - 2 * cell;
+        col(r, 0, 0, 0, 150); fill(r, sxm - tw / 2 - pad, syt, tw + 2 * pad, th + 2 * pad);
+        col(r, 255, 255, 255, 255); font_draw(r, house_label, sxm - tw / 2, syt + pad, cell);
+    }
     gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
 
@@ -1161,7 +1222,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 9, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the

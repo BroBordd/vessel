@@ -3,7 +3,8 @@
  *
  * THE MAP WINDOW: opens when the player taps the minimap. a window like the music and brain ones (it takes every touch while it is open,
  * game.c routes it first and draws it last, over the top buttons): the whole map, DRAG to move it, the + and - buttons to zoom (the
- * touch stream has one finger, so no pinch), YOU to centre on the player, X to close. a few lines of help sit under the controls.
+ * touch stream has one finger, so no pinch), the round dot button to centre on the player, X to close. one line of help (drag) sits under the controls.
+ * every mark has its name written next to it (MiniMark.label).
  * it starts zoomed out so the whole map shows. it shows the same marks as the minimap (npcs, hole, shrine, graves, the hammer).
  * the window owns no map: it asks world.c for a MapView every frame (mapwin_set_source), so it always shows what is there now. */
 #ifndef MAPWIN_H

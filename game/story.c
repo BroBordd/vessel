@@ -553,6 +553,7 @@ void story_vessel2_ready(void) {
  * planned later) and there is no complaint. the only thing said is the placeholder line below; chunk 23 adds the thought at the grave. */
 static void landed_again(void) {
     if (green.alex_there) {
+        world_place_house(green.alex_tx, green.alex_ty, "Alex");     /* the map is made again: her house is put back round her first */
         alex_id = npc_add(&ALEX, green.alex_tx, green.alex_ty, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
     }
@@ -581,7 +582,8 @@ static void grave_watch(void) {
 static void landed(void) {
     int tx, ty;
     if (lives > 0) { landed_again(); return; }              /* a later life: nothing is made up, the world is put back */
-    if (world_find_far_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
+    if (world_find_house_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
+        world_place_house(tx, ty, "Alex");                  /* her house: she is inside, the sign outside says whose it is */
         alex_id = npc_add(&ALEX, tx, ty, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
         int shx, shy;                                       /* Dia's shrine: a walk too, but nearer than Alex, and not next to her */
