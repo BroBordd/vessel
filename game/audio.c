@@ -200,6 +200,67 @@ static void sfx_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the heart monitor: the "peep" and the flatline ----------
+ * one voice for both (a flatline is a peep that does not stop): a pure sine, like the deeks, at the pitch of
+ * a hospital monitor. a peep is short with a quick decay; the flatline holds one steady level for MON_FLAT_T
+ * and then lets go (sfx_flatline_stop() lets go sooner, in ~60 ms). its own voice: music, coin and deeks go on. */
+static int   mon_on, mon_pos, mon_flat, mon_len, mon_rel;      /* mon_len: frames; mon_rel: frames of release left (0 = not releasing) */
+static float mon_phase;
+static int   n_beeps, n_flats;                                 /* how many times each was asked for (tests) */
+#define MON_HZ      1000.0f
+#define MON_BEEP_T  0.16f
+#define MON_FLAT_T  3.0f
+#define MON_GAIN    0.28f
+
+void sfx_beep(void) {
+    n_beeps++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    mon_on = 1; mon_pos = 0; mon_phase = 0.0f; mon_flat = 0; mon_len = (int)(MON_BEEP_T * OUT_RATE); mon_rel = 0;
+    SDL_UnlockAudioDevice(dev);
+}
+void sfx_flatline(void) {
+    n_flats++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    mon_on = 1; mon_pos = 0; mon_phase = 0.0f; mon_flat = 1; mon_len = (int)(MON_FLAT_T * OUT_RATE); mon_rel = 0;
+    SDL_UnlockAudioDevice(dev);
+}
+void sfx_flatline_stop(void) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    if (mon_on && mon_flat && !mon_rel) mon_rel = (int)(0.060f * OUT_RATE);
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_beeps(void) { return n_beeps; }
+int sfx_debug_flatlines(void) { return n_flats; }
+
+static void mon_mix(Sint16 *out, int frames) {
+    const int rel_total = (int)(0.060f * OUT_RATE), tail = (int)(0.400f * OUT_RATE);
+    for (int i = 0; i < frames; i++) {
+        if (mon_pos >= mon_len || (mon_rel && --mon_rel <= 0)) { mon_on = 0; mon_rel = 0; return; }
+        float tt = (float)mon_pos / (float)OUT_RATE, env;
+        if (mon_flat) {
+            env = 1.0f;                                            /* one steady level ... */
+            if (mon_pos < (int)(0.010f * OUT_RATE)) env = tt / 0.010f;                 /* no click on the way in */
+            if (mon_len - mon_pos < tail) env *= (float)(mon_len - mon_pos) / (float)tail;   /* ... then it lets go */
+            if (mon_rel) env *= (float)mon_rel / (float)rel_total;                     /* or is told to stop */
+        } else {
+            env = expf(-tt * 9.0f);                                /* a peep: a clean tick of tone, not a ring */
+            if (tt < 0.004f) env *= tt / 0.004f;
+            if (mon_len - mon_pos < (int)(0.012f * OUT_RATE)) env *= (float)(mon_len - mon_pos) / (0.012f * OUT_RATE);
+        }
+        mon_phase += MON_HZ / (float)OUT_RATE;
+        if (mon_phase >= 1.0f) mon_phase -= 1.0f;
+        int v = (int)(sinf(6.2831853f * mon_phase) * env * MON_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        mon_pos++;
+    }
+}
+
 /* ---------- the piano in the music window ----------
  * a few overlapping voices (a chord or a slide of the finger works), each a soft piano-ish tone:
  * a few harmonics with a quick attack, a slow fade while the key is held, a short release after.
@@ -483,6 +544,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     spectrum_feed(out, frames);                       /* the equalizer: song after the volume knob + the piano keys (not the ding / blips) */
     if (sfx_on) sfx_mix(out, frames);
     if (blip_on) blip_mix(out, frames);
+    if (mon_on) mon_mix(out, frames);
 }
 
 int audio_init(void) {

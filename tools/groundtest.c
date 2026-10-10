@@ -197,14 +197,17 @@ int main(void) {
 
     /* ---------- chunk 12: death cutscene I, camera + filters ---------- */
     printf("--- death camera ---\n");
-    float t0 = t;
+    float t0 = t; int b0 = sfx_debug_beeps(), f0 = sfx_debug_flatlines();
+    CHECK(world_death_active(), "death not active");
     run(0.2f);
+    CHECK(sfx_debug_beeps() == b0, "the monitor peeped before everything had arrived");
     CHECK(world_debug_zoom() < 1.3f, "the zoom starts with a jump (%.2f)", world_debug_zoom());
     run(1.0f);
     CHECK(world_debug_zoom() > 1.3f && world_debug_zoom() < 2.9f, "mid push-in zoom is %.2f", world_debug_zoom());
     shot("build/ground_death_mid.bmp");
     run(2.0f);
     CHECK(fabsf(world_debug_zoom() - ZOOM_DEATH) < 0.02f, "the camera did not reach 300 %% (%.2f)", world_debug_zoom());
+    CHECK(sfx_debug_beeps() == b0 + 1 && sfx_debug_flatlines() == f0, "at the first moment after arriving: %d peeps, %d flatlines (want 1, 0)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
     CHECK(t == t0, "the world is not frozen: its clock moved by %.2f s", t - t0);
     shot("build/ground_death_settled.bmp");
     {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, bad = 0, n = 0;
@@ -226,6 +229,7 @@ int main(void) {
         CHECK(cy < fy && fy - cy > ps * 2 && fy - cy < ps * 5, "the chest is not just above the feet (%d / %d)", cy, fy); }
     CHECK(!controls_visible, "the controls came back during the cutscene");
     run(DEATH_HOLD_STANDIN + 0.4f);                               /* the stand-in undoes it */
+    CHECK(sfx_debug_beeps() == b0 + DEATH_BEEPS && sfx_debug_flatlines() == f0 + 1, "the monitor played %d peeps and %d flatlines (want %d, 1)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0, DEATH_BEEPS);
     CHECK(!world_death_active() && controls_visible, "the stand-in did not give the game back");
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());

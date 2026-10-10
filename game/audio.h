@@ -65,6 +65,11 @@ void audio_quit(void);
 /* sound effects, synthesised (no files). they play on top of the music and ignore music volume */
 void sfx_coin(void);                    /* the little coin ding */
 void sfx_blip(float pitch);             /* the clean "deek" for dialog letters. pitch ~0.7..1.4 (1.0 = 256.5 Hz), up to 3.0 */
+void sfx_beep(void);                    /* the heart monitor's "peep" (death cutscene) */
+void sfx_flatline(void);                /* the long monitor tone, ~3 s, then it lets go (replaces a peep in progress) */
+void sfx_flatline_stop(void);           /* cut the flatline short (~60 ms release); nothing if it is not sounding */
+int  sfx_debug_beeps(void);             /* tests: how many times sfx_beep / sfx_flatline were called */
+int  sfx_debug_flatlines(void);
 /* piano notes for the music window: the note rings while the key is held (a short release after).
  * midi 60 = middle C. several can sound at once. not part of the music analysis. */
 void sfx_note_on(int midi);

@@ -181,11 +181,23 @@ static const DialogLine ALEX_DEAL[] = {
  * chunk 12: the camera pushes in to 300 %, the world freezes and drains grey, the player goes red (world.c).
  * chunk 13 adds the sound, 14 the heart, 15 the words "Aonia has died." and the end hook. until those exist,
  * death_ready() holds the picture for a moment and then undoes it, so the build stays playable. */
-#define DEATH_HOLD_STANDIN  2.5f
+#define DEATH_BEEPS         3               /* "peep. peep. peep." ... */
+#define DEATH_BEEP_GAP      0.85f           /* ... this far apart (the first one is at once) ... */
+#define DEATH_FLAT_AT       (DEATH_BEEPS * DEATH_BEEP_GAP)   /* ... and where the fourth would be, the flatline starts (chunk 14: the heart bursts) */
+#define DEATH_HOLD_STANDIN  (DEATH_FLAT_AT + 3.0f)           /* STAND-IN: how long the picture is held before it is undone */
 
-static void death_undo(void) { world_death_cancel(); }          /* STAND-IN: chunk 13/14/15 replace this */
+static void death_undo(void) { world_death_cancel(); }          /* STAND-IN: chunk 14/15 replace this */
+static int  beeps_left;
+static void death_flat(void) { sfx_flatline(); }                /* chunk 14 starts the explosion here too */
+static void death_beep(void) {
+    sfx_beep();
+    if (--beeps_left > 0) story_after(DEATH_BEEP_GAP, death_beep);
+    else story_after(DEATH_BEEP_GAP, death_flat);
+}
 static void death_ready(void) {
-    /* everything has arrived (zoomed, grey, red): chunk 13's beeps and chunk 14's heart start here */
+    /* everything has arrived (zoomed, grey, red): the monitor starts, chunk 14's heart goes with it */
+    beeps_left = DEATH_BEEPS;
+    death_beep();
     story_after(DEATH_HOLD_STANDIN, death_undo);
 }
 
