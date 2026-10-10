@@ -11,6 +11,7 @@ static int    W, H, title_cell, title_x, title_y, label_cell;
 static float  u;                    /* px per "design unit" */
 static int    pressed = -1;         /* button index under the finger since touch-down */
 static int    inside;               /* finger still over that button */
+static float  fade;                 /* seconds since PLAY was pressed; < 0 = not pressed yet */
 
 static int hit(int x, int y) {
     for (int i = 0; i < 2; i++)
@@ -22,7 +23,7 @@ static int hit(int x, int y) {
 void menu_init(int w, int h) {
     W = w; H = h;
     u = (w < h ? w : h) / 360.0f;
-    pressed = -1; inside = 0;
+    pressed = -1; inside = 0; fade = -1;
     space_init(w, h);                           /* the stars behind the menu */
 
     int bw = (int)(200 * u), bh = (int)(52 * u), gap = (int)(16 * u);
@@ -39,6 +40,7 @@ void menu_init(int w, int h) {
 }
 
 MenuAction menu_touch(int a, int x, int y) {
+    if (fade >= 0) return MENU_NONE;            /* PLAY already pressed: the menu is on its way out */
     switch (a) {
     case 0:                                     /* down */
         pressed = hit(x, y);
@@ -60,14 +62,21 @@ MenuAction menu_touch(int a, int x, int y) {
     return MENU_NONE;
 }
 
+void menu_fade_out(void) { if (fade < 0) { fade = 0; pressed = -1; inside = 0; } }
+int  menu_faded(void)    { return fade >= MENU_FADE_T; }
+
 void menu_update(float dt) {
     space_update(dt);
+    if (fade >= 0 && fade < MENU_FADE_T) { fade += dt; if (fade > MENU_FADE_T) fade = MENU_FADE_T; }
 }
 
 void menu_draw(SDL_Renderer *r) {
     space_draw(r);                              /* clears to black, then the drifting stars */
+    int A = fade < 0 ? 255 : (int)(255 * (1.0f - fade / MENU_FADE_T));   /* the title and the buttons fade out after PLAY */
+    if (A <= 0) return;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
 
-    SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, A);
     font_draw(r, "VESSEL", title_x, title_y, title_cell);
 
     int bt = (int)(2 * u); if (bt < 1) bt = 1;
@@ -76,16 +85,16 @@ void menu_draw(SDL_Renderer *r) {
         int down = pressed == i && inside;
         SDL_Rect outer = { b->x, b->y, b->w, b->h };
         SDL_Rect inner = { b->x + bt, b->y + bt, b->w - 2 * bt, b->h - 2 * bt };
-        SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+        SDL_SetRenderDrawColor(r, 255, 255, 255, A);
         SDL_RenderFillRect(r, &outer);
-        if (down) SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
-        else      SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+        if (down) SDL_SetRenderDrawColor(r, 255, 255, 255, A);
+        else      SDL_SetRenderDrawColor(r, 0, 0, 0, A);
         SDL_RenderFillRect(r, &inner);
 
         int tx = b->x + (b->w - font_width(b->label, label_cell)) / 2;
         int ty = b->y + (b->h - font_height(label_cell)) / 2;
-        if (down) SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
-        else      SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+        if (down) SDL_SetRenderDrawColor(r, 0, 0, 0, A);
+        else      SDL_SetRenderDrawColor(r, 255, 255, 255, A);
         font_draw(r, b->label, tx, ty, label_cell);
     }
 }

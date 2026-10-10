@@ -11,5 +11,10 @@ void       menu_init(int w, int h);
 MenuAction menu_touch(int a, int x, int y);
 void       menu_update(float dt);
 void       menu_draw(SDL_Renderer *r);
+/* PLAY was pressed: the title and the buttons fade out (MENU_FADE_T) over the same moving stars, and take no more touches.
+ * menu_faded() is 1 once they are gone: the game goes on from that very frame (no loading screen). */
+#define MENU_FADE_T 0.8f
+void       menu_fade_out(void);
+int        menu_faded(void);
 
 #endif
