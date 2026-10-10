@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "pausebtn.h"
 #include "nowplaying.h"
-#include "thought.h"
 #include "font.h"
 #include <math.h>
 
@@ -12,8 +11,8 @@ static float u, vis, pa;            /* vis: button fade-in, pa: overlay fade */
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int inside(SDL_Rect q, int x, int y) { return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h; }
 
-static SDL_Rect btn_rect(void) {                      /* follows the brain button / card (which follows the music one), so it glides along */
-    int x, y, w, h; thought_rect(&x, &y, &w, &h);
+static SDL_Rect btn_rect(void) {                      /* follows the music button / card, so it glides along */
+    int x, y, w, h; nowplaying_rect(&x, &y, &w, &h);
     int bs = nowplaying_button_size();
     return (SDL_Rect){ x + w + nowplaying_gap(), y, bs, bs };
 }

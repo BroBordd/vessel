@@ -7,13 +7,18 @@
 
 static int W, H, cell, side, bx, by, bt;
 
-void minimap_init(int w, int h, int right_edge, int top) {
+/* the box is `width` px wide (frame included), so the inner square (side) is not always a multiple of
+ * VIEW: tile i starts at TX(i) = i * side / VIEW (integer maths), so tiles are 1px wider/narrower here
+ * and there instead of the box having to be a multiple of the tile size. */
+#define TX(i) ((int)((long)(i) * side / VIEW))
+
+void minimap_init(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
     float u = (w < h ? w : h) / 360.0f;
-    cell = (int)(2.8f * u); if (cell < 2) cell = 2;
-    side = VIEW * cell;
     bt = (int)(1.5f * u); if (bt < 1) bt = 1;
-    bx = right_edge - side - 2 * bt;
+    side = width - 2 * bt;
+    cell = side / VIEW; if (cell < 2) cell = 2;                 /* nominal tile size, for the dots */
+    bx = right_edge - width;
     by = top;
 }
 int minimap_bottom(void) { return by + side + 2 * bt; }
@@ -43,13 +48,13 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
             while (i + run < VIEW && x0 + i + run >= 0 && x0 + i + run < mw && tiles[ty * stride + x0 + i + run] == v) run++;
             Rgb c = v < npal ? pal[v] : (Rgb){ 0, 0, 0 };
             SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
-            fill(r, ox + i * cell, oy + j * cell, run * cell, cell);
+            fill(r, ox + TX(i), oy + TX(j), TX(i + run) - TX(i), TX(j + 1) - TX(j));
             i += run;
         }
     }
 
     for (int k = 0; k < nmarks; k++) {
-        int mx = ox + (int)((marks[k].tx - x0) * cell), my = oy + (int)((marks[k].ty - y0) * cell);
+        int mx = ox + (int)((marks[k].tx - x0) * side / VIEW), my = oy + (int)((marks[k].ty - y0) * side / VIEW);
         if (mx < ox || my < oy || mx >= ox + side || my >= oy + side) continue;
         if (marks[k].kind == 1) {                           /* the hole: a dark ring with a pale rim */
             SDL_SetRenderDrawColor(r, 235, 242, 255, 255); fill(r, mx - cell, my - cell / 2, 2 * cell + 1, cell + 1);
@@ -61,7 +66,7 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
     }
 
     /* the player: blinking white dot with a red core and a little nose showing where they face */
-    int px = ox + (int)((ptx - x0) * cell), py = oy + (int)((pty - y0) * cell);
+    int px = ox + (int)((ptx - x0) * side / VIEW), py = oy + (int)((pty - y0) * side / VIEW);
     int d = cell + 1;
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);   fill(r, px - d / 2 - 1, py - d / 2 - 1, d + 2, d + 2);
     int blink = ((int)(t * 3.0f) & 1);

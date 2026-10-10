@@ -102,12 +102,12 @@ static int wrap(const char *s, int maxc, int maxl, Line *out) {
 static void relayout(void) {
     int mx, my, mw, mh; nowplaying_rect(&mx, &my, &mw, &mh);
     bs = nowplaying_button_size(); bgap = nowplaying_gap();
-    left = mx + mw + bgap; top = my;                        /* right of the music button / card */
+    left = mx + mw + bgap + bs + bgap; top = my;            /* right of the music button / card AND the pause button */
     pw = ph = bs; room = 1; nl = 0;
     if (!active) return;
 
     int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
-    int avail = (cx - bgap) - (bs + bgap) - left;           /* up to the ID card, keeping the pause button's place free */
+    int avail = (cx - bgap) - left;                         /* up to the ID card (the pause button is on our left now) */
     int text_w = avail - 2 * pad - port - tgap;
     int maxc = (text_w + q) / (6 * q);                      /* letters per line (a letter is 6 cells wide, minus the last gap) */
     if (maxc < MIN_LETTERS) { room = 0; return; }
@@ -119,7 +119,7 @@ static void relayout(void) {
      * a thought is never cut for that: it waits until the music card folds (then it fits). only a thought
      * that is too long even with the music card folded is cut, because waiting would never help. */
     Line tmp[64];
-    int best_avail = (cx - bgap) - (bs + bgap) - (mx + bs + bgap);                 /* the music card folded */
+    int best_avail = (cx - bgap) - (mx + bs + bgap + bs + bgap);                   /* the music card folded */
     int best_maxc = (best_avail - 2 * pad - port - tgap + q) / (6 * q);
     int need_now  = wrap(cur.text, maxc, 64, tmp);
     int need_best = best_maxc >= MIN_LETTERS ? wrap(cur.text, best_maxc, 64, tmp) : 0;

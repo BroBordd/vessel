@@ -344,9 +344,9 @@ void world_init(int w, int h) {
     toast_init(w, h);
     thought_init(w, h);
     hud_init(w, h, &VAS);                       /* the ID card starts out as plain "Vas" */
-    {   /* the minimap hangs right under the ID card, same right edge */
+    {   /* the minimap hangs right under the ID card: same right edge, same width */
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
-        minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u));
+        minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u), cw);
     }
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
     story_start();                              /* the script takes it from here (story.c) */

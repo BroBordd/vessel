@@ -1,8 +1,8 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
- * THE PAUSE BUTTON: third of the top-left buttons, right of the music button and the brain button
- * (it slides along as the now-playing card and the thought card open and close). only there while
+ * THE PAUSE BUTTON: second of the top-left buttons (music, pause, brain), right of the music button
+ * (it slides along as the now-playing card opens and closes). only there while
  * the game world is running.
  * pausing freezes the world and dims it behind a PAUSED panel; the music keeps playing. */
 #ifndef PAUSEBTN_H

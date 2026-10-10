@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "hud.h"
 #include "audio.h"
+#include "nowplaying.h"
 #include "font.h"
 #include <math.h>
 #include <stdio.h>
@@ -42,7 +43,7 @@ void hud_init(int w, int h, const Person *p) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     q = (int)(1.7f * u); if (q < 2) q = 2;
     card_x = W - (int)(10 * u) - CW * q;
-    card_y = (int)(8 * u);                                  /* same top margin as the now-playing card */
+    card_y = (int)(8 * u) + nowplaying_button_size() / 2;   /* same top margin as the now-playing card (incl. the notch shift) */
     t = 0; who = p;
     hp = hp_max = START_HP; hp_shown = (float)hp;
     flash_t = toast_t = -1;

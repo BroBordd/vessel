@@ -12,7 +12,7 @@
 
 typedef struct { float tx, ty; int kind; } MiniMark;      /* kind: 0 npc, 1 hole */
 
-void minimap_init(int w, int h, int right_edge, int top);   /* the box is right-aligned to right_edge, starts at top */
+void minimap_init(int w, int h, int right_edge, int top, int width);   /* the box (frame included) is `width` px wide and square, right-aligned to right_edge, starts at top */
 int  minimap_bottom(void);                                  /* y just below the box */
 void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int mh,
                   const Rgb *palette, int npal, float player_tx, float player_ty, int facing,

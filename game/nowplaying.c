@@ -42,8 +42,8 @@ static void layout(void) {
     gap  = q >= 5 ? 2 : 1;
     pad  = (int)(6 * u);    if (pad < 3)  pad = 3;
     left = (int)(10 * u);
-    top  = (int)(8 * u);
     bs   = (int)(26 * u);   if (bs < 16) bs = 16;
+    top  = (int)(8 * u) + bs / 2;                                 /* + half a button: clears phone notches / cutouts */
     bgap = (int)(5 * u);    if (bgap < 3) bgap = 3;
     eq_w = MUSIC_BANDS * q * 2 - q;                               /* 1 pixel wide bars, 1 pixel apart */
     eq_h = EQ_ROWS * q + (EQ_ROWS - 1) * gap;

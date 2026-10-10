@@ -1,6 +1,6 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
- * the brain button over a fake sky, next to the music button, pause button and ID card. writes
+ * the brain button over a fake sky, right of the music and pause buttons, next to the ID card. writes
  * ../build/thought_*.bmp (silent dummy audio) and checks the logic, exit code != 0 if a check fails.
  * run it from the music folder: it plays a real track to open the music card next to the brain.
  *   cc -O1 $(sdl2-config --cflags) -Igame -o build/thoughttest tools/thoughttest.c game/thought.c game/hud.c game/char.c game/audio.c game/analyze.c game/jukebox.c game/font.c game/nowplaying.c game/musicwin.c game/pausebtn.c $(sdl2-config --libs) -lm
@@ -58,20 +58,20 @@ int main(int argc, char **argv) {
     nowplaying_rect(&mx, &my, &mw, &mh);
     CHECK(mw == bs, "the music card is still open at the start (%d vs %d)", mw, bs);
 
-    /* 1. idle: a plain button right of the music button */
+    /* 1. idle: a plain button right of the music AND pause buttons (music, pause, brain) */
     {   int x, y, w, h; thought_rect(&x, &y, &w, &h);
-        CHECK(x == mx + mw + gap && y == my, "the brain button is not right of the music button");
+        CHECK(x == mx + mw + gap + bs + gap && y == my, "the brain button is not right of the pause button");
         CHECK(w == bs && h == bs && !thought_active(), "idle brain is not a plain button"); }
     shot("../build/thought_0_idle.bmp");
 
-    /* 2. a thought opens the card like the music card: grows, pushes the pause button, fits before the ID card */
+    /* 2. a thought opens the card like the music card: grows, fits before the ID card */
     thought_say("I need to find that orb.", 0);
     CHECK(thought_active(), "not active after thought_say");
     run(0.12f); shot("../build/thought_1_opening.bmp");
     run(0.9f);  shot("../build/thought_2_open.bmp");
     {   int x, y, w, h; thought_rect(&x, &y, &w, &h);
         CHECK(w > bs * 2, "the card did not open (w %d)", w);
-        CHECK(x + w + gap + bs <= cx - gap + 1, "card + pause button run into the ID card (%d > %d)", x + w + gap + bs, cx - gap);
+        CHECK(x + w <= cx - gap + 1, "the card runs into the ID card (%d > %d)", x + w, cx - gap);
         CHECK(y + h <= cy + ch, "the card is taller than the ID card (%d > %d)", y + h, cy + ch);
         CHECK(thought_offset() > nowplaying_offset(), "the mission list is not pushed down by the open card");
         int bottom_gap = thought_offset() - (h + y + gap - (int)(14 * (W < H ? W : H) / 360.0f));
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
     thought_say("This one is far too long to ever fit in the little card up here.", 0);
     run(1.2f);
     {   int x, y, w, h; thought_rect(&x, &y, &w, &h);
-        CHECK(y + h <= cy + ch && x + w + gap + bs <= cx - gap + 1, "an overlong thought broke the layout"); }
+        CHECK(y + h <= cy + ch && x + w <= cx - gap + 1, "an overlong thought broke the layout"); }
     shot("../build/thought_5_long.bmp");
     run(12.0f);
 
