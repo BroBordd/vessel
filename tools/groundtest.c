@@ -352,7 +352,7 @@ int main(void) {
         for (float t = 0; t < 0.6f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
         CHECK(death_hold_done == h0 + 1, "the hold after the death line did not end (%d)", death_hold_done - h0);
         for (float t = 0; t < 5.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(death_hold_done == h0 + 1 && story_limbo_active(), "the stand-in hold ran twice or limbo ended by itself"); }
+        CHECK(death_hold_done == h0 + 1, "the hold ran twice (%d)", death_hold_done - h0); }
     /* chunk 14: behind the scenes the next life is made ready: cloud map, Dea waiting, plain VAS card, empty head and task list,
      * the Grasslands story state (Alex, the polluted shrine) remembered */
     CHECK(cur_map == MAP_CLOUD, "not back on the cloud map for the next life");
@@ -364,7 +364,16 @@ int main(void) {
     CHECK(green.alex_there && green.alex_tx == 7 && green.alex_ty == 40, "Alex's place on the Grasslands was not remembered (%d,%d,%d)", green.alex_there, green.alex_tx, green.alex_ty);
     CHECK(green.shrine_there && green.shrine_polluted == 1 && shrine_fouled, "the polluted shrine was not remembered");
     CHECK(alex_dealt == dealt0 && alex_seen == seen0, "the Grasslands story state (alex_dealt / alex_seen) was reset");
-    limbo_end(); story_limbo_take_end(); blackout_t = -1;           /* the tests below start from the world again */
+    /* chunk 15: the hold ends limbo (once, the soul's voice goes) and the summoning runs again over the cloud island: fade in, chime,
+     * no dialog, then the controls (and, for now, the hole) come back */
+    CHECK(story_limbo_take_end() == 1 && !story_limbo_active() && thought_voice() != &SOUL, "the hold did not end limbo (once, voice back)");
+    CHECK(world_summoning(), "the second summoning did not start");
+    {   int s0 = sfx_debug_summons(), bc = brainwin_count();
+        run(SUMMON_TOTAL_T + 0.3f);
+        CHECK(sfx_debug_summons() == s0 + 1, "the chime did not play once with the second summoning (%d)", sfx_debug_summons() - s0);
+        CHECK(!world_summoning() && controls_visible && hole_on, "the second summoning did not end with the controls (and hole) back");
+        CHECK(!dialog_active() && brainwin_count() == bc && missions_count() == 0, "an intro dialog, thought or task followed the second summoning");
+        shot("build/ground_resummon.bmp"); }
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
 

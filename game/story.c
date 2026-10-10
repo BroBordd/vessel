@@ -332,11 +332,23 @@ static void story_reset_for_respawn(void) {
     dea_spoken = 1;
 }
 
-/* STAND-IN until chunk 15 (summon again): after the hold the next life is made ready behind the scenes, limbo just stays */
+static void open_the_hole(void);                    /* defined with the sky scene below */
+
+/* the second summoning is over (chunk 15): Dea has been standing there all along, looking at us. no dialog, no thought.
+ * STAND-IN until chunks 16-20: the controls come back and the hole opens at once, so the game stays playable (the scolding, the
+ * naming and the proper way down replace this) */
+static void respawn_summoned(void) {
+    world_set_controls_visible(1);
+    open_the_hole();
+}
+
+/* the hold after the soul's line is over: the next life is made ready behind the scenes (chunk 14), limbo ends, game.c shows the
+ * world (it fades in from black, the cloud music starts again) and the golden summoning runs again (chunks 8-9) */
 static void death_limbo_hold_over(void) {
     death_hold_done++;
     story_reset_for_respawn();
-    limbo_run(NULL, 0, 1000.0f, NULL);
+    world_summon(respawn_summoned);
+    limbo_end();
 }
 static void death_to_limbo(void) {
     world_death_cancel();                   /* behind the black: zoom, colour, heart and words put away */
