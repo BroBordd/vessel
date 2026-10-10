@@ -98,7 +98,7 @@ static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 enum { PH_PLAY, PH_SINK, PH_FALL, PH_LAND, PH_GETUP };
 #define SINK_T  1.0f                /* walking into the hole and sinking */
 #define FALL_T  5.5f                /* falling through the sky */
-#define FADE_IN_T 0.5f              /* fade in from black when the world starts (story.c waits as long before the welcome window) */
+#define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  1.5f                /* lying face-down after the impact */
 #define GETUP_T 1.2f                /* pushing up and standing */
 static int   phase;

@@ -28,7 +28,7 @@
  * at the start of the game and after every death. the brain button works (thoughts), the pause button does not. */
 typedef enum { ST_MENU, ST_WORLD, ST_LIMBO } State;
 /* PLAY -> the menu fades out (menu.c) -> ST_LIMBO. no loading screen. the story drives limbo (story_limbo_begin: "Where am I?", a hold,
- * limbo_end); until the summoning exists (chunks 8-10) limbo_end hands over to the old start of the game */
+ * limbo_end), then the world fades in on the cloud island and the summoning runs (chunk 10) */
 /* The game is a child of the app process. Closing the activity needs Java,
  * so for now exit == take the parent app down with us. */
 static void quit_app(void) {
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
             space_update(dt); space_draw(r);
             story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
             if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
-                jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music (chunk 10 moves this into the summon) */
+                jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music: starts with the summoning, which begins on the world_update(0) below */
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             }

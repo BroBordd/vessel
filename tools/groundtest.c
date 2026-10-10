@@ -50,7 +50,7 @@ int main(void) {
     brainwin_init(TW, TH);
     world_init(TW, TH);
 
-    /* chunks 8-9: the summoning runs first (stand-in until chunk 10): light drops, ring spreads, sparks rise, the vessel forms
+    /* chunks 8-9: the summoning runs first (chunk 10): light drops, ring spreads, sparks rise, the vessel forms
      * (gold silhouette from the feet up, then its colours), the light ends, the controls stay hidden until on_done says so */
     {   int sxp = TW / 2, syp = TH / 2;                          /* the player's feet are in the middle of the screen (not at a map edge) */
         int s0 = sfx_debug_summons();
@@ -100,21 +100,21 @@ int main(void) {
         CHECK(world_summoning(), "the summoning ended too early");
         run(0.3f);
         CHECK(!world_summoning() && !summon_active(), "the summoning did not end");
-        CHECK(!controls_visible, "the summoning gave the controls back by itself (on_done decides)");
-        CHECK(dialog_active(), "the old welcome window did not follow the summoning (stand-in)");
+        CHECK(controls_visible, "intro_done did not give the controls back when the light ended");
+        CHECK(!dialog_active(), "a welcome window followed the summoning (chunk 10 removed them)");
+        CHECK(mission_talk_dea < 0, "the Talk to Goddess task is there before Dea is sighted (chunk 11)");
+        CHECK(npc_count() == 1 && dea_ty == world_player_tile_y() - 8 && dea_tx == world_player_tile_x(), "Dea is not placed 8 tiles above the player");
         CHECK(sfx_debug_summons() == s0 + 1, "the chime was asked for more than once (%d)", sfx_debug_summons() - s0);
         shot("build/summon_after.bmp");
     }
-    run(1.0f);                                                  /* the two sky windows */
-    for (int i = 0; i < 2; i++) { run(1.5f); tap(TW / 2, TH / 2); }
     run(1.0f);
     CHECK(alex_id < 0, "Alex exists up in the sky");
 
     CHECK(brainwin_count() == 0, "the head is not empty at the start (%d)", brainwin_count());
-    run(3.0f);                                                  /* the player can walk: the cloud thought arrives */
-    CHECK(brainwin_count() == 1, "expected exactly the cloud thought in the sky, got %d", brainwin_count());
-    on_enter_hole();                                            /* skip Dea's talk: straight into the hole (drops the cloud thought) */
-    CHECK(brainwin_count() == 0, "the cloud thought did not go silently when leaving the sky (%d)", brainwin_count());
+    run(3.0f);                                                  /* the player can walk: nothing is said until chunk 11 */
+    CHECK(brainwin_count() == 0, "a thought came in the sky before chunk 11 (%d)", brainwin_count());
+    on_enter_hole();                                            /* skip Dea's talk: straight into the hole */
+    CHECK(brainwin_count() == 0, "the head is not empty after leaving the sky (%d)", brainwin_count());
     run(9.0f);                                                  /* fall 5.5 + lie 1.5 + get up 1.2 */
     CHECK(cur_map == MAP_GREEN, "not on the Grasslands");
     CHECK(alex_id >= 0 && npc_count() == 1, "Alex was not placed (id %d, npcs %d)", alex_id, npc_count());

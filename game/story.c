@@ -174,8 +174,8 @@ void story_limbo_update(float dt) {
 
 /* ---------- the beginning: "Where am I?" (vessel 2, chunk 7) ----------
  * PLAY -> the menu fades out into limbo (game.c) -> story_limbo_begin(). a beat of silence over the stars, the soul thinks
- * "Where am I?", a hold, and limbo ends. STAND-IN until chunks 8-10: limbo_end() hands over to the old start of the game
- * (cloud music, the old welcome dialogs that world_init already queued), so the build stays playable. the summoning replaces it.
+ * "Where am I?", a hold, and limbo ends: game.c fades the world in on the cloud island, starts the cloud music
+ * and the summoning (world_summon, queued by story_start) runs. intro_done() follows it (see below).
  * the menu music keeps playing through limbo and fades out over the last LIMBO_FADE_T seconds. */
 #define LIMBO_BEAT      1.0f                /* stars only, before the first thought */
 #define LIMBO_WHERE_HOLD 3.5f               /* from the thought to the end of limbo: the soul waits (about 3.5 s) */
@@ -184,7 +184,7 @@ void story_limbo_update(float dt) {
 static const char *const LIMBO_WHERE[] = { "Where am I?" };
 static int limbo_stay;                      /* dev: stay in limbo for good (VESSEL_LIMBO=1) */
 
-static void limbo_where_end(void) { limbo_end(); }          /* STAND-IN: chunk 10 starts the summoning here instead */
+static void limbo_where_end(void) { limbo_end(); }          /* game.c shows the world, the summoning is already waiting there */
 static void limbo_where_fade(void) {
     jukebox_scene_fade(LIMBO_FADE_T);
     limbo_run(NULL, 0, LIMBO_FADE_T, limbo_where_end);
@@ -419,29 +419,18 @@ static void on_talk_dea(int npc_id) {
     dialog_play(DEA_TALK, DEA_TALK_COUNT, dea_talk_done);
 }
 
-/* ---------- scene 1: welcome, up in the clouds ---------- */
-static const DialogLine HELLO[]  = { { NULL, "Hello, " VESSEL_LATIN "!" } };
-static const DialogLine SUMMON[] = { { NULL, "You have been summoned. Talk to Goddess." } };
-
-static void cloud_thought(void) {
-    think("Why am I standing on clouds? Where even is this place?", "Why am I standing on clouds?", BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 1);
-}
+/* ---------- scene 1: up in the clouds (vessel 2, chunk 10) ----------
+ * no welcome window, no toast: after "Where am I?" the world fades in, the summoning runs (world_summon, started by
+ * story_start) and intro_done() is what runs when the light ends: the controls come back and Dea stands 8 tiles above,
+ * looking down. we just have to look around. (the "Talk to Goddess" task and the first thought come in chunk 11.) */
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
-    story_after(2.5f, cloud_thought);
-    mission_talk_dea = mission_add("Talk to Goddess");
     /* Dea stands 8 tiles above where we spawned, looking down at us */
     dea_tx = world_player_tile_x();
     dea_ty = world_player_tile_y() - 8;
     int id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
     npc_set_facing(id, FACE_DOWN);
 }
-
-static void hello_done(void) {
-    dialog_play(SUMMON, 1, intro_done);
-}
-
-static void intro(void) { dialog_play(HELLO, 1, hello_done); }
 
 /* ---------- entry point ---------- */
 void story_start(void) {
@@ -456,5 +445,5 @@ void story_start(void) {
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);
-    world_summon(intro);                        /* STAND-IN until chunk 10: the summoning (light, ring) runs over the fade-in, then the old welcome window */
+    world_summon(intro_done);                   /* the light, the sparks, the vessel; it starts when limbo hands over to the world (game.c) */
 }
