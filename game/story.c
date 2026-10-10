@@ -280,16 +280,33 @@ static const DialogLine ALEX_DEAL[] = {
 /* the end hook of vessel 1's mission, chunk 12: after "Aonia has died." the world fades to black over DEATH_FADE_T, the cutscene is
  * put away behind it and the game goes to LIMBO (the space screen, game.c takes the request once: story_limbo_take_enter).
  * we remember how many lives have been lived and where this one ended (the grave comes later). chunks 13-15: the soul speaks, the
- * vessel is summoned again. STAND-IN until then: limbo just stays (the soul's voice, the stars; no way back yet). */
+ * vessel is summoned again. STAND-IN until then: limbo just stays after the soul's line and its hold (no way back yet). */
 #define DEATH_FADE_T        1.0f
 static int vessel_dead;
 static int lives;                           /* vessels lived and lost: 1 after Aonia */
 static int death_tx, death_ty;              /* the tile where the last vessel died */
 static int limbo_enter_req;
 
+/* what the soul thinks on arriving in limbo after each death: the vessel table's death lines, one entry per life lived (lives - 1;
+ * past the end the last entry is used). the first line is said at once, then the soul waits DEATH_LIMBO_HOLD seconds before the story
+ * goes on (chunk 15: the vessel is summoned again). later vessels add their own entries here. */
+static const char *const DEATH_LINES_1[] = { "Uh. I died." };      /* vessel 1, Aonia */
+static const struct { const char *const *lines; int n; } DEATH_LINES[] = {
+    { DEATH_LINES_1, 1 },
+};
+#define DEATH_LINES_COUNT ((int)(sizeof DEATH_LINES / sizeof DEATH_LINES[0]))
+#define DEATH_LIMBO_HOLD    3.0f            /* after the last line: the soul waits a few seconds */
+static int death_hold_done;                 /* (tests) how many times the hold after a death has run out */
+
+/* STAND-IN until chunk 15 (summon again): after the hold limbo just stays */
+static void death_limbo_hold_over(void) {
+    death_hold_done++;
+    limbo_run(NULL, 0, 1000.0f, NULL);
+}
 static void death_to_limbo(void) {
     world_death_cancel();                   /* behind the black: zoom, colour, heart and words put away */
-    limbo_run(NULL, 0, 1000.0f, NULL);      /* the soul's voice, limbo on, holding (chunk 13 gives it its line) */
+    int i = lives - 1; if (i < 0) i = 0; if (i >= DEATH_LINES_COUNT) i = DEATH_LINES_COUNT - 1;
+    limbo_run(DEATH_LINES[i].lines, DEATH_LINES[i].n, DEATH_LIMBO_HOLD, death_limbo_hold_over);   /* the soul speaks, then the hold */
     limbo_enter_req = 1;
 }
 static void story_vessel_died(void) {
@@ -484,7 +501,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
-    vessel_dead = 0; lives = 0; limbo_enter_req = 0;
+    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

@@ -341,6 +341,17 @@ int main(void) {
     CHECK(!world_death_active() && heart_state() == HEART_OFF && !death_msg[0], "the cutscene was not put away behind the black");
     CHECK(story_limbo_active() && thought_voice() == &SOUL, "the soul's limbo did not begin after the death");
     CHECK(story_limbo_take_enter() == 1 && story_limbo_take_enter() == 0, "the move into limbo must be reported to game.c exactly once");
+    /* chunk 13: the soul says "Uh. I died." at once (no coin, not in the brain window), then a hold of DEATH_LIMBO_HOLD before the story goes on */
+    CHECK(limbo.n == 1 && strcmp(limbo.lines[0], "Uh. I died.") == 0 && thought_active(), "the soul did not say \"Uh. I died.\" on arriving in limbo");
+    CHECK(DEATH_LINES_COUNT >= 1 && DEATH_LINES[0].lines == DEATH_LINES_1, "the vessel table has no entry for vessel 1");
+    {   int bc = brainwin_count(), h0 = death_hold_done;
+        for (float t = 0; t < DEATH_LIMBO_HOLD - 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(death_hold_done == h0, "the hold after the death line ended too early");
+        for (float t = 0; t < 0.6f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(death_hold_done == h0 + 1, "the hold after the death line did not end (%d)", death_hold_done - h0);
+        for (float t = 0; t < 5.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(death_hold_done == h0 + 1 && story_limbo_active(), "the stand-in hold ran twice or limbo ended by itself");
+        CHECK(brainwin_count() == bc, "the death line joined the brain window"); }
     limbo_end(); story_limbo_take_end(); blackout_t = -1;           /* the tests below start from the world again */
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
