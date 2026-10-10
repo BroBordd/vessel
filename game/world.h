@@ -36,13 +36,18 @@ int  world_find_far_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y)
  * with the same range do not end up on top of each other. avoid_dist 0 = no restriction. */
 int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_ty, int avoid_dist, int *tile_x, int *tile_y);
 
-/* HOUSES (chunk: Alex's house): world_find_house_spot is world_find_far_spot for a house: the same walk, but the 9x7 area around the spot
- * (the house and a margin) must be inside the map. world_place_house stamps a small house on the current map, centred on that tile
- * (7x5 tiles: walls round a 5x3 wooden room, one door in the middle of the bottom wall; the margin and the doorstep are cleared of
- * water and trees) and puts `label` on a sign above it. whoever stands on the centre tile is inside. returns 0 if it does not fit.
- * the house goes away when a new map loads (story.c puts it back). */
+/* ALEX'S HOUSE (house.h has the art and the layout). a solid log hut on the current map, with a door that is an interact button: it
+ * swaps the whole map for the room inside (and back). world_find_house_spot is world_find_far_spot for the hut: the spot is the DOORSTEP
+ * tile, and the hut (HUT_W x HUT_H tiles above it) with a margin must fit in the map. world_place_house puts the hut there (water and trees
+ * round it are cleared) with `label` on a sign above it. the hut goes away when a new map loads (story.c puts it back).
+ * the npcs of the Grasslands live INSIDE the house: from outside nobody is seen (world_dist_to_npc then measures to the door); the story
+ * adds Alex at world_house_alex_tile() (a tile of the room's map). world_indoors: we are in the room. */
 int  world_find_house_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y);
-int  world_place_house(int centre_tx, int centre_ty, const char *label);
+int  world_place_house(int doorstep_tx, int doorstep_ty, const char *label);
+int  world_house_exists(void);
+void world_house_tile(int *doorstep_tx, int *doorstep_ty);
+void world_house_alex_tile(int *tile_x, int *tile_y);
+int  world_indoors(void);
 
 /* Dia's shrine (shrine.h): world_place_shrine puts the prop on the current map (it blocks the player, but nothing
  * happens yet); world_enable_shrine switches it on: the interact button shows a sludge drop next to it, HOLDING it

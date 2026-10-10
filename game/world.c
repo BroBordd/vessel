@@ -9,6 +9,7 @@
 #include "item.h"
 #include "mapwin.h"
 #include "grave.h"
+#include "house.h"
 #include "heart.h"
 #include "summon.h"
 #include "story.h"
@@ -33,7 +34,7 @@
 #define WALK_TILES_PER_SEC 5.0f
 #define MAX_MARKS 20     /* walking speed at full stick tilt */
 
-enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_WALL, T_FLOOR };
+enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_HUT, T_WALL, T_FLOOR, T_FURN };
 
 static uint8_t map[MAP_MAX][MAP_MAX];
 static int   mw, mh, cur_map;       /* size of the loaded map, and which one it is */
@@ -142,19 +143,31 @@ static float vnoise(float x, float y, uint32_t seed) {
 
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
-    return map[ty][tx] == T_WATER || map[ty][tx] == T_TREE || map[ty][tx] == T_SKY || map[ty][tx] == T_WALL;
+    uint8_t v = map[ty][tx];
+    return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN;
 }
 
-/* the house (see world_place_house): 7x5 tiles round its centre, plus a margin of one tile that nothing else is put on */
-#define HOUSE_HW 3
-#define HOUSE_HH 2
-static int  house_on, house_cx, house_cy;
+/* ALEX'S HOUSE (house.h has the art). outside it is a solid prop on the Grasslands: HUT_W x HUT_H tiles of T_HUT, the doorstep tile
+ * just below the middle of its bottom edge. its door is an interact button; pressing it fades out, swaps the whole map for the room
+ * inside (the outside map is kept in outside_map) and fades in. the room's own door takes us back to the doorstep.
+ * while we are inside, the Grasslands' props (shrine, hammer, graves) are asleep, and the npcs (Alex) only exist in here. */
+static int  house_on, house_sx, house_sy;                  /* the doorstep tile */
 static char house_label[24];
-static int  house_room_wanted;      /* world_find_spot_away is looking for a house spot: the 9x7 area must fit in the map */
-static int in_house(int x, int y, int margin) {
-    return house_on && x >= house_cx - HOUSE_HW - margin && x <= house_cx + HOUSE_HW + margin &&
-                       y >= house_cy - HOUSE_HH - margin && y <= house_cy + HOUSE_HH + margin;
+static int  house_room_wanted;      /* world_find_spot_away is looking for a house spot: the hut and its margin must fit in the map */
+static int  indoors;                /* we are in the room */
+static uint8_t outside_map[MAP_MAX][MAP_MAX];
+static int  out_mw, out_mh;
+#define DOOR_T       0.7f           /* fade out, swap, fade in */
+static float door_t = -1;           /* -1 = no door transition running */
+static int  door_swapped;
+static int  near_door, door_in_range;
+#define DOOR_RANGE   1.6f           /* tiles from the door's middle: the button shows a door */
+#define DOOR_LEAVE   2.1f
+static int in_house(int x, int y, int margin) {             /* the hut's footprint, the doorstep and a margin: nothing else is put there */
+    return house_on && x >= house_sx - HUT_W / 2 - margin && x <= house_sx + HUT_W / 2 + margin &&
+                       y >= house_sy - HUT_H - margin && y <= house_sy + margin;
 }
+static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }     /* Alex lives in the room: out on the grass nobody is there */
 
 static void gen_map(void) {
     mw = mh = 80;
@@ -315,23 +328,9 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     uint8_t v = map[ty][tx];
     if (v == T_SKY)   { draw_sky_tile(r, tx, ty, x, y);   return; }
     if (v == T_CLOUD) { draw_cloud_tile(r, tx, ty, x, y); return; }
-    if (v == T_FLOOR) {                                 /* wooden planks, seen from above (the house has no roof: you look in) */
-        uint32_t fh = hash2(tx, ty, 55);
-        col(r, 190 + (fh & 3) * 3, 140 + (fh & 3) * 3, 88, 255); fill(r, x, y, tile, tile);
-        col(r, 150, 104, 62, 255);
-        fill(r, x, y + 3 * px, tile, px); fill(r, x, y + 7 * px, tile, px);                       /* the gaps between planks */
-        fill(r, x + (int)((fh >> 3) & 7) * px, y, px, 3 * px); fill(r, x + (int)((fh >> 7) & 7) * px, y + 4 * px, px, 3 * px);
-        if (tx > 0 && ty + 1 < mh && map[ty + 1][tx] == T_WALL) { col(r, 0, 0, 0, 60); fill(r, x, y + 6 * px, tile, 2 * px); }   /* the wall's shadow */
-        return;
-    }
-    if (v == T_WALL) {                                  /* brick, with a red cap on the top wall so it reads as a roofline */
-        col(r, 150, 92, 70, 255); fill(r, x, y, tile, tile);
-        col(r, 112, 66, 50, 255);
-        fill(r, x, y + 3 * px, tile, px); fill(r, x, y + 7 * px, tile, px);                        /* mortar rows */
-        fill(r, x + ((ty & 1) ? 2 : 5) * px, y, px, 3 * px); fill(r, x + ((ty & 1) ? 5 : 2) * px, y + 4 * px, px, 3 * px);
-        if (ty == 0 || map[ty - 1][tx] != T_WALL) { col(r, 182, 54, 48, 255); fill(r, x, y, tile, 3 * px); col(r, 214, 92, 80, 255); fill(r, x, y, tile, px); }
-        return;
-    }
+    if (v == T_FLOOR || v == T_FURN) { house_draw_floor_tile(r, tx, ty, x, y, px); return; }       /* the room: planks (furniture stands on them) */
+    if (v == T_WALL) { house_draw_wall_tile(r, tx, ty, mw, x, y, px); return; }
+    if (v == T_HUT) v = T_GRASS;                         /* under the hut: plain grass (the hut is a sprite on top) */
     uint32_t h = hash2(tx, ty, 99);
     int bg = v == T_WATER ? 0 : v == T_SAND ? 1 : 2;
 
@@ -392,10 +391,16 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 
 /* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks */
 static const Rgb MAP_PAL[] = {
-    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 150, 92, 70 }, { 190, 140, 88 } };
+    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 } };
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
-    for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; marks[nm].label = npc_person(i)->name; nm++; }
+    if (npcs_here())
+        for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; marks[nm].label = npc_person(i)->name; nm++; }
+    if (indoors) {                                                          /* the room: just Alex and the way out */
+        marks[nm].tx = HOUSE_IN_DOOR_X + 0.5f; marks[nm].ty = HOUSE_IN_H - 0.5f; marks[nm].kind = 6; marks[nm].label = "Door"; nm++;
+        return nm;
+    }
+    if (house_on && nm < MAX_MARKS - 1) { marks[nm].tx = house_sx + 0.5f; marks[nm].ty = house_sy - HUT_H / 2.0f; marks[nm].kind = 5; marks[nm].label = house_label; nm++; }   /* her house, where she lives */
     if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; marks[nm].label = "Shrine"; nm++; }
     if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; marks[nm].label = "Hammer"; nm++; }   /* the hammer, once there is a shrine to break */
     for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; marks[nm].label = "Grave"; nm++; }   /* graves: grey blocks */
@@ -404,7 +409,7 @@ static int gather_marks(MiniMark *marks) {
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 9;
+    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 11;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -419,7 +424,7 @@ static void load_map(int which) {
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
-    near_shrine = 0; mm_down = 0; house_on = 0;
+    near_shrine = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = (mw / 2 + 0.5f) * tile;
@@ -491,6 +496,7 @@ int world_player_tile_y(void) { return (int)(pyp / tile); }
 float world_dist_to_npc(int npc_id) {
     if (npc_id < 0 || npc_id >= npc_count()) return 1e9f;
     float nx, ny; npc_tile(npc_id, &nx, &ny);
+    if (!npcs_here()) { if (!house_on) return 1e9f; nx = house_sx + 0.5f; ny = house_sy + 0.2f; }       /* she is in her house: from outside, how far the door is */
     float dx = pxp / tile - nx, dy = pyp / tile - ny;
     return sqrtf(dx * dx + dy * dy);
 }
@@ -520,7 +526,7 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
         for (int j = -1; j <= 1 && open; j++)
             for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) { open = 0; break; }
         if (open && in_house(x, y, 1)) open = 0;                /* nothing else is put in or at the house */
-        if (open && house_room_wanted && (x - HOUSE_HW - 1 < 1 || x + HOUSE_HW + 1 > mw - 2 || y - HOUSE_HH - 1 < 1 || y + HOUSE_HH + 1 > mh - 2)) open = 0;
+        if (open && house_room_wanted && (x - HUT_W / 2 - 1 < 1 || x + HUT_W / 2 + 1 > mw - 2 || y - HUT_H - 1 < 1 || y + 2 > mh - 2)) open = 0;
         if (open && avoid_dist > 0 && sqrtf((float)((x - avoid_tx) * (x - avoid_tx) + (y - avoid_ty) * (y - avoid_ty))) < avoid_dist) open = 0;
         if (open) {
             float d = sqrtf((float)((x - x0) * (x - x0) + (y - y0) * (y - y0)));
@@ -571,24 +577,63 @@ int world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty
 
 int world_find_house_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) {
     house_room_wanted = 1;
-    int ok = world_find_spot_away(min_tiles, max_tiles, 0, 0, 0, out_tx, out_ty);
+    int ok = world_find_spot_away(min_tiles, max_tiles, 0, 0, 0, out_tx, out_ty);      /* the spot is the doorstep */
     house_room_wanted = 0;
     return ok;
 }
-int world_place_house(int cx, int cy, const char *label) {
-    if (cx - HOUSE_HW - 1 < 1 || cx + HOUSE_HW + 1 > mw - 2 || cy - HOUSE_HH - 1 < 1 || cy + HOUSE_HH + 1 > mh - 2) return 0;
-    for (int y = cy - HOUSE_HH - 1; y <= cy + HOUSE_HH + 1; y++)            /* the margin (and the doorstep): no water, no trees */
-        for (int x = cx - HOUSE_HW - 1; x <= cx + HOUSE_HW + 1; x++)
+int world_place_house(int sx, int sy, const char *label) {
+    if (indoors || sx - HUT_W / 2 - 1 < 1 || sx + HUT_W / 2 + 1 > mw - 2 || sy - HUT_H - 1 < 1 || sy + 2 > mh - 2) return 0;
+    for (int y = sy - HUT_H - 1; y <= sy + 1; y++)                          /* the hut, its margin and the doorstep: no water, no trees */
+        for (int x = sx - HUT_W / 2 - 1; x <= sx + HUT_W / 2 + 1; x++)
             if (map[y][x] == T_WATER || map[y][x] == T_TREE) map[y][x] = T_GRASS;
-    for (int y = cy - HOUSE_HH; y <= cy + HOUSE_HH; y++)
-        for (int x = cx - HOUSE_HW; x <= cx + HOUSE_HW; x++) {
-            int wall = x == cx - HOUSE_HW || x == cx + HOUSE_HW || y == cy - HOUSE_HH || y == cy + HOUSE_HH;
-            map[y][x] = wall ? T_WALL : T_FLOOR;
-        }
-    map[cy + HOUSE_HH][cx] = T_FLOOR;                                       /* the door: a gap in the middle of the bottom wall */
-    house_on = 1; house_cx = cx; house_cy = cy;
+    for (int y = sy - HUT_H; y < sy; y++)
+        for (int x = sx - HUT_W / 2; x <= sx + HUT_W / 2; x++) map[y][x] = T_HUT;
+    house_on = 1; house_sx = sx; house_sy = sy;
     snprintf(house_label, sizeof house_label, "%s", label ? label : "");
     return 1;
+}
+int  world_house_exists(void) { return house_on; }
+void world_house_tile(int *tx, int *ty) { *tx = house_sx; *ty = house_sy; }
+void world_house_alex_tile(int *tx, int *ty) { *tx = HOUSE_IN_ALEX_X; *ty = HOUSE_IN_ALEX_Y; }
+int  world_indoors(void) { return indoors; }
+
+/* the room: the whole map is swapped. the player starts on the doormat, facing into the room */
+static void gen_house_map(void) {
+    mw = HOUSE_IN_W; mh = HOUSE_IN_H;
+    for (int y = 0; y < mh; y++)
+        for (int x = 0; x < mw; x++) {
+            int wall = x == 0 || x == mw - 1 || y <= 1 || y == mh - 1;
+            map[y][x] = wall ? T_WALL : house_inside_solid(x, y) ? T_FURN : T_FLOOR;
+        }
+    map[mh - 1][HOUSE_IN_DOOR_X] = T_FLOOR;                                 /* the doorway */
+}
+static void enter_house(void) {
+    memcpy(outside_map, map, sizeof map); out_mw = mw; out_mh = mh;
+    gen_house_map();
+    indoors = 1;
+    pxp = (HOUSE_IN_DOOR_X + 0.5f) * tile; pyp = (HOUSE_IN_H - 1 + 0.0f) * tile - 0.1f * tile; facing = FACE_UP;
+    near_door = door_in_range = 0; near_id = -1; btn_down = btn_inside = 0;
+}
+static void leave_house(void) {
+    memcpy(map, outside_map, sizeof map); mw = out_mw; mh = out_mh;
+    indoors = 0;
+    pxp = (house_sx + 0.5f) * tile; pyp = (house_sy + 0.9f) * tile; facing = FACE_DOWN;
+    near_door = door_in_range = 0; near_id = -1; btn_down = btn_inside = 0;
+}
+/* where the door we can use is, in tiles (the middle of the doorway / the foot of the hut's door) */
+static int door_point(float *dx, float *dy) {
+    if (indoors) { *dx = HOUSE_IN_DOOR_X + 0.5f; *dy = HOUSE_IN_H - 0.5f; return 1; }
+    if (house_on && cur_map == MAP_GREEN) { *dx = house_sx + 0.5f; *dy = house_sy + 0.2f; return 1; }
+    return 0;
+}
+static void update_door_range(void) {
+    near_door = 0;
+    float dx, dy;
+    if (door_t >= 0 || phase != PH_PLAY || dialog_active() || !door_point(&dx, &dy)) { door_in_range = 0; return; }
+    float ex = pxp / tile - dx, ey = pyp / tile - dy, d = sqrtf(ex * ex + ey * ey);
+    if (!door_in_range && d < DOOR_RANGE) door_in_range = 1;
+    else if (door_in_range && d > DOOR_LEAVE) door_in_range = 0;
+    near_door = door_in_range;
 }
 
 void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); }
@@ -606,6 +651,7 @@ int  world_grave_count(void) { return grave_count(); }
 void world_grave_tile(int i, float *tx, float *ty) { grave_tile(i, tx, ty); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
 float world_dist_to_grave(void) {
+    if (indoors) return 1e9f;
     float best = 1e9f;
     for (int i = 0; i < grave_count(); i++) {
         float gx, gy; grave_tile(i, &gx, &gy);
@@ -684,7 +730,7 @@ void world_touch(int a, int x, int y) {
         stick_on = 0; kx = ky = 0; btn_down = 0;
         return;
     }
-    if (!controls_visible || phase != PH_PLAY) return;
+    if (!controls_visible || phase != PH_PLAY || door_t >= 0) return;
     if (item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
     if (a == 0 && minimap_hit(x, y)) { mm_down = 1; return; }          /* the minimap: tap it for the map window */
     if (mm_down) {
@@ -694,7 +740,7 @@ void world_touch(int a, int x, int y) {
     }
 
     /* interact button: press on it, release on it = interact */
-    int can = near_id >= 0 || near_hole || near_shrine;
+    int can = near_id >= 0 || near_hole || near_shrine || near_door;
     if (a == 0 && can && button_hit(x, y)) {
         btn_down = 1; btn_inside = 1;
         if (near_shrine) {                                              /* turn to face it before the sabotage starts */
@@ -712,6 +758,7 @@ void world_touch(int a, int x, int y) {
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_hole) { if (hole_cb) hole_cb(); }
+                else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
                 else {
                     talk_npc = near_id;
                     float nx, ny; npc_tile(near_id, &nx, &ny);       /* turn to face them before the talk starts */
@@ -744,7 +791,8 @@ static int blocked(float fx, float fy) {           /* feet box centred at fx,fy 
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++)
             if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
-    return npc_collides(fx, fy, hw, 2 * hh) || shrine_collides(fx, fy, hw, 2 * hh) || grave_collides(fx, fy, hw, 2 * hh);
+    if (indoors) return npc_collides(fx, fy, hw, 2 * hh);
+    return (npcs_here() && npc_collides(fx, fy, hw, 2 * hh)) || shrine_collides(fx, fy, hw, 2 * hh) || grave_collides(fx, fy, hw, 2 * hh);
 }
 
 /* walks through the jump -> fall -> land -> get-up cinematic */
@@ -790,6 +838,15 @@ static void update_hole_range(void) {
     near_hole = hole_in_range;
 }
 
+/* the camera along one axis: follows the player but never shows past the map's edge; a map smaller than the screen (the room) is centred */
+static float cam_axis(float c, int map_px, int screen) {
+    float m = (float)(map_px - screen);
+    if (m < 0) return m / 2.0f;
+    if (c > m) c = m;
+    if (c < 0) c = 0;
+    return c;
+}
+
 void world_update(float dt) {
     if (mapwin_active() && (dialog_active() || !controls_visible || phase != PH_PLAY)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     if (death_msg[0]) death_msg_t += dt;
@@ -816,9 +873,14 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0; near_shrine = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0; near_door = 0;
     } else {
-        if (dialog_active()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking */
+        if (dialog_active() || door_t >= 0) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
+        if (door_t >= 0) {
+            door_t += dt;
+            if (!door_swapped && door_t >= DOOR_T / 2) { door_swapped = 1; if (indoors) leave_house(); else enter_house(); }
+            if (door_t >= DOOR_T) door_t = -1;
+        }
         float mag = sqrtf(kx * kx + ky * ky);
         moving = mag > 0.15f;
         if (moving) {
@@ -831,12 +893,13 @@ void world_update(float dt) {
             walk += dt * 8.0f;
         } else walk = 0;
 
-        npc_update(pxp, pyp);
+        if (npcs_here()) npc_update(pxp, pyp);
         update_hole_range();
-        item_update(dt, pxp, pyp, !dialog_active() && !near_hole);   /* walking over the hammer picks it up */
-        near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && item_has(ITEM_HAMMER));   /* no hammer, no button */
-        near_id = (dialog_active() || near_hole || near_shrine) ? -1 : npc_nearby();
-        if (near_id < 0 && !near_hole && !near_shrine) btn_down = btn_inside = 0;
+        update_door_range();
+        item_update(dt, pxp, pyp, !dialog_active() && !near_hole && !indoors);   /* walking over the hammer picks it up (not from inside the house) */
+        near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && !indoors && item_has(ITEM_HAMMER));   /* no hammer, no button */
+        near_id = (dialog_active() || near_hole || near_shrine || near_door || !npcs_here()) ? -1 : npc_nearby();
+        if (near_id < 0 && !near_hole && !near_shrine && !near_door) btn_down = btn_inside = 0;
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
     }
 
@@ -861,11 +924,8 @@ void world_update(float dt) {
     if (death_on && death_cb && death_t >= DEATH_SETTLE_T) { void (*cb)(void) = death_cb; death_cb = NULL; cb(); }
 
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
-    float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
-    if (cam_x > mx) cam_x = mx;
-    if (cam_x < 0)  cam_x = 0;
-    if (cam_y > my) cam_y = my;
-    if (cam_y < 0)  cam_y = 0;
+    cam_x = cam_axis(cam_x, mw * tile, W);
+    cam_y = cam_axis(cam_y, mh * tile, H);
 }
 
 /* the hole in the clouds, built from the same square pixels as everything else: every cell is one
@@ -1009,6 +1069,21 @@ static void draw_interact_button(SDL_Renderer *r) {
         item_draw_icon(r, ITEM_HAMMER, bcx - side / 2, bcy - side / 2 + swing, a);
         return;
     }
+    if (near_door) {                                             /* a little door, ajar, with a knob */
+        int a = br / 8; if (a < 2) a = 2;
+        int bob = (int)(sinf(t * 5.0f) * a * 0.25f);
+        col(r, 255, 255, 255, 255);
+        fill(r, bcx - 3 * a, bcy - 4 * a + bob, 6 * a, 8 * a);                 /* frame */
+        col(r, 24, 28, 48, 255);
+        fill(r, bcx - 2 * a, bcy - 3 * a + bob, 4 * a, 7 * a);                 /* the dark doorway */
+        col(r, 214, 150, 84, 255);
+        fill(r, bcx - 2 * a, bcy - 3 * a + bob, 2 * a, 7 * a);                 /* the door, swung open */
+        col(r, 120, 76, 44, 255);
+        fill(r, bcx - 2 * a, bcy - 3 * a + bob, a / 2 + 1, 7 * a);
+        col(r, 250, 214, 100, 255);
+        fill(r, bcx - a, bcy + bob, a / 2 + 1, a / 2 + 1);                     /* the knob */
+        return;
+    }
     if (near_hole) {                                             /* pixel arrow pointing down */
         int a = br / 7; if (a < 2) a = 2;
         int bob = (int)(sinf(t * 6.0f) * a * 0.4f);
@@ -1055,6 +1130,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int tx1 = (cx + W) / tile, ty1 = (cy + H) / tile;
 
     scene_filter(0);
+    if (indoors) { col(r, 0, 0, 0, 255); fill(r, 0, 0, W, H); }   /* the room is smaller than the screen: black round it */
     for (int ty = ty0; ty <= ty1 && ty < mh; ty++)
         for (int tx = tx0; tx <= tx1 && tx < mw; tx++) {
             if (dawn_on) {                                            /* the dawn: sky first, brightening; the cloud floor builds in on top of it */
@@ -1078,12 +1154,20 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
-    item_draw_ground(r, cx, cy, t);                               /* lying on the grass: under everyone */
-    if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
-    for (int i = 0; i < grave_count(); i++)
-        if (grave_foot_y(i) <= pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }     /* (the photo is greyed with the filter: put the scene's own back) */
-    for (int i = 0; i < npc_count(); i++)
-        if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
+    int hut_foot = house_on && !indoors ? house_sy * tile : 0;
+    if (indoors) {                                                /* the room's furniture, by its feet */
+        for (int i = 0; i < house_piece_count(); i++)
+            if (house_piece_foot(i) * tile <= pyp) house_piece_draw(r, i, -cx, -cy, px, t);
+    } else {
+        item_draw_ground(r, cx, cy, t);                           /* lying on the grass: under everyone */
+        if (hut_foot && hut_foot <= pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t);
+        if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
+        for (int i = 0; i < grave_count(); i++)
+            if (grave_foot_y(i) <= pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }     /* (the photo is greyed with the filter: put the scene's own back) */
+    }
+    if (npcs_here())
+        for (int i = 0; i < npc_count(); i++)
+            if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
     scene_filter(1);                                              /* the player: red, in a grey world */
@@ -1128,15 +1212,22 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     if (!dawn_on) summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
     scene_filter(0);
-    for (int i = 0; i < npc_count(); i++)
-        if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
-    if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
-    for (int i = 0; i < grave_count(); i++)
-        if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
-    if (house_on && house_label[0]) {                             /* the sign above the house: who lives there */
+    if (npcs_here())
+        for (int i = 0; i < npc_count(); i++)
+            if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
+    if (indoors) {
+        for (int i = 0; i < house_piece_count(); i++)
+            if (house_piece_foot(i) * tile > pyp) house_piece_draw(r, i, -cx, -cy, px, t);
+    } else {
+        if (hut_foot && hut_foot > pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t);
+        if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
+        for (int i = 0; i < grave_count(); i++)
+            if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
+    }
+    if (house_on && !indoors && house_label[0]) {                             /* the sign above the house: who lives there */
         int cell = px; if (cell < 2) cell = 2;
         int tw = font_width(house_label, cell), th = font_height(cell), pad = 2 * cell;
-        int sxm = (int)((house_cx + 0.5f) * tile) - cx, syt = (house_cy - HOUSE_HH) * tile - cy - th - 2 * pad - 2 * cell;
+        int sxm = (int)((house_sx + 0.5f) * tile) - cx, syt = (house_sy - HUT_H) * tile - cy - th - 2 * pad - 2 * cell;
         col(r, 0, 0, 0, 150); fill(r, sxm - tw / 2 - pad, syt, tw + 2 * pad, th + 2 * pad);
         col(r, 255, 255, 255, 255); font_draw(r, house_label, sxm - tw / 2, syt + pad, cell);
     }
@@ -1152,12 +1243,7 @@ static void zoom_camera(float *ccx, float *ccy) {
     if (zk < 0) zk = 0;
     float x = (cam_x + W / 2.0f) + (zoom_fx - (cam_x + W / 2.0f)) * zk - W / 2.0f;
     float y = (cam_y + H / 2.0f) + (zoom_fy - (cam_y + H / 2.0f)) * zk - H / 2.0f;
-    float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
-    if (x > mx) x = mx;
-    if (x < 0)  x = 0;
-    if (y > my) y = my;
-    if (y < 0)  y = 0;
-    *ccx = x; *ccy = y;
+    *ccx = cam_axis(x, mw * tile, W); *ccy = cam_axis(y, mh * tile, H);
 }
 
 void world_draw(SDL_Renderer *r) {
@@ -1217,12 +1303,12 @@ void world_draw(SDL_Renderer *r) {
         float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
-        if (near_id >= 0 || near_hole || near_shrine) draw_interact_button(r);
+        if (near_id >= 0 || near_hole || near_shrine || near_door) draw_interact_button(r);
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 9, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 11, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
@@ -1237,6 +1323,11 @@ void world_draw(SDL_Renderer *r) {
     if (t < FADE_IN_T) {                                          /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t / FADE_IN_T)));
         fill(r, 0, 0, W, H);
+    }
+    if (door_t >= 0) {                                            /* through the door: dark in the middle, over everything but the dialogs */
+        float k = door_t / (DOOR_T / 2); if (k > 1) k = 2.0f - k;
+        if (k < 0) k = 0;
+        col(r, 0, 0, 0, (int)(255 * k)); fill(r, 0, 0, W, H);
     }
     if (blackout_t >= 0) {                                        /* fade to black over everything, HUD included */
         float a = blackout_t / blackout_dur; if (a > 1) a = 1;

@@ -325,7 +325,7 @@ static int death_hold_done;                 /* (tests) how many times the hold a
 /* what the Grasslands looked like when vessel 1 died (chunk 14): the world forgets a map's npcs and props when it leaves it, the
  * story keeps them so that chunk 20 can put Alex and the shrine back exactly as they were. alex_dealt / alex_seen / shrine_fouled
  * are simply not reset. */
-static struct { int alex_tx, alex_ty, alex_there; int shrine_tx, shrine_ty, shrine_there, shrine_polluted; } green;
+static struct { int house_tx, house_ty, alex_there; int shrine_tx, shrine_ty, shrine_there, shrine_polluted; } green;     /* house_tx/ty: the doorstep of Alex's house */
 
 /* the graves (chunks 21-22): every vessel that died on the Grasslands keeps a stone where it fell, with its own face on it. the world forgets
  * props when a map loads, so the story keeps the list (the tile where each one died, and who it was) and puts them all back on every
@@ -334,7 +334,7 @@ static struct { int tx, ty; const Person *who; } graves[GRAVE_MAX];
 static int grave_n;
 static void green_remember(void) {
     memset(&green, 0, sizeof green);
-    if (alex_id >= 0) { float fx, fy; npc_tile(alex_id, &fx, &fy); green.alex_tx = (int)fx; green.alex_ty = (int)fy; green.alex_there = 1; }
+    if (alex_id >= 0 && world_house_exists()) { world_house_tile(&green.house_tx, &green.house_ty); green.alex_there = 1; }
     if (world_shrine_exists()) {
         float fx, fy; world_shrine_tile(&fx, &fy);
         green.shrine_tx = (int)fx; green.shrine_ty = (int)fy; green.shrine_there = 1; green.shrine_polluted = world_shrine_polluted();
@@ -553,8 +553,10 @@ void story_vessel2_ready(void) {
  * planned later) and there is no complaint. the only thing said is the placeholder line below; chunk 23 adds the thought at the grave. */
 static void landed_again(void) {
     if (green.alex_there) {
-        world_place_house(green.alex_tx, green.alex_ty, "Alex");     /* the map is made again: her house is put back round her first */
-        alex_id = npc_add(&ALEX, green.alex_tx, green.alex_ty, on_talk_alex);
+        int ax, ay;
+        world_place_house(green.house_tx, green.house_ty, "Alex");   /* the map is made again: her house is put back, and she is inside it */
+        world_house_alex_tile(&ax, &ay);
+        alex_id = npc_add(&ALEX, ax, ay, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
     }
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
@@ -583,8 +585,10 @@ static void landed(void) {
     int tx, ty;
     if (lives > 0) { landed_again(); return; }              /* a later life: nothing is made up, the world is put back */
     if (world_find_house_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
-        world_place_house(tx, ty, "Alex");                  /* her house: she is inside, the sign outside says whose it is */
-        alex_id = npc_add(&ALEX, tx, ty, on_talk_alex);
+        int ax, ay;
+        world_place_house(tx, ty, "Alex");                  /* her house: a log hut with a door, the sign outside says whose it is; she is inside */
+        world_house_alex_tile(&ax, &ay);
+        alex_id = npc_add(&ALEX, ax, ay, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
         int shx, shy;                                       /* Dia's shrine: a walk too, but nearer than Alex, and not next to her */
         if (world_find_spot_away(SHRINE_MIN_DIST, SHRINE_MAX_DIST, tx, ty, SHRINE_FROM_ALEX, &shx, &shy))

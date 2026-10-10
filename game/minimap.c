@@ -68,6 +68,10 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
             SDL_SetRenderDrawColor(r, 40, 24, 8, 255);     fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
             SDL_SetRenderDrawColor(r, 232, 164, 72, 255);  fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
             SDL_SetRenderDrawColor(r, 255, 244, 214, 255); fill(r, mx - 1, my - 1, 3, 3);
+        } else if (marks[k].kind == 5) {                    /* a house: a red roof block */
+            SDL_SetRenderDrawColor(r, 48, 14, 10, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
+            SDL_SetRenderDrawColor(r, 226, 104, 80, 255);  fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
+            SDL_SetRenderDrawColor(r, 255, 190, 160, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, 2);
         } else if (marks[k].kind == 3) {                    /* a grave: a grey block with a pale top, like a little headstone */
             SDL_SetRenderDrawColor(r, 20, 22, 28, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
             SDL_SetRenderDrawColor(r, 150, 154, 164, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);

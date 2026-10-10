@@ -193,6 +193,8 @@ void mapwin_draw(SDL_Renderer *r) {
             case 2:  ER = 30; EG = 10; EB = 60;  CR = 176; CG = 120; CB = 255; break;         /* the shrine */
             case 3:  ER = 20; EG = 22; EB = 28;  CR = 150; CG = 154; CB = 164; break;         /* a grave */
             case 4:  ER = 40; EG = 24; EB = 8;   CR = 232; CG = 164; CB = 72;  break;         /* the hammer */
+            case 5:  ER = 48; EG = 14; EB = 10;  CR = 226; CG = 104; CB = 80;  break;         /* a house: a red roof */
+            case 6:  ER = 40; EG = 24; EB = 8;   CR = 250; CG = 214; CB = 120; break;         /* a door */
             default: ER = 20; EG = 14; EB = 0;   CR = 255; CG = 214; CB = 110; break;         /* an npc */
         }
         SDL_Rect e = { mx - ms / 2 - 1, my - ms / 2 - 1, ms + 2, ms + 2 }, c = { mx - ms / 2, my - ms / 2, ms, ms };
