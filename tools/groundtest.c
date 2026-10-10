@@ -399,7 +399,7 @@ int main(void) {
         tap(TW - 140, TH - 40); tap(TW - 150, TH - 45); tap(TW - 160, TH - 50);        /* the BYE button */
         for (int i = 0; i < 8 && convo_active(); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
         CHECK(!convo_active() && !dialog_active(), "the questions did not end after BYE");
-        CHECK(controls_visible && hole_on, "the conversation did not give the controls (and, for now, the hole) back");
+        CHECK(controls_visible && hole_on, "the conversation did not give the controls and the hole back");
         CHECK(hud_person() == &VESSEL2 && strcmp(hud_person()->name, "Doia") == 0, "the ID card does not say Doia");
         shot("build/ground_resummon.bmp");
         /* chunk 17: the player's look is switchable and vessel 2 looks clearly different (same screen spot, other colours) */
@@ -423,6 +423,30 @@ int main(void) {
             CHECK(VESSEL2.long_hair && !VESSEL.long_hair && strcmp(VESSEL2.name, "Doia") == 0, "VESSEL2 is not Doia with long hair");
             world_set_player(NULL);
             CHECK(world_player() == &VESSEL, "world_set_player(NULL) is not the default look"); } }
+    /* chunk 20: the hole in front of Dea, the jump and the fall to the Grasslands. they are exactly as vessel 1 left them: Alex where she
+     * stood (and she remembers the deal), the shrine where it was, still polluted and inert. no complaint, no task, one thought */
+    {   world_set_player(&VESSEL2);                                  /* the look test above left the default on; the story has Doia on */
+        int ax = green.alex_tx, ay = green.alex_ty, sx0 = green.shrine_tx, sy0 = green.shrine_ty;
+        int dealt1 = alex_dealt, seen1 = alex_seen;
+        CHECK(hole_on && cur_map == MAP_CLOUD, "the hole is not open in the sky");
+        on_enter_hole();                                              /* the arrow button at the hole */
+        CHECK(phase != PH_PLAY && !controls_visible, "the jump did not start");
+        for (float w = 0; w < 15.0f && !(phase == PH_PLAY && cur_map == MAP_GREEN); w += 0.016f) frame(0.016f);
+        CHECK(cur_map == MAP_GREEN && phase == PH_PLAY, "did not land on the Grasslands (map %d, phase %d)", cur_map, phase);
+        CHECK(controls_visible && !dialog_active(), "the controls did not come back after the landing / a dialog opened");
+        CHECK(world_player() == &VESSEL2, "the player lost Doia's look on the way down");
+        CHECK(npc_count() == 1 && alex_id >= 0, "the Grasslands should hold only Alex (npcs %d)", npc_count());
+        {   float fx, fy; npc_tile(alex_id, &fx, &fy);
+            CHECK((int)fx == ax && (int)fy == ay, "Alex is not where vessel 1 left her (%d,%d, want %d,%d)", (int)fx, (int)fy, ax, ay); }
+        CHECK(world_shrine_exists() && world_shrine_polluted(), "the shrine is not there and polluted");
+        {   float fx, fy; world_shrine_tile(&fx, &fy);
+            CHECK((int)fx == sx0 && (int)fy == sy0, "the shrine moved (%d,%d, want %d,%d)", (int)fx, (int)fy, sx0, sy0); }
+        CHECK(!shrine_enabled() && shrine_progress() >= 0.99f, "the polluted shrine is usable again / not fully fouled");
+        CHECK(shrine_collides((sx0 + 0.5f) * tile, (sy0 + 0.9f) * tile, 3.0f * px, 3.0f * px), "the shrine does not block the player");
+        CHECK(alex_dealt == dealt1 && alex_seen == seen1, "Alex's story state changed (dealt %d, seen %d)", alex_dealt, alex_seen);   /* (this test run skipped her talk, so both are 0 here; in the real game both are 1) */
+        CHECK(missions_count() == 0, "a task came with the second landing (%d)", missions_count());
+        CHECK(brainwin_count() == 1 && thought_active(), "the landing line is not the one thought (%d in the head)", brainwin_count());
+        shot("build/ground_again.bmp"); }
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
 

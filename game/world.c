@@ -452,6 +452,7 @@ int  world_shrine_polluted(void) { return shrine_polluted(); }
 void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
+void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore(tile_x, tile_y, polluted); }
 
 /* a new life up in the clouds (chunk 14). the cloud map again, the player at its spawn, the hole closed, the colours, camera and fades
  * back to normal; the controls stay hidden (the summoning gives them back). the Grasslands are not touched: gen_map() makes the same

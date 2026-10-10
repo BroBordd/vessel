@@ -19,7 +19,8 @@
 /* world hooks */
 void  shrine_reset(int pixel_scale, int tile_size);         /* a new map: the shrine is gone */
 void  shrine_place(int tile_x, int tile_y);                 /* it stands there, but cannot be used yet */
-void  shrine_enable(void (*on_done)(void));                 /* it can be used now. on_done runs once, when it turns polluted */
+void  shrine_restore(int tile_x, int tile_y, int was_polluted);   /* placed again as an earlier life left it: switched off, polluted for good if it was (chunk 20) */
+void  shrine_enable(void (*on_done)(void));                /* it can be used now. on_done runs once, when it turns polluted */
 int   shrine_exists(void);
 int   shrine_enabled(void);                                 /* usable (placed, switched on, not polluted yet) */
 int   shrine_polluted(void);

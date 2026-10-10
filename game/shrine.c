@@ -17,6 +17,11 @@ void shrine_reset(int pixel_scale, int tile_size) {
     s = pixel_scale; tile = tile_size;
 }
 void shrine_place(int tile_x, int tile_y) { on = 1; tx = tile_x; ty = tile_y; enabled = polluted = in_range = 0; prog = 0; }
+/* the shrine as it was left by an earlier life (chunk 20): placed, switched off, and fouled for good if it was */
+void shrine_restore(int tile_x, int tile_y, int was_polluted) {
+    shrine_place(tile_x, tile_y);
+    if (was_polluted) { polluted = 1; prog = 1.0f; }
+}
 void shrine_enable(void (*on_done)(void)) { if (!on || polluted) return; enabled = 1; done_cb = on_done; }
 
 int   shrine_exists(void)   { return on; }

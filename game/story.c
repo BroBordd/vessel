@@ -111,7 +111,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -342,7 +342,7 @@ static void open_the_hole(void);                    /* defined with the sky scen
  * the second summoning is over: Dea has been standing there all along, looking at us, and she speaks FIRST (no walking, no sighting
  * task, no thought). the words are all hers and to VAS (we are plain VAS again). the last line gives us our new number: the naming
  * itself (ID card, player look) is chunk 18 (scold_page), and her questions chunk 19, so scold_done() is the hook those will take over.
- * STAND-IN until chunks 19-20: scold_done gives the controls back and opens the hole at once, so the game stays playable. */
+ * scold_done opens her questions (chunk 19), questions_done the hole (chunk 20). */
 static const DialogLine DEA_SCOLD[] = {
     { &DEA, "Oh. You again. Dead after a single errand." },
     { &DEA, "You fouled a rival goddess's shrine for a girl and a ball. My ball." },
@@ -352,8 +352,8 @@ static const DialogLine DEA_SCOLD[] = {
 #define DEA_SCOLD_COUNT ((int)(sizeof DEA_SCOLD / sizeof DEA_SCOLD[0]))
 
 /* chunk 19: after the naming Dea asks if we have any questions, meaner than the first time: a free chat (typed, or BYE to skip). her
- * mood starts below zero, so the answers are colder than before. when the chat is over, questions_done runs.
- * STAND-IN until chunk 20: questions_done gives the controls back and opens the hole at once. */
+ * mood starts below zero, so the answers are colder than before. when the chat is over, questions_done runs: chunk 20, the controls come
+ * back and the hole opens in front of her; pressing its button jumps and falls to the Grasslands (on_enter_hole -> landed_again). */
 #define DEA_RESPAWN_MOOD  (-30)
 static void questions_done(void) {
     world_set_controls_visible(1);
@@ -479,9 +479,23 @@ static void landing_done(void) {
     story_after(16.0f, grass_thought);                      /* after a little while of walking about */
 }
 
+/* the second landing (chunk 20): the Grasslands are exactly as vessel 1 left them. gen_map() makes the same ground every time; what stood
+ * on it is put back from `green`: Alex where she was (she remembers the deal: alex_dealt / alex_seen stayed), the shrine where it was,
+ * still polluted. nothing is added to the task list (vessel 2's own mission is planned later) and there is no complaint. the only
+ * thing said is the placeholder line below; chunks 21-24 add the grave. */
+static void landed_again(void) {
+    if (green.alex_there) {
+        alex_id = npc_add(&ALEX, green.alex_tx, green.alex_ty, on_talk_alex);
+        if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
+    }
+    if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
+    think("Here we go again.", NULL, BRAIN_SCENE_GRASS, THOUGHT_AGAIN, 1);
+}
+
 /* the player just got back on their feet after the fall */
 static void landed(void) {
     int tx, ty;
+    if (lives > 0) { landed_again(); return; }              /* a later life: nothing is made up, the world is put back */
     if (world_find_far_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
         alex_id = npc_add(&ALEX, tx, ty, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
