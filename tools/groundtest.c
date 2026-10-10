@@ -104,6 +104,15 @@ int main(void) {
     CHECK(brainwin_count() == 2, "the answered Alex thought was not dropped (%d)", brainwin_count());
     shot("build/ground_alex_talk.bmp");
 
+    /* the scripted deal: tap through the pages until the highlighted words have been typed out */
+    run(8.0f);                                                  /* the grass thought (16 s after landing) has arrived by now */
+    int before = brainwin_count();
+    for (int i = 0; i < 14 && mission_pollute < 0; i++) { run(1.5f); tap(TW / 2, TH * 4 / 5); }
+    run(1.0f);
+    CHECK(mission_pollute >= 0, "'Pollute Dia's shrine' was not added by Alex's line");
+    CHECK(brainwin_count() == before - 1, "the old orb thought was not dropped when the deal came (%d -> %d)", before, brainwin_count());
+    shot("build/ground_alex_deal.bmp");
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;
 }

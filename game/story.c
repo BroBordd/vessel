@@ -81,6 +81,8 @@ void story_update(float dt) {
 static int mission_talk_dea = -1;
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
+static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
+static int alex_dealt;                      /* the scripted deal has been played */
 static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
@@ -88,7 +90,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -135,13 +137,51 @@ static void alex_watch(void) {
         alex_spotted();
 }
 
-/* stand-in until chunk 9 gives Alex her scripted deal: the free typed chat, and the task ticks */
+/* ---------- Alex's deal (chunk 9) ----------
+ * she has the orb and will not hand it over for free: the player must pollute Dia's shrine. the page
+ * holding the highlighted words is the last one. the moment they have been typed out, "Find the orb"
+ * is ticked (we know where it is) and "Pollute Dia's shrine" coins in. then the free typed chat stays
+ * available, as with Dea. */
+static const DialogLine ALEX_DEAL[] = {
+    { &VESSEL, "Excuse me. Have you seen a glowing orb around here?" },
+    { &ALEX,   "A glowing orb? Sure. I have it right here." },
+    { &VESSEL, "That orb belongs to Dea. Please give it back." },
+    { &ALEX,   "Dea's, huh? Finders keepers." },
+    { &ALEX,   "But I am a fair person. Do one small thing for me, and it is yours." },
+    { &VESSEL, "What kind of thing?" },
+    { &ALEX,   "Dia has a shrine near here. She thinks she owns the whole place. Go {pollute Dia's shrine}, then come back to me." },
+};
+#define ALEX_DEAL_COUNT  ((int)(sizeof ALEX_DEAL / sizeof ALEX_DEAL[0]))
+#define ALEX_DEAL_PAGE   (ALEX_DEAL_COUNT - 1)
+
+static void shrine_thought(void) {
+    think("Polluting a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_ORB, THOUGHT_SHRINE, 1);
+}
+
+static void alex_deal_highlight(int page, int span) {
+    if (page != ALEX_DEAL_PAGE || span != 0 || mission_pollute >= 0) return;
+    brainwin_drop_tag(THOUGHT_ORB);                         /* "I need to find that orb": found, so it goes silently */
+    mission_complete(mission_find_orb);
+    mission_pollute = task_toast("Pollute Dia's shrine");
+}
+
+/* the free chat after the scripted part is over: the head catches up with what just happened */
+static void alex_chat_end(void) {
+    think("Alex has the orb. All I need is a polluted shrine.", "Alex has the orb. I need a polluted shrine.", BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
+    story_after(10.0f, shrine_thought);
+}
+
+static void alex_deal_done(void) { convo_open(&ALEX, &ALEX_MIND, 0, alex_chat_end); }
+
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
+    if (alex_dealt) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }     /* free chat. she nags about the shrine */
+    alex_dealt = 1;
     alex_spotted();
     brainwin_drop_tag(THOUGHT_ALEX);                        /* asked her: "maybe she has seen it" is answered */
     mission_complete(mission_ask_alex);
-    convo_open(&ALEX, &ALEX_MIND, 0, NULL);
+    dialog_on_highlight(alex_deal_highlight);
+    dialog_play(ALEX_DEAL, ALEX_DEAL_COUNT, alex_deal_done);
 }
 
 /* the complaint is over and the stick is back: the first thought, sending the player to look */
@@ -242,7 +282,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1;
+    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
