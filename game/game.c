@@ -14,6 +14,7 @@
 #include "jukebox.h"
 #include "menu.h"
 #include "world.h"
+#include "space.h"
 #include "loading.h"
 #include "nowplaying.h"
 #include "thought.h"
@@ -23,7 +24,9 @@
 #include "lang.h"
 #include "gfx.h"
 
-typedef enum { ST_MENU, ST_LOADING, ST_WORLD } State;
+/* ST_LIMBO (vessel 2): the space screen, the stars and the top buttons only, no map and no HUD. the soul waits here
+ * at the start of the game and after every death. the brain button works (thoughts), the pause button does not. */
+typedef enum { ST_MENU, ST_LOADING, ST_WORLD, ST_LIMBO } State;
 /* menu music fades during the loading screen; kept a hair shorter so it is silent before the map track starts */
 #define MUSIC_FADE_SECONDS (LOADING_SECONDS - 0.1f)
 
@@ -96,6 +99,14 @@ int main(int argc, char **argv) {
     brainwin_init(W, H);
     pausebtn_init(W, H);
     State state = ST_MENU;
+    float limbo_t = 0;
+    /* stand-in until the story enters limbo itself (chunks 4-7): VESSEL_LIMBO=1 in the environment starts there,
+     * so the screen can be looked at, and says one thought after a second */
+    if (getenv("VESSEL_LIMBO")) {
+        world_init(W, H);                                   /* the thought card and the HUD need their init */
+        space_init(W, H);
+        state = ST_LIMBO;
+    }
 
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[1024]; int alen = 0;
@@ -162,12 +173,16 @@ int main(int argc, char **argv) {
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             } else loading_draw(r);
+        } else if (state == ST_LIMBO) {
+            space_update(dt); space_draw(r);
+            limbo_t += dt;
+            if (limbo_t > 1.0f && limbo_t - dt <= 1.0f) thought_say("Where am I?", 0);     /* stand-in, see above */
         } else {
             if (!pausebtn_paused()) world_update(dt);
             world_draw(r);
         }
         pausebtn_set_enabled(state == ST_WORLD);
-        thought_set_enabled(state == ST_WORLD);
+        thought_set_enabled(state == ST_WORLD || state == ST_LIMBO);
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
         thought_update(pausebtn_paused() ? 0.0f : dt);   /* the brain button, right of the pause one (frozen while paused) */
