@@ -8,6 +8,9 @@
 #include "hud.h"
 #include <math.h>
 #include <string.h>
+#ifndef GFX_REDIRECT
+static void gfx_set_filter(int grey, int red) { (void)grey; (void)red; }   /* plain SDL builds (tools): no filter */
+#endif
 
 #define LERP_SPEED   7.0f           /* the same easing as the music card: quick at first, eases to a stop */
 #define MAX_TEXT     120
@@ -247,12 +250,11 @@ static void draw_wrath_face(SDL_Renderer *r, int x, int y, int a) {
     SDL_SetRenderDrawColor(r, 120 + pulse, 14, 24, a);    fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
     if (wrath_who) {
         SDL_SetRenderDrawColor(r, 40, 4, 10, a);          fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);   /* a dark backdrop so the face reads */                                      /* the goddess's own face, drowned in red */
+        gfx_set_filter(0, 256 * a / 255);                  /* the colour filter drains greens and blues: the face goes blood red (the GPU path has no multiply blend) */
         char_draw_portrait(r, wrath_who, x + q, y + q, q, 0);
-        int m = 255 - (255 - 120) * a / 255;               /* multiply: greens and blues drain (fades with the card) */
-        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_MOD);
-        SDL_SetRenderDrawColor(r, 255, m, m, 255);        fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
-        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(r, 210, 0, 20, 40 * a / 255);   fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);   /* a red wash that throbs */
+        gfx_set_filter(0, 0);
+        SDL_SetRenderDrawColor(r, 210, 0, 20, (40 + (int)(18 * sinf(wt * 14.0f))) * a / 255);   /* a red wash that throbs */
+        fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
         return;
     }
     static const int WID[10] = { 2, 4, 6, 8, 10, 10, 8, 6, 4, 2 };

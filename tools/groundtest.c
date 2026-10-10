@@ -238,16 +238,17 @@ int main(void) {
         CHECK(cy < fy && fy - cy > ps * 2 && fy - cy < ps * 5, "the chest is not just above the feet (%d / %d)", cy, fy); }
     CHECK(!controls_visible, "the controls came back during the cutscene");
     run(2.0f);                                                    /* ~2.6 s after arriving: the flatline and the burst are just in */
-    CHECK(heart_state() == HEART_BURST && heart_particles() > 60, "the heart did not burst with the flatline (state %d, %d blood pixels)", heart_state(), heart_particles());
+    CHECK(heart_state() == HEART_BURST && heart_particles() == 2, "the heart did not break with the flatline (state %d, %d halves)", heart_state(), heart_particles());
     CHECK(sfx_debug_flatlines() == f0 + 1, "the flatline and the burst are not together");
     shot("build/ground_burst.bmp");
     run(0.4f);
     shot("build/ground_burst2.bmp");
-    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, redpx = 0;      /* blood on the screen: a lot of red, and not just in one spot */
+    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, redpx = 0;      /* the broken halves on the screen: some bright red */
         for (int y = 200; y < 1000; y += 6) for (int x = 20; x < 520; x += 6) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 150 && c[1] < 70 && c[2] < 80) redpx++; }
-        CHECK(redpx > 60, "no blood on the screen (%d red samples)", redpx); }
-    run(2.3f);
-    CHECK(heart_particles() == 0 && heart_state() == HEART_BURST, "the blood never settled (%d pixels left)", heart_particles());
+        CHECK(redpx > 60, "no red on the screen (%d red samples)", redpx); }
+    run(1.5f);
+    CHECK(heart_particles() == 0 && heart_state() == HEART_BURST, "the broken heart never faded (%d halves left)", heart_particles());
+    run(0.8f);                                                    /* same timeline as before: 2.7 s after the burst */
     /* chunk 15.1: a beat after the burst the vessel topples; the words come after it. 2.7 s after the burst: falling is done */
     CHECK(death_fall_t > DEATH_FALL_T, "the vessel did not fall (t %.2f)", death_fall_t);
     shot("build/ground_death_fallen.bmp");
