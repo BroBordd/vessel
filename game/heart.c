@@ -16,7 +16,8 @@ static const char *const SHAPE[HH] = {      /* X = heart. 9 x 8 cells */
     "...XXX...",
     "....X....",
 };
-#define CELL_PER_PX  0.55f      /* one heart cell is this many sprite pixels: the heart is ~5 sprite pixels wide, a chest */
+#define CELL_PER_PX  0.2f       /* one heart cell is this many sprite pixels: under 2 sprite pixels wide, a human heart in a 6 px wide, 2 row torso */
+#define SPRAY_PER_PX 0.55f      /* the blood still flies as far as it did from the big heart: its cell unit for distances */
 #define THUMP_T      0.24f      /* a thump lasts this long */
 #define THUMP_BIG    0.30f      /* ... and grows the heart by this much at its peak */
 #define FIRE_T       0.14f      /* the white flash at the burst */
@@ -121,7 +122,7 @@ void heart_draw(SDL_Renderer *r, int cx, int cy, int pixel) {
         float left = 1.0f - b->age / b->life;
         int A = left < 0.3f ? (int)(255 * left / 0.3f) : 255;
         SDL_SetRenderDrawColor(r, PAL[b->c][0], PAL[b->c][1], PAL[b->c][2], A);
-        int sz = (int)(cs * b->size + 0.5f); if (sz < 2) sz = 2;
-        fillr(r, cx + (int)(b->x * cs) - sz / 2, cy + (int)(b->y * cs) - sz / 2, sz, sz);
+        int sz = (int)(pixel * 0.4f * b->size * 1.4f + 0.5f); if (sz < 2) sz = 2;     /* splashes of about half a sprite pixel, chunks a little over one */
+        fillr(r, cx + (int)(b->x * pixel * SPRAY_PER_PX) - sz / 2, cy + (int)(b->y * pixel * SPRAY_PER_PX) - sz / 2, sz, sz);
     }
 }

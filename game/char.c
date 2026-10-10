@@ -161,6 +161,34 @@ void char_draw(SDL_Renderer *r, const Person *p, int x, int y,
     char_draw_air(r, p, x, y, facing, moving, walk, s);
 }
 
+/* falling over backwards, pivoting on the feet: a = 0 standing .. pi/2 lying on the back, head to the right. the eyes
+ * close on the way down. the body slides so it ends centred on x, and the shadow grows to a long strip */
+void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float a) {
+    float sa = sinf(a), ca = cosf(a);
+    float shx = -6.0f * s * sa, shy = -3.0f * s * sa;            /* centre the lying body on x, rest it on the ground line */
+    int sw = (int)((8.0f + 5.0f * sa) * s), sh = (int)((2.0f + 1.5f * sa) * s);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 80);
+    fill(r, x + (int)shx - sw / 2 + (int)(sa * 6.0f * s), y - s + (int)(shy * 0.3f), sw, sh);
+    int sz = (int)(s * 1.3f + 0.5f); if (sz < s + 1) sz = s + 1; /* a rotated grid of squares needs them a little big to leave no gaps */
+    for (int j = 0; j < SPR_H; j++)
+        for (int i = 0; i < SPR_W; i++) {
+            char ch = cell_at(p, FACE_DOWN, i, j);
+            if (ch == '.') continue;
+            switch (ch) {
+            case 'h': use(r, p->hair);  break;
+            case 's': use(r, p->skin);  break;
+            case 'c': use(r, p->shirt); break;
+            case 'p': use(r, p->pants); break;
+            case 'b': use(r, p->boots); break;
+            }
+            if (a > 0.35f && j == 5 && (i == 2 || i == 3 || i == 6 || i == 7)) SDL_SetRenderDrawColor(r, 28, 22, 40, 255);   /* closed eyes */
+            else if (a <= 0.35f && j >= 4 && j <= 6 && (i == 2 || i == 3 || i == 6 || i == 7)) SDL_SetRenderDrawColor(r, 28, 22, 40, 255);
+            float cx = (i - 5 + 0.5f) * s, cy = (j - SPR_H + 0.5f) * s;     /* from the feet middle */
+            float rx = cx * ca - cy * sa, ry = cx * sa + cy * ca;
+            fill(r, x + (int)(rx + shx) - sz / 2, y + (int)(ry + shy) - sz / 2, sz, sz);
+        }
+}
+
 void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift) {
     if (lift < 0) lift = 0;
     if (lift > 1) lift = 1;

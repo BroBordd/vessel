@@ -33,6 +33,9 @@ void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
 
 /* lying face-down on the ground, head to the left, feet centred on (x, y).
  * lift 0..1 pushes the upper body up off the floor (used while getting up). */
+/* falling over backwards, feet pivot: a = 0 standing .. pi/2 (1.5708) lying on its back, head to the right (the death) */
+void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float a);
+
 void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift);
 
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
