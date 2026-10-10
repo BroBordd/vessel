@@ -84,17 +84,19 @@ int main(int argc, char **argv) {
     CHECK(bw() == bs && bh() == bs, "the card did not fold back into the button (%dx%d)", bw(), bh());
     CHECK(thought_offset() == nowplaying_offset(), "the mission list did not come back up");
 
-    /* 4. a queue: the second thought swaps in without folding away first */
+    /* 4. a new thought while one is showing replaces it on the spot: no queue, no folding away, its own clock */
     thought_say("Maybe she has seen the orb.", 0);
-    thought_say("She could at least have warned me.", 0);
     run(1.2f);
     int w_first = bw();
-    run(2.3f);                                                  /* first one's time is up: the second takes over */
-    CHECK(thought_active() && bw() > bs * 2, "the queue folded away between two thoughts");
-    shot("../build/thought_4_queue.bmp");
+    CHECK(w_first > bs * 2, "the first thought did not open");
+    thought_say("She could at least have warned me.", 0);
+    run(0.3f);
+    CHECK(thought_active() && bw() > bs * 2, "the card folded away when a new thought replaced the old one");
+    run(2.6f);                                                  /* 3.8 s in: the first one's time would be up, the replacement's clock started at 1.2 s */
+    CHECK(thought_active() && bw() > bs * 2, "the replacement did not get its own clock");
+    shot("../build/thought_4_replace.bmp");
     run(12.0f);
-    CHECK(!thought_active(), "queued thoughts never ended");
-    (void)w_first;
+    CHECK(!thought_active(), "the replaced thought never ended");
 
     /* 5. too long: cut to what fits, never taller than the ID card, never past it */
     thought_say("This one is far too long to ever fit in the little card up here.", 0);

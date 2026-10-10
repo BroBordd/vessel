@@ -53,6 +53,7 @@ static void layout(void) {
     int inner = tw > eq_w ? tw : eq_w;
     pw = inner + 2 * pad;
     ph = pad + font_height(cell) + cell * 2 + font_height(cell) + pad + eq_h + pad;
+    if (pw < ui_panel_w(W, H)) pw = ui_panel_w(W, H);       /* as wide as the mission list and the task toast */
     if (pw < bs) pw = bs;
     if (ph < bs) ph = bs;
 }

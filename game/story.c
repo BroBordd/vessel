@@ -128,15 +128,11 @@ static const DialogLine LANDING[] = {
 #define ALEX_SIGHT      6.5f                /* tiles: about half a screen, so she is on screen when it fires */
 
 /* the player has caught sight of Alex: a thought and the next task. safe to call twice */
-static void coin_thought(void) {
-    think("Every task rings a coin. Who is paying me, and what for?", "Who is paying me for these tasks?", BRAIN_SCENE_COIN, THOUGHT_COIN, 1);
-}
 static void alex_spotted(void) {
     if (alex_seen) return;
     alex_seen = 1;
     think("Maybe she has seen the orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ALEX, 0);    /* the task toast dings */
     mission_ask_alex = task_toast("Ask Alex");
-    story_after(9.0f, coin_thought);
 }
 
 /* the proximity trigger, run every frame: walking within sight of Alex (not while a dialog is open) */
@@ -153,11 +149,11 @@ static void alex_watch(void) {
 static const DialogLine ALEX_DEAL[] = {
     { &VESSEL, "Excuse me. Have you seen a glowing orb around here?" },
     { &ALEX,   "A glowing orb? Sure. I have it right here." },
-    { &VESSEL, "That orb belongs to Dea. Please give it back." },
-    { &ALEX,   "Dea's, huh? Finders keepers." },
+    { &VESSEL, "I just want the orb. Please give it back." },
+    { &ALEX,   "Just the orb, huh? Finders keepers." },
     { &ALEX,   "But I am a fair person. Do one small thing for me, and it is yours." },
     { &VESSEL, "What kind of thing?" },
-    { &ALEX,   "Dia has a shrine near here. She thinks she owns the whole place. Go {pollute Dia's shrine}, then come back to me." },
+    { &ALEX,   "Dia has a shrine near here. She thinks she owns the whole place. Go {pollute the shrine}, then come back to me." },
 };
 #define ALEX_DEAL_COUNT  ((int)(sizeof ALEX_DEAL / sizeof ALEX_DEAL[0]))
 #define ALEX_DEAL_PAGE   (ALEX_DEAL_COUNT - 1)
@@ -228,7 +224,7 @@ static void alex_deal_highlight(int page, int span) {
     if (page != ALEX_DEAL_PAGE || span != 0 || mission_pollute >= 0) return;
     brainwin_drop_tag(THOUGHT_ORB);                         /* "I need to find that orb": found, so it goes silently */
     mission_complete(mission_find_orb);
-    mission_pollute = task_toast("Pollute Dia's shrine");
+    mission_pollute = task_toast("Pollute the shrine");         /* the vessel never says Dia's name */
     world_enable_shrine(shrine_done);                       /* now the shrine can be used (and shows on the minimap) */
 }
 
@@ -238,7 +234,7 @@ static void alex_chat_end(void) {
     story_after(10.0f, shrine_thought);
 }
 
-static void alex_deal_done(void) { convo_open(&ALEX, &ALEX_MIND, 0, alex_chat_end); }
+static void alex_deal_done(void) { convo_ask_line(&ALEX, &ALEX_MIND, "Got any questions before you go?", alex_chat_end); }
 
 static void on_talk_alex(int npc_id) {
     (void)npc_id;

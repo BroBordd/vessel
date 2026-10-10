@@ -73,6 +73,7 @@ void missions_draw(SDL_Renderer *r) {
     int pad = (int)(8 * u), rowh = 10 * cell, box = 7 * cell, gap = 2 * cell;
     int title_h = 9 * cell;
     int pw = pad + box + gap + widest + pad;
+    if (pw < ui_panel_w(W, H)) pw = ui_panel_w(W, H);       /* as wide as the task toast under it */
     int ph = pad + title_h + n * rowh + pad - cell * 2;
     int x0 = (int)(10 * u), y0 = (int)(14 * u) + y_off;
     bottom = y0 + ph;

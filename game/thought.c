@@ -73,8 +73,7 @@ void thought_say(const char *text, float seconds) {
     }
     t.secs = seconds; t.wrath = 0;
     if (active && cur.wrath && !closing) { if (nq < MAX_QUEUE) queue[nq++] = t; return; }   /* never talk over Dia */
-    if (!active || closing) start(&t);                       /* idle, or already on its way out: show it right away */
-    else if (nq < MAX_QUEUE) queue[nq++] = t;
+    start(&t);          /* idle, on its way out, or already showing another thought: the new words replace it right away, no queue */
 }
 
 /* Dia takes over: whatever was queued is forgotten, and her words replace whatever is showing right now */

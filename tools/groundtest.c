@@ -90,7 +90,7 @@ int main(void) {
     CHECK(brainwin_count() == 2, "expected orb + Alex thoughts, got %d", brainwin_count());
     run(8.0f);
     CHECK(!thought_active(), "thoughts did not finish");
-    CHECK(brainwin_count() == 3, "the coin thought did not arrive after the second task (%d)", brainwin_count());
+    CHECK(brainwin_count() == 2, "an extra thought arrived after the sighting (%d), the coin thought is gone", brainwin_count());
 
     /* it fires once: leave and come back */
     put_player(ax - 30.0f, ay); run(0.3f);
@@ -104,7 +104,7 @@ int main(void) {
         tap(bx, by); }
     run(0.3f);
     CHECK(dialog_active(), "talking to Alex opened nothing");
-    CHECK(brainwin_count() == 2, "the answered Alex thought was not dropped (%d)", brainwin_count());
+    CHECK(brainwin_count() == 1, "the answered Alex thought was not dropped (%d)", brainwin_count());
     shot("build/ground_alex_talk.bmp");
 
     /* the scripted deal: tap through the pages until the highlighted words have been typed out */
@@ -112,7 +112,7 @@ int main(void) {
     int before = brainwin_count();
     for (int i = 0; i < 14 && mission_pollute < 0; i++) { run(1.5f); tap(TW / 2, TH * 4 / 5); }
     run(1.0f);
-    CHECK(mission_pollute >= 0, "'Pollute Dia's shrine' was not added by Alex's line");
+    CHECK(mission_pollute >= 0, "'Pollute the shrine' was not added by Alex's line");
     CHECK(brainwin_count() == before - 1, "the old orb thought was not dropped when the deal came (%d -> %d)", before, brainwin_count());
     shot("build/ground_alex_deal.bmp");
 

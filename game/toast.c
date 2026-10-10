@@ -75,6 +75,7 @@ void toast_draw(SDL_Renderer *r, int x, int y) {
     int tw = font_width(cur.head, q), nw = font_width(cur.body, q);
     if (nw > tw) tw = nw;
     int wp = 13 * q + tw + 4 * q;                                   /* coin column + text + right pad */
+    if (wp < ui_panel_w(W, H)) wp = ui_panel_w(W, H);               /* the same width as the mission list and the music card */
     int hp = 8 * q + font_height(q) * 2;                           /* pad 3, head, gap 2, name, pad 3 */
     if (hp < 13 * q) hp = 13 * q;
 

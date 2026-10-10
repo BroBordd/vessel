@@ -53,7 +53,7 @@ const Line LINES_D[] = {
     {"r.worship", WARM, STREET, "Whoa, calm down, {pet}!"}, {"r.worship", COLD, STREET, "Weirdo. But sure."},
 
     /* ---- r.joke ---- */
-    {"r.joke", WARM, ALLS, "Hehe, you are funny, {pet}!"}, {"r.joke", WARM, ALLS, "Ha! That made me smile."}, {"r.joke", WARM, ALLS, "Okay, one joke. Why did the vessel cross the clouds? To get to the other side."},
+    {"r.joke", WARM, ALLS, "Hehe, you are funny, {pet}!"}, {"r.joke", WARM, ALLS, "Ha! That made me smile."}, {"r.joke", WARM, ALLS, "Okay, one joke. Why did the chicken cross the clouds? To get to the other side."},
     {"r.joke", NEUT, ALLS, "Heh. Cute."}, {"r.joke", NEUT, ALLS, "That was mildly amusing."}, {"r.joke", NEUT, ALLS, "I do not do jokes. But go on."},
     {"r.joke", COLD, ALLS, "Was that a joke? I missed the funny part."}, {"r.joke", COLD, ALLS, "Ha. Ha. Ha. See? Fake laughter."}, {"r.joke", COLD, ALLS, "Your jokes are as dull as you are."},
     {"r.joke", HOST, ALLS, "You are the joke, {pet}."}, {"r.joke", HOST, ALLS, "That was not funny. Do not do that again."},
