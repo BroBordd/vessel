@@ -75,10 +75,12 @@ void story_after(float seconds, void (*fn)(void)) {
         if (!timers[i].fn) { timers[i].left = seconds; timers[i].fn = fn; return; }
 }
 
-static void alex_watch(void);               /* the proximity trigger, defined with the ground scene below */
+static void alex_watch(void);               /* the proximity triggers, defined with the scenes below */
+static void dea_watch(void);
 
 void story_update(float dt) {
     alex_watch();
+    dea_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -100,6 +102,7 @@ static int shrine_fouled;                   /* the player has polluted Dia's shr
 static int dying;                           /* Dia's wrath has begun (chunk 11): no more thoughts of the player's own, no more walking */
 static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
+static int dea_id = -1, dea_seen;           /* her npc id in the sky, and "the player has sighted her" (chunk 11) */
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
@@ -419,17 +422,39 @@ static void on_talk_dea(int npc_id) {
     dialog_play(DEA_TALK, DEA_TALK_COUNT, dea_talk_done);
 }
 
-/* ---------- scene 1: up in the clouds (vessel 2, chunk 10) ----------
+/* ---------- scene 1: up in the clouds (vessel 2, chunks 10-11) ----------
  * no welcome window, no toast: after "Where am I?" the world fades in, the summoning runs (world_summon, started by
  * story_start) and intro_done() is what runs when the light ends: the controls come back and Dea stands 8 tiles above,
- * looking down. we just have to look around. (the "Talk to Goddess" task and the first thought come in chunk 11.) */
+ * looking down. we have to look around: a few seconds on, the player wonders where this is (cloud_thought); walking
+ * within sight of Dea (dea_watch, like alex_watch) coins in the task "Talk to Goddess" and a thought. */
+#define DEA_SIGHT       6.5f                /* tiles: about half a screen, so she is on screen when it fires */
+
+static void cloud_thought(void) {
+    think("Is this where dead people go?", NULL, BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 1);
+}
+
+/* the player has caught sight of Dea: the task and a thought. once only */
+static void dea_spotted(void) {
+    if (dea_seen) return;
+    dea_seen = 1;
+    think("Someone is up there.", NULL, BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 0);   /* the task toast dings */
+    mission_talk_dea = task_toast("Talk to Goddess");
+}
+
+/* the proximity trigger, run every frame: walking within sight of Dea (not while a dialog is open) */
+static void dea_watch(void) {
+    if (dea_id >= 0 && !dea_seen && !dialog_active() && world_dist_to_npc(dea_id) < DEA_SIGHT)
+        dea_spotted();
+}
+
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
+    story_after(2.5f, cloud_thought);
     /* Dea stands 8 tiles above where we spawned, looking down at us */
     dea_tx = world_player_tile_x();
     dea_ty = world_player_tile_y() - 8;
-    int id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
-    npc_set_facing(id, FACE_DOWN);
+    dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
+    npc_set_facing(dea_id, FACE_DOWN);
 }
 
 /* ---------- entry point ---------- */
@@ -440,7 +465,7 @@ void story_start(void) {
     mission_find_orb = -1;
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
-    dea_spoken = 0;
+    dea_spoken = 0; dea_id = -1; dea_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

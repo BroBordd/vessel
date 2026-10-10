@@ -111,10 +111,17 @@ int main(void) {
     CHECK(alex_id < 0, "Alex exists up in the sky");
 
     CHECK(brainwin_count() == 0, "the head is not empty at the start (%d)", brainwin_count());
-    run(3.0f);                                                  /* the player can walk: nothing is said until chunk 11 */
-    CHECK(brainwin_count() == 0, "a thought came in the sky before chunk 11 (%d)", brainwin_count());
-    on_enter_hole();                                            /* skip Dea's talk: straight into the hole */
-    CHECK(brainwin_count() == 0, "the head is not empty after leaving the sky (%d)", brainwin_count());
+    run(3.0f);                                                  /* the player can walk: the cloud thought arrives, no task yet */
+    CHECK(brainwin_count() == 1, "expected exactly the cloud thought in the sky, got %d", brainwin_count());
+    CHECK(!dea_seen && mission_talk_dea < 0, "the Talk to Goddess task came before Dea was sighted");
+    put_player((float)dea_tx, (float)(dea_ty + 5));             /* walk into sight of her */
+    run(0.5f);
+    CHECK(dea_seen && mission_talk_dea >= 0, "sighting Dea did not add the Talk to Goddess task");
+    CHECK(brainwin_count() == 2, "\"Someone is up there.\" did not join the head (%d)", brainwin_count());
+    run(3.0f);
+    CHECK(brainwin_count() == 2, "the sighting fired more than once (%d)", brainwin_count());
+    on_enter_hole();                                            /* skip Dea's talk: straight into the hole (drops the cloud thoughts) */
+    CHECK(brainwin_count() == 0, "the cloud thoughts did not go silently when leaving the sky (%d)", brainwin_count());
     run(9.0f);                                                  /* fall 5.5 + lie 1.5 + get up 1.2 */
     CHECK(cur_map == MAP_GREEN, "not on the Grasslands");
     CHECK(alex_id >= 0 && npc_count() == 1, "Alex was not placed (id %d, npcs %d)", alex_id, npc_count());
