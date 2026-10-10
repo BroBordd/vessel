@@ -93,7 +93,7 @@ Mark `[x]` when the chunk is pushed.
 - [x] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
 - [x] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
 - [x] **6. Landing complaint** — after getting up from the fall: "That hurts" + complaint dialog with the player's face, then controls return.
-- [ ] **7. Thinking bar (engine)** — `game/thought.c/.h`: `thought_say(text, seconds)`, slides in/out, portrait, non-interactive, doesn't overlap the ID card / now-playing card.
+- [x] **7. Thinking bar (engine)** — `game/thought.c/.h`: `thought_say(text, seconds)`, slides in/out, portrait, non-interactive, doesn't overlap the ID card / now-playing card.
 - [ ] **8. First thought + Alex placement** — after landing: "I need to find that orb." Alex spawns far from the landing tile; proximity trigger fires the thought about asking her and the task "Ask Alex".
 - [ ] **9. Alex's deal** — Alex's scripted dialog: she has the orb, wants Dia's shrine polluted. Task "Pollute Dia's shrine". Free chat stays after the scripted part.
 - [ ] **10. Dia's shrine** — shrine prop on the map, interact → sabotage action, task completes when done.
@@ -122,6 +122,7 @@ Mark `[x]` when the chunk is pushed.
 - `game/npc.c/.h` — static NPCs (`npc_add`, facing). No movement/removal yet.
 - `game/missions.c/.h` — top-left checklist (`mission_add`, `mission_complete`, `missions_bottom`).
 - `game/toast.c/.h` — "New task added" toast under the checklist: `task_toast("Find the orb")` = `mission_add` + coin ding + toast (extra toasts queue).
+- `game/thought.c/.h` — the thinking bar: `thought_say("I need to find that orb.", 0)`. Top row, non-interactive, queues.
 - `game/hud.c/.h` — ID card (`hud_set_person`, `hud_set_hp`, name-change toast).
 - `game/world.c/.h` — maps, camera, hole, fall (`world_fall_to_green`).
 - `game/audio.c/.h` — music + synthesized sfx (`sfx_coin`, `sfx_blip`).
@@ -134,3 +135,4 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-09: chunk 4 done (`task_toast(text)` in `game/toast.c`: adds the mission, plays the coin ding, drops a NEW TASK ADDED panel under the checklist, queues up to 4; `hud_draw_coin` is now shared; `tools/toasttest.c` renders it on a PC). Next: chunk 5.
 - 2026-10-09: chunk 5 done (`DEA_TALK` has a new last page: "Now, your first mission. I {dropped my orb in the Grasslands}. Find it and bring it back to me."; `dea_talk_highlight` in `story.c` calls `task_toast("Find the orb")` once that span has typed out; page count is now `DEA_TALK_COUNT`). Next: chunk 6.
 - 2026-10-09: chunk 6 done (`landed()` in `story.c` plays the `LANDING` dialog as VESSEL with her face popup: "Ow. That hurts." / "She could at least have warned me."; `world.c` hides the controls while a dialog is open, so they come back when it ends). Next: chunk 7.
+- 2026-10-10: chunk 7 done (`game/thought.c/.h`: `thought_say(text, seconds)` slides a bar in from the top with the ID card's face + wrapped text, queues up to 4, seconds 0 = auto; drawn from `world.c` in the top row between the pause button and the ID card, has no touch handler, and waits (timer held) when the music card leaves no room; new `hud_person()`; `tools/thoughttest.c` renders it on a PC). Max 5 lines of text. Chunk 11 can add a red/shaking variant here. Next: chunk 8.

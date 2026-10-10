@@ -8,6 +8,7 @@
 #include "story.h"
 #include "nowplaying.h"
 #include "toast.h"
+#include "thought.h"
 #include "hud.h"
 #include "minimap.h"
 #include "audio.h"
@@ -340,6 +341,7 @@ void world_init(int w, int h) {
     dialog_init(w, h);
     missions_init(w, h);
     toast_init(w, h);
+    thought_init(w, h);
     hud_init(w, h, &VAS);                       /* the ID card starts out as plain "Vas" */
     {   /* the minimap hangs right under the ID card, same right edge */
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
@@ -476,6 +478,7 @@ void world_update(float dt) {
     dialog_update(dt);
     missions_update(dt);
     toast_update(dt);
+    thought_update(dt);
     hud_update(dt);
     if (hole_on && hole_t < HOLE_OPEN_T) hole_t += dt;
 
@@ -787,6 +790,14 @@ void world_draw(SDL_Renderer *r) {
     missions_draw(r);
     toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
     hud_draw(r);                                                  /* ID card, top-right */
+    {   /* the thinking bar: top row, in the gap between the music / pause buttons and the ID card.
+         * it has no touch handler, so every touch still reaches the game */
+        int nx, ny, nw, nh; nowplaying_rect(&nx, &ny, &nw, &nh);
+        int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
+        int gap = nowplaying_gap();
+        int x0 = nx + nw + gap + nowplaying_button_size() + gap;   /* right of the pause button */
+        thought_draw(r, x0, cx - gap, ny);
+    }
 
     if (t < 1.0f) {                                               /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t)));

@@ -12,6 +12,9 @@ void hud_init(int w, int h, const Person *who);   /* shows `who` straight away, 
 void hud_set_person(const Person *who);           /* different name -> flash + ding + toast */
 void hud_set_hp(int hp, int hp_max);              /* the bar eases down, leaving a pale trail */
 
+/* who the card shows right now (the thinking bar borrows the face) */
+const Person *hud_person(void);
+
 /* where the card is (screen px), so other widgets can sit next to it */
 void hud_card_rect(int *x, int *y, int *w, int *h);
 
