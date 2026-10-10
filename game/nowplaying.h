@@ -11,6 +11,7 @@
  * starts: it watches music_serial() by itself. */
 void nowplaying_init(int w, int h);
 void nowplaying_update(float dt);
+void nowplaying_set_wide(int on);          /* 1 = as wide as the task panels (the game runs), 0 = just the equalizer's width (menu) */
 void nowplaying_draw(SDL_Renderer *r);
 
 /* how far down (screen px) the mission list should sit so it stays under the button / card. it

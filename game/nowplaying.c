@@ -19,6 +19,7 @@ static float lvl[MUSIC_BANDS], peak[MUSIC_BANDS], hold[MUSIC_BANDS];
 
 /* layout, recomputed when the title changes */
 static int cell, q, gap, pad, pw, ph, left, top, eq_w, eq_h, bs, bgap;
+static int wide;                                   /* the card is as wide as the task panels (set by game.c once the world runs) */
 
 /* the pixel music note, 10 x 10 cells */
 static const char *NOTE[10] = {
@@ -53,10 +54,12 @@ static void layout(void) {
     int inner = tw > eq_w ? tw : eq_w;
     pw = inner + 2 * pad;
     ph = pad + font_height(cell) + cell * 2 + font_height(cell) + pad + eq_h + pad;
-    if (pw < ui_panel_w(W, H)) pw = ui_panel_w(W, H);       /* as wide as the mission list and the task toast */
+    if (wide && pw < ui_panel_w(W, H)) pw = ui_panel_w(W, H);   /* as wide as the mission list and the task toast (only once the game runs: the menu has none, the card ends at the equalizer) */
     if (pw < bs) pw = bs;
     if (ph < bs) ph = bs;
 }
+
+void nowplaying_set_wide(int on) { if (on != wide) { wide = on; layout(); } }
 
 void nowplaying_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
