@@ -22,6 +22,7 @@ static int   W, H, enabled, active, closing, nq, pdown;
 static float wt;                    /* seconds, only for the shake of a wrathful card (frozen while paused) */
 static float u, vis, c, hold_t;     /* vis: button fade-in. c: 0 = open card, 1 = collapsed button. hold_t: seconds on show */
 static Thought cur, queue[MAX_QUEUE];
+static const Person *wrath_who;    /* whose face Dia's card wears (a goddess, tinted red). NULL: her red eye instead */
 
 /* layout, rebuilt every frame (the music card next to us can open and close) */
 static int q, pad, port, tgap, lgap, bs, bgap;
@@ -86,6 +87,7 @@ void thought_wrath(const char *text, float seconds) {
     start(&t);
 }
 
+void thought_set_wrath_person(const Person *p) { wrath_who = p; }
 int thought_active(void) { return active; }
 int thought_is_wrath(void) { return active && cur.wrath; }
 
@@ -243,6 +245,16 @@ static void draw_wrath_face(SDL_Renderer *r, int x, int y, int a) {
     int pulse = (int)(18 * sinf(wt * 14.0f));
     SDL_SetRenderDrawColor(r, 60, 6, 12, a);              fillr(r, x, y, port, port);
     SDL_SetRenderDrawColor(r, 120 + pulse, 14, 24, a);    fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
+    if (wrath_who) {
+        SDL_SetRenderDrawColor(r, 40, 4, 10, a);          fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);   /* a dark backdrop so the face reads */                                      /* the goddess's own face, drowned in red */
+        char_draw_portrait(r, wrath_who, x + q, y + q, q, 0);
+        int m = 255 - (255 - 120) * a / 255;               /* multiply: greens and blues drain (fades with the card) */
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_MOD);
+        SDL_SetRenderDrawColor(r, 255, m, m, 255);        fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(r, 210, 0, 20, 40 * a / 255);   fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);   /* a red wash that throbs */
+        return;
+    }
     static const int WID[10] = { 2, 4, 6, 8, 10, 10, 8, 6, 4, 2 };
     for (int j = 0; j < 10; j++) {
         int w = WID[j] * q;

@@ -36,6 +36,7 @@
 #include "npc.h"
 #include "world.h"
 #include "audio.h"
+#include "jukebox.h"
 #include "heart.h"
 #include "hud.h"
 #include "convo.h"
@@ -210,6 +211,7 @@ static void death_ready(void) {
 static void death_begin(void) { world_death_begin(death_ready); }
 
 static void dia_wrath(void) {
+    thought_set_wrath_person(&DEA);                         /* a goddess's face, in red */
     thought_wrath(WRATH_TEXT, WRATH_SECONDS);
     story_after(WRATH_SECONDS + WRATH_TO_DEATH, death_begin);
 }
@@ -217,6 +219,7 @@ static void dia_wrath(void) {
 static void shrine_done(void) {
     shrine_fouled = 1;
     dying = 1;
+    jukebox_scene_fade(0.15f);                              /* the music dies the moment it is fouled (map music only: a custom track keeps playing) */
     brainwin_drop_tag(THOUGHT_SHRINE);                      /* "I doubt that ends well" has come true, or is about to */
     mission_complete(mission_pollute);
     world_set_controls_visible(0);                          /* she is watching: the vessel stands still */
