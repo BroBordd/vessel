@@ -446,8 +446,26 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
     return 1;
 }
 
+int  world_shrine_exists(void) { return shrine_exists(); }
+int  world_shrine_polluted(void) { return shrine_polluted(); }
+void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
+
+/* a new life up in the clouds (chunk 14). the cloud map again, the player at its spawn, the hole closed, the colours, camera and fades
+ * back to normal; the controls stay hidden (the summoning gives them back). the Grasslands are not touched: gen_map() makes the same
+ * map every time, and what stood on it (Alex, the shrine) is remembered by story.c. t restarts so the world fades in from black */
+void world_return_to_clouds(void) {
+    load_map(MAP_CLOUD);
+    summon_cancel(); summon_cb = NULL; summon_chime = 0;
+    death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
+    blackout_t = -1; blackout_cb = NULL;
+    toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
+    phase = PH_PLAY; ph_t = 0; up_cb = NULL;
+    zoom = zoom_target = 1.0f; moving = 0; walk = 0; facing = FACE_DOWN;
+    t = 0;
+    world_set_controls_visible(0);
+}
 
 void world_fade_to_black(float seconds, void (*on_black)(void)) {
     blackout_t = 0; blackout_dur = seconds > 0.05f ? seconds : 0.05f; blackout_cb = on_black;

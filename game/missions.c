@@ -22,6 +22,9 @@ void missions_init(int w, int h) {
     for (int i = 0; i < MAX_MISSIONS; i++) m[i].used = 0;
 }
 
+void missions_clear(void) { for (int i = 0; i < MAX_MISSIONS; i++) m[i].used = 0; }
+int  missions_count(void) { int n = 0; for (int i = 0; i < MAX_MISSIONS; i++) if (m[i].used) n++; return n; }
+
 int mission_add(const char *text) {
     for (int i = 0; i < MAX_MISSIONS; i++)
         if (!m[i].used) {

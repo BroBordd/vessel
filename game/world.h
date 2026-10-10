@@ -40,6 +40,9 @@ int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_
  * pollutes it, and on_done runs once it is done. the shrine goes away when a new map loads. */
 void world_place_shrine(int tile_x, int tile_y);
 void world_enable_shrine(void (*on_done)(void));
+int  world_shrine_exists(void);                 /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */
+int  world_shrine_polluted(void);
+void world_shrine_tile(float *tx, float *ty);
 
 /* THE DEATH CUTSCENE (vessel 1's ending, chunks 12-15). world_death_begin(): the controls go, the player turns to face
  * us, the world freezes (no more wind, water or clouds), the camera pushes in slowly to 300 % on the player and the
@@ -57,6 +60,10 @@ void world_death_cancel(void);
 /* world_fade_to_black(seconds, on_black): everything on screen (HUD too) fades to black; on_black runs on the frame it is
  * fully dark and the screen then stays black until world_init (the story hands over to limbo there, chunk 12). */
 void world_fade_to_black(float seconds, void (*on_black)(void));
+
+/* a new life (chunk 14): back on the cloud map, the player at its spawn, hole closed, every effect undone, controls hidden, the world
+ * fades in from black. nothing else of the story is touched (see story_reset_for_respawn) and the Grasslands stay as they are. */
+void world_return_to_clouds(void);
 void world_death_fall(void);                   /* chunk 15.1: the vessel topples over (1.1 s) and stays lying; world_death_player is for the standing pose only */
 void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 

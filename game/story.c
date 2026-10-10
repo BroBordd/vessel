@@ -298,9 +298,44 @@ static const struct { const char *const *lines; int n; } DEATH_LINES[] = {
 #define DEATH_LIMBO_HOLD    3.0f            /* after the last line: the soul waits a few seconds */
 static int death_hold_done;                 /* (tests) how many times the hold after a death has run out */
 
-/* STAND-IN until chunk 15 (summon again): after the hold limbo just stays */
+/* what the Grasslands looked like when vessel 1 died (chunk 14): the world forgets a map's npcs and props when it leaves it, the
+ * story keeps them so that chunk 20 can put Alex and the shrine back exactly as they were. alex_dealt / alex_seen / shrine_fouled
+ * are simply not reset. */
+static struct { int alex_tx, alex_ty, alex_there; int shrine_tx, shrine_ty, shrine_there, shrine_polluted; } green;
+static void green_remember(void) {
+    memset(&green, 0, sizeof green);
+    if (alex_id >= 0) { float fx, fy; npc_tile(alex_id, &fx, &fy); green.alex_tx = (int)fx; green.alex_ty = (int)fy; green.alex_there = 1; }
+    if (world_shrine_exists()) {
+        float fx, fy; world_shrine_tile(&fx, &fy);
+        green.shrine_tx = (int)fx; green.shrine_ty = (int)fy; green.shrine_there = 1; green.shrine_polluted = world_shrine_polluted();
+    }
+}
+
+/* the next life begins (chunks 14-15): everything of the last vessel's story is put away and we are back in the clouds with a plain
+ * VAS card, an empty head and an empty task list. Dea is already there, looking down at us. the player's look is still the only one
+ * there is (VESSEL; chunk 17 adds the second) so there is nothing to put back yet. the Grasslands story state is kept (green, above). */
+static void on_talk_dea(int npc_id);                /* defined with the sky scene below */
+static void story_reset_for_respawn(void) {
+    for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
+    missions_clear(); brainwin_clear();
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = -1;
+    dying = 0; vessel_dead = 0;
+    alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
+    hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
+    convo_set_player(&VAS);
+    world_return_to_clouds();
+    dea_tx = world_player_tile_x();                 /* Dea is already waiting 8 tiles above, looking down at us */
+    dea_ty = world_player_tile_y() - 8;
+    dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
+    npc_set_facing(dea_id, FACE_DOWN);
+    dea_seen = 1;                                   /* no sighting task: she will speak first (chunk 16) */
+    dea_spoken = 1;
+}
+
+/* STAND-IN until chunk 15 (summon again): after the hold the next life is made ready behind the scenes, limbo just stays */
 static void death_limbo_hold_over(void) {
     death_hold_done++;
+    story_reset_for_respawn();
     limbo_run(NULL, 0, 1000.0f, NULL);
 }
 static void death_to_limbo(void) {
@@ -312,6 +347,7 @@ static void death_to_limbo(void) {
 static void story_vessel_died(void) {
     vessel_dead = 1;
     lives++;
+    green_remember();
     death_tx = world_player_tile_x(); death_ty = world_player_tile_y();
     world_fade_to_black(DEATH_FADE_T, death_to_limbo);
 }

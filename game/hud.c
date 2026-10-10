@@ -64,6 +64,12 @@ void hud_set_person(const Person *p) {
     toast_notice("YOU ARE NOW", p->name);               /* the shared toast under the mission list: coin ding + panel */
 }
 
+void hud_reset(const Person *p, int hp_full) {          /* a new life: the card shows `p` at once (no flash, no ding), HP is full */
+    if (p) who = p;
+    hp = hp_max = hp_full > 0 ? hp_full : START_HP; hp_shown = (float)hp;
+    flash_t = -1;
+}
+
 void hud_update(float dt) {
     t += dt;
     if (flash_t >= 0) { flash_t += dt; if (flash_t > FLASH_T) flash_t = -1; }

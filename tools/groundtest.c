@@ -325,6 +325,7 @@ int main(void) {
         for (int y = TH * 4 / 5 - 60; y < TH * 4 / 5 + 60; y += 2) for (int x = 20; x < TW - 20; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 235 && c[1] > 235 && c[2] > 235) white++; }
         CHECK(white > 40, "no white words on the screen (%d white samples)", white); }
     shot("build/ground_death_text.bmp");
+    int dealt0 = alex_dealt, seen0 = alex_seen;                  /* what the Grasslands story looks like at the death */
     for (float w = 0; w < DEATH_END_HOLD + 10.0f && !vessel_dead; w += 0.016f) frame(0.016f);   /* up to the end hook */
     CHECK(vessel_dead, "story_vessel_died never ran");
     run(0.3f);                                                    /* the fade has just begun */
@@ -346,12 +347,23 @@ int main(void) {
     CHECK(DEATH_LINES_COUNT >= 1 && DEATH_LINES[0].lines == DEATH_LINES_1, "the vessel table has no entry for vessel 1");
     {   int bc = brainwin_count(), h0 = death_hold_done;
         for (float t = 0; t < DEATH_LIMBO_HOLD - 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(brainwin_count() == bc, "the death line joined the brain window");
         CHECK(death_hold_done == h0, "the hold after the death line ended too early");
         for (float t = 0; t < 0.6f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
         CHECK(death_hold_done == h0 + 1, "the hold after the death line did not end (%d)", death_hold_done - h0);
         for (float t = 0; t < 5.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(death_hold_done == h0 + 1 && story_limbo_active(), "the stand-in hold ran twice or limbo ended by itself");
-        CHECK(brainwin_count() == bc, "the death line joined the brain window"); }
+        CHECK(death_hold_done == h0 + 1 && story_limbo_active(), "the stand-in hold ran twice or limbo ended by itself"); }
+    /* chunk 14: behind the scenes the next life is made ready: cloud map, Dea waiting, plain VAS card, empty head and task list,
+     * the Grasslands story state (Alex, the polluted shrine) remembered */
+    CHECK(cur_map == MAP_CLOUD, "not back on the cloud map for the next life");
+    CHECK(hud_person() == &VAS, "the ID card is not plain VAS again");
+    CHECK(brainwin_count() == 0 && missions_count() == 0, "the head or the task list is not empty (%d, %d)", brainwin_count(), missions_count());
+    CHECK(!dying && !vessel_dead && !world_death_active(), "dying / vessel_dead / the death cutscene were not reset");
+    CHECK(npc_count() == 1 && dea_id >= 0 && alex_id < 0, "the sky should hold only Dea (npcs %d)", npc_count());
+    CHECK(!controls_visible && !hole_on && phase == PH_PLAY, "the controls / hole / phase are not as for a fresh summoning");
+    CHECK(green.alex_there && green.alex_tx == 7 && green.alex_ty == 40, "Alex's place on the Grasslands was not remembered (%d,%d,%d)", green.alex_there, green.alex_tx, green.alex_ty);
+    CHECK(green.shrine_there && green.shrine_polluted == 1 && shrine_fouled, "the polluted shrine was not remembered");
+    CHECK(alex_dealt == dealt0 && alex_seen == seen0, "the Grasslands story state (alex_dealt / alex_seen) was reset");
     limbo_end(); story_limbo_take_end(); blackout_t = -1;           /* the tests below start from the world again */
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
