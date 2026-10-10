@@ -13,6 +13,11 @@
  * if a toast is already showing, the new one waits its turn (the ding plays when it appears). */
 int  task_toast(const char *task);
 
+/* the same panel for other announcements (the ID card's "YOU ARE NOW <NAME>" uses it): `head` is the
+ * white line (a string literal), `body` the gold one (copied). same size, same spot, same queue and
+ * coin ding as the task toast, so the two never overlap. */
+void toast_notice(const char *head, const char *body);
+
 /* engine hooks, called by the world */
 void toast_init(int w, int h);              /* also clears anything pending */
 void toast_update(float dt);

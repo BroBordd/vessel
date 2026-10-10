@@ -203,7 +203,9 @@ int brainwin_touch(int a, int x, int y) {
         if (gk == 1 && inside(close_r, x, y))  { is_open = 0; closing = 1; }
         else if (gk == 3 && !inside(win, x, y)) { is_open = 0; closing = 1; }
         else if (gk == 2 && inside(auto_r, x, y)) { auto_on = 1; tm = 0; }
-        else if (gk >= 10 && gk - 10 < nth && inside(pick_r[gk - 10], x, y)) { auto_on = 0; go(gk - 10); }
+        else if (gk >= 10 && gk - 10 < nth && inside(pick_r[gk - 10], x, y)) {
+            if (gk - 10 != cur) { auto_on = 0; go(gk - 10); }      /* the thought on the monitor already: nothing, it must not replay */
+        }
     }
     return 1;
 }

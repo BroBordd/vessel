@@ -5,55 +5,66 @@
 #include "font.h"
 #include "hud.h"
 #include "missions.h"
+#include <stdio.h>
 
 #define TOAST_IN    0.25f           /* same timing as the name toast on the ID card */
 #define TOAST_HOLD  2.8f
 #define TOAST_OUT   0.45f
 #define MAX_PENDING 4
 
-static const char *HEAD = "NEW TASK ADDED";
+#define MAX_BODY    48
+typedef struct { const char *head; char body[MAX_BODY]; } Toast;      /* head must be a string literal; body is copied */
 
 static int   W, H, q;
 static float u;
-static const char *pending[MAX_PENDING];    /* waiting for the current toast to finish */
+static Toast pending[MAX_PENDING];          /* waiting for the current toast to finish */
 static int   npend;
-static const char *cur;                     /* the toast on screen, NULL = idle */
+static Toast cur;                           /* the toast on screen */
+static int   showing;
 static float cur_t;
 
 void toast_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     q = (int)(1.7f * u); if (q < 2) q = 2;      /* the same pixel size as the ID card's toast */
-    cur = NULL; cur_t = 0; npend = 0;
+    showing = 0; cur_t = 0; npend = 0;
 }
 
-static void show(const char *task) {
-    cur = task; cur_t = 0;
+static void show(const Toast *t) {
+    cur = *t; showing = 1; cur_t = 0;
     sfx_coin();
+}
+
+static void enqueue(const char *head, const char *body) {
+    Toast t; t.head = head;
+    snprintf(t.body, sizeof t.body, "%s", body);
+    if (!showing) show(&t);
+    else if (npend < MAX_PENDING) pending[npend++] = t;
 }
 
 int task_toast(const char *task) {
     int id = mission_add(task);
     if (id < 0) return -1;
-    if (!cur) show(task);
-    else if (npend < MAX_PENDING) pending[npend++] = task;
+    enqueue("NEW TASK ADDED", task);
     return id;
 }
 
+void toast_notice(const char *head, const char *body) { enqueue(head, body); }
+
 void toast_update(float dt) {
-    if (!cur) return;
+    if (!showing) return;
     cur_t += dt;
     if (cur_t < TOAST_IN + TOAST_HOLD + TOAST_OUT) return;
-    cur = NULL;
+    showing = 0;
     if (npend > 0) {                            /* next in line */
-        const char *next = pending[0];
+        Toast next = pending[0];
         for (int i = 1; i < npend; i++) pending[i - 1] = pending[i];
         npend--;
-        show(next);
+        show(&next);
     }
 }
 
 void toast_draw(SDL_Renderer *r, int x, int y) {
-    if (!cur) return;
+    if (!showing) return;
 
     float pin = cur_t / TOAST_IN; if (pin > 1) pin = 1;
     pin = 1.0f - (1.0f - pin) * (1.0f - pin);                       /* ease out */
@@ -61,7 +72,7 @@ void toast_draw(SDL_Renderer *r, int x, int y) {
     int A = (int)(255 * pin * (1.0f - pout));
     if (A <= 0) return;
 
-    int tw = font_width(HEAD, q), nw = font_width(cur, q);
+    int tw = font_width(cur.head, q), nw = font_width(cur.body, q);
     if (nw > tw) tw = nw;
     int wp = 13 * q + tw + 4 * q;                                   /* coin column + text + right pad */
     int hp = 8 * q + font_height(q) * 2;                           /* pad 3, head, gap 2, name, pad 3 */
@@ -87,6 +98,6 @@ void toast_draw(SDL_Renderer *r, int x, int y) {
     }
 
     int tx = bx + 13 * q, ty = by + 3 * q;
-    SDL_SetRenderDrawColor(r, 255, 255, 255, A);   font_draw(r, HEAD, tx, ty, q);
-    SDL_SetRenderDrawColor(r, 255, 214, 70, A);    font_draw(r, cur, tx, ty + font_height(q) + q * 2, q);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, A);   font_draw(r, cur.head, tx, ty, q);
+    SDL_SetRenderDrawColor(r, 255, 214, 70, A);    font_draw(r, cur.body, tx, ty + font_height(q) + q * 2, q);
 }

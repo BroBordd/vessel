@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  * the brain window: opens from the brain button, loops through the thoughts, numbers pick one, AUTO loops again.
  * writes ../build/brain_*.bmp (silent dummy audio) and checks the logic, exit code != 0 if a check fails.
- *   cc -O1 $(sdl2-config --cflags) -Igame -o build/brainwintest tools/brainwintest.c game/brainwin.c game/thought.c game/hud.c game/char.c game/audio.c game/analyze.c game/jukebox.c game/font.c game/nowplaying.c game/musicwin.c game/pausebtn.c $(sdl2-config --libs) -lm
+ *   cc -O1 $(sdl2-config --cflags) -Igame -o build/brainwintest tools/brainwintest.c game/brainwin.c game/thought.c game/hud.c game/toast.c game/missions.c game/char.c game/audio.c game/analyze.c game/jukebox.c game/font.c game/nowplaying.c game/musicwin.c game/pausebtn.c $(sdl2-config --libs) -lm
  *   cd music && ../build/brainwintest 540 1170      (also try 1170 540 and 360 640) */
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
@@ -106,10 +106,16 @@ int main(int argc, char **argv) {
     CHECK(order >= 5, "the loop is too slow: only %d switches in 40 s", order);
     CHECK(order <= 8, "the loop is too fast: %d switches in 40 s", order);
 
+    /* 2b. tapping the number of the thought already on the monitor does nothing (no replay, no pin) */
+    {   int c = brainwin_debug_current(); SDL_Rect p = brainwin_debug_pick(c);
+        run(1.0f);
+        tap(p.x + p.w / 2, p.y + p.h / 2);
+        CHECK(brainwin_debug_current() == c && brainwin_debug_auto(), "tapping the visible thought changed something (cur %d, auto %d)", brainwin_debug_current(), brainwin_debug_auto()); }
     /* 3. numbers pin a thought: it stays, whatever the time */
     for (int i = 0; i < 4; i++) {
         SDL_Rect p = brainwin_debug_pick(i);
         CHECK(p.w > 0 && p.x >= win.x && p.x + p.w <= win.x + win.w, "number box %d is not inside the window", i + 1);
+        if (brainwin_debug_current() == i) { brainwin_debug_pick(i); tap(brainwin_debug_pick((i + 1) % 4).x + 2, p.y + 2); }   /* the visible one ignores taps: go via another */
         tap(p.x + p.w / 2, p.y + p.h / 2);
         CHECK(brainwin_debug_current() == i && !brainwin_debug_auto(), "tapping number %d did not pin thought %d (now %d, auto %d)", i + 1, i + 1, brainwin_debug_current(), brainwin_debug_auto());
         run(2.4f);

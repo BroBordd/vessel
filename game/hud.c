@@ -1,7 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "hud.h"
-#include "audio.h"
+#include "toast.h"
 #include "nowplaying.h"
 #include "font.h"
 #include <math.h>
@@ -15,9 +15,6 @@
 
 #define START_HP    100
 #define FLASH_T     1.6f            /* how long the name flashes after it changes */
-#define TOAST_IN    0.25f
-#define TOAST_HOLD  2.8f
-#define TOAST_OUT   0.45f
 
 static int   W, H, q, card_x, card_y;       /* card_x,card_y: top-left of the card in screen px */
 static float u, t;
@@ -25,8 +22,6 @@ static const Person *who;
 static int   hp, hp_max;
 static float hp_shown;              /* trails behind hp when it drops */
 static float flash_t = -1;          /* seconds since the name changed, -1 = idle */
-static float toast_t = -1;
-static char  toast_name[32];
 
 static void col(SDL_Renderer *r, int R, int G, int B, int A) { SDL_SetRenderDrawColor(r, R, G, B, A); }
 
@@ -46,7 +41,7 @@ void hud_init(int w, int h, const Person *p) {
     card_y = (int)(8 * u) + nowplaying_button_size() / 2;   /* same top margin as the now-playing card (incl. the notch shift) */
     t = 0; who = p;
     hp = hp_max = START_HP; hp_shown = (float)hp;
-    flash_t = toast_t = -1;
+    flash_t = -1;
 }
 
 const Person *hud_person(void) { return who; }
@@ -65,15 +60,13 @@ void hud_set_person(const Person *p) {
     int changed = !who || strcmp(who->name, p->name) != 0;
     who = p;
     if (!changed) return;
-    flash_t = 0; toast_t = 0;
-    snprintf(toast_name, sizeof toast_name, "%s", p->name);
-    sfx_coin();
+    flash_t = 0;
+    toast_notice("YOU ARE NOW", p->name);               /* the shared toast under the mission list: coin ding + panel */
 }
 
 void hud_update(float dt) {
     t += dt;
     if (flash_t >= 0) { flash_t += dt; if (flash_t > FLASH_T) flash_t = -1; }
-    if (toast_t >= 0) { toast_t += dt; if (toast_t > TOAST_IN + TOAST_HOLD + TOAST_OUT) toast_t = -1; }
     if (hp_shown > hp) {
         hp_shown -= dt * (float)hp_max * 0.35f;         /* the pale trail drains away */
         if (hp_shown < hp) hp_shown = (float)hp;
@@ -181,39 +174,6 @@ void hud_draw_coin(SDL_Renderer *r, int tx, int ty, int q, float tt) {
     }
 }
 
-static void draw_toast(SDL_Renderer *r) {
-    if (toast_t < 0) return;
-    const char *pre = "YOU ARE NOW ";
-    int tcells = ((int)strlen(pre) + (int)strlen(toast_name)) * 6 - 1;
-    int wc = tcells + 17, hc = 13;
-
-    float pin = toast_t / TOAST_IN; if (pin > 1) pin = 1;
-    pin = 1.0f - (1.0f - pin) * (1.0f - pin);
-    float pout = toast_t - TOAST_IN - TOAST_HOLD; pout = pout > 0 ? pout / TOAST_OUT : 0;
-    float a = pin * (1.0f - pout);
-    int A = (int)(255 * a);
-    if (A <= 0) return;
-
-    int bx = card_x + CW * q - wc * q;                      /* right-aligned with the card */
-    if (bx < (int)(4 * u)) bx = (int)(4 * u);
-    int by = card_y + (CH + 3) * q + (int)((-(1.0f - pin) * 5.0f - pout * 4.0f) * q);
-
-    col(r, 0, 0, 0, A * 90 / 255);                      /* drop shadow */
-    SDL_Rect sh = { bx + q, by + q, wc * q, hc * q }; SDL_RenderFillRect(r, &sh);
-    col(r, 255, 214, 110, A);
-    SDL_Rect fr = { bx, by, wc * q, hc * q }; SDL_RenderFillRect(r, &fr);
-    col(r, 12, 14, 30, A * 245 / 255);
-    SDL_Rect in = { bx + q, by + q, (wc - 2) * q, (hc - 2) * q }; SDL_RenderFillRect(r, &in);
-
-    /* the coin and the text fade with the toast: fade is done by dimming toward the panel colour */
-    int cx = bx + 4 * q, cy = by + 3 * q;
-    hud_draw_coin(r, cx, cy, q, toast_t);
-    if (A < 255) { col(r, 12, 14, 30, 255 - A); SDL_Rect cv = { cx, cy, 7 * q, 7 * q }; SDL_RenderFillRect(r, &cv); }   /* fade */
-    int tx = bx + 13 * q, ty = by + 3 * q;
-    col(r, 255, 255, 255, A);   font_draw(r, pre, tx, ty, q);
-    col(r, 255, 214, 70, A);    font_draw(r, toast_name, tx + (int)strlen(pre) * 6 * q, ty, q);
-}
-
 void hud_draw(SDL_Renderer *r) {
     if (!who) return;
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
@@ -256,5 +216,4 @@ void hud_draw(SDL_Renderer *r) {
         }
     }
 
-    draw_toast(r);
 }

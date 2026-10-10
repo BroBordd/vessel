@@ -3,7 +3,7 @@
  * the brain button over a fake sky, right of the music and pause buttons, next to the ID card. writes
  * ../build/thought_*.bmp (silent dummy audio) and checks the logic, exit code != 0 if a check fails.
  * run it from the music folder: it plays a real track to open the music card next to the brain.
- *   cc -O1 $(sdl2-config --cflags) -Igame -o build/thoughttest tools/thoughttest.c game/thought.c game/brainwin.c game/hud.c game/char.c game/audio.c game/analyze.c game/jukebox.c game/font.c game/nowplaying.c game/musicwin.c game/pausebtn.c $(sdl2-config --libs) -lm
+ *   cc -O1 $(sdl2-config --cflags) -Igame -o build/thoughttest tools/thoughttest.c game/thought.c game/brainwin.c game/hud.c game/toast.c game/missions.c game/char.c game/audio.c game/analyze.c game/jukebox.c game/font.c game/nowplaying.c game/musicwin.c game/pausebtn.c $(sdl2-config --libs) -lm
  *   cd music && ../build/thoughttest 540 1170 */
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
