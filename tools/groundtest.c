@@ -371,8 +371,17 @@ int main(void) {
     {   int s0 = sfx_debug_summons(), bc = brainwin_count();
         run(SUMMON_TOTAL_T + 0.3f);
         CHECK(sfx_debug_summons() == s0 + 1, "the chime did not play once with the second summoning (%d)", sfx_debug_summons() - s0);
-        CHECK(!world_summoning() && controls_visible && hole_on, "the second summoning did not end with the controls (and hole) back");
-        CHECK(!dialog_active() && brainwin_count() == bc && missions_count() == 0, "an intro dialog, thought or task followed the second summoning");
+        CHECK(!world_summoning(), "the second summoning did not end");
+        /* chunk 16: Dea speaks first: four pages, all hers, the controls stay hidden until the last tap */
+        CHECK(dialog_active() && !controls_visible && !hole_on, "Dea's scolding did not start by itself after the summoning");
+        CHECK(brainwin_count() == bc && missions_count() == 0 && !thought_active(), "a thought or task came with the second summoning");
+        CHECK(hud_person() == &VAS && dea_spoken && npc_count() == 1, "the card, Dea or the sky changed before the scolding");
+        shot("build/ground_scold.bmp");
+        int pages = 0;
+        for (int i = 0; i < 12 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); pages++; }
+        CHECK(!dialog_active() && pages >= DEA_SCOLD_COUNT, "the scolding did not end after its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
+        CHECK(controls_visible && hole_on, "the scolding did not give the controls (and, for now, the hole) back");
+        CHECK(hud_person() == &VAS, "the card changed during the scolding (the naming is chunk 18)");
         shot("build/ground_resummon.bmp"); }
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());

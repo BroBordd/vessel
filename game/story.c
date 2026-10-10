@@ -47,6 +47,7 @@
 #include <string.h>
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
+#define VESSEL2_NAME "Doia"         /* vessel two: Dea plays on the word two */
 #define VESSEL_LATIN "Vas"          /* what Dea calls us before the naming. "Vas" is Latin for vessel */
 
 /* ---------- characters ---------- */
@@ -334,12 +335,25 @@ static void story_reset_for_respawn(void) {
 
 static void open_the_hole(void);                    /* defined with the sky scene below */
 
-/* the second summoning is over (chunk 15): Dea has been standing there all along, looking at us. no dialog, no thought.
- * STAND-IN until chunks 16-20: the controls come back and the hole opens at once, so the game stays playable (the scolding, the
- * naming and the proper way down replace this) */
-static void respawn_summoned(void) {
+/* ---------- Dea scolds us, number two (vessel 2, chunk 16) ----------
+ * the second summoning is over: Dea has been standing there all along, looking at us, and she speaks FIRST (no walking, no sighting
+ * task, no thought). the words are all hers and to VAS (we are plain VAS again). the last line gives us our new number: the naming
+ * itself (ID card, player look) is chunks 17-18, and her questions chunk 19, so scold_done() is the hook those will take over.
+ * STAND-IN until chunks 19-20: scold_done gives the controls back and opens the hole at once, so the game stays playable. */
+static const DialogLine DEA_SCOLD[] = {
+    { &DEA, "Oh. You again. Dead after a single errand." },
+    { &DEA, "You fouled a rival goddess's shrine for a girl and a ball. My ball." },
+    { &DEA, "I do not care that it hurt. There is a reason you are replaceable." },
+    { &DEA, "Fine. You are number two now. " VESSEL2_NAME ". Try not to make me remember it." },
+};
+#define DEA_SCOLD_COUNT ((int)(sizeof DEA_SCOLD / sizeof DEA_SCOLD[0]))
+
+static void scold_done(void) {
     world_set_controls_visible(1);
     open_the_hole();
+}
+static void respawn_summoned(void) {
+    dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, scold_done);        /* she speaks first */
 }
 
 /* the hold after the soul's line is over: the next life is made ready behind the scenes (chunk 14), limbo ends, game.c shows the
