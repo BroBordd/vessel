@@ -490,6 +490,13 @@ static void landing_done(void) {
     story_after(16.0f, grass_thought);                      /* after a little while of walking about */
 }
 
+/* the end of vessel 2's opening (chunk 24): the landing is done, the Grasslands are put back and the graves stand. EMPTY ON PURPOSE:
+ * vessel 2's own mission is planned later and starts here. the player just walks until then. */
+static int vessel2_ready_calls;                     /* (the tests count them) */
+void story_vessel2_ready(void) {
+    vessel2_ready_calls++;
+}
+
 /* the second landing (chunk 20): the Grasslands are exactly as vessel 1 left them. gen_map() makes the same ground every time; what stood
  * on it is put back from `green`: Alex where she was (she remembers the deal: alex_dealt / alex_seen stayed), the shrine where it was,
  * still polluted. a stone stands where each earlier vessel died (chunk 22). nothing is added to the task list (vessel 2's own mission is
@@ -505,6 +512,7 @@ static void landed_again(void) {
         if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) world_place_grave(gx, gy, graves[i].who);
     }
     think("Here we go again.", NULL, BRAIN_SCENE_GRASS, THOUGHT_AGAIN, 1);
+    story_vessel2_ready();                                  /* the hook for vessel 2's own story (chunk 24) */
 }
 
 /* the grave (chunk 23): the first time we walk up to a stone, the vessel stands at its own grave. it keeps its memories in every body,

@@ -474,6 +474,7 @@ int main(void) {
         CHECK(shrine_collides((sx0 + 0.5f) * tile, (sy0 + 0.9f) * tile, 3.0f * px, 3.0f * px), "the shrine does not block the player");
         CHECK(alex_dealt == dealt1 && alex_seen == seen1, "Alex's story state changed (dealt %d, seen %d)", alex_dealt, alex_seen);   /* (this test run skipped her talk, so both are 0 here; in the real game both are 1) */
         CHECK(missions_count() == 0, "a task came with the second landing (%d)", missions_count());
+        CHECK(vessel2_ready_calls == 1, "story_vessel2_ready did not run exactly once after the second landing (%d)", vessel2_ready_calls);   /* chunk 24 */
         CHECK(brainwin_count() == head_at_death + 1 && thought_active(), "the landing line is not the one new thought (%d in the head, %d before)", brainwin_count(), head_at_death);
         shot("build/ground_again.bmp"); }
     /* chunk 22: a stone stands where vessel 1 died (or the nearest tile where it fits), with Aonia's face on it, clear of the shrine,
