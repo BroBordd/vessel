@@ -131,6 +131,31 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 600; i++) thought_update(0.0f);
     CHECK(thought_active() && bw() == w_open, "the card moved while paused");
 
+    /* 8. the voice (vessel 2, limbo): the card wears another face, NULL gives the ID card person back */
+    {   static const Person SOULY = { "Soul", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 238 }, { 118, 160, 218 }, { 96, 130, 196 }, 0, 0 };
+        thought_say("Where am I?", 0);
+        run(1.5f);
+        int x, y, w, h; thought_rect(&x, &y, &w, &h);
+        CHECK(thought_voice() == &VESSEL, "no voice set: the ID card person should speak");
+        SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr); thought_draw(rr);
+        Uint32 *p0 = malloc((size_t)w * h * 4), *p1 = malloc((size_t)w * h * 4);
+        SDL_Rect q = { x, y, w, h };
+        SDL_RenderReadPixels(rr, &q, SDL_PIXELFORMAT_RGBA32, p0, w * 4);
+        thought_set_voice(&SOULY);
+        CHECK(thought_voice() == &SOULY, "thought_set_voice did not stick");
+        SDL_RenderClear(rr); thought_draw(rr);
+        SDL_RenderReadPixels(rr, &q, SDL_PIXELFORMAT_RGBA32, p1, w * 4);
+        int diff = 0; for (int i = 0; i < w * h; i++) if (p0[i] != p1[i]) diff++;
+        CHECK(diff > 60, "the card looks the same with another voice (%d pixels differ)", diff);
+        shot("../build/thought_soul.bmp");
+        thought_set_voice(NULL);
+        CHECK(thought_voice() == &VESSEL, "NULL did not give the ID card person back");
+        SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr);       /* shot() left its sky colour set */ thought_draw(rr);
+        SDL_RenderReadPixels(rr, &q, SDL_PIXELFORMAT_RGBA32, p1, w * 4);
+        diff = 0; for (int i = 0; i < w * h; i++) if (p0[i] != p1[i]) diff++;
+        CHECK(diff == 0, "the card is not back to the first face (%d pixels differ)", diff);
+        free(p0); free(p1); }
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;
 }

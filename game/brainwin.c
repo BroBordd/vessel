@@ -3,6 +3,7 @@
 #include "brainwin.h"
 #include "font.h"
 #include "hud.h"
+#include "thought.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -379,7 +380,7 @@ static void draw_scene(SDL_Renderer *r, int scene, float t) {
 
 /* ---------- the face and thought bubble in the corner of the monitor ---------- */
 static void draw_face_badge(SDL_Renderer *r, float t) {
-    const Person *who = hud_person();
+    const Person *who = thought_voice();
     if (!who) return;
     int q = s / 2; if (q < 1) q = 1;
     int pw = 12 * q, bx = ox + s, by = oy + GH * s - s - pw;

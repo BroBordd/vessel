@@ -25,6 +25,7 @@ static int   W, H, enabled, active, closing, nq, pdown;
 static float wt;                    /* seconds, only for the shake of a wrathful card (frozen while paused) */
 static float u, vis, c, hold_t;     /* vis: button fade-in. c: 0 = open card, 1 = collapsed button. hold_t: seconds on show */
 static Thought cur, queue[MAX_QUEUE];
+static const Person *voice;         /* whose face the player's own thoughts wear. NULL: the ID card person (hud_person) */
 static const Person *wrath_who;    /* whose face Dia's card wears (a goddess, tinted red). NULL: her red eye instead */
 
 /* layout, rebuilt every frame (the music card next to us can open and close) */
@@ -91,6 +92,8 @@ void thought_wrath(const char *text, float seconds) {
 }
 
 void thought_set_wrath_person(const Person *p) { wrath_who = p; }
+void thought_set_voice(const Person *p) { voice = p; }
+const Person *thought_voice(void) { return voice ? voice : hud_person(); }
 int thought_active(void) { return active; }
 int thought_is_wrath(void) { return active && cur.wrath; }
 
@@ -234,7 +237,7 @@ static void draw_face(SDL_Renderer *r, int x, int y, int a) {
         SDL_SetRenderDrawColor(r, (int)(52 + 40 * k), (int)(66 + 50 * k), (int)(120 + 60 * k), a);
         fillr(r, x + q, y + q + row * q, port - 2 * q, q);
     }
-    const Person *who = hud_person();
+    const Person *who = thought_voice();
     if (!who) return;
     char_draw_portrait(r, who, x + q, y + q, q, 0);
     if (a < 255) {                                          /* fade the face by dimming it toward the card */

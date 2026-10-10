@@ -34,6 +34,10 @@ void thought_say(const char *text, float seconds);
  * whatever was queued, and cannot be tapped open into the brain window. thoughts that arrive while it is up
  * wait behind it. seconds <= 0 = 3 s.   thought_wrath("HOW DARE YOU", 3.0f); */
 void thought_wrath(const char *text, float seconds);
+/* whose face the player's own thoughts wear (the card and the brain window). NULL (the default) = whoever the ID card
+ * shows (hud_person). limbo (vessel 2) sets the soul's face, the story sets it back to NULL when a body arrives. */
+void thought_set_voice(const Person *p);
+const Person *thought_voice(void);          /* the face in use right now: the voice if one is set, else hud_person() */
 void thought_set_wrath_person(const Person *p);   /* whose face her card wears, tinted red (story.c passes the goddess). NULL = her red eye */
 int  thought_is_wrath(void);                /* her card is up right now */
 

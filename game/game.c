@@ -15,6 +15,7 @@
 #include "menu.h"
 #include "world.h"
 #include "space.h"
+#include "story.h"
 #include "nowplaying.h"
 #include "thought.h"
 #include "musicwin.h"
@@ -106,6 +107,7 @@ int main(int argc, char **argv) {
      * so the screen can be looked at, and says one thought after a second */
     if (getenv("VESSEL_LIMBO")) {
         world_init(W, H);                                   /* the thought card and the HUD need their init */
+        thought_set_voice(&SOUL);
         space_init(W, H);
         state = ST_LIMBO;
     }
@@ -169,6 +171,7 @@ int main(int argc, char **argv) {
             if (menu_faded()) {                                  /* gone: go on from this very frame, the stars have not stopped */
                 world_init(W, H);                                /* hidden: the thought card and the HUD are initialised here */
                 state = ST_LIMBO; limbo_t = 0; limbo_auto = 1;
+                thought_set_voice(&SOUL);                        /* in limbo the thoughts wear the soul's face */
                 space_draw(r);                                   /* world_init made no frame of its own: keep this one stars only */
             }
         } else if (state == ST_LIMBO) {
@@ -179,6 +182,7 @@ int main(int argc, char **argv) {
             if (limbo_auto && limbo_t > LIMBO_STANDIN_END) {
                 jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music (the ground gets divine_tale later) */
                 state = ST_WORLD; limbo_auto = 0;
+                thought_set_voice(NULL);                         /* a body: the ID card person speaks again */
                 world_update(0); world_draw(r);
             }
         } else {

@@ -47,6 +47,9 @@
 
 /* ---------- characters ---------- */
 /*                      name           hair            skin             shirt           pants          boots        long hair  accessories */
+/* the soul: what we are before we have a body (limbo, vessel 2). pale ghost-blue and white; only its face is shown (the
+ * brain card while in limbo, via thought_set_voice), the halo is for a full body should it ever be drawn */
+const Person SOUL = { "Soul", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 238 }, { 118, 160, 218 }, { 96, 130, 196 }, 0, ACC_HALO };
 const Person VESSEL = { VESSEL_NAME,  { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 const Person VAS    = { VESSEL_LATIN, { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 const Person ALEX   = { "Alex",       { 236, 196, 84 }, { 244, 200, 164 }, { 60, 170, 170 }, { 70, 60, 110 }, { 40, 30, 30 }, 1, 0 };
