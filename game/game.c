@@ -176,6 +176,11 @@ int main(int argc, char **argv) {
             }
         } else if (state == ST_LIMBO) {
             space_update(dt); space_draw(r);
+            story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
+            if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
+                state = ST_WORLD; limbo_auto = 0;
+                world_update(0); world_draw(r);
+            }
             limbo_t += dt;
             if (limbo_t > LIMBO_STANDIN_THOUGHT && limbo_t - dt <= LIMBO_STANDIN_THOUGHT) thought_say("Where am I?", 0);   /* stand-in, see above */
             if (limbo_auto && limbo_t > LIMBO_STANDIN_FADE && limbo_t - dt <= LIMBO_STANDIN_FADE) jukebox_scene_fade(LIMBO_STANDIN_END - LIMBO_STANDIN_FADE);

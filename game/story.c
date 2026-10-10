@@ -26,6 +26,8 @@
  *   dialog_on_highlight(fn)                 run fn(page, span) when a {highlighted} span of the NEXT dialog_play has been typed out
  *   convo_ask_questions(&P, &MIND, on_end)  "do you have any questions?" then a free typed chat (convo.h)
  *   convo_open(&P, &MIND, again, on_end)    the npc speaks first, the player may type or skip
+ *   limbo_run(thoughts, n, gap, on_done)    LIMBO (vessel 2): the soul thinks these lines one after the other on the space screen, then on_done()
+ *   limbo_end()                             leave limbo: the soul's voice goes, the HUD and the world come back (game.c switches the screen)
  */
 #include "story.h"
 #include "dialog.h"
@@ -41,6 +43,7 @@
 #include "hud.h"
 #include "convo.h"
 #include "lang.h"
+#include <string.h>
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
 #define VESSEL_LATIN "Vas"          /* what Dea calls us before the naming. "Vas" is Latin for vessel */
@@ -112,6 +115,60 @@ static void think(const char *text, const char *card, BrainScene scene, int tag,
     if (ding) sfx_coin();
     if (!card) card = text;
     if (*card) thought_say(card, 0);
+}
+
+/* ---------- limbo: the soul thinks (vessel 2, chunk 6) ----------
+ * limbo is the space screen (game.c ST_LIMBO): stars, the top buttons, nothing else. no map, no ID card, no mission list, no
+ * minimap, no stick: game.c simply does not draw the world while limbo runs, so the HUD is hidden for as long as it lasts, and
+ * limbo_end() gives it back. the story runs on its own little clock here (story_limbo_update), because the world, and with it
+ * story_update and its timers, does not run in limbo.
+ *
+ * limbo_run(lines, n, gap, on_done): the voice becomes the soul's (SOUL, its pale face on the brain card). the first line is
+ * said at once, each next one `gap` seconds after the one before, and on_done() runs `gap` seconds after the last (that is the
+ * hold: the soul waits a moment before the story goes on). a limbo thought is only the card: no coin ding, and it is NOT
+ * added to the brain window (a soul has no head to remember with yet). `lines` must stay alive (use static arrays).
+ * on_done usually ends limbo with limbo_end(), or starts another limbo_run(). */
+static struct {
+    const char *const *lines; int n, i;     /* what to say, and the next one to say */
+    float gap, left;                        /* seconds between lines, and until the next step */
+    void (*on_done)(void);
+    int running;                            /* a limbo_run is counting */
+    int on;                                 /* we are in limbo (from the first limbo_run until limbo_end) */
+    int ended;                              /* limbo_end() was called: game.c takes it once (story_limbo_take_end) */
+} limbo;
+
+void limbo_run(const char *const *thoughts, int n, float gap, void (*on_done)(void)) {
+    limbo.lines = thoughts; limbo.n = thoughts ? n : 0; limbo.i = 0;
+    limbo.gap = gap > 0 ? gap : 0; limbo.left = 0;
+    limbo.on_done = on_done;
+    limbo.running = 1; limbo.on = 1; limbo.ended = 0;
+    thought_set_voice(&SOUL);
+    if (limbo.n > 0) {                                      /* the first thought at once */
+        thought_say(limbo.lines[0], 0);
+        limbo.i = 1;
+    }
+    limbo.left = limbo.gap;
+}
+
+void limbo_end(void) {
+    limbo.running = 0; limbo.on = 0; limbo.ended = 1;
+    thought_set_voice(NULL);                                /* a body again: the ID card person speaks */
+}
+
+int story_limbo_active(void) { return limbo.on; }
+int story_limbo_take_end(void) { int e = limbo.ended; limbo.ended = 0; return e; }
+
+void story_limbo_update(float dt) {
+    if (!limbo.running) return;
+    limbo.left -= dt;
+    if (limbo.left > 0) return;
+    if (limbo.i < limbo.n) {                                /* the next thought */
+        thought_say(limbo.lines[limbo.i++], 0);
+        limbo.left += limbo.gap;
+        return;
+    }
+    limbo.running = 0;                                      /* the last line has had its hold */
+    if (limbo.on_done) { void (*fn)(void) = limbo.on_done; limbo.on_done = NULL; fn(); }
 }
 
 /* ---------- scene 3: down on the ground ---------- */
@@ -367,6 +424,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0;
+    memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);

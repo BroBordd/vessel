@@ -36,6 +36,9 @@ static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch
 static void shot(const char *name) { SDL_RenderPresent(rr); SDL_SaveBMP(surf, name); printf("wrote %s\n", name); }
 static void put_player(float tx, float ty) { pxp = tx * tile; pyp = ty * tile; }   /* teleport (world.c's statics) */
 
+int limbo_done_calls;
+static void limbo_test_done(void) { limbo_done_calls++; }
+
 int main(void) {
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1); SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
     SDL_Init(SDL_INIT_VIDEO);
@@ -269,6 +272,39 @@ int main(void) {
     CHECK(heart_state() == HEART_OFF && !death_msg[0], "cancel left the heart or the words behind");
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
+
+    /* chunk 6: limbo_run. the soul says its lines (first at once, then one per gap), none of them joins the brain window,
+     * on_done runs one gap after the last, limbo_end() gives the voice back and tells game.c exactly once */
+    {   static const char *const LT[] = { "Where am I?", "Hello?", "Anyone?" };
+        int bc = brainwin_count();
+        CHECK(!story_limbo_active() && !story_limbo_take_end(), "limbo is on before limbo_run");
+        limbo_done_calls = 0;
+        limbo_run(LT, 3, 1.0f, limbo_test_done);
+        CHECK(story_limbo_active(), "limbo_run did not start limbo");
+        CHECK(thought_voice() == &SOUL, "the thoughts do not wear the soul's face in limbo");
+        CHECK(thought_active(), "the first limbo thought was not said at once");
+        for (float t = 0; t < 0.9f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo.i == 1, "second thought came before its gap (i %d)", limbo.i);
+        for (float t = 0; t < 0.2f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo.i == 2, "second thought did not come after one gap (i %d)", limbo.i);
+        for (float t = 0; t < 1.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo.i == 3 && limbo_done_calls == 0, "third thought / on_done out of order (i %d, done %d)", limbo.i, limbo_done_calls);
+        for (float t = 0; t < 0.8f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo_done_calls == 0, "on_done ran before the last thought had its hold");
+        for (float t = 0; t < 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo_done_calls == 1, "on_done did not run after the hold (%d)", limbo_done_calls);
+        for (float t = 0; t < 3.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(limbo_done_calls == 1, "on_done ran more than once (%d)", limbo_done_calls);
+        CHECK(brainwin_count() == bc, "a limbo thought joined the brain window (%d -> %d)", bc, brainwin_count());
+        CHECK(story_limbo_active() && thought_voice() == &SOUL, "limbo ended by itself");
+        limbo_end();
+        CHECK(!story_limbo_active() && thought_voice() != &SOUL, "limbo_end did not give the voice back");
+        CHECK(story_limbo_take_end() == 1 && story_limbo_take_end() == 0, "limbo_end must be reported to game.c exactly once");
+        limbo_run(NULL, 0, 0.5f, limbo_test_done);                /* no lines at all: just a hold, then on_done */
+        for (float t = 0; t < 0.6f; t += 0.01f) story_limbo_update(0.01f);
+        CHECK(limbo_done_calls == 2, "an empty limbo_run did not just hold and finish (%d)", limbo_done_calls);
+        limbo_end(); story_limbo_take_end();
+    }
 
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;
