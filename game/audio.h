@@ -64,6 +64,7 @@ void audio_quit(void);
 
 /* sound effects, synthesised (no files). they play on top of the music and ignore music volume */
 void sfx_coin(void);                    /* the little coin ding */
+void sfx_thought(void);                 /* a thought arriving: soft, calm two-note chime (shares the coin's voice) */
 void sfx_blip(float pitch);             /* the clean "deek" for dialog letters. pitch ~0.7..1.4 (1.0 = 256.5 Hz), up to 3.0 */
 void sfx_beep(void);                    /* the heart monitor's "peep" (death cutscene) */
 void sfx_flatline(void);                /* the long monitor tone, ~3 s, then it lets go (replaces a peep in progress) */

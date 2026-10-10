@@ -122,7 +122,7 @@ enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COI
 static void think(const char *text, const char *card, BrainScene scene, int tag, int ding) {
     if (dying) return;                                      /* this head is not the vessel's any more */
     if (brainwin_acquire(text, scene, tag) < 0) return;
-    if (ding) sfx_coin();
+    if (ding) sfx_thought();                                /* the calm chime (the coin is for tasks) */
     if (!card) card = text;
     if (*card) thought_say(card, 0);
 }
@@ -302,12 +302,12 @@ static int limbo_enter_req;
 /* what the soul thinks on arriving in limbo after each death: the vessel table's death lines, one entry per life lived (lives - 1;
  * past the end the last entry is used). the first line is said at once, then the soul waits DEATH_LIMBO_HOLD seconds before the story
  * goes on (chunk 15: the vessel is summoned again). later vessels add their own entries here. */
-static const char *const DEATH_LINES_1[] = { "Uh. I died." };      /* vessel 1, Aonia */
-static const struct { const char *const *lines; int n; } DEATH_LINES[] = {
+static const DialogLine DEATH_LINES_1[] = { { &SOUL, "Uh. I died." } };      /* vessel 1, Aonia: a real popup from the soul, not a thought */
+static const struct { const DialogLine *lines; int n; } DEATH_LINES[] = {
     { DEATH_LINES_1, 1 },
 };
 #define DEATH_LINES_COUNT ((int)(sizeof DEATH_LINES / sizeof DEATH_LINES[0]))
-#define DEATH_LIMBO_HOLD    3.0f            /* after the last line: the soul waits a few seconds */
+#define DEATH_LIMBO_HOLD    1.5f            /* after the popup is tapped away: the soul waits a moment */
 static int death_hold_done;                 /* (tests) how many times the hold after a death has run out */
 
 /* what the Grasslands looked like when vessel 1 died (chunk 14): the world forgets a map's npcs and props when it leaves it, the
@@ -341,7 +341,8 @@ static void story_reset_for_respawn(void) {
     dying = 0; vessel_dead = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
-    world_set_player(&VESSEL);                      /* the plain look (until the naming, chunk 18) */
+    brainwin_clear();                               /* the new vessel starts with an empty head: none of vessel 1's thoughts */
+    world_set_player(&VESSEL2);                     /* the new body is summoned already looking like the new character (the ID card stays VAS until the naming) */
     convo_set_player(&VAS);
     world_return_to_clouds();
     dea_tx = world_player_tile_x();                 /* Dea is already waiting 8 tiles above, looking down at us */
@@ -402,10 +403,12 @@ static void death_limbo_hold_over(void) {
     world_summon(respawn_summoned);
     limbo_end();
 }
+static void death_say_done(void) { limbo_run(NULL, 0, DEATH_LIMBO_HOLD, death_limbo_hold_over); }
 static void death_to_limbo(void) {
     world_death_cancel();                   /* behind the black: zoom, colour, heart and words put away */
     int i = lives - 1; if (i < 0) i = 0; if (i >= DEATH_LINES_COUNT) i = DEATH_LINES_COUNT - 1;
-    limbo_run(DEATH_LINES[i].lines, DEATH_LINES[i].n, DEATH_LIMBO_HOLD, death_limbo_hold_over);   /* the soul speaks, then the hold */
+    limbo_run(NULL, 0, 1000.0f, NULL);                      /* limbo on, the soul's voice (the clock waits: the popup decides when it goes on) */
+    dialog_play(DEATH_LINES[i].lines, DEATH_LINES[i].n, death_say_done);   /* the soul speaks (a popup in limbo, game.c drives it), then the hold */
     limbo_enter_req = 1;
 }
 static void story_vessel_died(void) {

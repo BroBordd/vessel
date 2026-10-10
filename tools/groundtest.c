@@ -363,29 +363,32 @@ int main(void) {
     CHECK(!world_death_active() && heart_state() == HEART_OFF && !death_msg[0], "the cutscene was not put away behind the black");
     CHECK(story_limbo_active() && thought_voice() == &SOUL, "the soul's limbo did not begin after the death");
     CHECK(story_limbo_take_enter() == 1 && story_limbo_take_enter() == 0, "the move into limbo must be reported to game.c exactly once");
-    /* chunk 13: the soul says "Uh. I died." at once (no coin, not in the brain window), then a hold of DEATH_LIMBO_HOLD before the story goes on */
-    CHECK(limbo.n == 1 && strcmp(limbo.lines[0], "Uh. I died.") == 0 && thought_active(), "the soul did not say \"Uh. I died.\" on arriving in limbo");
+    /* the soul says "Uh. I died." in a real popup (not a thought, not in the brain window); it waits for a tap, then a hold of DEATH_LIMBO_HOLD */
+    CHECK(dialog_active() && !thought_active(), "the soul did not say \"Uh. I died.\" as a popup on arriving in limbo");
     CHECK(DEATH_LINES_COUNT >= 1 && DEATH_LINES[0].lines == DEATH_LINES_1, "the vessel table has no entry for vessel 1");
     {   int bc = brainwin_count(), h0 = death_hold_done;
-        /* (this run pressed the hole's button before the sky thought's 2.5 s timer fired, so the cloud thought arrives late, on the ground:
-         * in the real game it is long gone. drop it so the count is the real memories) */
+        /* (this run pressed the hole's button before the sky thought's 2.5 s timer fired, so the cloud thought arrives late: drop it) */
         brainwin_drop_tag(THOUGHT_CLOUDS);
-        if (brainwin_count() == 0) brainwin_acquire("This place looks really good. I happen to like grass.", BRAIN_SCENE_GRASS, THOUGHT_GRASS);   /* a memory for the test to keep */
+        if (brainwin_count() == 0) brainwin_acquire("This place looks really good. I happen to like grass.", BRAIN_SCENE_GRASS, THOUGHT_GRASS);   /* a vessel 1 thought that must NOT survive */
         bc = brainwin_count();
-        head_at_death = bc;
-        for (float t = 0; t < DEATH_LIMBO_HOLD - 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(brainwin_count() == bc, "the death line joined the brain window");
-        CHECK(death_hold_done == h0, "the hold after the death line ended too early");
-        for (float t = 0; t < 0.6f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(death_hold_done == h0 + 1, "the hold after the death line did not end (%d)", death_hold_done - h0);
-        for (float t = 0; t < 5.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(death_hold_done == h0 + 1, "the hold ran twice (%d)", death_hold_done - h0); }
+        for (float t = 0; t < 5.0f; t += 0.01f) { story_limbo_update(0.01f); dialog_update(0.01f); }
+        CHECK(dialog_active() && death_hold_done == h0, "the popup went on without a tap");
+        for (int k = 0; k < 6 && dialog_active(); k++) { for (float t = 0; t < 1.5f; t += 0.01f) dialog_update(0.01f); dialog_touch(0, TW / 2, TH * 4 / 5); dialog_touch(1, TW / 2, TH * 4 / 5); }
+        CHECK(!dialog_active() && brainwin_count() == bc, "the popup did not end / joined the brain window");
+        for (float t = 0; t < DEATH_LIMBO_HOLD - 0.3f; t += 0.01f) story_limbo_update(0.01f);
+        CHECK(death_hold_done == h0, "the hold after the popup ended too early");
+        for (float t = 0; t < 0.6f; t += 0.01f) story_limbo_update(0.01f);
+        CHECK(death_hold_done == h0 + 1, "the hold after the popup did not end (%d)", death_hold_done - h0);
+        for (float t = 0; t < 5.0f; t += 0.01f) story_limbo_update(0.01f);
+        CHECK(death_hold_done == h0 + 1, "the hold ran twice (%d)", death_hold_done - h0);
+        head_at_death = 0; }                                      /* the new vessel starts with an empty head */
     /* chunk 14: behind the scenes the next life is made ready: cloud map, Dea waiting, plain VAS card, empty head and task list,
      * the Grasslands story state (Alex, the polluted shrine) remembered */
     CHECK(cur_map == MAP_CLOUD, "not back on the cloud map for the next life");
     CHECK(hud_person() == &VAS, "the ID card is not plain VAS again");
-    /* (story change: the vessel keeps its memories in every body, so the head is NOT emptied; the task list is) */
-    CHECK(head_at_death > 0 && brainwin_count() == head_at_death, "the brain window did not keep its thoughts through the death (%d -> %d)", head_at_death, brainwin_count());
+    /* (the new vessel has none of vessel 1's thoughts: the head is emptied, and so is the task list) */
+    CHECK(brainwin_count() == 0, "the new vessel kept vessel 1's thoughts (%d)", brainwin_count());
+    CHECK(world_player() == &VESSEL2, "the new body is not summoned looking like the new character");
     CHECK(missions_count() == 0, "the task list is not empty (%d)", missions_count());
     CHECK(!dying && !vessel_dead && !world_death_active(), "dying / vessel_dead / the death cutscene were not reset");
     CHECK(npc_count() == 1 && dea_id >= 0 && alex_id < 0, "the sky should hold only Dea (npcs %d)", npc_count());
@@ -410,7 +413,7 @@ int main(void) {
         for (int i = 0; i < 12 && dialog_active() && !convo_active(); i++) {
             run(2.0f);
             if (named_at < 0 && hud_person() == &VESSEL2) named_at = i;    /* chunk 18: the naming happens as the last page begins */
-            if (i == 1) CHECK(hud_person() == &VAS && world_player() == &VESSEL, "named too early");
+            if (i == 1) CHECK(hud_person() == &VAS && world_player() == &VESSEL2, "the card is named too early (the body already looks like Doia)");
             tap(TW / 2, TH * 4 / 5); pages++;
         }
         /* the naming came while the dialog was still open, no earlier than the last page could begin (a page needs a tap or two), and

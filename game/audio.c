@@ -131,6 +131,7 @@ static int mus_read(Sint16 *out, int frames) {
  * volume, so a ding is always heard at the same loudness whatever the music is set to. */
 static int   sfx_on, sfx_pos;                  /* guarded by the device lock (the callback holds it) */
 static float sfx_phase;
+static int   sfx_mode;                         /* 0 = the coin ding, 1 = the calm thought chime (same voice) */
 #define COIN_NOTE1_T 0.085f                    /* the short first note, seconds */
 #define COIN_END_T   0.75f                     /* total length */
 
@@ -138,7 +139,15 @@ static float sfx_phase;
 void sfx_coin(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
-    sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f;
+    sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f; sfx_mode = 0;
+    SDL_UnlockAudioDevice(dev);
+}
+
+/* a thought arriving: calm, soft and low: two gentle sines (G4 then D5) with a slow attack and a long fade, nothing like the coin */
+void sfx_thought(void) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f; sfx_mode = 1;
     SDL_UnlockAudioDevice(dev);
 }
 
@@ -182,6 +191,22 @@ static void blip_mix(Sint16 *out, int frames) {
 static void sfx_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)sfx_pos / (float)OUT_RATE;
+        if (sfx_mode == 1) {                                       /* the thought chime */
+            if (tt >= 1.1f) { sfx_on = 0; return; }
+            float f = tt < 0.16f ? 392.0f : 587.33f, t0 = tt < 0.16f ? 0.0f : 0.16f;
+            float env = expf(-(tt - t0) * 4.0f);
+            float a = (tt - t0) / 0.03f; if (a < 1.0f) env *= a;      /* slow attack: no tick */
+            if (tt < 0.16f && tt > 0.13f) env *= (0.16f - tt) / 0.03f;   /* the first note lets go before the second */
+            sfx_phase += f / (float)OUT_RATE;
+            if (sfx_phase >= 1.0f) sfx_phase -= 1.0f;
+            int v = (int)(sinf(6.2831853f * sfx_phase) * env * 0.13f * 32767.0f);
+            for (int c = 0; c < 2; c++) {
+                int o = out[i * 2 + c] + v;
+                out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+            }
+            sfx_pos++;
+            continue;
+        }
         if (tt >= COIN_END_T) { sfx_on = 0; return; }
         float f, env;
         if (tt < COIN_NOTE1_T) { f = 987.77f;  env = 1.0f; }
@@ -191,7 +216,7 @@ static void sfx_mix(Sint16 *out, int frames) {
         if (sfx_phase >= 1.0f) sfx_phase -= 1.0f;
         float sq = sfx_phase < 0.5f ? 1.0f : -1.0f;                /* chiptune pulse + a little sine for the shine */
         float sn = sinf(6.2831853f * sfx_phase);
-        int v = (int)((0.55f * sq + 0.45f * sn) * env * 0.30f * 32767.0f);
+        int v = (int)((0.55f * sq + 0.45f * sn) * env * 0.15f * 32767.0f);   /* (0.30 before: half as loud) */
         for (int c = 0; c < 2; c++) {
             int o = out[i * 2 + c] + v;
             out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);

@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
         /* the pause and brain buttons come in together, once the game really runs (not during the opening's popup and dawn). a death's limbo
          * keeps the brain button: the soul thinks there */
         pausebtn_set_enabled(state == ST_WORLD && !world_dawning());
-        thought_set_enabled((state == ST_WORLD && !world_dawning()) || (state == ST_LIMBO && !story_limbo_opening()));
+        thought_set_enabled(state == ST_WORLD && !world_dawning());
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_set_wide(state == ST_WORLD);          /* the task panels only exist in the world: before that the card ends at the equalizer */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
