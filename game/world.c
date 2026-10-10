@@ -168,14 +168,6 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 }
 static void col(SDL_Renderer *r, int R, int G, int B, int A) { SDL_SetRenderDrawColor(r, R, G, B, A); }
 
-static void disc(SDL_Renderer *r, int cx, int cy, int rad) {
-    for (int dy = -rad; dy <= rad; dy++) {
-        int hw = (int)sqrtf((float)(rad * rad - dy * dy));
-        fill(r, cx - hw, cy + dy, hw * 2 + 1, 1);
-    }
-}
-
-
 /* ---------- pixel circles (the stick and the interact button: no smooth round edges) ----------
  * everything is built from square cells of `cell` px laid on a grid centred on (cx, cy).
  * a cell is in when its centre is inside the circle, so the edge is a clean staircase. */
@@ -239,7 +231,7 @@ static void draw_cloud_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
-/* mario-style scalloped edge: round puffs bulging out of every cloud tile that touches the sky.
+/* mario-style scalloped edge: pixel-art puffs (square cells, no smooth curves) bulging out of every cloud tile that touches the sky.
  * two passes (outline, then fill) so neighbouring puffs merge into one bumpy rim. */
 static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, int tx1, int ty1) {
     static const int dx4[4] = { 0, 0, -1, 1 }, dy4[4] = { -1, 1, 0, 0 };
@@ -251,17 +243,17 @@ static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, in
                 for (int d = 0; d < 4; d++) {
                     int nx = tx + dx4[d], ny = ty + dy4[d];
                     if (nx >= 0 && ny >= 0 && nx < mw && ny < mh && map[ny][nx] != T_SKY) continue;
-                    for (int k = 0; k < 3; k++) {                       /* 3 puffs per edge */
-                        float along = (1.0f + k * 3.0f) * px;           /* 1, 4, 7 units along the edge */
+                    for (int k = 0; k < 1; k++) {                       /* one big puff per edge: a round pixel circle, so the rim reads as bumps */
+                        float along = 4.0f * px;                        /* the middle of the edge */
                         float bob = sinf(t * 1.6f + tx * 0.9f + ty * 1.3f + k * 2.0f + d);
-                        int rad = (int)((2.1f + 0.3f * bob) * px) + (pass == 0 ? px : 0);
+                        int rad = (int)((3.6f + 0.3f * bob) * px) + (pass == 0 ? px : 0);
                         int bx, by;
                         if (d == 0)      { bx = x + (int)along;  by = y; }
                         else if (d == 1) { bx = x + (int)along;  by = y + tile; }
                         else if (d == 2) { bx = x;               by = y + (int)along; }
                         else             { bx = x + tile;        by = y + (int)along; }
                         if (pass == 0) col(r, 170, 196, 236, 255); else col(r, 252, 253, 255, 255);
-                        disc(r, bx, by, rad);
+                        pdisc(r, bx, by, rad, px);                  /* a pixel circle: a staircase on the sprite-pixel grid */
                     }
                 }
             }
