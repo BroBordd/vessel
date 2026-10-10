@@ -234,7 +234,32 @@ int main(void) {
         put_player(shx - 8.0f, shy); run(0.3f);
         CHECK(!near_shrine, "the button shows 8 tiles from the shrine");
         put_player(shx - 1.6f, shy); run(0.4f);
-        CHECK(near_shrine, "the button does not see the shrine at 1.6 tiles");
+        CHECK(!near_shrine, "the button shows next to the shrine without the hammer");
+        CHECK(!world_has_item(ITEM_HAMMER) && item_exists(), "the hammer is not lying on the map at the start");
+        {   float hx, hy; item_tile(&hx, &hy);
+            float dh = sqrtf((hx - shx) * (hx - shx) + (hy - shy) * (hy - shy));
+            printf("hammer tile %.0f,%.0f  %.1f tiles from the shrine\n", hx, hy, dh);
+            CHECK(dh >= HAMMER_FROM_SHRINE - 0.5f, "the hammer lies too close to the shrine (%.1f)", dh);
+            CHECK(!solid_tile((int)hx, (int)hy), "the hammer lies on a solid tile");
+            CHECK(!item_ui_hit(TW - 20, 220), "the inventory shows while it is empty");
+            put_player(hx - 3.0f, hy); run(0.3f);
+            CHECK(!world_has_item(ITEM_HAMMER), "the hammer was picked up from 3 tiles away");
+            put_player(hx, hy); run(0.4f);
+            CHECK(world_has_item(ITEM_HAMMER) && !item_exists(), "walking onto the hammer did not pick it up");
+            CHECK(hammer_said, "no thought on picking the hammer up");
+            shot("build/ground_hammer_slot.bmp");
+            int ix = TW - 30, iy = 0;                                   /* the slot hangs under the minimap: find it */
+            for (int y = 150; y < 400 && !item_ui_hit(ix, y); y += 2) iy = y + 2;
+            CHECK(item_ui_hit(ix, iy), "no inventory slot under the minimap after the pickup");
+            CHECK(!item_ui_open(), "the inventory starts unfolded");
+            tap(ix, iy); run(0.2f);
+            CHECK(item_ui_open(), "tapping the slot did not unfold the inventory");
+            shot("build/ground_hammer_open.bmp");
+            tap(ix, iy + 4); run(0.2f);
+            CHECK(!item_ui_open(), "tapping the panel did not fold the inventory");
+            CHECK(!btn_down && !stick_on, "a tap on the inventory started the stick or the button"); }
+        put_player(shx - 1.6f, shy); run(0.4f);
+        CHECK(near_shrine, "the button does not see the shrine at 1.6 tiles (with the hammer)");
         shot("build/ground_shrine_near.bmp");
 
         tap(bx, by); run(0.3f);                                 /* a tap is not enough */

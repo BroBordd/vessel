@@ -18,7 +18,7 @@
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near
  *   world_open_hole(x, y, on_enter)         cloud hole in the floor you can jump into
  *   world_place_shrine(x, y)                Dia's shrine prop on the map (blocks the player, inert)
- *   world_enable_shrine(on_done)            the shrine can be used: hold the interact button next to it to pollute it, then on_done()
+ *   world_enable_shrine(on_done)            the shrine can be used: hold the interact button next to it (it needs the hammer) to break it, then on_done()
  *   world_fall_to_green(on_up)              jump, fall, land face-first, get up, then on_up()
  *   hud_set_person(&PERSON)                 change who the ID card shows. a new name flashes, dings + toasts
  *   hud_set_hp(hp, max)                     the HP bar on the ID card
@@ -39,6 +39,7 @@
 #include "npc.h"
 #include "world.h"
 #include "grave.h"
+#include "item.h"
 #include "audio.h"
 #include "jukebox.h"
 #include "heart.h"
@@ -82,11 +83,13 @@ void story_after(float seconds, void (*fn)(void)) {
 static void alex_watch(void);               /* the proximity triggers, defined with the scenes below */
 static void dea_watch(void);
 static void grave_watch(void);
+static void hammer_watch(void);
 
 void story_update(float dt) {
     alex_watch();
     dea_watch();
     grave_watch();
+    hammer_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -114,7 +117,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -257,7 +260,7 @@ static const DialogLine ALEX_DEAL[] = {
     { &ALEX,   "Just the orb, huh? Finders keepers." },
     { &ALEX,   "But I am a fair person. Do one small thing for me, and it is yours." },
     { &VESSEL, "What kind of thing?" },
-    { &ALEX,   "Dia has a shrine near here. She thinks she owns the whole place. Go {pollute the shrine}, then come back to me." },
+    { &ALEX,   "Dia has a shrine near here. She thinks she owns the whole place. Go {break the shrine}, then come back to me." },
 };
 #define ALEX_DEAL_COUNT  ((int)(sizeof ALEX_DEAL / sizeof ALEX_DEAL[0]))
 #define ALEX_DEAL_PAGE   (ALEX_DEAL_COUNT - 1)
@@ -268,6 +271,17 @@ static const DialogLine ALEX_DEAL[] = {
 #define SHRINE_MIN_DIST    16               /* tiles from the landing spot */
 #define SHRINE_MAX_DIST    26
 #define SHRINE_FROM_ALEX   18               /* and not on top of Alex: she is somewhere else entirely */
+
+/* ---------- the hammer ----------
+ * the shrine is broken, not just touched: the interact button only shows next to it for a player who carries the hammer (item.c).
+ * the hammer lies somewhere across the map: HAMMER_MIN_DIST..HAMMER_MAX_DIST tiles from the landing and at least HAMMER_FROM_SHRINE
+ * from the shrine, so it is a walk there and a walk back. picking it up gives a thought; standing at the switched-on shrine without it
+ * gives a hint, once. if the map has no room for it the player simply starts with it (never a game that cannot be finished). */
+#define HAMMER_MIN_DIST     12
+#define HAMMER_MAX_DIST     30
+#define HAMMER_FROM_SHRINE  14
+#define HAMMER_HINT_NEAR    3.5f            /* tiles from the shrine */
+static int hammer_hinted, hammer_said;
 
 /* ---------- Dia's wrath (chunk 11) ----------
  * the shrine is polluted. a beat of quiet, then Dia hijacks the brain button: "HOW DARE YOU", red and shaking,
@@ -339,6 +353,7 @@ static void story_reset_for_respawn(void) {
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
     mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = -1;
     dying = 0; vessel_dead = 0;
+    world_clear_items();                            /* the new body has empty pockets */
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
     brainwin_clear();                               /* the new vessel starts with an empty head: none of vessel 1's thoughts */
@@ -453,6 +468,7 @@ static void shrine_done(void) {
     dying = 1;
     jukebox_scene_fade(0.15f);                              /* the music dies the moment it is fouled (map music only: a custom track keeps playing) */
     brainwin_drop_tag(THOUGHT_SHRINE);                      /* "I doubt that ends well" has come true, or is about to */
+    brainwin_drop_tag(THOUGHT_HAMMER);
     mission_complete(mission_pollute);
     world_set_controls_visible(0);                          /* she is watching: the vessel stands still */
     story_after(WRATH_BEAT, dia_wrath);
@@ -460,20 +476,40 @@ static void shrine_done(void) {
 
 static void shrine_thought(void) {
     if (shrine_fouled) return;                              /* too late: it is done already */
-    think("Polluting a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_ORB, THOUGHT_SHRINE, 1);
+    think("Breaking a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_ORB, THOUGHT_SHRINE, 1);
+}
+
+/* the hammer's thoughts, every frame: picking it up (what the vessel thinks depends on whether it knows about the shrine yet), and the
+ * hint when standing at a switched-on shrine with empty hands */
+static void hammer_watch(void) {
+    if (dying || dialog_active()) return;
+    int knows = mission_pollute >= 0 && !shrine_fouled;
+    if (!hammer_said && world_has_item(ITEM_HAMMER)) {
+        hammer_said = 1;
+        brainwin_drop_tag(THOUGHT_HAMMER);                  /* "I need something heavy" is answered */
+        if (knows) think("A hammer. That should break the shrine.", "That should break the shrine.", BRAIN_SCENE_ORB, THOUGHT_HAMMER, 1);
+        else       think("A hammer. This might come in handy.", "This might come in handy.", BRAIN_SCENE_GRASS, THOUGHT_HAMMER, 1);
+        return;
+    }
+    if (hammer_hinted || hammer_said || !knows || !world_shrine_exists()) return;
+    float sx, sy; world_shrine_tile(&sx, &sy);
+    float dx = world_player_tile_x() - sx, dy = world_player_tile_y() - sy;
+    if (dx * dx + dy * dy > HAMMER_HINT_NEAR * HAMMER_HINT_NEAR) return;
+    hammer_hinted = 1;
+    think("I cannot break it with my hands. I need something heavy.", "I need something heavy.", BRAIN_SCENE_ORB, THOUGHT_HAMMER, 1);
 }
 
 static void alex_deal_highlight(int page, int span) {
     if (page != ALEX_DEAL_PAGE || span != 0 || mission_pollute >= 0) return;
     brainwin_drop_tag(THOUGHT_ORB);                         /* "I need to find that orb": found, so it goes silently */
     mission_complete(mission_find_orb);
-    mission_pollute = task_toast("Pollute the shrine");         /* the vessel never says Dia's name */
+    mission_pollute = task_toast("Break the shrine");         /* the vessel never says Dia's name */
     world_enable_shrine(shrine_done);                       /* now the shrine can be used (and shows on the minimap) */
 }
 
 /* the free chat after the scripted part is over: the head catches up with what just happened */
 static void alex_chat_end(void) {
-    think("Alex has the orb. All I need is a polluted shrine.", "Alex has the orb. I need a polluted shrine.", BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
+    think("Alex has the orb. All I need is a broken shrine.", "Alex has the orb. I need a broken shrine.", BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
     story_after(10.0f, shrine_thought);
 }
 
@@ -546,6 +582,12 @@ static void landed(void) {
         int shx, shy;                                       /* Dia's shrine: a walk too, but nearer than Alex, and not next to her */
         if (world_find_spot_away(SHRINE_MIN_DIST, SHRINE_MAX_DIST, tx, ty, SHRINE_FROM_ALEX, &shx, &shy))
             world_place_shrine(shx, shy);
+        int hx, hy;                                         /* the hammer: across the map from the shrine (anywhere if that does not fit) */
+        float sfx_, sfy_; world_shrine_tile(&sfx_, &sfy_);
+        if (world_shrine_exists() && world_find_spot_away(HAMMER_MIN_DIST, HAMMER_MAX_DIST, (int)sfx_, (int)sfy_, HAMMER_FROM_SHRINE, &hx, &hy))
+            world_place_item(ITEM_HAMMER, hx, hy);
+        else if (world_find_spot_away(HAMMER_MIN_DIST, HAMMER_MAX_DIST, 0, 0, 0, &hx, &hy)) world_place_item(ITEM_HAMMER, hx, hy);
+        else world_give_item(ITEM_HAMMER);
     }
     dialog_play(LANDING, (int)(sizeof LANDING / sizeof LANDING[0]), landing_done);
 }
@@ -640,6 +682,7 @@ void story_start(void) {
     mission_talk_dea = -1;
     mission_find_orb = -1;
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;

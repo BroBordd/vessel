@@ -6,6 +6,7 @@
 #include "missions.h"
 #include "npc.h"
 #include "shrine.h"
+#include "item.h"
 #include "grave.h"
 #include "heart.h"
 #include "summon.h"
@@ -366,6 +367,7 @@ static void load_map(int which) {
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
     shrine_reset(px, tile);
+    item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     near_shrine = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
@@ -407,6 +409,7 @@ void world_init(int w, int h) {
     {   /* the minimap hangs right under the ID card: same right edge, same width */
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
         minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u), cw);
+        item_ui_init(w, h, cx + cw, minimap_bottom() + (int)(5 * u), cw);       /* the inventory hangs under the minimap */
     }
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
     story_start();                              /* the script takes it from here (story.c) */
@@ -512,6 +515,10 @@ int world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty
     return 1;
 }
 
+void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); }
+int  world_has_item(int kind) { return item_has(kind); }
+void world_give_item(int kind) { item_give(kind); }
+void world_clear_items(void) { item_clear(); }
 int  world_shrine_exists(void) { return shrine_exists(); }
 int  world_shrine_polluted(void) { return shrine_polluted(); }
 void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
@@ -602,6 +609,7 @@ void world_touch(int a, int x, int y) {
         return;
     }
     if (!controls_visible || phase != PH_PLAY) return;
+    if (item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
 
     /* interact button: press on it, release on it = interact */
     int can = near_id >= 0 || near_hole || near_shrine;
@@ -742,7 +750,8 @@ void world_update(float dt) {
 
         npc_update(pxp, pyp);
         update_hole_range();
-        near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole);
+        item_update(dt, pxp, pyp, !dialog_active() && !near_hole);   /* walking over the hammer picks it up */
+        near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && item_has(ITEM_HAMMER));   /* no hammer, no button */
         near_id = (dialog_active() || near_hole || near_shrine) ? -1 : npc_nearby();
         if (near_id < 0 && !near_hole && !near_shrine) btn_down = btn_inside = 0;
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
@@ -911,13 +920,10 @@ static void draw_interact_button(SDL_Renderer *r) {
             SDL_RenderSetClipRect(r, NULL);
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }
-        int a = br / 7; if (a < 2) a = 2;
-        static const int DW[8] = { 1, 1, 3, 3, 5, 5, 5, 3 };           /* the drop, top to bottom, in cells */
-        int wob = (int)(sinf(t * 6.0f) * a * 0.3f);
-        col(r, 0, 0, 0, 120);
-        for (int k = 0; k < 8; k++) fill(r, bcx - DW[k] * a / 2 + a / 3, bcy - 4 * a + k * a + wob + a / 3, DW[k] * a, a);
-        col(r, p > 0.5f ? 40 : 190, p > 0.5f ? 70 : 255, p > 0.5f ? 40 : 120, 255);
-        for (int k = 0; k < 8; k++) fill(r, bcx - DW[k] * a / 2, bcy - 4 * a + k * a + wob, DW[k] * a, a);
+        int a = br / 9; if (a < 2) a = 2;                                /* the hammer: it rocks while idle and swings while held */
+        int swing = (int)(sinf(t * (p > 0 ? 16.0f : 5.0f)) * a * (p > 0 ? 0.9f : 0.4f));
+        int side = ITEM_ICON_CELLS * a;
+        item_draw_icon(r, ITEM_HAMMER, bcx - side / 2, bcy - side / 2 + swing, a);
         return;
     }
     if (near_hole) {                                             /* pixel arrow pointing down */
@@ -989,6 +995,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
+    item_draw_ground(r, cx, cy, t);                               /* lying on the grass: under everyone */
     if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
     for (int i = 0; i < grave_count(); i++)
         if (grave_foot_y(i) <= pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }     /* (the photo is greyed with the filter: put the scene's own back) */
@@ -1129,9 +1136,11 @@ void world_draw(SDL_Renderer *r) {
         MiniMark marks[MAX_MARKS]; int nm = 0;
         for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
         if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
+        if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
         for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
         if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
         minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
+        item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
          * "New task added" toast hangs under the list, so it is pushed down with it and a thought sits clean */

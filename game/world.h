@@ -53,6 +53,13 @@ int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_t
 int  world_grave_count(void);
 float world_dist_to_grave(void);                          /* tiles from the player to the nearest grave on this map (1e9: none) */
 void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */
+/* ITEMS (item.h): world_place_item lays one on the current map (walking over it picks it up; the map forgets it when a new one loads),
+ * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
+ * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
+void world_place_item(int kind, int tile_x, int tile_y);
+int  world_has_item(int kind);
+void world_give_item(int kind);
+void world_clear_items(void);
 int  world_shrine_exists(void);                /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */
 int  world_shrine_polluted(void);
 void world_shrine_tile(float *tx, float *ty);

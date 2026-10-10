@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "char.h"
 
-typedef struct { float tx, ty; int kind; } MiniMark;      /* kind: 0 npc, 1 hole, 2 shrine, 3 grave */
+typedef struct { float tx, ty; int kind; } MiniMark;      /* kind: 0 npc, 1 hole, 2 shrine, 3 grave, 4 item */
 
 void minimap_init(int w, int h, int right_edge, int top, int width);   /* the box (frame included) is `width` px wide and square, right-aligned to right_edge, starts at top */
 int  minimap_bottom(void);                                  /* y just below the box */
