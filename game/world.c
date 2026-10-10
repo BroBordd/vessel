@@ -8,6 +8,7 @@
 #include "shrine.h"
 #include "heart.h"
 #include "story.h"
+#include "font.h"
 #include "nowplaying.h"
 #include "toast.h"
 #include "thought.h"
@@ -79,9 +80,12 @@ static void (*hole_cb)(void);
 #define DEATH_ZOOM_T    2.2f        /* seconds for the slow push-in */
 #define DEATH_GREY_AT   0.4f        /* the colour drains from here ... */
 #define DEATH_GREY_T    1.6f        /* ... over this long */
+#define DEATH_TEXT_FADE 1.2f        /* seconds for the words to fade in */
 #define DEATH_SETTLE_T  2.6f        /* everything has arrived: on_ready runs */
 static int   death_on;
 static float death_t;
+static char  death_msg[48];         /* the words over the cutscene (chunk 15), "" = none */
+static float death_msg_t;
 static void (*death_cb)(void);
 static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 
@@ -349,7 +353,7 @@ void world_init(int w, int h) {
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; talk_npc = -1;
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset();
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0;
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -436,13 +440,16 @@ void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); 
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
 
 void world_death_begin(void (*on_ready)(void)) {
-    death_on = 1; death_t = 0; death_cb = on_ready; heart_reset();
+    death_on = 1; death_t = 0; death_cb = on_ready; heart_reset(); death_msg[0] = 0;
     world_set_controls_visible(0);
     facing = FACE_DOWN; moving = 0; walk = 0; talk_npc = -1;      /* facing us, standing still */
 }
 int world_death_active(void) { return death_on; }
+void world_death_text(const char *text) {                          /* the words over the cutscene: fade in, then stay */
+    snprintf(death_msg, sizeof death_msg, "%s", text ? text : ""); death_msg_t = 0;
+}
 void world_death_cancel(void) {                                   /* back to normal (the stand-in ending of chunk 12-14) */
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset();
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0;
     zoom_target = 1.0f;
     world_set_controls_visible(1);
 }
@@ -578,6 +585,7 @@ static void update_hole_range(void) {
 }
 
 void world_update(float dt) {
+    if (death_msg[0]) death_msg_t += dt;
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
     heart_update(dt);                                         /* (the heart and its blood are not part of the world: they move on) */
     story_update(dt);
@@ -935,6 +943,19 @@ void world_draw(SDL_Renderer *r) {
     if (death_on && heart_state() != HEART_OFF) {                 /* the heart over the chest, on top of the zoomed scene */
         int fx, fy, cy, ps; world_death_player(&fx, &fy, &cy, &ps);
         heart_draw(r, fx, cy, ps);
+    }
+    if (death_on && death_msg[0]) {                               /* "Aonia has died.": white, unfiltered, in the lower third */
+        gfx_set_filter(0, 0);
+        float k = death_msg_t / DEATH_TEXT_FADE; if (k > 1) k = 1;
+        float u1 = (W < H ? W : H) / 360.0f;
+        int n = (int)strlen(death_msg), cell = (int)(5.0f * u1);
+        while (cell > 2 && font_width(death_msg, cell) > W * 9 / 10) cell--;     /* never wider than the screen */
+        (void)n;
+        int tw = font_width(death_msg, cell), tx = (W - tw) / 2, ty = H * 4 / 5 - font_height(cell) / 2;
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        col(r, 0, 0, 0, (int)(110 * k)); fill(r, 0, ty - 3 * cell, W, font_height(cell) + 6 * cell);     /* a dark band under the words */
+        col(r, 20, 0, 4, (int)(255 * k)); font_draw(r, death_msg, tx + cell, ty + cell, cell);           /* shadow */
+        col(r, 255, 255, 255, (int)(255 * k)); font_draw(r, death_msg, tx, ty, cell);
     }
 
 

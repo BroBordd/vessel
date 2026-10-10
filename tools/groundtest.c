@@ -248,13 +248,22 @@ int main(void) {
         CHECK(redpx > 60, "no blood on the screen (%d red samples)", redpx); }
     run(2.3f);
     CHECK(heart_particles() == 0 && heart_state() == HEART_BURST, "the blood never settled (%d pixels left)", heart_particles());
-    run(DEATH_HOLD_STANDIN + 0.4f);                               /* the stand-in undoes it */
-    CHECK(heart_state() == HEART_OFF, "the heart is still there after the cutscene was cancelled");
+    /* chunk 15: the words. 0.4 + 2.3 s after the burst we are past DEATH_TEXT_AT (1.1 s), the text is fading in or in */
+    CHECK(death_msg[0] && strcmp(death_msg, "Aonia has died.") == 0, "the death text is '%s'", death_msg);
+    CHECK(!vessel_dead, "story_vessel_died ran before the words had their time");
+    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, white = 0;      /* the words: white pixels in the lower third, on the dark band */
+        for (int y = TH * 4 / 5 - 60; y < TH * 4 / 5 + 60; y += 2) for (int x = 20; x < TW - 20; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 235 && c[1] > 235 && c[2] > 235) white++; }
+        CHECK(white > 40, "no white words on the screen (%d white samples)", white); }
+    shot("build/ground_death_text.bmp");
+    run(DEATH_END_HOLD + 0.5f);
+    CHECK(vessel_dead, "story_vessel_died never ran");
+    CHECK(world_death_active() && death_msg[0], "the death screen did not stay for vessel 2");
     CHECK(sfx_debug_beeps() == b0 + DEATH_BEEPS && sfx_debug_flatlines() == f0 + 1, "the monitor played %d peeps and %d flatlines (want %d, 1)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0, DEATH_BEEPS);
-    CHECK(!world_death_active() && controls_visible, "the stand-in did not give the game back");
+    CHECK(!controls_visible, "the controls came back at the end");
+    world_death_cancel();                                         /* only the tests/stand-ins undo it */
+    CHECK(heart_state() == HEART_OFF && !death_msg[0], "cancel left the heart or the words behind");
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
-    shot("build/ground_death_after.bmp");
 
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;

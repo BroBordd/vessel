@@ -53,6 +53,7 @@ void world_death_begin(void (*on_ready)(void));
 int  world_death_active(void);
 void world_death_player(int *feet_x, int *feet_y, int *chest_y, int *pixel);
 void world_death_cancel(void);
+void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);

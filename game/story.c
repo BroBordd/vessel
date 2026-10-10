@@ -176,16 +176,25 @@ static const DialogLine ALEX_DEAL[] = {
 
 /* ---------- the death (chunks 12-15) ----------
  * chunk 12: the camera pushes in to 300 %, the world freezes and drains grey, the player goes red (world.c).
- * chunk 13 adds the sound, 14 the heart, 15 the words "Aonia has died." and the end hook. until those exist,
- * death_ready() holds the picture for a moment and then undoes it, so the build stays playable. */
+ * chunk 13 adds the sound, 14 the heart, 15 the words "Aonia has died." and the end hook story_vessel_died() (vessel 2 starts there;
+ * until it exists the death picture stays and the pause button restarts). */
 #define DEATH_BEEPS         3               /* "peep. peep. peep." ... */
 #define DEATH_BEEP_GAP      0.85f           /* ... this far apart (the first one is at once) ... */
 #define DEATH_FLAT_AT       (DEATH_BEEPS * DEATH_BEEP_GAP)   /* ... and where the fourth would be, the flatline starts and the heart bursts */
-#define DEATH_HOLD_STANDIN  (DEATH_FLAT_AT + 3.0f)           /* STAND-IN: how long the picture is held before it is undone */
+#define DEATH_TEXT_AT       1.1f            /* after the flatline and the burst: the words fade in over the blood */
+#define DEATH_END_HOLD      4.5f            /* the words stay this long, then the mission is over: story_vessel_died() */
 
-static void death_undo(void) { world_death_cancel(); }          /* STAND-IN: chunk 15 replaces this */
+/* the end hook of vessel 1's mission. vessel 2 (respawn at Dea, the name Doia, her scolding) is NOT built yet: it starts here.
+ * until then the picture just stays (the pause button still restarts). */
+static int vessel_dead;
+static void story_vessel_died(void) { vessel_dead = 1; }
+
+static void death_text(void) {
+    world_death_text(VESSEL_NAME " has died.");
+    story_after(DEATH_END_HOLD, story_vessel_died);
+}
 static int  beeps_left;
-static void death_flat(void) { sfx_flatline(); heart_burst(); }  /* the long tone and the burst, together */
+static void death_flat(void) { sfx_flatline(); heart_burst(); story_after(DEATH_TEXT_AT, death_text); }  /* the long tone and the burst, together; then the words */
 static void death_beep(void) {
     sfx_beep(); heart_pulse();
     if (--beeps_left > 0) story_after(DEATH_BEEP_GAP, death_beep);
@@ -196,7 +205,6 @@ static void death_ready(void) {
     beeps_left = DEATH_BEEPS;
     heart_show();                                           /* over the chest, thumping with every peep */
     death_beep();
-    story_after(DEATH_HOLD_STANDIN, death_undo);
 }
 
 static void death_begin(void) { world_death_begin(death_ready); }
