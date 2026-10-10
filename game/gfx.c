@@ -106,7 +106,31 @@ SDL_Renderer *gfx_dummy_renderer(void) { return (SDL_Renderer *)&dummy_renderer;
 
 unsigned gfx_rect_stat(void) { unsigned m = rects_max; rects_max = 0; return m; }
 
+static int f_grey, f_red;                            /* the colour filter, see gfx.h */
+
+void gfx_set_filter(int grey, int red) {
+    f_grey = grey < 0 ? 0 : grey > 256 ? 256 : grey;
+    f_red  = red  < 0 ? 0 : red  > 256 ? 256 : red;
+}
+
+static void filter_colour(Uint8 *R, Uint8 *G, Uint8 *B) {
+    int r = *R, g = *G, b = *B;
+    if (f_grey) {
+        int lum = (299 * r + 587 * g + 114 * b) / 1000;
+        r += (lum - r) * f_grey / 256; g += (lum - g) * f_grey / 256; b += (lum - b) * f_grey / 256;
+        int dim = 256 - 56 * f_grey / 256;           /* up to a fifth darker */
+        r = r * dim / 256; g = g * dim / 256; b = b * dim / 256;
+    }
+    if (f_red) {
+        r += (255 - r) * 77 * f_red / (256 * 256);   /* a little brighter in the reds ... */
+        g = g * (256 * 256 - 154 * f_red) / (256 * 256);   /* ... and the greens and blues drain */
+        b = b * (256 * 256 - 166 * f_red) / (256 * 256);
+    }
+    *R = (Uint8)r; *G = (Uint8)g; *B = (Uint8)b;
+}
+
 int gfx_SetRenderDrawColor(SDL_Renderer *r, Uint8 R, Uint8 G, Uint8 B, Uint8 A) {
+    if (f_grey || f_red) filter_colour(&R, &G, &B);
     cr = R; cg = G; cb = B; ca = A;
     return gpu ? 0 : SDL_SetRenderDrawColor(r, R, G, B, A);
 }

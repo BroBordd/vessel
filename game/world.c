@@ -14,6 +14,7 @@
 #include "minimap.h"
 #include "audio.h"
 #include "jukebox.h"
+#include "gfx.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -70,6 +71,18 @@ static SDL_Texture *ztex; static SDL_Renderer *zren;   /* the scene is drawn her
 static int   hole_on, hole_tx, hole_ty, near_hole, hole_in_range;
 static float hole_t;
 static void (*hole_cb)(void);
+
+/* the death cutscene (vessel 1's ending, chunks 12-15): the world freezes, the camera pushes in to 300 % on the
+ * player, everything but the player goes grey and the player goes red. world_death_begin() starts it. */
+#define ZOOM_DEATH      3.0f
+#define DEATH_ZOOM_T    2.2f        /* seconds for the slow push-in */
+#define DEATH_GREY_AT   0.4f        /* the colour drains from here ... */
+#define DEATH_GREY_T    1.6f        /* ... over this long */
+#define DEATH_SETTLE_T  2.6f        /* everything has arrived: on_ready runs */
+static int   death_on;
+static float death_t;
+static void (*death_cb)(void);
+static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 
 /* the jump / fall / landing cinematic */
 enum { PH_PLAY, PH_SINK, PH_FALL, PH_LAND, PH_GETUP };
@@ -334,6 +347,7 @@ void world_init(int w, int h) {
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; talk_npc = -1;
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0);
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -418,6 +432,26 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
 
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
+
+void world_death_begin(void (*on_ready)(void)) {
+    death_on = 1; death_t = 0; death_cb = on_ready;
+    world_set_controls_visible(0);
+    facing = FACE_DOWN; moving = 0; walk = 0; talk_npc = -1;      /* facing us, standing still */
+}
+int world_death_active(void) { return death_on; }
+void world_death_cancel(void) {                                   /* back to normal (the stand-in ending of chunk 12-14) */
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0);
+    zoom_target = 1.0f;
+    world_set_controls_visible(1);
+}
+void world_death_player(int *feet_x, int *feet_y, int *chest_y, int *pixel) {
+    float ccx, ccy; zoom_camera(&ccx, &ccy);
+    float srcx = (float)(int)(W / 2.0f - W / (2.0f * zoom)), srcy = (float)(int)(H / 2.0f - H / (2.0f * zoom));
+    float fx = ((int)pxp - (int)ccx - srcx) * zoom, fy = ((int)pyp - (int)ccy - srcy) * zoom;
+    *feet_x = (int)fx; *feet_y = (int)fy;
+    *pixel = (int)(px * zoom + 0.5f);
+    *chest_y = (int)(fy - 3.0f * px * zoom);                      /* the shirt rows: 3 sprite pixels above the feet */
+}
 
 void world_open_hole(int tx, int ty, void (*on_enter)(void)) {
     hole_on = 1; hole_tx = tx; hole_ty = ty; hole_t = 0; hole_cb = on_enter; hole_in_range = 0;
@@ -542,7 +576,7 @@ static void update_hole_range(void) {
 }
 
 void world_update(float dt) {
-    t += dt;
+    if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
     story_update(dt);
     dialog_update(dt);
     missions_update(dt);
@@ -576,7 +610,12 @@ void world_update(float dt) {
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
     }
 
-    if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
+    if (death_on) {
+        float k = death_t / DEATH_ZOOM_T; if (k > 1) k = 1;
+        k = k * k * (3.0f - 2.0f * k);                            /* eases in and out: a slow, heavy push */
+        zoom = 1.0f + (ZOOM_DEATH - 1.0f) * k;
+        zoom_fx = pxp; zoom_fy = pyp - 6.0f * px;                 /* the middle of the sprite (12 units tall) */
+    } else if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
         float nx, ny; npc_tile(talk_npc, &nx, &ny);
         zoom_fx = (pxp + nx * tile) / 2.0f;
         zoom_fy = (pyp + ny * tile) / 2.0f - 5.0f * px;           /* aim at torsos, not feet */
@@ -585,8 +624,11 @@ void world_update(float dt) {
         zoom_target = 1.0f;
         if (!dialog_active()) talk_npc = -1;
     }
-    zoom += (zoom_target - zoom) * (1.0f - expf(-ZOOM_SPEED * dt));
-    if (fabsf(zoom_target - zoom) < 0.002f) zoom = zoom_target;
+    if (!death_on) {
+        zoom += (zoom_target - zoom) * (1.0f - expf(-ZOOM_SPEED * dt));
+        if (fabsf(zoom_target - zoom) < 0.002f) zoom = zoom_target;
+    }
+    if (death_on && death_cb && death_t >= DEATH_SETTLE_T) { void (*cb)(void) = death_cb; death_cb = NULL; cb(); }
 
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
     float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
@@ -755,6 +797,21 @@ static void draw_interact_button(SDL_Renderer *r) {
     char_draw_portrait(r, npc_person(near_id), bcx - side / 2, bcy - side / 2, ps, 0);
 }
 
+/* the death cutscene's colour: how far the world has drained (0..1) */
+static float death_grey(void) {
+    if (!death_on) return 0.0f;
+    float k = (death_t - DEATH_GREY_AT) / DEATH_GREY_T;
+    if (k < 0) k = 0;
+    if (k > 1) k = 1;
+    return k * k * (3.0f - 2.0f * k);
+}
+/* everything but the player goes grey, the player goes red (gfx.h: colour filter). off outside the cutscene */
+static void scene_filter(int player) {
+    if (!death_on) return;
+    int g = (int)(256.0f * death_grey());
+    if (player) gfx_set_filter(0, g); else gfx_set_filter(g, 0);
+}
+
 /* everything that lives on the map (tiles, hole, characters) seen from a camera at (camx, camy) */
 static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int cx = (int)camx, cy = (int)camy;
@@ -770,6 +827,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (ty0 < 0) ty0 = 0;
     int tx1 = (cx + W) / tile, ty1 = (cy + H) / tile;
 
+    scene_filter(0);
     for (int ty = ty0; ty <= ty1 && ty < mh; ty++)
         for (int tx = tx0; tx <= tx1 && tx < mw; tx++)
             draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
@@ -789,6 +847,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
+    scene_filter(1);                                              /* the player: red, in a grey world */
     if (phase == PH_SINK) {                                       /* sinking: cut off at the hole's middle */
         float k = (ph_t - 0.4f) / (SINK_T - 0.4f); if (k < 0) k = 0;
         SDL_Rect clip = { 0, 0, W, hcy + (int)(0.12f * tile) };
@@ -815,9 +874,28 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         char_draw(r, &VESSEL, sx0, sy0, facing, moving, walk, px);
     }
 
+    scene_filter(0);
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
     if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
+    gfx_set_filter(0, 0);                                         /* never leaks into the HUD */
+}
+
+/* where the camera sits for the zoomed pass: it slides from the player to the focus point as the zoom grows
+ * (never past the map edge). the scene is drawn from there at normal scale, then the middle W/zoom x H/zoom of it
+ * is stretched to the screen */
+static void zoom_camera(float *ccx, float *ccy) {
+    float zk = (zoom - 1.0f) / (ZOOM_TALK - 1.0f);
+    if (zk > 1) zk = 1;
+    if (zk < 0) zk = 0;
+    float x = (cam_x + W / 2.0f) + (zoom_fx - (cam_x + W / 2.0f)) * zk - W / 2.0f;
+    float y = (cam_y + H / 2.0f) + (zoom_fy - (cam_y + H / 2.0f)) * zk - H / 2.0f;
+    float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
+    if (x > mx) x = mx;
+    if (x < 0)  x = 0;
+    if (y > my) y = my;
+    if (y < 0)  y = 0;
+    *ccx = x; *ccy = y;
 }
 
 void world_draw(SDL_Renderer *r) {
@@ -841,14 +919,7 @@ void world_draw(SDL_Renderer *r) {
     if (zk > 0.004f && ztex && phase == PH_PLAY) {
         /* the camera centre slides from the player to the focus point as the zoom grows (never past the map edge),
          * the scene is drawn at normal scale, then the middle W/zoom x H/zoom of it is stretched to the screen */
-        if (zk > 1) zk = 1;
-        float ccx = (cam_x + W / 2.0f) + (zoom_fx - (cam_x + W / 2.0f)) * zk - W / 2.0f;
-        float ccy = (cam_y + H / 2.0f) + (zoom_fy - (cam_y + H / 2.0f)) * zk - H / 2.0f;
-        float mx = (float)(mw * tile - W), my = (float)(mh * tile - H);
-        if (ccx > mx) ccx = mx;
-        if (ccx < 0)  ccx = 0;
-        if (ccy > my) ccy = my;
-        if (ccy < 0)  ccy = 0;
+        float ccx, ccy; zoom_camera(&ccx, &ccy);
         SDL_SetRenderTarget(r, ztex);
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
         draw_scene(r, ccx, ccy);

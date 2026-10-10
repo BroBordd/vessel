@@ -41,6 +41,19 @@ int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_
 void world_place_shrine(int tile_x, int tile_y);
 void world_enable_shrine(void (*on_done)(void));
 
+/* THE DEATH CUTSCENE (vessel 1's ending, chunks 12-15). world_death_begin(): the controls go, the player turns to face
+ * us, the world freezes (no more wind, water or clouds), the camera pushes in slowly to 300 % on the player and the
+ * colour drains from everything but the player, who goes red (gfx_set_filter). after ~2.6 s everything has arrived
+ * and on_ready runs. the HUD (mission list, ID card, brain button) is not filtered.
+ * world_death_player: where the player is on the screen right now, zoom included: feet centre, the chest (the
+ * shirt rows: where the heart goes) and the screen size of one sprite pixel.
+ * world_death_cancel: puts everything back (zoom eases out, colour returns, controls come back). only for stand-ins
+ * and tests while the later chunks are not there yet. */
+void world_death_begin(void (*on_ready)(void));
+int  world_death_active(void);
+void world_death_player(int *feet_x, int *feet_y, int *chest_y, int *pixel);
+void world_death_cancel(void);
+
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);
 

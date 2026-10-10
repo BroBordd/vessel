@@ -9,6 +9,7 @@
  *   task_toast("Text")                      like mission_add, plus a coin ding and a "New task added" toast (toast.h)
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
  *   thought_say("Text", seconds)            the brain button: what the vessel thinks, opens next to the music button (thought.h). seconds 0 = auto
+ *   world_death_begin(on_ready)             the death camera: freeze, zoom 300 %, grey world, red player (world.h)
  *   thought_wrath(text, seconds)            Dia's voice takes over the brain button: red, shaking, her eye instead of a face (thought.h)
  *   think(text, card, scene, tag, ding)    the vessel ACQUIRES a thought: it joins the brain window, optionally pops the brain card + ding (see "thoughts" below)
  *   brainwin_drop_tag(tag)                  the vessel silently loses every thought of that tag
@@ -176,11 +177,19 @@ static const DialogLine ALEX_DEAL[] = {
 #define WRATH_SECONDS     3.0f              /* how long her card stays up */
 #define WRATH_TO_DEATH    1.6f              /* after her card has had its WRATH_SECONDS: it folds away (~0.5 s), then a short pause, then the death */
 
-static void death_begin(void) {
-    /* chunk 12 (death cutscene I: camera + filters) starts here: freeze the world, zoom, grey, red.
-     * until it exists, the vessel just gets its legs back so the build stays playable. */
-    world_set_controls_visible(1);
+/* ---------- the death (chunks 12-15) ----------
+ * chunk 12: the camera pushes in to 300 %, the world freezes and drains grey, the player goes red (world.c).
+ * chunk 13 adds the sound, 14 the heart, 15 the words "Aonia has died." and the end hook. until those exist,
+ * death_ready() holds the picture for a moment and then undoes it, so the build stays playable. */
+#define DEATH_HOLD_STANDIN  2.5f
+
+static void death_undo(void) { world_death_cancel(); }          /* STAND-IN: chunk 13/14/15 replace this */
+static void death_ready(void) {
+    /* everything has arrived (zoomed, grey, red): chunk 13's beeps and chunk 14's heart start here */
+    story_after(DEATH_HOLD_STANDIN, death_undo);
 }
+
+static void death_begin(void) { world_death_begin(death_ready); }
 
 static void dia_wrath(void) {
     thought_wrath(WRATH_TEXT, WRATH_SECONDS);

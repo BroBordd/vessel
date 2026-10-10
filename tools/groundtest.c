@@ -7,7 +7,8 @@
  * interact button pollutes it, letting go early does not.
  * it #includes world.c and story.c so it can reach their statics (no test hooks in the shipped game).
  * writes build/ground_*.bmp, exits non-zero if a check fails:
- *   cc -O1 $(sdl2-config --cflags) -Igame -o build/groundtest tools/groundtest.c $(ls game/*.c | grep -v -e game/game.c -e game/world.c -e game/story.c) $(sdl2-config --libs) -lm
+ *   (built with -DGFX_REDIRECT -include game/gfx.h like the game: the death cutscene's colour filter lives in gfx.c)
+ *   cc -O1 -DGFX_REDIRECT -include game/gfx.h $(sdl2-config --cflags) -Igame -o build/groundtest tools/groundtest.c $(ls game/*.c | grep -v -e game/game.c -e game/world.c -e game/story.c) $(sdl2-config --libs) -lm
  *   build/groundtest */
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
@@ -189,9 +190,46 @@ int main(void) {
     CHECK(brainwin_count() == ding_before, "the vessel thinks its own thoughts while Dia is in its head");
     run(0.3f);
     CHECK(thought_is_wrath(), "her card vanished too early");          /* about 2.6 s since it opened, it has 3 */
-    run(WRATH_SECONDS + WRATH_TO_DEATH);
+    for (int i = 0; i < 120 && !world_death_active(); i++) run(0.1f);   /* her card's time, the fold, the pause */
     CHECK(!thought_is_wrath(), "her card never folded away");
-    CHECK(controls_visible, "the death never began (the stub should give the controls back)");
+    CHECK(world_death_active(), "the death never began");
+    CHECK(!controls_visible, "the controls are back while the vessel is dying");
+
+    /* ---------- chunk 12: death cutscene I, camera + filters ---------- */
+    printf("--- death camera ---\n");
+    float t0 = t;
+    run(0.2f);
+    CHECK(world_debug_zoom() < 1.3f, "the zoom starts with a jump (%.2f)", world_debug_zoom());
+    run(1.0f);
+    CHECK(world_debug_zoom() > 1.3f && world_debug_zoom() < 2.9f, "mid push-in zoom is %.2f", world_debug_zoom());
+    shot("build/ground_death_mid.bmp");
+    run(2.0f);
+    CHECK(fabsf(world_debug_zoom() - ZOOM_DEATH) < 0.02f, "the camera did not reach 300 %% (%.2f)", world_debug_zoom());
+    CHECK(t == t0, "the world is not frozen: its clock moved by %.2f s", t - t0);
+    shot("build/ground_death_settled.bmp");
+    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, bad = 0, n = 0;
+        for (int y = 560; y < 960; y += 40)                       /* a column of the map, far from the player and the HUD */
+            for (int x = 8; x < 60; x += 12) {
+                Uint8 *c = pix + y * pitch + x * 4; n++;
+                if (abs(c[0] - c[1]) > 3 || abs(c[1] - c[2]) > 3) bad++;
+            }
+        CHECK(bad == 0, "%d of %d sampled map pixels are not grey", bad, n);
+        int red = 0, m = 0;
+        for (int dy = -20; dy <= 20; dy += 20) {                  /* the player: around the middle of the screen */
+            Uint8 *c = pix + (TH / 2 + dy) * pitch + (TW / 2) * 4; m++;
+            if (c[0] > c[1] + 30 && c[0] > c[2] + 30) red++;
+        }
+        CHECK(red == m, "only %d of %d sampled player pixels are red", red, m); }
+    {   int fx, fy, cy, ps; world_death_player(&fx, &fy, &cy, &ps);
+        printf("player on screen: feet %d,%d  chest y %d  sprite pixel %d\n", fx, fy, cy, ps);
+        CHECK(abs(fx - TW / 2) < 12, "the player is not in the middle of the screen (feet x %d)", fx);
+        CHECK(cy < fy && fy - cy > ps * 2 && fy - cy < ps * 5, "the chest is not just above the feet (%d / %d)", cy, fy); }
+    CHECK(!controls_visible, "the controls came back during the cutscene");
+    run(DEATH_HOLD_STANDIN + 0.4f);                               /* the stand-in undoes it */
+    CHECK(!world_death_active() && controls_visible, "the stand-in did not give the game back");
+    run(2.5f);
+    CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
+    shot("build/ground_death_after.bmp");
 
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;

@@ -44,6 +44,14 @@
 
 enum { GFX_RECT = 0, GFX_BLEND = 1, GFX_CLIP = 2, GFX_TARGET = 3, GFX_COPY = 4, GFX_CLEAR = 5 };
 
+/* COLOUR FILTER (the death cutscene): every colour the game sets from now on is passed through it, so one
+ * call can turn a whole drawing pass grey and the next one red. it works in both modes (the recorded colour is
+ * already filtered, the Java side needs to know nothing) but only for code built with GFX_REDIRECT.
+ *   grey 0..256: how far toward the colour's own brightness (and a touch darker, so greyed things sit back)
+ *   red  0..256: how far toward a bloody red (greens and blues drain, reds stay)
+ * (0, 0) = off. colours set BEFORE the call are not touched: set the filter, then draw. */
+void gfx_set_filter(int grey, int red);
+
 /* GPU mode: map the shared file (created by the app) and start recording. 0 on success. */
 int  gfx_init_gpu(const char *path, int w, int h);
 int  gfx_is_gpu(void);
