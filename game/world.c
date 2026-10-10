@@ -6,6 +6,7 @@
 #include "missions.h"
 #include "npc.h"
 #include "shrine.h"
+#include "grave.h"
 #include "heart.h"
 #include "summon.h"
 #include "story.h"
@@ -334,6 +335,7 @@ static void load_map(int which) {
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
     shrine_reset(px, tile);
+    grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     near_shrine = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
@@ -453,6 +455,9 @@ void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
 void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore(tile_x, tile_y, polluted); }
+int  world_place_grave(int tile_x, int tile_y, const Person *dead) { return grave_place(tile_x, tile_y, dead); }
+int  world_grave_count(void) { return grave_count(); }
+void world_grave_tile(int i, float *tx, float *ty) { grave_tile(i, tx, ty); }
 
 /* a new life up in the clouds (chunk 14). the cloud map again, the player at its spawn, the hole closed, the colours, camera and fades
  * back to normal; the controls stay hidden (the summoning gives them back). the Grasslands are not touched: gen_map() makes the same
@@ -575,7 +580,7 @@ static int blocked(float fx, float fy) {           /* feet box centred at fx,fy 
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++)
             if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
-    return npc_collides(fx, fy, hw, 2 * hh) || shrine_collides(fx, fy, hw, 2 * hh);
+    return npc_collides(fx, fy, hw, 2 * hh) || shrine_collides(fx, fy, hw, 2 * hh) || grave_collides(fx, fy, hw, 2 * hh);
 }
 
 /* walks through the jump -> fall -> land -> get-up cinematic */
@@ -899,6 +904,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
     if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
+    for (int i = 0; i < grave_count(); i++)
+        if (grave_foot_y(i) <= pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }     /* (the photo is greyed with the filter: put the scene's own back) */
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
 
@@ -948,6 +955,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
     if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
+    for (int i = 0; i < grave_count(); i++)
+        if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
     gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
 
@@ -1033,6 +1042,7 @@ void world_draw(SDL_Renderer *r) {
         MiniMark marks[MAX_MARKS]; int nm = 0;
         for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
         if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
+        for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
         if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
         minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
     }

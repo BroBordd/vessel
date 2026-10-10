@@ -447,6 +447,46 @@ int main(void) {
         CHECK(missions_count() == 0, "a task came with the second landing (%d)", missions_count());
         CHECK(brainwin_count() == 1 && thought_active(), "the landing line is not the one thought (%d in the head)", brainwin_count());
         shot("build/ground_again.bmp"); }
+    /* chunk 21: the grave prop. a stone with the dead vessel's framed portrait, greyed like an old photo; it blocks the player, shows on
+     * the minimap (a grey block, see the screenshot) and goes away with the map. placed on the grass 3 tiles from the player */
+    {   int ptx = world_player_tile_x(), pty = world_player_tile_y(), gtx = ptx + 3, gty = pty - 1;
+        CHECK(world_grave_count() == 0, "a grave is there before one was placed");
+        CHECK(!solid_tile(gtx, gty) && !solid_tile(gtx, gty + 1), "the test spot for the grave is not open ground");
+        int gi = world_place_grave(gtx, gty, &VESSEL);
+        CHECK(gi == 0 && world_grave_count() == 1, "world_place_grave did not place it (%d, %d)", gi, world_grave_count());
+        CHECK(world_place_grave(gtx + 20, gty, NULL) == -1, "a grave without a person was accepted");
+        float fx, fy; world_grave_tile(0, &fx, &fy);
+        CHECK((int)fx == gtx && (int)fy == gty, "the grave is not on its tile (%d,%d)", (int)fx, (int)fy);
+        float footx = (gtx + 0.5f) * tile, footy = (gty + 0.9f) * tile;
+        CHECK(grave_collides(footx, footy, 3.0f * px, 3.0f * px), "the grave does not block the player at its feet");
+        CHECK(grave_collides(footx + 6.0f * px, footy, 3.0f * px, 3.0f * px), "the grave does not block next to the stone");
+        CHECK(!grave_collides(footx + 5.0f * tile, footy, 3.0f * px, 3.0f * px) && !grave_collides(footx, footy + 3.0f * tile, 3.0f * px, 3.0f * px), "the grave blocks far away");
+        CHECK(blocked(footx, footy) && !blocked(pxp, pyp), "the player's own walls do not know the grave (or the player is stuck)");
+        run(0.3f);
+        shot("build/ground_grave.bmp");
+        {   int cx = (int)(pxp - (TW / 2.0f)), cy = (int)(pyp - (TH / 2.0f));     /* the camera sits on the player (no zoom here) */
+            int rx, ry, rw, rh; grave_portrait_rect(0, cx, cy, &rx, &ry, &rw, &rh);
+            Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, n = 0, grey = 0, rawskin = 0, frame = 0;
+            for (int y = ry; y < ry + rh; y++) for (int x = rx; x < rx + rw; x++) {
+                if (x < 0 || y < 0 || x >= TW || y >= TH) continue;
+                Uint8 *c = pix + y * pitch + x * 4; n++;
+                if (abs(c[0] - c[1]) <= 14 && abs(c[1] - c[2]) <= 14) grey++;                 /* greyed: hardly any colour left */
+                if (c[0] == VESSEL.skin.r && c[1] == VESSEL.skin.g && c[2] == VESSEL.skin.b) rawskin++;
+            }
+            for (int x = rx - 1; x <= rx + rw; x++) { Uint8 *c = pix + (ry - 1) * pitch + x * 4; if (x >= 0 && c[0] == 46 && c[1] == 36 && c[2] == 30) frame++; }
+            CHECK(n > 400 && rx > 0 && ry > 0 && rx + rw < TW && ry + rh < TH, "the portrait is not on the screen (%d,%d %dx%d)", rx, ry, rw, rh);
+            CHECK(grey * 100 >= n * 95, "the portrait is not greyed (%d of %d pixels colourless)", grey, n);
+            CHECK(rawskin == 0, "the portrait still has the vessel's real skin colour (%d pixels)", rawskin);
+            CHECK(frame * 100 >= (rw + 2) * 90, "no dark frame over the photo (%d of %d)", frame, rw + 2);
+            /* the portrait is a face: it must not be one flat colour */
+            int lo = 255, hi = 0;
+            for (int y = ry; y < ry + rh; y++) for (int x = rx; x < rx + rw; x++) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] < lo) lo = c[0]; if (c[0] > hi) hi = c[0]; }
+            CHECK(hi - lo > 40, "the portrait is one flat colour (%d..%d)", lo, hi); }
+        /* a grave is not the shrine: nothing to use, nothing to talk to; a new map clears it */
+        CHECK(!shrine_enabled() && near_id < 0 && !near_shrine, "the grave turned into something to interact with");
+        grave_reset(px, tile);
+        CHECK(world_grave_count() == 0 && !grave_collides(footx, footy, 3.0f * px, 3.0f * px), "grave_reset did not clear it");
+        world_place_grave(gtx, gty, &VESSEL); }
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
 

@@ -42,6 +42,13 @@ int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_
 void world_place_shrine(int tile_x, int tile_y);
 void world_enable_shrine(void (*on_done)(void));
 void world_restore_shrine(int tile_x, int tile_y, int polluted);   /* the shrine as an earlier life left it (chunk 20): inert, and fouled for good if polluted */
+
+/* GRAVES (grave.h, vessel 2 chunk 21): a stone with the dead vessel's framed, greyed portrait on it. world_place_grave puts one on the
+ * current map (it blocks the player and shows as a grey block on the minimap) and returns its index (-1 = none free). like the shrine,
+ * the graves go away when a new map loads. */
+int  world_place_grave(int tile_x, int tile_y, const Person *dead);
+int  world_grave_count(void);
+void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */
 int  world_shrine_exists(void);                /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */
 int  world_shrine_polluted(void);
 void world_shrine_tile(float *tx, float *ty);
