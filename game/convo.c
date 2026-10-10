@@ -108,6 +108,7 @@ static void on_reply(int page, const char *text) {
 }
 
 void convo_set_player(const Person *p) { C.player = p; }
+const Person *convo_player(void) { return C.player; }
 int  convo_active(void) { return C.running; }
 
 static void begin(const Person *who, Persona *mind, Stage st, void (*on_end)(void)) {

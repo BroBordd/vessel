@@ -18,6 +18,7 @@
 #include "lang.h"
 
 void convo_set_player(const Person *p);                    /* who the player's own lines are shown as */
+const Person *convo_player(void);                           /* ... and who it is right now */
 void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void));
 void convo_ask_questions(const Person *who, Persona *mind, void (*on_end)(void));
 void convo_ask_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void));   /* the same, with the npc's exact words (a scripted "got any questions?") */

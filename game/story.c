@@ -341,7 +341,7 @@ static void open_the_hole(void);                    /* defined with the sky scen
 /* ---------- Dea scolds us, number two (vessel 2, chunk 16) ----------
  * the second summoning is over: Dea has been standing there all along, looking at us, and she speaks FIRST (no walking, no sighting
  * task, no thought). the words are all hers and to VAS (we are plain VAS again). the last line gives us our new number: the naming
- * itself (ID card, player look) is chunks 17-18, and her questions chunk 19, so scold_done() is the hook those will take over.
+ * itself (ID card, player look) is chunk 18 (scold_page), and her questions chunk 19, so scold_done() is the hook those will take over.
  * STAND-IN until chunks 19-20: scold_done gives the controls back and opens the hole at once, so the game stays playable. */
 static const DialogLine DEA_SCOLD[] = {
     { &DEA, "Oh. You again. Dead after a single errand." },
@@ -355,7 +355,17 @@ static void scold_done(void) {
     world_set_controls_visible(1);
     open_the_hole();
 }
+/* the last page is the naming (chunk 18): the moment her line "You are number two now. Doia." begins, the ID card flashes (coin
+ * ding, "YOU ARE NOW DOIA"), our face in every dialog and thought is Doia's and the player's body changes to the new look. */
+#define DEA_SCOLD_NAMING_PAGE (DEA_SCOLD_COUNT - 1)
+static void scold_page(int page) {
+    if (page != DEA_SCOLD_NAMING_PAGE) return;
+    hud_set_person(&VESSEL2);
+    convo_set_player(&VESSEL2);
+    world_set_player(&VESSEL2);
+}
 static void respawn_summoned(void) {
+    dialog_on_page(scold_page);
     dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, scold_done);        /* she speaks first */
 }
 
