@@ -53,6 +53,10 @@ void world_death_begin(void (*on_ready)(void));
 int  world_death_active(void);
 void world_death_player(int *feet_x, int *feet_y, int *chest_y, int *pixel);
 void world_death_cancel(void);
+
+/* world_fade_to_black(seconds, on_black): everything on screen (HUD too) fades to black; on_black runs on the frame it is
+ * fully dark and the screen then stays black until world_init (the story hands over to limbo there, chunk 12). */
+void world_fade_to_black(float seconds, void (*on_black)(void));
 void world_death_fall(void);                   /* chunk 15.1: the vessel topples over (1.1 s) and stays lying; world_death_player is for the standing pose only */
 void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 

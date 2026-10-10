@@ -325,13 +325,23 @@ int main(void) {
         for (int y = TH * 4 / 5 - 60; y < TH * 4 / 5 + 60; y += 2) for (int x = 20; x < TW - 20; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 235 && c[1] > 235 && c[2] > 235) white++; }
         CHECK(white > 40, "no white words on the screen (%d white samples)", white); }
     shot("build/ground_death_text.bmp");
-    run(DEATH_END_HOLD + 0.5f);
+    for (float w = 0; w < DEATH_END_HOLD + 10.0f && !vessel_dead; w += 0.016f) frame(0.016f);   /* up to the end hook */
     CHECK(vessel_dead, "story_vessel_died never ran");
-    CHECK(world_death_active() && death_msg[0], "the death screen did not stay for vessel 2");
+    run(0.3f);                                                    /* the fade has just begun */
+    CHECK(world_death_active() && death_msg[0], "the death screen went before the fade to black began");
     CHECK(sfx_debug_beeps() == b0 + DEATH_BEEPS && sfx_debug_flatlines() == f0 + 1, "the monitor played %d peeps and %d flatlines (want %d, 1)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0, DEATH_BEEPS);
     CHECK(!controls_visible, "the controls came back at the end");
-    world_death_cancel();                                         /* only the tests/stand-ins undo it */
-    CHECK(heart_state() == HEART_OFF && !death_msg[0], "cancel left the heart or the words behind");
+    /* chunk 12: the world fades to black over DEATH_FADE_T, the cutscene is put away behind it, limbo is requested once */
+    CHECK(lives == 1, "lives is %d after vessel 1 died (want 1)", lives);
+    CHECK(death_tx == world_player_tile_x() && death_ty == world_player_tile_y(), "the death tile was not remembered");
+    CHECK(blackout_t > 0 && blackout_t < blackout_dur && !story_limbo_active() && !story_limbo_take_enter(), "the fade to black is not under way (t %.2f)", blackout_t);
+    shot("build/ground_fade_black.bmp");
+    run(DEATH_FADE_T);
+    CHECK(blackout_t >= blackout_dur, "the fade to black never finished");
+    CHECK(!world_death_active() && heart_state() == HEART_OFF && !death_msg[0], "the cutscene was not put away behind the black");
+    CHECK(story_limbo_active() && thought_voice() == &SOUL, "the soul's limbo did not begin after the death");
+    CHECK(story_limbo_take_enter() == 1 && story_limbo_take_enter() == 0, "the move into limbo must be reported to game.c exactly once");
+    limbo_end(); story_limbo_take_end(); blackout_t = -1;           /* the tests below start from the world again */
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
 

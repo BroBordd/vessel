@@ -84,6 +84,8 @@ static void (*hole_cb)(void);
 #define DEATH_TEXT_FADE 1.2f        /* seconds for the words to fade in */
 #define DEATH_SETTLE_T  2.6f        /* everything has arrived: on_ready runs */
 static int   death_on;
+static float blackout_t = -1, blackout_dur; /* world_fade_to_black: seconds so far (-1 = not fading) and the length (chunk 12) */
+static void (*blackout_cb)(void);
 static float death_t;
 static char  death_msg[48];         /* the words over the cutscene (chunk 15), "" = none */
 static float death_msg_t;
@@ -352,6 +354,7 @@ void world_init(int w, int h) {
     zoom = zoom_target = 1.0f; talk_npc = -1;
     death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1;
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
+    blackout_t = -1; blackout_cb = NULL;
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -446,6 +449,9 @@ int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_t
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
 
+void world_fade_to_black(float seconds, void (*on_black)(void)) {
+    blackout_t = 0; blackout_dur = seconds > 0.05f ? seconds : 0.05f; blackout_cb = on_black;
+}
 void world_death_begin(void (*on_ready)(void)) {
     death_on = 1; death_t = 0; death_cb = on_ready; heart_reset(); death_msg[0] = 0; death_fall_t = -1;
     world_set_controls_visible(0);
@@ -598,6 +604,10 @@ void world_update(float dt) {
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
     if (summon_chime && summon_active()) { summon_chime = 0; sfx_summon(); }                   /* the world is running: the light and its chime begin together */
     if (summon_update(dt)) { void (*cb)(void) = summon_cb; summon_cb = NULL; if (cb) cb(); }   /* the light has ended: the player shows again */
+    if (blackout_t >= 0 && blackout_t < blackout_dur) {       /* fading to black (chunk 12): on_black runs on the frame it is dark */
+        blackout_t += dt;
+        if (blackout_t >= blackout_dur) { void (*cb)(void) = blackout_cb; blackout_cb = NULL; if (cb) cb(); }
+    }
     heart_update(dt);                                         /* (the heart and its blood are not part of the world: they move on) */
     story_update(dt);
     dialog_update(dt);
@@ -1014,6 +1024,11 @@ void world_draw(SDL_Renderer *r) {
 
     if (t < FADE_IN_T) {                                          /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t / FADE_IN_T)));
+        fill(r, 0, 0, W, H);
+    }
+    if (blackout_t >= 0) {                                        /* fade to black over everything, HUD included */
+        float a = blackout_t / blackout_dur; if (a > 1) a = 1;
+        col(r, 0, 0, 0, (int)(255 * a));
         fill(r, 0, 0, W, H);
     }
     if (phase == PH_LAND && ph_t < 0.4f) {                        /* flash of white on impact */

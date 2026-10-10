@@ -30,6 +30,7 @@ void story_limbo_begin(int stay);
  * is 1 once after limbo_end() (time to leave ST_LIMBO). story_limbo_active: a limbo_run has begun and limbo_end has not run. */
 void story_limbo_update(float dt);
 int  story_limbo_take_end(void);
+int  story_limbo_take_enter(void);          /* the story sends us INTO limbo from the world (a death, chunk 12): reported once, game.c switches */
 int  story_limbo_active(void);
 
 #endif

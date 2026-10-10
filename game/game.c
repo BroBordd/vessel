@@ -181,6 +181,11 @@ int main(int argc, char **argv) {
         } else {
             if (!pausebtn_paused()) world_update(dt);
             world_draw(r);
+            if (story_limbo_take_enter()) {                      /* a death: the world has faded to black, the soul is alone with the stars */
+                state = ST_LIMBO;
+                space_init(W, H);
+                space_draw(r);                                   /* this frame is stars only (the black world was drawn just above) */
+            }
         }
         pausebtn_set_enabled(state == ST_WORLD);
         thought_set_enabled(state == ST_WORLD || state == ST_LIMBO);

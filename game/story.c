@@ -277,10 +277,28 @@ static const DialogLine ALEX_DEAL[] = {
 #define DEATH_TEXT_AT       1.5f            /* after the fall began (it lasts 1.1 s): the words fade in */
 #define DEATH_END_HOLD      4.5f            /* the words stay this long, then the mission is over: story_vessel_died() */
 
-/* the end hook of vessel 1's mission. vessel 2 (respawn at Dea, the name Doia, her scolding) is NOT built yet: it starts here.
- * until then the picture just stays (the pause button still restarts). */
+/* the end hook of vessel 1's mission, chunk 12: after "Aonia has died." the world fades to black over DEATH_FADE_T, the cutscene is
+ * put away behind it and the game goes to LIMBO (the space screen, game.c takes the request once: story_limbo_take_enter).
+ * we remember how many lives have been lived and where this one ended (the grave comes later). chunks 13-15: the soul speaks, the
+ * vessel is summoned again. STAND-IN until then: limbo just stays (the soul's voice, the stars; no way back yet). */
+#define DEATH_FADE_T        1.0f
 static int vessel_dead;
-static void story_vessel_died(void) { vessel_dead = 1; }
+static int lives;                           /* vessels lived and lost: 1 after Aonia */
+static int death_tx, death_ty;              /* the tile where the last vessel died */
+static int limbo_enter_req;
+
+static void death_to_limbo(void) {
+    world_death_cancel();                   /* behind the black: zoom, colour, heart and words put away */
+    limbo_run(NULL, 0, 1000.0f, NULL);      /* the soul's voice, limbo on, holding (chunk 13 gives it its line) */
+    limbo_enter_req = 1;
+}
+static void story_vessel_died(void) {
+    vessel_dead = 1;
+    lives++;
+    death_tx = world_player_tile_x(); death_ty = world_player_tile_y();
+    world_fade_to_black(DEATH_FADE_T, death_to_limbo);
+}
+int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0; return e; }
 
 static void death_text(void) {
     world_death_text(VESSEL_NAME " has died.");
@@ -466,6 +484,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
+    vessel_dead = 0; lives = 0; limbo_enter_req = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
