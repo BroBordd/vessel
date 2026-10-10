@@ -96,8 +96,8 @@ walk (`story_vessel2_ready()` is the hook, empty for now). The owner will plan t
 
 ## Code map (what exists today that this plan builds on)
 
-- Menu: `game/menu.c/.h`. Black clear + 170 white square flakes drifting left in the wind (`Flake`, `wind()`,
-  `frand`), the "VESSEL" title in the font, two buttons (PLAY, EXIT). `menu_touch` returns `MENU_PLAY/EXIT`.
+- `game/space.c/.h` (chunk 2): `space_init(w,h)` / `space_update(dt)` / `space_draw(r)`: the black field and the 170 white square flakes drifting left in the wind. The menu's background, and limbo.
+- Menu: `game/menu.c/.h`. Calls `space_*` for its background; the "VESSEL" title in the font, two buttons (PLAY, EXIT). `menu_touch` returns `MENU_PLAY/EXIT`.
 - `game/game.c`: states `ST_MENU, ST_LOADING, ST_WORLD`. PLAY starts the loading screen (`loading.c`, 1 s),
   then `world_init(W,H)` + `jukebox_scene("ascendant_soul.ogg", 1)`. `pausebtn_set_enabled` /
   `thought_set_enabled` are `state == ST_WORLD`. The top buttons (music, pause, brain) are drawn on top of every state.
@@ -121,7 +121,7 @@ Mark `[x]` when the chunk is pushed. Chunks are tiny on purpose; each leaves the
 
 **A. Limbo (the space screen)**
 - [x] **1. Story doc** — this file.
-- [ ] **2. `space.c/.h`** — move the menu's black field and drifting white pixel flakes into `space_init(w,h)`, `space_update(dt)`, `space_draw(r)`. The menu uses it and looks exactly the same (screenshot before/after).
+- [x] **2. `space.c/.h`** — move the menu's black field and drifting white pixel flakes into `space_init(w,h)`, `space_update(dt)`, `space_draw(r)`. The menu uses it and looks exactly the same (screenshot before/after).
 - [ ] **3. `ST_LIMBO` state in `game.c`** — a state that draws `space_*` plus the top buttons; brain button enabled (`thought_set_enabled`), pause button disabled. Dev stand-in: a debug entry (e.g. argv `limbo`) so it can be looked at. No story yet.
 - [ ] **4. PLAY fades the menu out** — no loading screen: on PLAY the title and the buttons fade out over about 0.8 s (alpha), stars keep moving, menu music fade follows; then `world_init` (hidden, nothing drawn) and the state becomes `ST_LIMBO`. Remove the `ST_LOADING` path (keep `loading.c` only if something still needs it).
 - [ ] **5. The soul's face** — `SOUL` `Person` in `story.c` (pale ghost-blue skin and shirt, light hair, no boots colour) and `thought_set_voice(const Person *)` in `thought.c`: NULL = the ID card person (as today), otherwise that person's portrait on the card. Check it on a screenshot.
@@ -165,3 +165,4 @@ Mark `[x]` when the chunk is pushed. Chunks are tiny on purpose; each leaves the
 ## Status log
 
 - 2026-10-10: vessel 2 planned (this file), chunks 1-24 listed. Next: chunk 2.
+- 2026-10-10: chunk 2 done (`game/space.c/.h`: the menu's black field and drifting white pixel flakes moved out of `menu.c` unchanged; `menu_init/update/draw` call `space_init/update/draw`. A before/after render of the menu after 300 frames at 540x1170 is byte-identical). Next: chunk 3.
