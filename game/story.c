@@ -284,13 +284,11 @@ static const DialogLine ALEX_DEAL[] = {
 static int hammer_hinted, hammer_said;
 
 /* ---------- Dia's wrath (chunk 11) ----------
- * the shrine is polluted. a beat of quiet, then Dia hijacks the brain button: "HOW DARE YOU", red and shaking,
- * with her eye where the player's face would be. the player cannot move or open the brain window meanwhile.
- * a short pause after her card has folded away, and the death begins (chunk 12). */
-#define WRATH_TEXT        "HOW DARE YOU"
+ * the shrine is polluted. a beat of quiet, then the goddess speaks in a plain popup, her normal face: "How dare you."
+ * the player cannot move meanwhile. a short pause after the popup is tapped away, and the death begins (chunk 12). */
 #define WRATH_BEAT        0.9f              /* seconds between the last drop of ooze and her voice */
-#define WRATH_SECONDS     3.0f              /* how long her card stays up */
-#define WRATH_TO_DEATH    1.6f              /* after her card has had its WRATH_SECONDS: it folds away (~0.5 s), then a short pause, then the death */
+#define WRATH_TO_DEATH    0.8f              /* after her line has been tapped away: a short pause, then the death */
+static const DialogLine DEA_WRATH[] = { { &DEA, "How dare you." } };     /* a plain popup, her normal face (no red card any more) */
 
 /* ---------- the death (chunks 12-15) ----------
  * chunk 12: the camera pushes in to 300 %, the world freezes and drains grey, the player goes red (world.c).
@@ -348,6 +346,7 @@ static void green_remember(void) {
  * change after chunk 22), so the brain window keeps every thought it had (the ones tied to the sky already went silently when it left). Dea is already there, looking down at us. the player's look is still the only one
  * there is (VESSEL; chunk 17 adds the second) so there is nothing to put back yet. the Grasslands story state is kept (green, above). */
 static void on_talk_dea(int npc_id);                /* defined with the sky scene below */
+static int scold_pending;                           /* the second summoning is over and she has not scolded us yet */
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
@@ -364,8 +363,9 @@ static void story_reset_for_respawn(void) {
     dea_ty = world_player_tile_y() - 8;
     dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
     npc_set_facing(dea_id, FACE_DOWN);
-    dea_seen = 1;                                   /* no sighting task: she will speak first (chunk 16) */
+    dea_seen = 0;                                   /* walking within sight of her coins in "Talk to Goddess" again */
     dea_spoken = 1;
+    scold_pending = 0;
 }
 
 static void open_the_hole(void);                    /* defined with the sky scene below */
@@ -376,8 +376,9 @@ static void open_the_hole(void);                    /* defined with the sky scen
  * itself (ID card, player look) is chunk 18 (scold_page), and her questions chunk 19, so scold_done() is the hook those will take over.
  * scold_done opens her questions (chunk 19), questions_done the hole (chunk 20). */
 static const DialogLine DEA_SCOLD[] = {
-    { &DEA, "Oh. You again. Dead after a single errand." },
-    { &DEA, "You fouled a rival goddess's shrine for a girl and a ball. My ball." },
+    { &VAS, "Why did I die?" },
+    { &DEA, "Because I got angry. You broke my shrine." },
+    { &DEA, "For a girl and a ball. My ball. How stupid can one vessel be?" },
     { &DEA, "I do not care that it hurt. There is a reason you are replaceable." },
     { &DEA, "Fine. You are number two now. " VESSEL2_NAME ". Try not to make me remember it." },
 };
@@ -405,9 +406,14 @@ static void scold_page(int page) {
     convo_set_player(&VESSEL2);
     world_set_player(&VESSEL2);
 }
-static void respawn_summoned(void) {
+static void dea_scold(void) {
+    mission_complete(mission_talk_dea);
     dialog_on_page(scold_page);
-    dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, scold_done);        /* she speaks first */
+    dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, scold_done);
+}
+static void respawn_summoned(void) {
+    world_set_controls_visible(1);                              /* no auto talk: we walk to her and talk to her ourselves */
+    scold_pending = 1;
 }
 
 /* the hold after the soul's line is over: the next life is made ready behind the scenes (chunk 14), limbo ends, game.c shows the
@@ -457,10 +463,9 @@ static void death_ready(void) {
 
 static void death_begin(void) { world_death_begin(death_ready); }
 
+static void wrath_done(void) { story_after(WRATH_TO_DEATH, death_begin); }
 static void dia_wrath(void) {
-    thought_set_wrath_person(&DEA);                         /* a goddess's face, in red */
-    thought_wrath(WRATH_TEXT, WRATH_SECONDS);
-    story_after(WRATH_SECONDS + WRATH_TO_DEATH, death_begin);
+    dialog_play(DEA_WRATH, (int)(sizeof DEA_WRATH / sizeof DEA_WRATH[0]), wrath_done);   /* a simple talk with her */
 }
 
 static void shrine_done(void) {
@@ -633,6 +638,7 @@ static void dea_talk_highlight(int page, int span) {
 
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
+    if (scold_pending) { scold_pending = 0; dea_scold(); return; }          /* the second life: the scolding, then the questions */
     if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
@@ -684,7 +690,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
-    dea_spoken = 0; dea_id = -1; dea_seen = 0;
+    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0;
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;
