@@ -15,6 +15,8 @@
  *   story_after(seconds, fn)                run something later
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near
  *   world_open_hole(x, y, on_enter)         cloud hole in the floor you can jump into
+ *   world_place_shrine(x, y)                Dia's shrine prop on the map (blocks the player, inert)
+ *   world_enable_shrine(on_done)            the shrine can be used: hold the interact button next to it to pollute it, then on_done()
  *   world_fall_to_green(on_up)              jump, fall, land face-first, get up, then on_up()
  *   hud_set_person(&PERSON)                 change who the ID card shows. a new name flashes, dings + toasts
  *   hud_set_hp(hp, max)                     the HP bar on the ID card
@@ -83,6 +85,7 @@ static int mission_find_orb = -1;           /* added by Dea's highlighted orb li
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
+static int shrine_fouled;                   /* the player has polluted Dia's shrine (chunk 10) */
 static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
@@ -154,7 +157,22 @@ static const DialogLine ALEX_DEAL[] = {
 #define ALEX_DEAL_COUNT  ((int)(sizeof ALEX_DEAL / sizeof ALEX_DEAL[0]))
 #define ALEX_DEAL_PAGE   (ALEX_DEAL_COUNT - 1)
 
+/* ---------- Dia's shrine (chunk 10) ----------
+ * the prop is placed when we land (landed() below) and does nothing until Alex has asked for it. then holding
+ * the interact button next to it pollutes it (shrine.c); the moment it is full this runs. */
+#define SHRINE_MIN_DIST    16               /* tiles from the landing spot */
+#define SHRINE_MAX_DIST    26
+#define SHRINE_FROM_ALEX   18               /* and not on top of Alex: she is somewhere else entirely */
+
+static void shrine_done(void) {
+    shrine_fouled = 1;
+    brainwin_drop_tag(THOUGHT_SHRINE);                      /* "I doubt that ends well" has come true, or is about to */
+    mission_complete(mission_pollute);
+    /* chunk 11 (Dia's wrath) starts from here */
+}
+
 static void shrine_thought(void) {
+    if (shrine_fouled) return;                              /* too late: it is done already */
     think("Polluting a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_ORB, THOUGHT_SHRINE, 1);
 }
 
@@ -163,6 +181,7 @@ static void alex_deal_highlight(int page, int span) {
     brainwin_drop_tag(THOUGHT_ORB);                         /* "I need to find that orb": found, so it goes silently */
     mission_complete(mission_find_orb);
     mission_pollute = task_toast("Pollute Dia's shrine");
+    world_enable_shrine(shrine_done);                       /* now the shrine can be used (and shows on the minimap) */
 }
 
 /* the free chat after the scripted part is over: the head catches up with what just happened */
@@ -199,6 +218,9 @@ static void landed(void) {
     if (world_find_far_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
         alex_id = npc_add(&ALEX, tx, ty, on_talk_alex);
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
+        int shx, shy;                                       /* Dia's shrine: a walk too, but nearer than Alex, and not next to her */
+        if (world_find_spot_away(SHRINE_MIN_DIST, SHRINE_MAX_DIST, tx, ty, SHRINE_FROM_ALEX, &shx, &shy))
+            world_place_shrine(shx, shy);
     }
     dialog_play(LANDING, (int)(sizeof LANDING / sizeof LANDING[0]), landing_done);
 }
@@ -282,7 +304,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0;
+    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;

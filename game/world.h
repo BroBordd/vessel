@@ -31,6 +31,16 @@ int  world_player_tile_y(void);
  * range, it falls back to the farthest reachable open spot. */
 int  world_find_far_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y);
 
+/* the same, but the spot must also be at least avoid_dist tiles from (avoid_tx, avoid_ty): so two things placed
+ * with the same range do not end up on top of each other. avoid_dist 0 = no restriction. */
+int  world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_ty, int avoid_dist, int *tile_x, int *tile_y);
+
+/* Dia's shrine (shrine.h): world_place_shrine puts the prop on the current map (it blocks the player, but nothing
+ * happens yet); world_enable_shrine switches it on: the interact button shows a sludge drop next to it, HOLDING it
+ * pollutes it, and on_done runs once it is done. the shrine goes away when a new map loads. */
+void world_place_shrine(int tile_x, int tile_y);
+void world_enable_shrine(void (*on_done)(void));
+
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);
 

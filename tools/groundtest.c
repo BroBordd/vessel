@@ -2,7 +2,9 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
  * the ground part of vessel 1, end to end on a PC: fall to the Grasslands, land, the complaint, the
- * first thought, Alex far away, walking into sight of her (thought + "Ask Alex" task), talking to her.
+ * first thought, Alex far away, walking into sight of her (thought + "Ask Alex" task), talking to her,
+ * the deal, and then (a second run, skipping the talk) Dia's shrine: inert until the deal, a hold on the
+ * interact button pollutes it, letting go early does not.
  * it #includes world.c and story.c so it can reach their statics (no test hooks in the shipped game).
  * writes build/ground_*.bmp, exits non-zero if a check fails:
  *   cc -O1 $(sdl2-config --cflags) -Igame -o build/groundtest tools/groundtest.c $(ls game/*.c | grep -v -e game/game.c -e game/world.c -e game/story.c) $(sdl2-config --libs) -lm
@@ -112,6 +114,60 @@ int main(void) {
     CHECK(mission_pollute >= 0, "'Pollute Dia's shrine' was not added by Alex's line");
     CHECK(brainwin_count() == before - 1, "the old orb thought was not dropped when the deal came (%d -> %d)", before, brainwin_count());
     shot("build/ground_alex_deal.bmp");
+
+    /* ---------- chunk 10: Dia's shrine, on a fresh run so no dialog is in the way ---------- */
+    printf("--- shrine ---\n");
+    world_init(TW, TH);
+    run(1.5f);
+    for (int i = 0; i < 2; i++) { run(1.5f); tap(TW / 2, TH / 2); }
+    run(1.0f);
+    on_enter_hole();
+    run(9.0f);
+    for (int i = 0; i < 12 && dialog_active(); i++) { run(1.5f); tap(TW / 2, TH * 4 / 5); }
+    run(0.5f);
+    CHECK(cur_map == MAP_GREEN && !dialog_active(), "did not get back on the ground for the shrine test");
+    CHECK(shrine_exists(), "Dia's shrine was not placed on the Grasslands");
+    CHECK(!shrine_enabled(), "the shrine is usable before Alex has asked for it");
+    float shx, shy; shrine_tile(&shx, &shy);
+    {   float ex, ey; npc_tile(alex_id, &ex, &ey);
+        float dl = sqrtf((shx - 40.5f) * (shx - 40.5f) + (shy - 40.9f) * (shy - 40.9f));
+        float da = sqrtf((shx - ex) * (shx - ex) + (shy - ey) * (shy - ey));
+        printf("shrine tile %.0f,%.0f  %.1f tiles from the landing, %.1f from Alex\n", shx, shy, dl, da);
+        CHECK(!solid_tile((int)shx, (int)shy), "the shrine stands on a solid tile");
+        CHECK(da >= SHRINE_FROM_ALEX - 0.5f, "the shrine is too close to Alex (%.1f)", da); }
+    {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        put_player(shx - 1.6f, shy); run(0.4f);
+        CHECK(!near_shrine, "the button shows for a shrine that is not switched on");
+        CHECK(!blocked((shx - 1.6f) * tile, shy * tile), "the player is blocked 1.6 tiles from the shrine");
+        CHECK(blocked(shx * tile, shy * tile), "the shrine does not block the player");
+
+        alex_deal_highlight(ALEX_DEAL_PAGE, 0);                 /* what Alex's last line does when its words are typed out */
+        run(0.4f);
+        CHECK(shrine_enabled() && mission_pollute >= 0, "Alex's line did not switch the shrine on");
+        put_player(shx - 8.0f, shy); run(0.3f);
+        CHECK(!near_shrine, "the button shows 8 tiles from the shrine");
+        put_player(shx - 1.6f, shy); run(0.4f);
+        CHECK(near_shrine, "the button does not see the shrine at 1.6 tiles");
+        shot("build/ground_shrine_near.bmp");
+
+        tap(bx, by); run(0.3f);                                 /* a tap is not enough */
+        CHECK(!shrine_polluted(), "a single tap polluted the shrine");
+
+        world_touch(0, bx, by); run(1.0f);                      /* hold, then let go early */
+        float half = shrine_progress();
+        CHECK(half > 0.3f && half < 0.6f, "after 1 s of holding the ooze is at %.2f", half);
+        shot("build/ground_shrine_half.bmp");
+        world_touch(1, bx, by); run(1.5f);
+        CHECK(shrine_progress() < half && !shrine_polluted(), "letting go early did not make the ooze creep back (%.2f)", shrine_progress());
+
+        world_touch(0, bx, by); run(SHRINE_HOLD_T + 0.5f);      /* hold all the way */
+        CHECK(shrine_polluted(), "holding the button did not pollute the shrine");
+        CHECK(shrine_fouled, "the story was not told the shrine is polluted");
+        CHECK(!btn_down && !near_shrine, "the button stays on after the shrine is done");
+        world_touch(1, bx, by); run(0.3f);
+        shot("build/ground_shrine_done.bmp");
+        CHECK(!shrine_enabled(), "a polluted shrine can be polluted again");
+        CHECK(blocked(shx * tile, shy * tile), "the polluted shrine stopped blocking"); }
 
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;

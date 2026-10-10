@@ -5,6 +5,7 @@
 #include "dialog.h"
 #include "missions.h"
 #include "npc.h"
+#include "shrine.h"
 #include "story.h"
 #include "nowplaying.h"
 #include "toast.h"
@@ -48,6 +49,7 @@ static float kx, ky;                /* knob offset, -1..1 */
 static int   bcx, bcy, br;          /* centre and radius */
 static int   btn_down, btn_inside;
 static int   near_id = -1;          /* npc in talking range, or -1 */
+static int   near_shrine;           /* Dia's shrine is in reach and usable: the button shows the sludge drop, and HOLDING it pollutes */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
 
@@ -312,6 +314,8 @@ static void load_map(int which) {
     cur_map = which;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
+    shrine_reset(px, tile);
+    near_shrine = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = (mw / 2 + 0.5f) * tile;
@@ -371,6 +375,10 @@ float world_dist_to_npc(int npc_id) {
  * tile, so any chain of open tiles can be walked), then pick the open spot nearest to the middle
  * of the wanted distance range. */
 int world_find_far_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) {
+    return world_find_spot_away(min_tiles, max_tiles, 0, 0, 0, out_tx, out_ty);
+}
+
+int world_find_spot_away(int min_tiles, int max_tiles, int avoid_tx, int avoid_ty, int avoid_dist, int *out_tx, int *out_ty) {
     static uint8_t seen[MAP_MAX][MAP_MAX];
     static short   qx[MAP_MAX * MAP_MAX], qy[MAP_MAX * MAP_MAX];
     int x0 = world_player_tile_x(), y0 = world_player_tile_y();
@@ -387,6 +395,7 @@ int world_find_far_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) 
         int open = 1;                                           /* all 8 neighbours walkable too */
         for (int j = -1; j <= 1 && open; j++)
             for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) { open = 0; break; }
+        if (open && avoid_dist > 0 && sqrtf((float)((x - avoid_tx) * (x - avoid_tx) + (y - avoid_ty) * (y - avoid_ty))) < avoid_dist) open = 0;
         if (open) {
             float d = sqrtf((float)((x - x0) * (x - x0) + (y - y0) * (y - y0)));
             if (d > far_d) { far_d = d; far_x = x; far_y = y; }
@@ -406,6 +415,9 @@ int world_find_far_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) 
     *out_tx = best_x; *out_ty = best_y;
     return 1;
 }
+
+void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
+void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
 
 void world_open_hole(int tx, int ty, void (*on_enter)(void)) {
     hole_on = 1; hole_tx = tx; hole_ty = ty; hole_t = 0; hole_cb = on_enter; hole_in_range = 0;
@@ -433,12 +445,21 @@ void world_touch(int a, int x, int y) {
     if (!controls_visible || phase != PH_PLAY) return;
 
     /* interact button: press on it, release on it = interact */
-    int can = near_id >= 0 || near_hole;
-    if (a == 0 && can && button_hit(x, y)) { btn_down = 1; btn_inside = 1; return; }
+    int can = near_id >= 0 || near_hole || near_shrine;
+    if (a == 0 && can && button_hit(x, y)) {
+        btn_down = 1; btn_inside = 1;
+        if (near_shrine) {                                              /* turn to face it before the sabotage starts */
+            float sfx_, sfy_; shrine_tile(&sfx_, &sfy_);
+            float fdx = sfx_ * tile - pxp, fdy = sfy_ * tile - pyp;
+            if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
+            else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
+        }
+        return;
+    }
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int fire = a == 1 && btn_inside && can;
+            int fire = a == 1 && btn_inside && can && !near_shrine;      /* the shrine is a hold, not a tap (world_update) */
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_hole) { if (hole_cb) hole_cb(); }
@@ -474,7 +495,7 @@ static int blocked(float fx, float fy) {           /* feet box centred at fx,fy 
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++)
             if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
-    return npc_collides(fx, fy, hw, 2 * hh);
+    return npc_collides(fx, fy, hw, 2 * hh) || shrine_collides(fx, fy, hw, 2 * hh);
 }
 
 /* walks through the jump -> fall -> land -> get-up cinematic */
@@ -532,7 +553,7 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0;
     } else {
         if (dialog_active()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking */
         float mag = sqrtf(kx * kx + ky * ky);
@@ -549,8 +570,10 @@ void world_update(float dt) {
 
         npc_update(pxp, pyp);
         update_hole_range();
-        near_id = (dialog_active() || near_hole) ? -1 : npc_nearby();
-        if (near_id < 0 && !near_hole) btn_down = btn_inside = 0;
+        near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole);
+        near_id = (dialog_active() || near_hole || near_shrine) ? -1 : npc_nearby();
+        if (near_id < 0 && !near_hole && !near_shrine) btn_down = btn_inside = 0;
+        if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
     }
 
     if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
@@ -698,6 +721,25 @@ static void draw_interact_button(SDL_Renderer *r) {
     col(r, 255, 255, 255, down ? 255 : pulse);
     pring(r, bcx, bcy, br, 1, ucell);
 
+    if (near_shrine) {                                           /* a sludge drop. holding fills the button from the bottom with ooze */
+        float p = shrine_progress();
+        if (p > 0) {
+            int hgt = (int)(2 * br * p);
+            SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
+            SDL_RenderSetClipRect(r, &clip);
+            col(r, 88, 160, 60, 245); pdisc(r, bcx, bcy, br, ucell);
+            SDL_RenderSetClipRect(r, NULL);
+            col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
+        }
+        int a = br / 7; if (a < 2) a = 2;
+        static const int DW[8] = { 1, 1, 3, 3, 5, 5, 5, 3 };           /* the drop, top to bottom, in cells */
+        int wob = (int)(sinf(t * 6.0f) * a * 0.3f);
+        col(r, 0, 0, 0, 120);
+        for (int k = 0; k < 8; k++) fill(r, bcx - DW[k] * a / 2 + a / 3, bcy - 4 * a + k * a + wob + a / 3, DW[k] * a, a);
+        col(r, p > 0.5f ? 40 : 190, p > 0.5f ? 70 : 255, p > 0.5f ? 40 : 120, 255);
+        for (int k = 0; k < 8; k++) fill(r, bcx - DW[k] * a / 2, bcy - 4 * a + k * a + wob, DW[k] * a, a);
+        return;
+    }
     if (near_hole) {                                             /* pixel arrow pointing down */
         int a = br / 7; if (a < 2) a = 2;
         int bob = (int)(sinf(t * 6.0f) * a * 0.4f);
@@ -741,7 +783,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         draw_hole(r, hcx, hcy, 0);
     }
 
-    /* characters, back to front so whoever is lower on screen draws on top */
+    /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
+    if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
 
@@ -774,6 +817,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
+    if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
 }
 
 void world_draw(SDL_Renderer *r) {
@@ -822,7 +866,7 @@ void world_draw(SDL_Renderer *r) {
         float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
-        if (near_id >= 0 || near_hole) draw_interact_button(r);
+        if (near_id >= 0 || near_hole || near_shrine) draw_interact_button(r);
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
@@ -830,6 +874,7 @@ void world_draw(SDL_Renderer *r) {
             { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 } };
         MiniMark marks[MAX_MARKS]; int nm = 0;
         for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
+        if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
         if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
         minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
     }

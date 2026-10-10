@@ -59,6 +59,10 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
         if (marks[k].kind == 1) {                           /* the hole: a dark ring with a pale rim */
             SDL_SetRenderDrawColor(r, 235, 242, 255, 255); fill(r, mx - cell, my - cell / 2, 2 * cell + 1, cell + 1);
             SDL_SetRenderDrawColor(r, 20, 40, 120, 255);   fill(r, mx - cell + 1, my - cell / 2 + 1, 2 * cell - 1, cell - 1);
+        } else if (marks[k].kind == 2) {                    /* Dia's shrine: a violet diamond-ish block with a pale core */
+            SDL_SetRenderDrawColor(r, 30, 10, 60, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
+            SDL_SetRenderDrawColor(r, 176, 120, 255, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
+            SDL_SetRenderDrawColor(r, 240, 226, 255, 255); fill(r, mx - 1, my - 1, 3, 3);
         } else {                                            /* an npc: gold dot with a dark edge */
             SDL_SetRenderDrawColor(r, 20, 14, 0, 255);     fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
             SDL_SetRenderDrawColor(r, 255, 214, 110, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
