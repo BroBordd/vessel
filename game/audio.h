@@ -68,6 +68,8 @@ void sfx_blip(float pitch);             /* the clean "deek" for dialog letters. 
 void sfx_beep(void);                    /* the heart monitor's "peep" (death cutscene) */
 void sfx_flatline(void);                /* the long monitor tone, ~3 s, then it lets go (replaces a peep in progress) */
 void sfx_flatline_stop(void);           /* cut the flatline short (~60 ms release); nothing if it is not sounding */
+void sfx_summon(void);                  /* the summoning: a soft rising arpeggio and a shimmer, ~3.6 s, its own voice (a new call restarts it) */
+int  sfx_debug_summons(void);           /* tests: how many times sfx_summon was called */
 int  sfx_debug_beeps(void);             /* tests: how many times sfx_beep / sfx_flatline were called */
 int  sfx_debug_flatlines(void);
 /* piano notes for the music window: the note rings while the key is held (a short release after).

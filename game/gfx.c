@@ -106,7 +106,9 @@ SDL_Renderer *gfx_dummy_renderer(void) { return (SDL_Renderer *)&dummy_renderer;
 
 unsigned gfx_rect_stat(void) { unsigned m = rects_max; rects_max = 0; return m; }
 
-static int f_grey, f_red;                            /* the colour filter, see gfx.h */
+static int f_grey, f_red, f_gold;                    /* the colour filter, see gfx.h */
+
+void gfx_set_gold(int gold) { f_gold = gold < 0 ? 0 : gold > 256 ? 256 : gold; }
 
 void gfx_set_filter(int grey, int red) {
     f_grey = grey < 0 ? 0 : grey > 256 ? 256 : grey;
@@ -126,11 +128,16 @@ static void filter_colour(Uint8 *R, Uint8 *G, Uint8 *B) {
         g = g * (256 * 256 - 154 * f_red) / (256 * 256);   /* ... and the greens and blues drain */
         b = b * (256 * 256 - 166 * f_red) / (256 * 256);
     }
+    if (f_gold) {                                    /* toward gold: dark parts a deep amber, light parts a pale gold */
+        int lum = (299 * r + 587 * g + 114 * b) / 1000;
+        int tr = 214 + 41 * lum / 255, tg = 150 + 86 * lum / 255, tb = 40 + 110 * lum / 255;
+        r += (tr - r) * f_gold / 256; g += (tg - g) * f_gold / 256; b += (tb - b) * f_gold / 256;
+    }
     *R = (Uint8)r; *G = (Uint8)g; *B = (Uint8)b;
 }
 
 int gfx_SetRenderDrawColor(SDL_Renderer *r, Uint8 R, Uint8 G, Uint8 B, Uint8 A) {
-    if (f_grey || f_red) filter_colour(&R, &G, &B);
+    if (f_grey || f_red || f_gold) filter_colour(&R, &G, &B);
     cr = R; cg = G; cb = B; ca = A;
     return gpu ? 0 : SDL_SetRenderDrawColor(r, R, G, B, A);
 }

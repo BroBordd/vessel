@@ -15,9 +15,14 @@
 
 #define SUMMON_DROP_T   0.9f        /* the light falls from the top of the screen to the floor */
 #define SUMMON_RING_T   0.7f        /* the ring spreads (it starts when the light lands) */
-#define SUMMON_HOLD_T   1.6f        /* the light stands (counted from the landing) */
-#define SUMMON_END_T    0.8f        /* it thins out and is gone */
+#define SUMMON_SPARKS_AT 1.0f       /* the sparks begin to rise (just after the ring starts) */
+#define SUMMON_FORM_AT  1.5f        /* the vessel starts to form: the gold silhouette grows up from the feet ... */
+#define SUMMON_FORM_T   0.6f        /* ... over this long (one sprite row at a time) ... */
+#define SUMMON_COLOUR_T 1.2f        /* ... and then goes from gold to its real colours over this long */
+#define SUMMON_HOLD_T   2.1f        /* the light stands this long from the landing, then it begins to thin */
+#define SUMMON_END_T    0.8f        /* it thins out and is gone. the vessel stands in it, in its real colours */
 #define SUMMON_TOTAL_T  (SUMMON_DROP_T + SUMMON_HOLD_T + SUMMON_END_T)
+#define SUMMON_ROWS     12          /* the vessel sprite is 12 rows tall */
 
 void  summon_begin(void);                   /* start (or restart) the effect */
 void  summon_cancel(void);                  /* stop at once, nothing is left on screen */
@@ -26,6 +31,13 @@ int   summon_active(void);                  /* running now (the vessel is not dr
 float summon_time(void);                    /* seconds since it began (tests) */
 int   summon_beam_rows(void);               /* how many cell rows of light were drawn last frame (tests) */
 int   summon_ring_radius(void);             /* the ring's horizontal radius in cells right now (tests) */
+int   summon_spark_count(void);             /* sparks drawn last frame (tests) */
+
+/* the vessel that forms in the light, for world.c to draw: how many of its rows (from the feet up) show, 0 .. SUMMON_ROWS,
+ * and how gold it still is, 0..256 (gfx_set_gold: 256 = a flat gold silhouette, 0 = its real colours). once the effect has
+ * ended world.c just draws the player as usual. */
+int   summon_player_rows(void);
+int   summon_player_gold(void);
 
 /* the far half of the ring (behind the light) and the beam, then the near half (in front). (foot_x, foot_y) = the spot on the
  * floor on screen; cell = one sprite pixel in screen px; w, h = the screen. call summon_draw_back, then draw the player if one

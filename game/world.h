@@ -57,9 +57,10 @@ void world_death_fall(void);                   /* chunk 15.1: the vessel topples
 void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 
 /* THE SUMMONING (vessel 2, chunk 8, summon.h): a column of golden light drops onto the spot where the player stands, a glowing
- * ring spreads on the floor, the light holds and ends. the player is NOT drawn while it runs and the controls are hidden;
- * on_done runs on the frame it ends (the player shows again; controls stay hidden: on_done decides). chunk 9 forms the vessel
- * out of the light, chunk 10 uses it at the start of the game. */
+ * ring spreads on the floor, golden sparks rise toward the light, the vessel forms in it (a gold silhouette from the feet up,
+ * then its real colours), the light thins and ends. the controls are hidden meanwhile; on_done runs on the frame it ends (the
+ * player is standing there in full colour; the controls stay hidden: on_done decides). the chime (sfx_summon) starts with it.
+ * chunk 10 uses it at the start of the game. */
 void world_summon(void (*on_done)(void));
 int  world_summoning(void);                    /* it is running */
 

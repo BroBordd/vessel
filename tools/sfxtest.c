@@ -64,6 +64,22 @@ int main(void) {
     sfx_flatline(); render(0.30f, 0, NULL); sfx_beep();
     CHECK(render(0.60f, 0, NULL) == 0, "the flatline kept going under the peep");
 
+
+    printf("the summoning chime\n");
+    sfx_summon();
+    peak = render(0.45f, 1, NULL);                               /* before the first note (0.55 s): only the slow swell, soft */
+    printf("  peak in the first 0.45 s: %d\n", peak);
+    CHECK(peak < 5000, "the chime starts too loud (%d)", peak);
+    peak = render(1.55f, 1, NULL);                               /* 0.45 .. 2.0 s: the arpeggio climbing */
+    printf("  peak while the arpeggio climbs: %d\n", peak);
+    CHECK(peak > 2500, "the arpeggio is too quiet (%d)", peak);
+    CHECK(peak < 20000, "the chime is too loud (%d)", peak);
+    render(1.50f, 0, NULL);                                      /* 3.5 s in */
+    CHECK(render(0.30f, 0, NULL) == 0, "the chime did not end after ~3.6 s");
+    sfx_summon(); render(1.0f, 0, NULL); sfx_summon();           /* a new call restarts it: soft again at the start */
+    CHECK(render(0.20f, 1, NULL) < 5000, "a second call did not restart the chime");
+    render(4.0f, 0, NULL);
+    CHECK(sfx_debug_summons() == 3, "summon counter off (%d)", sfx_debug_summons());
     CHECK(sfx_debug_beeps() == 3 && sfx_debug_flatlines() == 3, "call counters off (%d beeps, %d flatlines)", sfx_debug_beeps(), sfx_debug_flatlines());
     SDL_UnlockAudioDevice(dev);
     audio_quit();

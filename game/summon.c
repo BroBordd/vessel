@@ -10,7 +10,7 @@
 
 static int   on;
 static float st;                    /* seconds since it began */
-static int   last_rows, last_rx;
+static int   last_rows, last_rx, last_sparks;
 
 static uint32_t hash(uint32_t a, uint32_t b) {
     uint32_t h = a * 374761393u + b * 668265263u;
@@ -18,12 +18,31 @@ static uint32_t hash(uint32_t a, uint32_t b) {
     return h ^ (h >> 16);
 }
 
-void  summon_begin(void) { on = 1; st = 0; last_rows = last_rx = 0; }
+void  summon_begin(void) { on = 1; st = 0; last_rows = last_rx = last_sparks = 0; }
 void  summon_cancel(void) { on = 0; }
 int   summon_active(void) { return on; }
 float summon_time(void) { return st; }
 int   summon_beam_rows(void) { return last_rows; }
 int   summon_ring_radius(void) { return last_rx; }
+int   summon_spark_count(void) { return last_sparks; }
+
+int summon_player_rows(void) {
+    if (!on) return SUMMON_ROWS;
+    float k = (st - SUMMON_FORM_AT) / SUMMON_FORM_T;
+    if (k <= 0) return 0;
+    if (k >= 1) return SUMMON_ROWS;
+    int n = 1 + (int)(k * SUMMON_ROWS);                     /* one row at a time, the first row at once */
+    return n > SUMMON_ROWS ? SUMMON_ROWS : n;
+}
+int summon_player_gold(void) {
+    if (!on) return 0;
+    float k = (st - (SUMMON_FORM_AT + SUMMON_FORM_T)) / SUMMON_COLOUR_T;
+    if (k <= 0) return 256;
+    if (k >= 1) return 0;
+    k = k * k * (3.0f - 2.0f * k);
+    int g = (int)(256.0f * (1.0f - k));
+    return (g / 32) * 32;                                   /* in chunky steps (8), like a sprite animation */
+}
 
 int summon_update(float dt) {
     if (!on) return 0;
@@ -84,6 +103,44 @@ static void ring_half(SDL_Renderer *r, int cx, int cy, int cell, int far_half) {
     if (!far_half) last_rx = (int)rx;
 }
 
+
+/* the sparks: golden single-cell flecks that start on the ring, rise and swirl in toward the light and are gone before they reach it.
+ * each spark lives in cycles (its own length and phase), so there are always some at every height. the far half (behind the
+ * light) is drawn with the back pass, the near half with the front one. */
+#define NSPARK 44
+static void sparks_half(SDL_Renderer *r, int cx, int cy, int cell, int far_half) {
+    if (st < SUMMON_SPARKS_AT) return;
+    float lf = life();
+    if (lf <= 0) return;
+    float ramp = (st - SUMMON_SPARKS_AT) / 0.6f; if (ramp > 1) ramp = 1;
+    for (int i = 0; i < NSPARK; i++) {
+        uint32_t h1 = hash((uint32_t)i, 11u), h2 = hash((uint32_t)i, 29u), h3 = hash((uint32_t)i, 53u);
+        float period = 1.3f + (h1 & 255) / 255.0f * 0.7f;
+        float off = (h2 & 255) / 255.0f * period;
+        float local = st - SUMMON_SPARKS_AT + off;
+        int cyc = (int)(local / period);
+        float u = fmodf(local, period) / period;            /* 0..1 over this spark's cycle */
+        uint32_t hc = hash((uint32_t)i * 7u + (uint32_t)cyc, 97u);
+        float base = (hc & 1023) / 1023.0f * 6.2831853f;
+        float rr = (0.55f + 0.45f * ((h3 & 255) / 255.0f)) * RING_RX * (1.0f - 0.8f * u);     /* in, toward the light */
+        float ang = base + u * 2.6f * (i & 1 ? 1.0f : -1.0f);                                  /* swirling */
+        float hgt = u * 7.0f + u * u * 16.0f;                                                   /* up, speeding up */
+        float fx = cosf(ang) * rr, fy = sinf(ang) * rr * (RING_RY / RING_RX) - hgt;
+        int ix = (int)floorf(fx), iy = (int)floorf(fy);
+        int is_far = sinf(ang) < 0;                          /* on the far side of the light */
+        if (is_far != far_half) continue;
+        float a = sinf(3.1415927f * u) * ramp * lf;          /* fades in and out */
+        if (a <= 0.05f) continue;
+        int big = (h1 >> 9) & 1 && u > 0.2f && u < 0.8f;     /* some are two cells wide */
+        if ((int)(st * 12.0f + i) % 5 == 0) a *= 0.55f;      /* twinkle */
+        if (u > 0.5f) SDL_SetRenderDrawColor(r, 255, 244, 190, (int)(255 * a));
+        else          SDL_SetRenderDrawColor(r, 255, 208, 84, (int)(255 * a));
+        SDL_Rect q = { cx + ix * cell, cy + iy * cell, cell * (big ? 2 : 1), cell };
+        SDL_RenderFillRect(r, &q);
+        last_sparks++;
+    }
+}
+
 static void bar(SDL_Renderer *r, int x, int y, int cells_w, int cell, int cr, int cg, int cb, int a) {
     if (a <= 0) return;
     SDL_SetRenderDrawColor(r, cr, cg, cb, a);
@@ -93,7 +150,7 @@ static void bar(SDL_Renderer *r, int x, int y, int cells_w, int cell, int cr, in
 
 void summon_draw_back(SDL_Renderer *r, int fx, int fy, int cell, int w, int h) {
     (void)w; (void)h;
-    last_rows = 0;
+    last_rows = 0; last_sparks = 0;
     if (!on || cell < 1) return;
     ring_half(r, fx, fy, cell, 1);
 
@@ -126,9 +183,11 @@ void summon_draw_back(SDL_Renderer *r, int fx, int fy, int cell, int w, int h) {
         bar(r, fx, y, wc,                    cell, 255, 255, 240, a_core > 255 ? 255 : a_core);
     }
     last_rows = head;
+    sparks_half(r, fx, fy, cell, 1);                        /* sparks behind the light: over the beam, under the vessel */
 }
 
 void summon_draw_front(SDL_Renderer *r, int fx, int fy, int cell) {
     if (!on || cell < 1) return;
     ring_half(r, fx, fy, cell, 0);
+    sparks_half(r, fx, fy, cell, 0);                        /* sparks in front of the vessel */
 }

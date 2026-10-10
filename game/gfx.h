@@ -51,6 +51,10 @@ enum { GFX_RECT = 0, GFX_BLEND = 1, GFX_CLIP = 2, GFX_TARGET = 3, GFX_COPY = 4, 
  *   red  0..256: how far toward a bloody red (greens and blues drain, reds stay)
  * (0, 0) = off. colours set BEFORE the call are not touched: set the filter, then draw. */
 void gfx_set_filter(int grey, int red);
+/* GOLD (the summoning, vessel 2): the same idea as the filter above, as its own switch so it combines with nothing else and
+ * the existing calls stay as they are. gold 0..256: how far every colour set from now on goes toward flat gold (its own
+ * brightness picks the shade, so a silhouette keeps a hint of its shading). 0 = off. */
+void gfx_set_gold(int gold);
 
 /* GPU mode: map the shared file (created by the app) and start recording. 0 on success. */
 int  gfx_init_gpu(const char *path, int w, int h);

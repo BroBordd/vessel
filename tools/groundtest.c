@@ -50,33 +50,59 @@ int main(void) {
     brainwin_init(TW, TH);
     world_init(TW, TH);
 
-    /* chunk 8: the summoning runs first (stand-in until chunk 10): light drops, ring spreads, the player is not drawn, no controls */
+    /* chunks 8-9: the summoning runs first (stand-in until chunk 10): light drops, ring spreads, sparks rise, the vessel forms
+     * (gold silhouette from the feet up, then its colours), the light ends, the controls stay hidden until on_done says so */
     {   int sxp = TW / 2, syp = TH / 2;                          /* the player's feet are in the middle of the screen (not at a map edge) */
+        int s0 = sfx_debug_summons();
         CHECK(world_summoning() && summon_active(), "the summoning did not start with the game");
         CHECK(!controls_visible, "the controls are visible during the summoning");
         run(0.25f);
+        CHECK(sfx_debug_summons() == s0 + 1, "the chime did not start with the light (%d calls)", sfx_debug_summons() - s0);
         CHECK(summon_beam_rows() > 0 && summon_beam_rows() < syp / px, "the light is not falling (rows %d of %d)", summon_beam_rows(), syp / px);
         CHECK(summon_ring_radius() == 0, "the ring is spreading before the light has landed");
-        run(0.9f);                                               /* 1.15 s: landed, the ring is spreading */
+        CHECK(summon_player_rows() == 0 && summon_spark_count() == 0, "the vessel or the sparks are there before the light has landed");
+        run(0.9f);                                               /* 1.15 s: landed, the ring is spreading, the sparks have begun */
         CHECK(summon_beam_rows() == syp / px, "the light has not reached the floor (rows %d, want %d)", summon_beam_rows(), syp / px);
         CHECK(summon_ring_radius() > 0, "no ring on the floor");
-        run(0.6f);                                               /* 1.75 s: holding */
-        shot("build/summon_hold.bmp");
-        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, gold = 0, red = 0;
-            for (int y = 20; y < syp - 6 * px; y += 4) { Uint8 *c = pix + y * pitch + sxp * 4; if (c[0] > 240 && c[1] > 215 && c[2] > 150) gold++; }
+        CHECK(summon_spark_count() > 3, "no sparks rising (%d)", summon_spark_count());
+        CHECK(summon_player_rows() == 0, "the vessel is there before its time (rows %d)", summon_player_rows());
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, red = 0;
             for (int y = syp - 10 * px; y < syp; y += 2) for (int x = sxp - 4 * px; x < sxp + 4 * px; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 180 && c[1] < 90 && c[2] < 90) red++; }
-            CHECK(gold > 40, "no column of golden light over the spot (%d bright samples)", gold);
-            CHECK(red == 0, "the player is drawn during the summoning (%d red shirt samples)", red);
+            CHECK(red == 0, "the player is drawn before the vessel forms (%d red shirt samples)", red); }
+        run(0.35f);                                              /* 1.5 s: the silhouette is just starting */
+        shot("build/summon_hold.bmp");
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, gold = 0;
+            for (int y = 20; y < syp - 14 * px; y += 4) { Uint8 *c = pix + y * pitch + sxp * 4; if (c[0] > 240 && c[1] > 215 && c[2] > 150) gold++; }
+            CHECK(gold > 30, "no column of golden light over the spot (%d bright samples)", gold);
             int ring = 0;                                        /* the ring: gold-ish pixels on the floor left and right of the light */
-            for (int dx = -9 * px; dx <= 9 * px; dx += px) { Uint8 *c = pix + (syp + 2) * pitch + (sxp + dx) * 4; if (c[0] > 200 && c[2] < 215 && abs(dx) > 3 * px) ring++;      /* gold, not the white of the clouds */ }
+            for (int dx = -9 * px; dx <= 9 * px; dx += px) { Uint8 *c = pix + (syp + 2) * pitch + (sxp + dx) * 4; if (c[0] > 200 && c[2] < 215 && abs(dx) > 3 * px) ring++; }      /* gold, not the white of the clouds */
             CHECK(ring >= 4, "no glowing ring on the floor (%d samples)", ring); }
-        CHECK(world_summoning(), "the summoning ended during the hold");
-        run(SUMMON_TOTAL_T - 1.75f - 0.1f);
-        CHECK(world_summoning() && summon_time() > SUMMON_DROP_T + SUMMON_HOLD_T, "the end of the light has not begun (t %.2f)", summon_time());
+        run(0.25f);                                              /* 1.75 s: the vessel is growing up out of the light */
+        {   int rows = summon_player_rows();
+            CHECK(rows > 0 && rows < SUMMON_ROWS, "the vessel is not forming row by row (rows %d)", rows);
+            CHECK(summon_player_gold() == 256, "the silhouette is not flat gold while it grows (%d)", summon_player_gold()); }
+        shot("build/summon_form.bmp");
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, red = 0, golds = 0;
+            for (int y = syp - 12 * px; y < syp; y += 2) for (int x = sxp - 4 * px; x < sxp + 4 * px; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 180 && c[1] < 90 && c[2] < 90) red++; if (c[0] > 200 && c[1] > 130 && c[1] < 215 && c[2] < 110) golds++; }
+            CHECK(red == 0, "the silhouette has real colours already (%d red samples)", red);
+            CHECK(golds > 8, "no gold silhouette on the screen (%d samples)", golds); }
+        run(0.4f);                                               /* 2.15 s: fully formed, the colours are coming */
+        CHECK(summon_player_rows() == SUMMON_ROWS, "the vessel is not whole (rows %d)", summon_player_rows());
+        {   int g = summon_player_gold(); CHECK(g > 0 && g <= 256, "the gold does not start to leave (%d)", g); }
+        run(0.95f);                                              /* 3.1 s: real colours, the light still stands */
+        CHECK(summon_player_gold() == 0 && world_summoning(), "the vessel did not take its real colours (gold %d)", summon_player_gold());
+        shot("build/summon_colours.bmp");
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, red = 0;
+            for (int y = syp - 12 * px; y < syp; y += 2) for (int x = sxp - 4 * px; x < sxp + 4 * px; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 180 && c[1] < 90 && c[2] < 90) red++; }
+            CHECK(red > 8, "the vessel's red shirt is not on the screen at the end (%d samples)", red); }
+        CHECK(summon_time() > SUMMON_DROP_T + SUMMON_HOLD_T, "the end of the light has not begun (t %.2f)", summon_time());
+        run(SUMMON_TOTAL_T - 3.1f - 0.1f);
+        CHECK(world_summoning(), "the summoning ended too early");
         run(0.3f);
         CHECK(!world_summoning() && !summon_active(), "the summoning did not end");
         CHECK(!controls_visible, "the summoning gave the controls back by itself (on_done decides)");
         CHECK(dialog_active(), "the old welcome window did not follow the summoning (stand-in)");
+        CHECK(sfx_debug_summons() == s0 + 1, "the chime was asked for more than once (%d)", sfx_debug_summons() - s0);
         shot("build/summon_after.bmp");
     }
     run(1.0f);                                                  /* the two sky windows */

@@ -261,6 +261,61 @@ static void mon_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the summoning (vessel 2, chunk 9): a soft rising arpeggio and a shimmer ----------
+ * ONE voice, like the monitor: a slow swell underneath, a pentatonic arpeggio climbing from C5 in pure sines that ring and
+ * decay, and over it a shimmer (two sines a few Hz apart, so they beat, with a rising then falling level). starts with
+ * sfx_summon(), ends by itself after SUM_T seconds (the length of the effect, summon.h), a new call restarts it. */
+static int   sum_on, sum_pos;
+static float sum_ph[8], sum_sw, sum_sh1, sum_sh2;
+static int   n_summons;                                        /* how many times it was asked for (tests) */
+#define SUM_T      3.6f
+#define SUM_GAIN   0.20f
+#define SUM_NOTES  8
+static const float SUM_HZ[SUM_NOTES] = { 523.25f, 659.25f, 783.99f, 1046.50f, 1318.51f, 1567.98f, 2093.00f, 2637.02f };   /* C5 E5 G5 C6 E6 G6 C7 E7 */
+#define SUM_NOTE_T0  0.55f                                     /* the first note, seconds in */
+#define SUM_NOTE_GAP 0.22f
+
+void sfx_summon(void) {
+    n_summons++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    sum_on = 1; sum_pos = 0; sum_sw = sum_sh1 = sum_sh2 = 0.0f;
+    for (int k = 0; k < SUM_NOTES; k++) sum_ph[k] = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_summons(void) { return n_summons; }
+
+static void sum_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)sum_pos / (float)OUT_RATE;
+        if (tt >= SUM_T) { sum_on = 0; return; }
+        float master_env = 1.0f;
+        if (tt < 0.05f) master_env = tt / 0.05f;                          /* no click on the way in */
+        if (tt > SUM_T - 0.5f) master_env = (SUM_T - tt) / 0.5f;          /* a soft end */
+        sum_sw += 261.63f / (float)OUT_RATE; if (sum_sw >= 1.0f) sum_sw -= 1.0f;
+        float sw = sinf(6.2831853f * sum_sw) * (0.5f * (1.0f - cosf(3.1415927f * fminf(tt / 2.4f, 1.0f)))) * 0.55f;   /* the swell: C4 rising slowly */
+        float arp = 0.0f;
+        for (int k = 0; k < SUM_NOTES; k++) {
+            float nt = tt - (SUM_NOTE_T0 + k * SUM_NOTE_GAP);
+            if (nt < 0) continue;
+            sum_ph[k] += SUM_HZ[k] / (float)OUT_RATE; if (sum_ph[k] >= 1.0f) sum_ph[k] -= 1.0f;
+            float e = expf(-nt * 4.2f);
+            if (nt < 0.004f) e *= nt / 0.004f;
+            arp += sinf(6.2831853f * sum_ph[k]) * e * 0.45f;
+        }
+        sum_sh1 += 3135.96f / (float)OUT_RATE; if (sum_sh1 >= 1.0f) sum_sh1 -= 1.0f;
+        sum_sh2 += 3141.50f / (float)OUT_RATE; if (sum_sh2 >= 1.0f) sum_sh2 -= 1.0f;
+        float lv = tt < 1.0f ? 0.0f : tt < 2.4f ? (tt - 1.0f) / 1.4f : 1.0f - (tt - 2.4f) / (SUM_T - 2.4f);     /* swells in, then fades */
+        float sh = (sinf(6.2831853f * sum_sh1) + sinf(6.2831853f * sum_sh2)) * 0.5f * lv * 0.30f;
+        int v = (int)((sw + arp + sh) * master_env * SUM_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        sum_pos++;
+    }
+}
+
 /* ---------- the piano in the music window ----------
  * a few overlapping voices (a chord or a slide of the finger works), each a soft piano-ish tone:
  * a few harmonics with a quick attack, a slow fade while the key is held, a short release after.
@@ -545,6 +600,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (sfx_on) sfx_mix(out, frames);
     if (blip_on) blip_mix(out, frames);
     if (mon_on) mon_mix(out, frames);
+    if (sum_on) sum_mix(out, frames);
 }
 
 int audio_init(void) {

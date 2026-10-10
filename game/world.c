@@ -91,6 +91,7 @@ static float death_fall_t = -1;     /* the collapse (chunk 15.1): -1 = standing,
 #define DEATH_FALL_T    1.1f        /* the topple takes this long */
 static void (*death_cb)(void);
 static void (*summon_cb)(void);       /* the summoning's on_done (chunk 8) */
+static int   summon_chime;            /* the chime has been asked for and has not started yet (chunk 9) */
 static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 
 /* the jump / fall / landing cinematic */
@@ -350,7 +351,7 @@ void world_init(int w, int h) {
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; talk_npc = -1;
     death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1;
-    summon_cancel(); summon_cb = NULL;
+    summon_cancel(); summon_cb = NULL; summon_chime = 0;
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -376,6 +377,7 @@ void world_init(int w, int h) {
 void world_summon(void (*on_done)(void)) {
     summon_cb = on_done;
     summon_begin();
+    summon_chime = 1;                                           /* the rising chime starts with the first frame the light is really running (world_update): world_init runs while limbo still shows */
     world_set_controls_visible(0);                              /* nothing to do while the light is on */
     moving = 0; walk = 0; facing = FACE_DOWN;
 }
@@ -594,6 +596,7 @@ void world_update(float dt) {
     if (death_msg[0]) death_msg_t += dt;
     if (death_on && death_fall_t >= 0) death_fall_t += dt;
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
+    if (summon_chime && summon_active()) { summon_chime = 0; sfx_summon(); }                   /* the world is running: the light and its chime begin together */
     if (summon_update(dt)) { void (*cb)(void) = summon_cb; summon_cb = NULL; if (cb) cb(); }   /* the light has ended: the player shows again */
     heart_update(dt);                                         /* (the heart and its blood are not part of the world: they move on) */
     story_update(dt);
@@ -868,7 +871,16 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
     scene_filter(1);                                              /* the player: red, in a grey world */
-    if (summon_active()) {                                        /* not here yet: only the light (chunk 9 forms the vessel out of it) */
+    if (summon_active()) {                                        /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
+        int rows = summon_player_rows();
+        if (rows > 0) {
+            SDL_Rect clip = { 0, sy0 - rows * px, W, rows * px + 4 * px };      /* the rows revealed so far (+ the shadow under the feet) */
+            SDL_RenderSetClipRect(r, &clip);
+            gfx_set_gold(summon_player_gold());
+            char_draw(r, &VESSEL, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            gfx_set_gold(0);
+            SDL_RenderSetClipRect(r, NULL);
+        }
     } else if (phase == PH_SINK) {                                       /* sinking: cut off at the hole's middle */
         float k = (ph_t - 0.4f) / (SINK_T - 0.4f); if (k < 0) k = 0;
         SDL_Rect clip = { 0, 0, W, hcy + (int)(0.12f * tile) };
@@ -903,7 +915,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
     if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
-    gfx_set_filter(0, 0);                                         /* never leaks into the HUD */
+    gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
 
 /* where the camera sits for the zoomed pass: it slides from the player to the focus point as the zoom grows
