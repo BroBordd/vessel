@@ -37,7 +37,7 @@ static void shot(const char *name) { SDL_RenderPresent(rr); SDL_SaveBMP(surf, na
 static void put_player(float tx, float ty) { pxp = tx * tile; pyp = ty * tile; }   /* teleport (world.c's statics) */
 
 /* the old photo on a grave: on the screen, a face (not flat), colourless, none of the person's real skin colour, in a dark frame.
- * the camera is the world's own (cam_x, cam_y), so the player must have been drawn once near the grave. *
+ * the camera is the world's own (cam_x, cam_y), so the player must have been drawn once near the grave. */
 static void check_photo(int gi, const Person *who, const char *what) {
     int cx = (int)cam_x, cy = (int)cam_y, rx, ry, rw, rh; grave_portrait_rect(gi, cx, cy, &rx, &ry, &rw, &rh);
     Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, n = 0, grey = 0, rawskin = 0, frame = 0, lo = 255, hi = 0;
