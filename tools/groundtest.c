@@ -50,7 +50,36 @@ int main(void) {
     brainwin_init(TW, TH);
     world_init(TW, TH);
 
-    run(1.5f);                                                  /* fade-in, then the two sky windows */
+    /* chunk 8: the summoning runs first (stand-in until chunk 10): light drops, ring spreads, the player is not drawn, no controls */
+    {   int sxp = TW / 2, syp = TH / 2;                          /* the player's feet are in the middle of the screen (not at a map edge) */
+        CHECK(world_summoning() && summon_active(), "the summoning did not start with the game");
+        CHECK(!controls_visible, "the controls are visible during the summoning");
+        run(0.25f);
+        CHECK(summon_beam_rows() > 0 && summon_beam_rows() < syp / px, "the light is not falling (rows %d of %d)", summon_beam_rows(), syp / px);
+        CHECK(summon_ring_radius() == 0, "the ring is spreading before the light has landed");
+        run(0.9f);                                               /* 1.15 s: landed, the ring is spreading */
+        CHECK(summon_beam_rows() == syp / px, "the light has not reached the floor (rows %d, want %d)", summon_beam_rows(), syp / px);
+        CHECK(summon_ring_radius() > 0, "no ring on the floor");
+        run(0.6f);                                               /* 1.75 s: holding */
+        shot("build/summon_hold.bmp");
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, gold = 0, red = 0;
+            for (int y = 20; y < syp - 6 * px; y += 4) { Uint8 *c = pix + y * pitch + sxp * 4; if (c[0] > 240 && c[1] > 215 && c[2] > 150) gold++; }
+            for (int y = syp - 10 * px; y < syp; y += 2) for (int x = sxp - 4 * px; x < sxp + 4 * px; x += 2) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 180 && c[1] < 90 && c[2] < 90) red++; }
+            CHECK(gold > 40, "no column of golden light over the spot (%d bright samples)", gold);
+            CHECK(red == 0, "the player is drawn during the summoning (%d red shirt samples)", red);
+            int ring = 0;                                        /* the ring: gold-ish pixels on the floor left and right of the light */
+            for (int dx = -9 * px; dx <= 9 * px; dx += px) { Uint8 *c = pix + (syp + 2) * pitch + (sxp + dx) * 4; if (c[0] > 200 && c[2] < 215 && abs(dx) > 3 * px) ring++;      /* gold, not the white of the clouds */ }
+            CHECK(ring >= 4, "no glowing ring on the floor (%d samples)", ring); }
+        CHECK(world_summoning(), "the summoning ended during the hold");
+        run(SUMMON_TOTAL_T - 1.75f - 0.1f);
+        CHECK(world_summoning() && summon_time() > SUMMON_DROP_T + SUMMON_HOLD_T, "the end of the light has not begun (t %.2f)", summon_time());
+        run(0.3f);
+        CHECK(!world_summoning() && !summon_active(), "the summoning did not end");
+        CHECK(!controls_visible, "the summoning gave the controls back by itself (on_done decides)");
+        CHECK(dialog_active(), "the old welcome window did not follow the summoning (stand-in)");
+        shot("build/summon_after.bmp");
+    }
+    run(1.0f);                                                  /* the two sky windows */
     for (int i = 0; i < 2; i++) { run(1.5f); tap(TW / 2, TH / 2); }
     run(1.0f);
     CHECK(alex_id < 0, "Alex exists up in the sky");

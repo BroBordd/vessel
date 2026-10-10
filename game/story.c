@@ -26,6 +26,7 @@
  *   dialog_on_highlight(fn)                 run fn(page, span) when a {highlighted} span of the NEXT dialog_play has been typed out
  *   convo_ask_questions(&P, &MIND, on_end)  "do you have any questions?" then a free typed chat (convo.h)
  *   convo_open(&P, &MIND, again, on_end)    the npc speaks first, the player may type or skip
+ *   world_summon(on_done)                   the summoning: a column of golden light and a ring on the floor, the player not drawn until it ends (summon.h)
  *   limbo_run(thoughts, n, gap, on_done)    LIMBO (vessel 2): the soul thinks these lines one after the other on the space screen, then on_done()
  *   limbo_end()                             leave limbo: the soul's voice goes, the HUD and the world come back (game.c switches the screen)
  */
@@ -455,5 +456,5 @@ void story_start(void) {
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);
-    story_after(0.5f, intro);                   /* wait for the fade-in (world.c FADE_IN_T), then the welcome window */
+    world_summon(intro);                        /* STAND-IN until chunk 10: the summoning (light, ring) runs over the fade-in, then the old welcome window */
 }
