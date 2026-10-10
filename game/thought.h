@@ -6,7 +6,9 @@
  * pixel brain on it that, when a thought arrives, opens up into a card (the player's face + the
  * words), stays a few seconds, then eases back down into the button. it never goes away.
  *
- *  - NOT interactive: it takes no touches, everything goes through to the game.
+ *  - tapping the button (or the card) opens the BRAIN WINDOW (brainwin.h): the monitor, and every
+ *    thought the vessel has had. the card itself is only a notification: thought_say() does not add
+ *    to that window, brainwin_add() does.
  *  - it pushes things out of its way: the mission list and the "New task added" toast under it are
  *    pushed down while the card is taller than a button (see thought_offset), so a thought always sits clean.
  *  - it grows to the right, up to the ID card. if the music card is open and leaves too little room for the WHOLE thought, the thought waits (its timer
@@ -39,6 +41,9 @@ int  thought_offset(void);
 void thought_init(int w, int h);            /* needs nowplaying_init and hud_init first. also clears anything pending */
 void thought_set_enabled(int on);           /* the game world is on screen (the button only shows then, like the pause button) */
 void thought_update(float dt);              /* dt = 0 while paused: the card freezes and the thought keeps its time */
+/* tapping opens the brain window. returns 1 when the touch belonged to the button, so the game
+ * underneath should not also see it. a = Android MotionEvent action. */
+int  thought_touch(int a, int x, int y);
 void thought_draw(SDL_Renderer *r);         /* draw it after the music and pause buttons */
 
 #endif

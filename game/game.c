@@ -19,6 +19,7 @@
 #include "thought.h"
 #include "musicwin.h"
 #include "pausebtn.h"
+#include "brainwin.h"
 #include "lang.h"
 #include "gfx.h"
 
@@ -92,6 +93,7 @@ int main(int argc, char **argv) {
     menu_init(W, H);
     nowplaying_init(W, H);
     musicwin_init(W, H);
+    brainwin_init(W, H);
     pausebtn_init(W, H);
     State state = ST_MENU;
 
@@ -120,8 +122,12 @@ int main(int argc, char **argv) {
                 if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
                     if (musicwin_touch(a, x, y)) {
                         /* the music window is open: it takes every touch */
+                    } else if (brainwin_touch(a, x, y)) {
+                        /* the brain window is open: it takes every touch */
                     } else if (nowplaying_touch(a, x, y)) {
                         /* the music button / card was tapped: it opens the music window */
+                    } else if (thought_touch(a, x, y)) {
+                        /* the brain button / card was tapped: it opens the brain window */
                     } else if ((pr = pausebtn_touch(a, x, y)) != 0) {
                         if (pr == 2) world_touch(3, 0, 0);          /* just paused: let go of the stick */
                     } else if (state == ST_MENU) {
@@ -168,6 +174,7 @@ int main(int argc, char **argv) {
         thought_draw(r);
         pausebtn_draw(r);
         musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
+        brainwin_update(dt); brainwin_draw(r);           /* the brain window (never open together with the music one) */
         SDL_RenderPresent(r);
         if (!gpu) memcpy(px, back, fbsz);
 

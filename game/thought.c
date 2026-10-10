@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "thought.h"
+#include "brainwin.h"
 #include "nowplaying.h"
 #include "char.h"
 #include "font.h"
@@ -17,7 +18,7 @@
 typedef struct { char text[MAX_TEXT]; float secs; } Thought;
 typedef struct { int start, len; } Line;
 
-static int   W, H, enabled, active, closing, nq;
+static int   W, H, enabled, active, closing, nq, pdown;
 static float u, vis, c, hold_t;     /* vis: button fade-in. c: 0 = open card, 1 = collapsed button. hold_t: seconds on show */
 static Thought cur, queue[MAX_QUEUE];
 
@@ -173,6 +174,18 @@ int thought_offset(void) {
     return off > 0 ? off : 0;
 }
 
+/* ---------- touch: tapping the button or the card opens the brain window (brainwin.h) ---------- */
+static int on_card(int tx, int ty) { return tx >= left && tx < left + cur_w() && ty >= top && ty < top + cur_h(); }
+
+int thought_touch(int a, int tx, int ty) {
+    if (!enabled) return 0;
+    if (a == 0) { if (on_card(tx, ty)) { pdown = 1; return 1; } return 0; }
+    if (!pdown) return 0;
+    if (a == 1) { pdown = 0; if (on_card(tx, ty)) brainwin_open(); return 1; }
+    if (a == 3) pdown = 0;
+    return 1;
+}
+
 /* ---------- drawing ---------- */
 static void fillr(SDL_Renderer *r, int x, int y, int w, int h) {
     SDL_Rect rc = { x, y, w, h };
@@ -218,7 +231,7 @@ void thought_draw(SDL_Renderer *r) {
     int A = clampi((int)(255 * vis), 0, 255);
     int bx = left + (int)((1.0f - vis) * -6 * u), by = top;     /* tucks in from the left as it appears, like the pause button */
     int w = cur_w(), h = cur_h();
-    ui_button_frame(r, bx, by, w, h, 0, A);
+    ui_button_frame(r, bx, by, w, h, pdown, A);
 
     float open = 1.0f - c;
     int ca = clampi((int)((open - 0.45f) / 0.55f * 255.0f), 0, 255) * A / 255;   /* card contents fade in late, out early */
