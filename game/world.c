@@ -83,6 +83,7 @@ static void (*hole_cb)(void);
 #define DEATH_GREY_T    1.6f        /* ... over this long */
 #define DEATH_TEXT_FADE 1.2f        /* seconds for the words to fade in */
 #define DEATH_SETTLE_T  2.6f        /* everything has arrived: on_ready runs */
+static const Person *player_look = &VESSEL;   /* who the player looks like (chunk 17: world_set_player) */
 static int   death_on;
 static float blackout_t = -1, blackout_dur; /* world_fade_to_black: seconds so far (-1 = not fading) and the length (chunk 12) */
 static void (*blackout_cb)(void);
@@ -467,6 +468,9 @@ void world_return_to_clouds(void) {
     world_set_controls_visible(0);
 }
 
+void world_set_player(const Person *who) { player_look = who ? who : &VESSEL; }
+const Person *world_player(void) { return player_look; }
+
 void world_fade_to_black(float seconds, void (*on_black)(void)) {
     blackout_t = 0; blackout_dur = seconds > 0.05f ? seconds : 0.05f; blackout_cb = on_black;
 }
@@ -798,7 +802,7 @@ static void draw_fall(SDL_Renderer *r) {
 
     /* the vessel, seen from above as they drop: back to us, legs kicking */
     int fx = W / 2 + (int)(sinf(ph_t * 3.1f) * 7.0f * ui), fy = (int)(H * 0.52f);
-    char_draw_air(r, &VESSEL, fx, fy, FACE_UP, 1, ph_t * 14.0f, px);
+    char_draw_air(r, player_look, fx, fy, FACE_UP, 1, ph_t * 14.0f, px);
 }
 
 /* round button with the face of whoever you are next to (or an arrow down into the hole). tap it. */
@@ -905,7 +909,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             SDL_Rect clip = { 0, sy0 - rows * px, W, rows * px + 4 * px };      /* the rows revealed so far (+ the shadow under the feet) */
             SDL_RenderSetClipRect(r, &clip);
             gfx_set_gold(summon_player_gold());
-            char_draw(r, &VESSEL, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
             gfx_set_gold(0);
             SDL_RenderSetClipRect(r, NULL);
         }
@@ -913,15 +917,15 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         float k = (ph_t - 0.4f) / (SINK_T - 0.4f); if (k < 0) k = 0;
         SDL_Rect clip = { 0, 0, W, hcy + (int)(0.12f * tile) };
         SDL_RenderSetClipRect(r, &clip);
-        char_draw_air(r, &VESSEL, sx0, sy0 + (int)(k * 13.0f * px), FACE_DOWN, 0, 0.0f, px);
+        char_draw_air(r, player_look, sx0, sy0 + (int)(k * 13.0f * px), FACE_DOWN, 0, 0.0f, px);
         SDL_RenderSetClipRect(r, NULL);
         draw_hole(r, hcx, hcy, 1);
     } else if (phase == PH_LAND || phase == PH_GETUP) {
         float k = phase == PH_GETUP ? ph_t / GETUP_T : 0.0f;
         if (k < 0.62f) {
-            char_draw_prone(r, &VESSEL, sx0, sy0, px, k / 0.62f);
+            char_draw_prone(r, player_look, sx0, sy0, px, k / 0.62f);
         } else {
-            char_draw(r, &VESSEL, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
         }
         if (phase == PH_LAND && ph_t < 0.6f) {                    /* dust kicked up by the impact */
             for (int i = 0; i < 10; i++) {
@@ -933,9 +937,9 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
     } else if (death_on && death_fall_t >= 0) {                   /* the vessel topples backwards and stays down */
         float k = death_fall_t / DEATH_FALL_T; if (k > 1) k = 1;
-        char_draw_fall(r, &VESSEL, sx0, sy0, px, 1.5708f * k * k);
+        char_draw_fall(r, player_look, sx0, sy0, px, 1.5708f * k * k);
     } else {
-        char_draw(r, &VESSEL, sx0, sy0, facing, moving, walk, px);
+        char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
     }
 
     summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */

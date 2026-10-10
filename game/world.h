@@ -3,6 +3,7 @@
 #ifndef WORLD_H
 #define WORLD_H
 #include <SDL2/SDL.h>
+#include "char.h"
 
 void world_init(int w, int h);
 /* a = Android MotionEvent action (0 down, 1 up, 2 move, 3 cancel) */
@@ -64,6 +65,11 @@ void world_fade_to_black(float seconds, void (*on_black)(void));
 /* a new life (chunk 14): back on the cloud map, the player at its spawn, hole closed, every effect undone, controls hidden, the world
  * fades in from black. nothing else of the story is touched (see story_reset_for_respawn) and the Grasslands stay as they are. */
 void world_return_to_clouds(void);
+
+/* the player's look (chunk 17): the Person drawn for the player everywhere in the world (walking, falling, lying, the death cutscene,
+ * the summoning). the default is VESSEL (Aonia); NULL puts it back. world_player() says who it is right now. */
+void world_set_player(const Person *who);
+const Person *world_player(void);
 void world_death_fall(void);                   /* chunk 15.1: the vessel topples over (1.1 s) and stays lying; world_death_player is for the standing pose only */
 void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 

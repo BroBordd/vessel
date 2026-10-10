@@ -56,6 +56,8 @@
  * brain card while in limbo, via thought_set_voice), the halo is for a full body should it ever be drawn */
 const Person SOUL = { "Soul", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 238 }, { 118, 160, 218 }, { 96, 130, 196 }, 0, ACC_HALO };
 const Person VESSEL = { VESSEL_NAME,  { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
+/* vessel two, Doia: long silver hair, green shirt, grey trousers, a little browner skin: clearly not Aonia (same body and proportions) */
+const Person VESSEL2 = { VESSEL2_NAME, { 206, 210, 228 }, { 226, 172, 132 }, { 70, 160, 96 }, { 78, 78, 92 }, { 40, 30, 30 }, 1, 0 };
 const Person VAS    = { VESSEL_LATIN, { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 const Person ALEX   = { "Alex",       { 236, 196, 84 }, { 244, 200, 164 }, { 60, 170, 170 }, { 70, 60, 110 }, { 40, 30, 30 }, 1, 0 };
 /* "dea" is Latin for goddess. white shades, a halo, all in white and gold */
@@ -323,6 +325,7 @@ static void story_reset_for_respawn(void) {
     dying = 0; vessel_dead = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
+    world_set_player(&VESSEL);                      /* the plain look (until the naming, chunk 18) */
     convo_set_player(&VAS);
     world_return_to_clouds();
     dea_tx = world_player_tile_x();                 /* Dea is already waiting 8 tiles above, looking down at us */

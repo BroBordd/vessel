@@ -382,7 +382,29 @@ int main(void) {
         CHECK(!dialog_active() && pages >= DEA_SCOLD_COUNT, "the scolding did not end after its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
         CHECK(controls_visible && hole_on, "the scolding did not give the controls (and, for now, the hole) back");
         CHECK(hud_person() == &VAS, "the card changed during the scolding (the naming is chunk 18)");
-        shot("build/ground_resummon.bmp"); }
+        CHECK(world_player() == &VESSEL, "the player is not the plain look after the respawn");
+        shot("build/ground_resummon.bmp");
+        /* chunk 17: the player's look is switchable and vessel 2 looks clearly different (same screen spot, other colours) */
+        {   Uint8 want[2][3] = { { VESSEL.shirt.r, VESSEL.shirt.g, VESSEL.shirt.b }, { VESSEL2.shirt.r, VESSEL2.shirt.g, VESSEL2.shirt.b } };
+            int found[2][2] = { { 0, 0 }, { 0, 0 } };                   /* [look][own shirt, the other's shirt] */
+            const Person *looks[2] = { &VESSEL, &VESSEL2 };
+            for (int k = 0; k < 2; k++) {
+                world_set_player(looks[k]);
+                CHECK(world_player() == looks[k], "world_set_player did not take");
+                frame(0.016f);
+                Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch;
+                for (int y = TH / 3; y < TH * 2 / 3; y++) for (int x = TW / 3; x < TW * 2 / 3; x++) {
+                    Uint8 *c = pix + y * pitch + x * 4;
+                    if (c[0] == want[k][0] && c[1] == want[k][1] && c[2] == want[k][2]) found[k][0]++;
+                    if (c[0] == want[1 - k][0] && c[1] == want[1 - k][1] && c[2] == want[1 - k][2]) found[k][1]++;
+                }
+                shot(k ? "build/ground_look_vessel2.bmp" : "build/ground_look_vessel1.bmp");
+            }
+            CHECK(found[0][0] > 40 && found[1][0] > 40, "a look's own shirt is not on screen (%d, %d)", found[0][0], found[1][0]);
+            CHECK(found[0][1] == 0 && found[1][1] == 0, "the looks share a shirt colour (%d, %d)", found[0][1], found[1][1]);
+            CHECK(VESSEL2.long_hair && !VESSEL.long_hair && strcmp(VESSEL2.name, "Doia") == 0, "VESSEL2 is not Doia with long hair");
+            world_set_player(NULL);
+            CHECK(world_player() == &VESSEL, "world_set_player(NULL) is not the default look"); } }
     run(2.5f);
     CHECK(world_debug_zoom() < 1.05f, "the camera did not zoom back out (%.2f)", world_debug_zoom());
 
