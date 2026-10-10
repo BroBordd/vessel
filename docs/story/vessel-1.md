@@ -48,13 +48,19 @@ the conversation ends, the cloud hole opens, the player jumps in.
 `world_fall_to_green` already exists. After landing and getting up the player says "That hurts",
 then complains, e.g. *"She could at least have warned me."* (polish the wording). Dialog popup with the player's face.
 
-### 4. The thinking bar (new system)
-A **top overlay** with the player's portrait and a line of text: what the player is *thinking*.
-It is the game's way of talking to the person playing.
+### 4. The brain button (new system)
+A **brain button** in the top row, right of the music button (the pause button moves one place along):
+a square button with a pixel brain on it. When the player *thinks* something it expands exactly like the
+music button does (opens into a card with the player's portrait + the words, stays a few seconds, eases
+back into the button). It is the game's way of talking to the person playing.
 
 - Not interactive: cannot be tapped or controlled. Touches pass through to the game.
-- Comes and goes by itself: slides in, stays a few seconds, slides out. Can be triggered by the story at any time.
-- Sits under/next to the ID card and the now-playing card without covering them (see `hud_card_rect`).
+- Comes and goes by itself. Can be triggered by the story at any time (`thought_say`).
+- Pushes things out of its way instead of covering them: the pause button slides along, the mission list
+  and the "New task added" toast under it are pushed down while the card is open. Never taller than the
+  ID card, so the name toast under the ID card stays clear.
+- If the music card is open and leaves too little room for the whole thought, the thought waits (its time
+  holds) until the music card folds away. A thought is never cut because of the music card.
 - First thought, right after the player can walk: **"I need to find that orb."**
 
 ### 5. Alex
@@ -93,7 +99,7 @@ Mark `[x]` when the chunk is pushed.
 - [x] **4. "New task added" toast** — engine: small toast + coin ding, and `mission_add` hooked to it. API like `task_toast("Find the orb")`.
 - [x] **5. Dea's orb lines** — rewrite `DEA_TALK` so she mentions the dropped orb with the highlight; the highlight callback adds the task "Find the orb" via the toast. Rest of the sky flow unchanged.
 - [x] **6. Landing complaint** — after getting up from the fall: "That hurts" + complaint dialog with the player's face, then controls return.
-- [x] **7. Thinking bar (engine)** — `game/thought.c/.h`: `thought_say(text, seconds)`, slides in/out, portrait, non-interactive, doesn't overlap the ID card / now-playing card.
+- [x] **7. Thinking bar (engine)** — `game/thought.c/.h`: the brain button (right of the music button) + `thought_say(text, seconds)`; expands like the music card, portrait, non-interactive, pushes the pause button / mission list / toasts out of its way, doesn't overlap the ID card.
 - [x] **8. First thought + Alex placement** — after landing: "I need to find that orb." Alex spawns far from the landing tile; proximity trigger fires the thought about asking her and the task "Ask Alex".
 - [ ] **9. Alex's deal** — Alex's scripted dialog: she has the orb, wants Dia's shrine polluted. Task "Pollute Dia's shrine". Free chat stays after the scripted part.
 - [ ] **10. Dia's shrine** — shrine prop on the map, interact → sabotage action, task completes when done.
@@ -122,7 +128,7 @@ Mark `[x]` when the chunk is pushed.
 - `game/npc.c/.h` — static NPCs (`npc_add`, facing). No movement/removal yet.
 - `game/missions.c/.h` — top-left checklist (`mission_add`, `mission_complete`, `missions_bottom`).
 - `game/toast.c/.h` — "New task added" toast under the checklist: `task_toast("Find the orb")` = `mission_add` + coin ding + toast (extra toasts queue).
-- `game/thought.c/.h` — the thinking bar: `thought_say("I need to find that orb.", 0)`. Top row, non-interactive, queues.
+- `game/thought.c/.h` — the brain button: `thought_say("I need to find that orb.", 0)`. Third top-left button (music, brain, pause), opens like the music card, non-interactive, queues. `thought_rect` / `thought_offset` tell the pause button and the mission list where to sit.
 - `game/hud.c/.h` — ID card (`hud_set_person`, `hud_set_hp`, name-change toast).
 - `game/world.c/.h` — maps, camera, hole, fall (`world_fall_to_green`), `world_find_far_spot` (a walkable open tile N tiles away, for placing npcs), `world_dist_to_npc` (proximity triggers).
 - `game/audio.c/.h` — music + synthesized sfx (`sfx_coin`, `sfx_blip`).
@@ -135,5 +141,5 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-09: chunk 4 done (`task_toast(text)` in `game/toast.c`: adds the mission, plays the coin ding, drops a NEW TASK ADDED panel under the checklist, queues up to 4; `hud_draw_coin` is now shared; `tools/toasttest.c` renders it on a PC). Next: chunk 5.
 - 2026-10-09: chunk 5 done (`DEA_TALK` has a new last page: "Now, your first mission. I {dropped my orb in the Grasslands}. Find it and bring it back to me."; `dea_talk_highlight` in `story.c` calls `task_toast("Find the orb")` once that span has typed out; page count is now `DEA_TALK_COUNT`). Next: chunk 6.
 - 2026-10-09: chunk 6 done (`landed()` in `story.c` plays the `LANDING` dialog as VESSEL with her face popup: "Ow. That hurts." / "She could at least have warned me."; `world.c` hides the controls while a dialog is open, so they come back when it ends). Next: chunk 7.
-- 2026-10-10: chunk 7 done (`game/thought.c/.h`: `thought_say(text, seconds)` slides a bar in from the top with the ID card's face + wrapped text, queues up to 4, seconds 0 = auto; drawn from `world.c` in the top row between the pause button and the ID card, has no touch handler, and waits (timer held) when the music card leaves no room; new `hud_person()`; `tools/thoughttest.c` renders it on a PC). Max 5 lines of text. Chunk 11 can add a red/shaking variant here. Next: chunk 8.
-- 2026-10-10: chunk 8 done (after the landing complaint `landing_done()` says the thought "I need to find that orb."; `landed()` places Alex with the new `world_find_far_spot(26, 40, ...)` = a spot the player can really walk to, 26-40 tiles away (today: tile 7,40, 33 tiles due west of the landing); `alex_watch()` in `story_update` fires `alex_spotted()` within `ALEX_SIGHT` = 6.5 tiles: thought "Maybe she has seen the orb." + `task_toast("Ask Alex")`, once only. `on_talk_alex` is a stand-in until chunk 9: ticks "Ask Alex", opens `convo_open` free chat. `tools/groundtest.c` runs the whole ground flow headless (fall, land, Alex placement, sighting, talk) and checks it.) Thoughts must stay at 2 lines (~26 letters) to fit the top row. Next: chunk 9.
+- 2026-10-10: chunk 7 done (`game/thought.c/.h`: the BRAIN BUTTON, a pixel-brain button right of the music button; `thought_say(text, seconds)` opens it into a card (portrait + wrapped text) with the music card's easing, holds, folds back; seconds 0 = auto; queue of 4; no touch handler; drawn from `game.c` between the music and pause buttons; `pausebtn.c` now sits right of it; `world.c` takes the larger of `nowplaying_offset()` / `thought_offset()` for the mission list, so the list and the task toast under it are pushed down while the card is open; the card is never taller than the ID card; a thought that does not fit next to an open music card waits, timer held, instead of being cut; new `hud_person()`; `tools/thoughttest.c` renders and checks it, run from `music/`). Chunk 11 can add a red/shaking variant here. Next: chunk 8.
+- 2026-10-10: chunk 8 done (after the landing complaint `landing_done()` says the thought "I need to find that orb."; `landed()` places Alex with the new `world_find_far_spot(26, 40, ...)` = a spot the player can really walk to, 26-40 tiles away (today: tile 7,40, 33 tiles due west of the landing); `alex_watch()` in `story_update` fires `alex_spotted()` within `ALEX_SIGHT` = 6.5 tiles: thought "Maybe she has seen the orb." + `task_toast("Ask Alex")`, once only. `on_talk_alex` is a stand-in until chunk 9: ticks "Ask Alex", opens `convo_open` free chat. `tools/groundtest.c` runs the whole ground flow headless (fall, land, Alex placement, sighting, talk) and checks it.) Thoughts: about 19 letters per line, 2-3 lines depending on the screen. Next: chunk 9.

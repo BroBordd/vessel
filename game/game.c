@@ -16,6 +16,7 @@
 #include "world.h"
 #include "loading.h"
 #include "nowplaying.h"
+#include "thought.h"
 #include "musicwin.h"
 #include "pausebtn.h"
 #include "lang.h"
@@ -160,8 +161,11 @@ int main(int argc, char **argv) {
             world_draw(r);
         }
         pausebtn_set_enabled(state == ST_WORLD);
+        thought_set_enabled(state == ST_WORLD);
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
+        thought_update(pausebtn_paused() ? 0.0f : dt);   /* the brain button, right of the music one (frozen while paused) */
+        thought_draw(r);
         pausebtn_draw(r);
         musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
         SDL_RenderPresent(r);

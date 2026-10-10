@@ -22,10 +22,11 @@ static SDL_Surface *surf; static SDL_Renderer *rr;
 static int fails;
 #define CHECK(c, ...) do { if (!(c)) { printf("FAIL: " __VA_ARGS__); printf("\n"); fails++; } } while (0)
 
-/* the same order game.c uses: world, then the top buttons on top of it */
+/* the same order game.c uses: world, then the top buttons on top of it (music, brain, pause) */
 static void frame(float dt) {
-    world_update(dt); nowplaying_update(dt); pausebtn_update(dt);
-    world_draw(rr); nowplaying_draw(rr); pausebtn_draw(rr);
+    thought_set_enabled(1);
+    world_update(dt); pausebtn_update(dt); nowplaying_update(dt); thought_update(dt);
+    world_draw(rr); nowplaying_draw(rr); thought_draw(rr); pausebtn_draw(rr);
 }
 static void run(float sec) { for (float s = 0; s < sec; s += 0.016f) frame(0.016f); }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
@@ -72,7 +73,10 @@ int main(void) {
     run(0.2f);
     CHECK(alex_seen, "no sighting at 5 tiles");
     CHECK(mission_ask_alex >= 0, "'Ask Alex' was not added");
-    run(0.6f);  shot("build/ground_spotted_toast.bmp");         /* toast + first thought on screen */
+    run(0.9f);  shot("build/ground_spotted_toast.bmp");         /* toast + first thought on screen */
+    CHECK(thought_offset() > nowplaying_offset(), "the open thought card did not push the mission list down");
+    {   int tx, ty, tw, th; thought_rect(&tx, &ty, &tw, &th);
+        CHECK(missions_bottom() > ty + th, "the mission list is not below the thought card"); }
     run(4.5f);  shot("build/ground_spotted_thought.bmp");       /* her thought has taken over */
     run(8.0f);
     CHECK(!thought_active(), "thoughts did not finish");

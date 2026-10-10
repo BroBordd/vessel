@@ -8,7 +8,7 @@
  *   mission_add("Text") / mission_complete(id)   the top-left checklist
  *   task_toast("Text")                      like mission_add, plus a coin ding and a "New task added" toast (toast.h)
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
- *   thought_say("Text", seconds)            the thinking bar: what the vessel thinks, top of the screen (thought.h). seconds 0 = auto
+ *   thought_say("Text", seconds)            the brain button: what the vessel thinks, opens next to the music button (thought.h). seconds 0 = auto
  *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
  *   story_after(seconds, fn)                run something later
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near

@@ -526,7 +526,6 @@ void world_update(float dt) {
     dialog_update(dt);
     missions_update(dt);
     toast_update(dt);
-    thought_update(dt);
     hud_update(dt);
     if (hole_on && hole_t < HOLE_OPEN_T) hole_t += dt;
 
@@ -834,18 +833,14 @@ void world_draw(SDL_Renderer *r) {
         if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
         minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
     }
-    missions_set_offset(nowplaying_offset());                     /* slide under the now-playing card */
+    {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
+         * "New task added" toast hangs under the list, so it is pushed down with it and a thought sits clean */
+        int o1 = nowplaying_offset(), o2 = thought_offset();
+        missions_set_offset(o1 > o2 ? o1 : o2);
+    }
     missions_draw(r);
     toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
     hud_draw(r);                                                  /* ID card, top-right */
-    {   /* the thinking bar: top row, in the gap between the music / pause buttons and the ID card.
-         * it has no touch handler, so every touch still reaches the game */
-        int nx, ny, nw, nh; nowplaying_rect(&nx, &ny, &nw, &nh);
-        int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
-        int gap = nowplaying_gap();
-        int x0 = nx + nw + gap + nowplaying_button_size() + gap;   /* right of the pause button */
-        thought_draw(r, x0, cx - gap, ny);
-    }
 
     if (t < 1.0f) {                                               /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t)));
