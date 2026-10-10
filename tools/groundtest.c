@@ -208,6 +208,15 @@ int main(void) {
     run(2.0f);
     CHECK(fabsf(world_debug_zoom() - ZOOM_DEATH) < 0.02f, "the camera did not reach 300 %% (%.2f)", world_debug_zoom());
     CHECK(sfx_debug_beeps() == b0 + 1 && sfx_debug_flatlines() == f0, "at the first moment after arriving: %d peeps, %d flatlines (want 1, 0)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
+    CHECK(heart_state() == HEART_BEATING && heart_particles() == 0, "the heart is not beating over the chest (state %d)", heart_state());
+    {   int fx, fy, cy, ps; world_death_player(&fx, &fy, &cy, &ps);                 /* the heart is red and sits on the chest */
+        Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, hit = 0, n = 0;
+        for (int dy = -ps; dy <= ps; dy += ps / 2) for (int dx = -ps; dx <= ps; dx += ps / 2) {
+            Uint8 *c = pix + (cy + dy) * pitch + (fx + dx) * 4; n++;
+            if (c[0] > 200 && c[1] < 90 && c[2] < 110) hit++;
+        }
+        CHECK(hit >= n * 2 / 3, "only %d of %d samples at the chest are heart red", hit, n);
+        shot("build/ground_heart.bmp"); }
     CHECK(t == t0, "the world is not frozen: its clock moved by %.2f s", t - t0);
     shot("build/ground_death_settled.bmp");
     {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, bad = 0, n = 0;
@@ -228,7 +237,19 @@ int main(void) {
         CHECK(abs(fx - TW / 2) < 12, "the player is not in the middle of the screen (feet x %d)", fx);
         CHECK(cy < fy && fy - cy > ps * 2 && fy - cy < ps * 5, "the chest is not just above the feet (%d / %d)", cy, fy); }
     CHECK(!controls_visible, "the controls came back during the cutscene");
+    run(2.0f);                                                    /* ~2.6 s after arriving: the flatline and the burst are just in */
+    CHECK(heart_state() == HEART_BURST && heart_particles() > 60, "the heart did not burst with the flatline (state %d, %d blood pixels)", heart_state(), heart_particles());
+    CHECK(sfx_debug_flatlines() == f0 + 1, "the flatline and the burst are not together");
+    shot("build/ground_burst.bmp");
+    run(0.4f);
+    shot("build/ground_burst2.bmp");
+    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, redpx = 0;      /* blood on the screen: a lot of red, and not just in one spot */
+        for (int y = 200; y < 1000; y += 6) for (int x = 20; x < 520; x += 6) { Uint8 *c = pix + y * pitch + x * 4; if (c[0] > 150 && c[1] < 70 && c[2] < 80) redpx++; }
+        CHECK(redpx > 60, "no blood on the screen (%d red samples)", redpx); }
+    run(2.3f);
+    CHECK(heart_particles() == 0 && heart_state() == HEART_BURST, "the blood never settled (%d pixels left)", heart_particles());
     run(DEATH_HOLD_STANDIN + 0.4f);                               /* the stand-in undoes it */
+    CHECK(heart_state() == HEART_OFF, "the heart is still there after the cutscene was cancelled");
     CHECK(sfx_debug_beeps() == b0 + DEATH_BEEPS && sfx_debug_flatlines() == f0 + 1, "the monitor played %d peeps and %d flatlines (want %d, 1)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0, DEATH_BEEPS);
     CHECK(!world_death_active() && controls_visible, "the stand-in did not give the game back");
     run(2.5f);

@@ -6,6 +6,7 @@
 #include "missions.h"
 #include "npc.h"
 #include "shrine.h"
+#include "heart.h"
 #include "story.h"
 #include "nowplaying.h"
 #include "toast.h"
@@ -348,7 +349,7 @@ void world_init(int w, int h) {
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; talk_npc = -1;
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0);
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset();
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -435,13 +436,13 @@ void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); 
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
 
 void world_death_begin(void (*on_ready)(void)) {
-    death_on = 1; death_t = 0; death_cb = on_ready;
+    death_on = 1; death_t = 0; death_cb = on_ready; heart_reset();
     world_set_controls_visible(0);
     facing = FACE_DOWN; moving = 0; walk = 0; talk_npc = -1;      /* facing us, standing still */
 }
 int world_death_active(void) { return death_on; }
 void world_death_cancel(void) {                                   /* back to normal (the stand-in ending of chunk 12-14) */
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0);
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset();
     zoom_target = 1.0f;
     world_set_controls_visible(1);
 }
@@ -578,6 +579,7 @@ static void update_hole_range(void) {
 
 void world_update(float dt) {
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
+    heart_update(dt);                                         /* (the heart and its blood are not part of the world: they move on) */
     story_update(dt);
     dialog_update(dt);
     missions_update(dt);
@@ -929,6 +931,10 @@ void world_draw(SDL_Renderer *r) {
         SDL_RenderCopy(r, ztex, &src, NULL);
     } else {
         draw_scene(r, cam_x, cam_y);
+    }
+    if (death_on && heart_state() != HEART_OFF) {                 /* the heart over the chest, on top of the zoomed scene */
+        int fx, fy, cy, ps; world_death_player(&fx, &fy, &cy, &ps);
+        heart_draw(r, fx, cy, ps);
     }
 
 
