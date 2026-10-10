@@ -54,7 +54,30 @@ int main(int argc, char **argv) {
     SDL_Rect win, mon, autob, closeb;
 
     /* 1. closed: it takes no touches, and the brain button opens it */
-    CHECK(brainwin_count() == 4, "expected 4 default thoughts, got %d", brainwin_count());
+    CHECK(brainwin_count() == 0, "the window must start empty, got %d thoughts", brainwin_count());
+    brainwin_open(); run(1.0f); shot("../build/brain_empty.bmp");          /* the empty state must draw and not crash */
+    brainwin_touch(0, 2, 2); brainwin_touch(1, 2, 2); run(1.0f);
+    CHECK(!brainwin_active(), "could not close the empty window");
+    /* events: acquire adds, jumps to the new thought on AUTO, drop_tag forgets silently */
+    CHECK(brainwin_acquire("Why am I standing on clouds?", BRAIN_SCENE_CLOUDS, 1) == 0, "first acquire");
+    brainwin_open(); run(1.0f);
+    CHECK(brainwin_debug_current() == 0 && brainwin_debug_auto(), "should show the only thought, on AUTO");
+    CHECK(brainwin_acquire("I need to find that orb.", BRAIN_SCENE_ORB, 2) == 1 && brainwin_debug_current() == 1, "an open AUTO window did not jump to the new thought");
+    CHECK(brainwin_drop_tag(1) == 1 && brainwin_count() == 1, "drop_tag(1) did not remove the cloud thought");
+    CHECK(brainwin_drop_tag(0) == 0 && brainwin_drop_tag(99) == 0, "dropping tag 0 / an unknown tag removed something");
+    run(1.0f);
+    CHECK(brainwin_debug_current() == 0, "cur not fixed up after a drop (%d)", brainwin_debug_current());
+    brainwin_touch(0, 2, 2); brainwin_touch(1, 2, 2); run(1.0f);
+    brainwin_acquire("I happen to like grass.", BRAIN_SCENE_GRASS, 3);
+    brainwin_acquire("Who is paying me for these tasks?", BRAIN_SCENE_COIN, 5);
+    brainwin_acquire("Maybe she has seen the orb.", BRAIN_SCENE_ORB, 4);
+    CHECK(brainwin_count() == 4, "expected 4 thoughts after the story events, got %d", brainwin_count());
+    brainwin_clear();
+    CHECK(brainwin_count() == 0, "clear did not empty the window");
+    brainwin_acquire("I need to find that orb.", BRAIN_SCENE_ORB, 2);
+    brainwin_acquire("I happen to like grass.", BRAIN_SCENE_GRASS, 3);
+    brainwin_acquire("Who is paying me for these tasks?", BRAIN_SCENE_COIN, 5);
+    brainwin_acquire("Why am I standing on clouds?", BRAIN_SCENE_CLOUDS, 1);
     CHECK(!brainwin_active() && brainwin_touch(0, 5, 5) == 0, "a closed window swallowed a touch");
     run(8.0f);
     {   int x, y, w, h; thought_rect(&x, &y, &w, &h);

@@ -11,8 +11,9 @@
  *   - numbered boxes pick one thought to look at: picking it pins it (the loop stops). AUTO starts the
  *     loop again.
  *
- * to add a thought: put a line in the DEFAULT table at the top of brainwin.c, or call
- * brainwin_add("Text.", BRAIN_SCENE_GRASS) from the story at any time (up to BRAIN_MAX_THOUGHTS). to add a
+ * the window starts EMPTY. thoughts are EVENT BASED: the story acquires one when something happens
+ * (brainwin_acquire) and silently drops it when it stops being true, e.g. leaving the map it was
+ * about (brainwin_drop_tag). see the THOUGHT_ tags in story.c. up to BRAIN_MAX_THOUGHTS at once. to add a
  * new picture, add a scene_xxx() in brainwin.c next to the others and a BRAIN_SCENE_ entry here. */
 #ifndef BRAINWIN_H
 #define BRAINWIN_H
@@ -28,8 +29,13 @@ typedef enum {
 
 #define BRAIN_MAX_THOUGHTS 12
 
-void brainwin_init(int w, int h);                       /* also (re)loads the default thoughts */
-int  brainwin_add(const char *text, BrainScene scene);  /* appends a thought, returns its index or -1 when full. text is copied (up to ~90 letters) */
+void brainwin_init(int w, int h);                       /* empties the window */
+int  brainwin_add(const char *text, BrainScene scene);  /* appends a thought (tag 0: never dropped), returns its index or -1 when full. text is copied (up to ~90 letters) */
+/* appends a thought that belongs to `tag` (any non-zero int the story picks). if the window is open
+ * on AUTO it jumps to the new thought. no sound here: the story plays the ding. */
+int  brainwin_acquire(const char *text, BrainScene scene, int tag);
+void brainwin_clear(void);                              /* forgets everything (a new game) */
+int  brainwin_drop_tag(int tag);                        /* silently forgets every thought with this tag. returns how many went */
 int  brainwin_count(void);
 
 void brainwin_open(void);

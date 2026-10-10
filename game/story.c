@@ -9,6 +9,8 @@
  *   task_toast("Text")                      like mission_add, plus a coin ding and a "New task added" toast (toast.h)
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
  *   thought_say("Text", seconds)            the brain button: what the vessel thinks, opens next to the music button (thought.h). seconds 0 = auto
+ *   think(text, card, scene, tag, ding)    the vessel ACQUIRES a thought: it joins the brain window, optionally pops the brain card + ding (see "thoughts" below)
+ *   brainwin_drop_tag(tag)                  the vessel silently loses every thought of that tag
  *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
  *   story_after(seconds, fn)                run something later
  *   npc_set_facing(id, facing)              how an npc stands when nobody is near
@@ -26,6 +28,7 @@
 #include "missions.h"
 #include "toast.h"
 #include "thought.h"
+#include "brainwin.h"
 #include "npc.h"
 #include "world.h"
 #include "audio.h"
@@ -82,6 +85,21 @@ static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = no
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
 
+/* ---------- thoughts (the brain window, brainwin.h) ----------
+ * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
+ * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN };
+
+/* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
+ * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
+ * (leave it off when a task toast is dinging at the same moment) */
+static void think(const char *text, const char *card, BrainScene scene, int tag, int ding) {
+    if (brainwin_acquire(text, scene, tag) < 0) return;
+    if (ding) sfx_coin();
+    if (!card) card = text;
+    if (*card) thought_say(card, 0);
+}
+
 /* ---------- scene 3: down on the ground ---------- */
 /* nobody stands near the landing spot: the player lands alone in GRASSLANDS. Alex is placed far
  * away (landed() below); her scripted deal comes in chunk 9 (docs/story/vessel-1.md). */
@@ -100,11 +118,15 @@ static const DialogLine LANDING[] = {
 #define ALEX_SIGHT      6.5f                /* tiles: about half a screen, so she is on screen when it fires */
 
 /* the player has caught sight of Alex: a thought and the next task. safe to call twice */
+static void coin_thought(void) {
+    think("Every task rings a coin. Who is paying me, and what for?", "Who is paying me for these tasks?", BRAIN_SCENE_COIN, THOUGHT_COIN, 1);
+}
 static void alex_spotted(void) {
     if (alex_seen) return;
     alex_seen = 1;
-    thought_say("Maybe she has seen the orb.", 0);
+    think("Maybe she has seen the orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ALEX, 0);    /* the task toast dings */
     mission_ask_alex = task_toast("Ask Alex");
+    story_after(9.0f, coin_thought);
 }
 
 /* the proximity trigger, run every frame: walking within sight of Alex (not while a dialog is open) */
@@ -117,13 +139,18 @@ static void alex_watch(void) {
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
     alex_spotted();
+    brainwin_drop_tag(THOUGHT_ALEX);                        /* asked her: "maybe she has seen it" is answered */
     mission_complete(mission_ask_alex);
     convo_open(&ALEX, &ALEX_MIND, 0, NULL);
 }
 
 /* the complaint is over and the stick is back: the first thought, sending the player to look */
+static void grass_thought(void) {
+    think("This place looks really good. I happen to like grass.", "I happen to like grass.", BRAIN_SCENE_GRASS, THOUGHT_GRASS, 1);
+}
 static void landing_done(void) {
-    thought_say("I need to find that orb.", 0);
+    think("I need to find that orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
+    story_after(16.0f, grass_thought);                      /* after a little while of walking about */
 }
 
 /* the player just got back on their feet after the fall */
@@ -151,7 +178,10 @@ static const DialogLine DEA_TALK[] = {
 /* then Dea asks "do you have any questions?" (convo.c) and the hole opens when the chat is over */
 
 /* pressed the arrow button at the hole */
-static void on_enter_hole(void) { world_fall_to_green(landed); }
+static void on_enter_hole(void) {
+    brainwin_drop_tag(THOUGHT_CLOUDS);                      /* leaving the sky: the cloud thought goes, silently */
+    world_fall_to_green(landed);
+}
 
 static void open_the_hole(void) {
     world_open_hole(dea_tx, dea_ty + 3, on_enter_hole);         /* a hole of clouds opens in the floor in front of her */
@@ -186,8 +216,12 @@ static void on_talk_dea(int npc_id) {
 static const DialogLine HELLO[]  = { { NULL, "Hello, " VESSEL_LATIN "!" } };
 static const DialogLine SUMMON[] = { { NULL, "You have been summoned. Talk to Goddess." } };
 
+static void cloud_thought(void) {
+    think("Why am I standing on clouds? Where even is this place?", "Why am I standing on clouds?", BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 1);
+}
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
+    story_after(2.5f, cloud_thought);
     mission_talk_dea = mission_add("Talk to Goddess");
     /* Dea stands 8 tiles above where we spawned, looking down at us */
     dea_tx = world_player_tile_x();
@@ -205,6 +239,7 @@ static void intro(void) { dialog_play(HELLO, 1, hello_done); }
 /* ---------- entry point ---------- */
 void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
+    brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
     mission_ask_alex = -1;

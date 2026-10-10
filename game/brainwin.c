@@ -7,14 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ---------- the thoughts: edit this table to change what the vessel thinks about ---------- */
-typedef struct { const char *text; BrainScene scene; } Default;
-static const Default DEFAULTS[] = {
-    { "I wonder what that orb looks like.",                    BRAIN_SCENE_ORB    },
-    { "This area really looks good. I happen to like grass.",  BRAIN_SCENE_GRASS  },
-    { "It was so soft up in the clouds. I almost miss it.",    BRAIN_SCENE_CLOUDS },
-    { "That little ding when I get a task is oddly satisfying.", BRAIN_SCENE_COIN  },
-};
+/* the window starts EMPTY. thoughts arrive through brainwin_acquire() when the story says so (story.c) and
+ * leave through brainwin_drop_tag() when they stop being true. nothing is preloaded. */
 
 #define MAX_TEXT   96
 #define MAX_LINES  5
@@ -23,7 +17,7 @@ static const Default DEFAULTS[] = {
 #define FLICKER_T  0.35f            /* the static between two thoughts */
 #define TYPE_CPS   42.0f            /* letters per second */
 
-typedef struct { char text[MAX_TEXT]; int scene; } Thought;
+typedef struct { char text[MAX_TEXT]; int scene; int tag; } Thought;
 typedef struct { int start, len; } Ln;
 
 static Thought th[BRAIN_MAX_THOUGHTS];
@@ -93,7 +87,7 @@ static void layout(void) {
     for (int pass = 0; pass < 2; pass++) {                      /* the window is as wide as the monitor, so the caption's width depends on s */
         int winw = GW * s + 2 * bz + 2 * pad;
         int maxc = (winw - 2 * pad + cap) / (6 * cap);
-        cap_lines = 1;
+        cap_lines = 3;
         for (int i = 0; i < nth; i++) {
             Ln tmp[MAX_LINES];
             int n = wrap(th[i].text, maxc, MAX_LINES, tmp);
@@ -138,14 +132,41 @@ static void go(int i) {
     tm = 0; flick = FLICKER_T; typed = 0;
 }
 
-int brainwin_add(const char *text, BrainScene scene) {
+static int push(const char *text, BrainScene scene, int tag) {
     if (!text || !*text || nth >= BRAIN_MAX_THOUGHTS) return -1;
     strncpy(th[nth].text, text, MAX_TEXT - 1); th[nth].text[MAX_TEXT - 1] = 0;
     th[nth].scene = (int)scene;
+    th[nth].tag = tag;
     nth++;
     layout();
     return nth - 1;
 }
+int brainwin_add(const char *text, BrainScene scene) { return push(text, scene, 0); }
+
+int brainwin_acquire(const char *text, BrainScene scene, int tag) {
+    int i = push(text, scene, tag);
+    if (i >= 0 && is_open && auto_on) go(i);                /* looking at the window right now, on AUTO: show the new one */
+    return i;
+}
+
+/* silently forget every thought with this tag (tag 0 is never dropped). returns how many went */
+int brainwin_drop_tag(int tag) {
+    if (tag == 0) return 0;
+    int keep = 0, before_cur = 0, cur_gone = 0;
+    for (int i = 0; i < nth; i++) {
+        if (th[i].tag == tag) { if (i == cur) cur_gone = 1; else if (i < cur) before_cur++; continue; }
+        if (keep != i) th[keep] = th[i];
+        keep++;
+    }
+    int gone = nth - keep;
+    if (!gone) return 0;
+    nth = keep;
+    if (cur_gone) { cur = clampi(cur - before_cur, 0, nth > 0 ? nth - 1 : 0); if (is_open) go(cur); else { tm = 0; typed = 0; } }
+    else cur -= before_cur;
+    layout();
+    return gone;
+}
+void brainwin_clear(void) { nth = 0; cur = 0; tm = 0; typed = 0; layout(); }
 int brainwin_count(void) { return nth; }
 int brainwin_debug_current(void) { return cur; }
 int brainwin_debug_auto(void) { return auto_on; }
@@ -156,7 +177,6 @@ void brainwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     nth = 0; is_open = closing = 0; anim = 0; tt = 0; grab = 0;
     cur = 0; auto_on = 1; tm = 0; flick = 0; typed = 0;
-    for (unsigned i = 0; i < sizeof DEFAULTS / sizeof DEFAULTS[0]; i++) brainwin_add(DEFAULTS[i].text, DEFAULTS[i].scene);
     layout();
 }
 
@@ -407,6 +427,23 @@ static void draw_monitor(SDL_Renderer *r, int dy) {
     SDL_RenderSetClipRect(r, NULL);
 }
 
+/* nothing in the head yet: a dead monitor with a little static, and a caption */
+static void draw_blank(SDL_Renderer *r, int dy) {
+    SDL_SetRenderDrawColor(r, 86, 92, 120, 255); fillr(r, mon_r.x, mon_r.y + dy, mon_r.w, mon_r.h);
+    SDL_SetRenderDrawColor(r, 18, 20, 30, 255);  fillr(r, mon_r.x + 1, mon_r.y + dy + 1, mon_r.w - 2, mon_r.h - 2);
+    SDL_Rect clip = { scr_r.x, scr_r.y + dy, scr_r.w, scr_r.h };
+    SDL_RenderSetClipRect(r, &clip);
+    int tick = (int)(tt * 6.0f);
+    for (int gy = 0; gy < GH; gy++) for (int gx = 0; gx < GW; gx++) {
+        unsigned hh = hs(gx, gy, tick);
+        if (hh % 23 == 0) { int v = 40 + (int)(hh >> 8) % 50; SDL_SetRenderDrawColor(r, v, v, v + 8, 255); fillr(r, scr_r.x + gx * s, scr_r.y + dy + gy * s, s, s); }
+    }
+    SDL_RenderSetClipRect(r, NULL);
+    const char *msg = "Nothing on my mind yet.";
+    SDL_SetRenderDrawColor(r, 150, 158, 200, 255);
+    font_draw(r, msg, cap_r.x, cap_r.y + dy, cap);
+}
+
 /* ---------- drawing ---------- */
 static void box(SDL_Renderer *r, SDL_Rect b, int dy, int fr, int fg, int fb, int hot, int a) {
     SDL_SetRenderDrawColor(r, 255, 255, 255, a * 170 / 255); fillr(r, b.x, b.y + dy, b.w, b.h);
@@ -441,6 +478,7 @@ void brainwin_draw(SDL_Renderer *r) {
     SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
     label(r, "X", close_r, dy, cell);
 
+    if (nth == 0) draw_blank(r, dy);
     if (nth > 0) {
         draw_monitor(r, dy);
 

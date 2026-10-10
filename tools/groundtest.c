@@ -41,6 +41,7 @@ int main(void) {
     SDL_SetRenderDrawBlendMode(rr, SDL_BLENDMODE_BLEND);
     lang_seed(7);
     nowplaying_init(TW, TH); pausebtn_init(TW, TH); pausebtn_set_enabled(1);   /* game.c does this before the world starts */
+    brainwin_init(TW, TH);
     world_init(TW, TH);
 
     run(1.5f);                                                  /* fade-in, then the two sky windows */
@@ -48,7 +49,11 @@ int main(void) {
     run(1.0f);
     CHECK(alex_id < 0, "Alex exists up in the sky");
 
-    world_fall_to_green(landed);                                /* skip Dea's talk: straight to the ground */
+    CHECK(brainwin_count() == 0, "the head is not empty at the start (%d)", brainwin_count());
+    run(3.0f);                                                  /* the player can walk: the cloud thought arrives */
+    CHECK(brainwin_count() == 1, "expected exactly the cloud thought in the sky, got %d", brainwin_count());
+    on_enter_hole();                                            /* skip Dea's talk: straight into the hole (drops the cloud thought) */
+    CHECK(brainwin_count() == 0, "the cloud thought did not go silently when leaving the sky (%d)", brainwin_count());
     run(9.0f);                                                  /* fall 5.5 + lie 1.5 + get up 1.2 */
     CHECK(cur_map == MAP_GREEN, "not on the Grasslands");
     CHECK(alex_id >= 0 && npc_count() == 1, "Alex was not placed (id %d, npcs %d)", alex_id, npc_count());
@@ -64,6 +69,7 @@ int main(void) {
     CHECK(!dialog_active(), "the complaint never ended");
     run(0.7f);
     CHECK(thought_active(), "no first thought after the complaint");
+    CHECK(brainwin_count() == 1, "the orb thought did not join the window (%d)", brainwin_count());
     shot("build/ground_first_thought.bmp");
     CHECK(!alex_seen, "Alex counted as spotted from the landing spot");
 
@@ -78,8 +84,10 @@ int main(void) {
     {   int tx, ty, tw, th; thought_rect(&tx, &ty, &tw, &th);
         CHECK(missions_bottom() > ty + th, "the mission list is not below the thought card"); }
     run(4.5f);  shot("build/ground_spotted_thought.bmp");       /* her thought has taken over */
+    CHECK(brainwin_count() == 2, "expected orb + Alex thoughts, got %d", brainwin_count());
     run(8.0f);
     CHECK(!thought_active(), "thoughts did not finish");
+    CHECK(brainwin_count() == 3, "the coin thought did not arrive after the second task (%d)", brainwin_count());
 
     /* it fires once: leave and come back */
     put_player(ax - 30.0f, ay); run(0.3f);
@@ -93,6 +101,7 @@ int main(void) {
         tap(bx, by); }
     run(0.3f);
     CHECK(dialog_active(), "talking to Alex opened nothing");
+    CHECK(brainwin_count() == 2, "the answered Alex thought was not dropped (%d)", brainwin_count());
     shot("build/ground_alex_talk.bmp");
 
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
