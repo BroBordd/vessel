@@ -15,10 +15,11 @@
 #define MAX_LINES    5
 #define MIN_LETTERS  8              /* room for fewer letters per line than this and the thought waits */
 
-typedef struct { char text[MAX_TEXT]; float secs; } Thought;
+typedef struct { char text[MAX_TEXT]; float secs; int wrath; } Thought;     /* wrath: Dia's voice, not the vessel's */
 typedef struct { int start, len; } Line;
 
 static int   W, H, enabled, active, closing, nq, pdown;
+static float wt;                    /* seconds, only for the shake of a wrathful card (frozen while paused) */
 static float u, vis, c, hold_t;     /* vis: button fade-in. c: 0 = open card, 1 = collapsed button. hold_t: seconds on show */
 static Thought cur, queue[MAX_QUEUE];
 
@@ -70,12 +71,24 @@ void thought_say(const char *text, float seconds) {
         seconds = 1.8f + 0.07f * (float)strlen(t.text);      /* time to read it, with a little breathing room */
         if (seconds < 3.0f) seconds = 3.0f;
     }
-    t.secs = seconds;
+    t.secs = seconds; t.wrath = 0;
+    if (active && cur.wrath && !closing) { if (nq < MAX_QUEUE) queue[nq++] = t; return; }   /* never talk over Dia */
     if (!active || closing) start(&t);                       /* idle, or already on its way out: show it right away */
     else if (nq < MAX_QUEUE) queue[nq++] = t;
 }
 
+/* Dia takes over: whatever was queued is forgotten, and her words replace whatever is showing right now */
+void thought_wrath(const char *text, float seconds) {
+    if (!text || !*text) return;
+    Thought t;
+    strncpy(t.text, text, MAX_TEXT - 1); t.text[MAX_TEXT - 1] = 0;
+    t.secs = seconds > 0 ? seconds : 3.0f; t.wrath = 1;
+    nq = 0;
+    start(&t);
+}
+
 int thought_active(void) { return active; }
+int thought_is_wrath(void) { return active && cur.wrath; }
 
 /* ---------- text wrapping ---------- */
 /* breaks `s` into at most maxl lines of at most maxc letters, on spaces where it can. returns the line count */
@@ -137,6 +150,7 @@ static void relayout(void) {
 }
 
 void thought_update(float dt) {
+    wt += dt;
     relayout();
 
     float tv = enabled ? 1.0f : 0.0f;
@@ -181,7 +195,7 @@ int thought_touch(int a, int tx, int ty) {
     if (!enabled) return 0;
     if (a == 0) { if (on_card(tx, ty)) { pdown = 1; return 1; } return 0; }
     if (!pdown) return 0;
-    if (a == 1) { pdown = 0; if (on_card(tx, ty)) brainwin_open(); return 1; }
+    if (a == 1) { pdown = 0; if (on_card(tx, ty) && !(active && cur.wrath)) brainwin_open(); return 1; }   /* Dia's card cannot be opened */
     if (a == 3) pdown = 0;
     return 1;
 }
@@ -225,28 +239,50 @@ static void draw_face(SDL_Renderer *r, int x, int y, int a) {
     }
 }
 
+/* Dia's mark in place of the player's face: a red diamond of an eye with a slit pupil, on a bloody dusk */
+static void draw_wrath_face(SDL_Renderer *r, int x, int y, int a) {
+    int pulse = (int)(18 * sinf(wt * 14.0f));
+    SDL_SetRenderDrawColor(r, 60, 6, 12, a);              fillr(r, x, y, port, port);
+    SDL_SetRenderDrawColor(r, 120 + pulse, 14, 24, a);    fillr(r, x + q, y + q, port - 2 * q, port - 2 * q);
+    static const int WID[10] = { 2, 4, 6, 8, 10, 10, 8, 6, 4, 2 };
+    for (int j = 0; j < 10; j++) {
+        int w = WID[j] * q;
+        SDL_SetRenderDrawColor(r, 236, 44, 52, a);        fillr(r, x + port / 2 - w / 2, y + q + j * q, w, q);
+    }
+    SDL_SetRenderDrawColor(r, 255, 150, 130, a);          fillr(r, x + port / 2 - 3 * q, y + 4 * q, q, q);      /* a glint */
+    SDL_SetRenderDrawColor(r, 20, 0, 4, a);               fillr(r, x + port / 2 - q, y + 3 * q, 2 * q, 7 * q);  /* the slit pupil */
+}
+
 void thought_draw(SDL_Renderer *r) {
     if (vis <= 0.0f) return;
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     int A = clampi((int)(255 * vis), 0, 255);
     int bx = left + (int)((1.0f - vis) * -6 * u), by = top;     /* tucks in from the left as it appears, like the pause button */
     int w = cur_w(), h = cur_h();
-    ui_button_frame(r, bx, by, w, h, pdown, A);
-
     float open = 1.0f - c;
+    int wrath = active && cur.wrath && nl > 0;
+    if (wrath && open > 0.3f) {                                 /* the whole card shudders, one cell at a time */
+        unsigned st = (unsigned)(wt * 32.0f) * 2654435761u;
+        bx += (int)((st >> 8) % 3) * q - q; by += (int)((st >> 16) % 3) * q - q;
+    }
+    ui_button_frame(r, bx, by, w, h, pdown, A);
+    if (wrath) { SDL_SetRenderDrawColor(r, 200, 0, 20, (int)(95 * open) * A / 255); fillr(r, bx, by, w, h); }
+
     int ca = clampi((int)((open - 0.45f) / 0.55f * 255.0f), 0, 255) * A / 255;   /* card contents fade in late, out early */
     int ia = clampi((int)((c - 0.45f) / 0.55f * 255.0f), 0, 255) * A / 255;      /* the brain fades in as it closes */
     SDL_Rect clip = { bx + 1, by + 1, w - 2, h - 2 };
     SDL_RenderSetClipRect(r, &clip);
 
     if (ca > 0 && nl > 0) {
-        draw_face(r, bx + pad, by + (ph - port) / 2, ca);
+        if (wrath) draw_wrath_face(r, bx + pad, by + (ph - port) / 2, ca);
+        else       draw_face(r, bx + pad, by + (ph - port) / 2, ca);
         int th = nl * 7 * q + (nl - 1) * lgap;
         int tx = bx + pad + port + tgap, ty = by + (ph - th) / 2;
         char buf[MAX_TEXT];
-        SDL_SetRenderDrawColor(r, 255, 255, 255, ca);
         for (int i = 0; i < nl; i++) {
             memcpy(buf, cur.text + ln[i].start, (size_t)ln[i].len); buf[ln[i].len] = 0;
+            if (wrath) { SDL_SetRenderDrawColor(r, 40, 0, 6, ca); font_draw(r, buf, tx + q, ty + i * (7 * q + lgap) + q, q); }   /* a dark shadow */
+            if (wrath) SDL_SetRenderDrawColor(r, 255, 70, 70, ca); else SDL_SetRenderDrawColor(r, 255, 255, 255, ca);
             font_draw(r, buf, tx, ty + i * (7 * q + lgap), q);
         }
     }

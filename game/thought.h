@@ -28,6 +28,13 @@
  * time that fits the length of the text. the text is copied, so it may be a temporary string. */
 void thought_say(const char *text, float seconds);
 
+/* DIA'S WRATH (vessel 1, chunk 11): her voice hijacks the bar. the card turns red, shudders, shows a red
+ * diamond eye instead of the player's face, and its words are red. it replaces whatever is showing, forgets
+ * whatever was queued, and cannot be tapped open into the brain window. thoughts that arrive while it is up
+ * wait behind it. seconds <= 0 = 3 s.   thought_wrath("HOW DARE YOU", 3.0f); */
+void thought_wrath(const char *text, float seconds);
+int  thought_is_wrath(void);                /* her card is up right now */
+
 int  thought_active(void);                  /* a thought is on screen (or waiting for room) */
 
 /* where the brain button / card is right now (screen px) */

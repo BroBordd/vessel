@@ -169,6 +169,30 @@ int main(void) {
         CHECK(!shrine_enabled(), "a polluted shrine can be polluted again");
         CHECK(blocked(shx * tile, shy * tile), "the polluted shrine stopped blocking"); }
 
+    /* ---------- chunk 11: Dia's wrath ---------- */
+    printf("--- wrath ---\n");
+    CHECK(dying, "the story does not know the vessel is going to die");
+    CHECK(!controls_visible, "the controls are still there once the shrine is polluted");
+    CHECK(!thought_is_wrath(), "her voice came with no beat of quiet first");
+    run(WRATH_BEAT + 0.8f);                                     /* the beat, then her card opening */
+    CHECK(thought_is_wrath(), "Dia did not take over the brain button");
+    CHECK(!controls_visible, "the controls came back during her wrath");
+    shot("build/ground_wrath_open.bmp");
+    run(0.3f);  shot("build/ground_wrath_shake.bmp");           /* a different shake frame */
+    {   int tx, ty, tw, th; thought_rect(&tx, &ty, &tw, &th);   /* tapping her card must not open the brain window */
+        world_touch(0, tx + tw / 2, ty + th / 2);
+        thought_touch(0, tx + tw / 2, ty + th / 2); thought_touch(1, tx + tw / 2, ty + th / 2);
+        run(0.3f);
+        CHECK(!brainwin_active(), "tapping Dia's card opened the brain window"); }
+    int ding_before = brainwin_count();
+    think("Nothing to see here.", NULL, BRAIN_SCENE_ORB, THOUGHT_COIN, 1);   /* an own thought arriving now is swallowed */
+    CHECK(brainwin_count() == ding_before, "the vessel thinks its own thoughts while Dia is in its head");
+    run(0.3f);
+    CHECK(thought_is_wrath(), "her card vanished too early");          /* about 2.6 s since it opened, it has 3 */
+    run(WRATH_SECONDS + WRATH_TO_DEATH);
+    CHECK(!thought_is_wrath(), "her card never folded away");
+    CHECK(controls_visible, "the death never began (the stub should give the controls back)");
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;
 }

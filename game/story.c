@@ -9,6 +9,7 @@
  *   task_toast("Text")                      like mission_add, plus a coin ding and a "New task added" toast (toast.h)
  *   npc_add(&PERSON, tile_x, tile_y, on_talk)    put a character on the map
  *   thought_say("Text", seconds)            the brain button: what the vessel thinks, opens next to the music button (thought.h). seconds 0 = auto
+ *   thought_wrath(text, seconds)            Dia's voice takes over the brain button: red, shaking, her eye instead of a face (thought.h)
  *   think(text, card, scene, tag, ding)    the vessel ACQUIRES a thought: it joins the brain window, optionally pops the brain card + ding (see "thoughts" below)
  *   brainwin_drop_tag(tag)                  the vessel silently loses every thought of that tag
  *   world_set_controls_visible(0 or 1)      show / hide the analog stick + interact button
@@ -86,6 +87,7 @@ static int mission_ask_alex = -1;           /* added when the player first catch
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
 static int shrine_fouled;                   /* the player has polluted Dia's shrine (chunk 10) */
+static int dying;                           /* Dia's wrath has begun (chunk 11): no more thoughts of the player's own, no more walking */
 static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
@@ -99,6 +101,7 @@ enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COI
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
  * (leave it off when a task toast is dinging at the same moment) */
 static void think(const char *text, const char *card, BrainScene scene, int tag, int ding) {
+    if (dying) return;                                      /* this head is not the vessel's any more */
     if (brainwin_acquire(text, scene, tag) < 0) return;
     if (ding) sfx_coin();
     if (!card) card = text;
@@ -164,11 +167,33 @@ static const DialogLine ALEX_DEAL[] = {
 #define SHRINE_MAX_DIST    26
 #define SHRINE_FROM_ALEX   18               /* and not on top of Alex: she is somewhere else entirely */
 
+/* ---------- Dia's wrath (chunk 11) ----------
+ * the shrine is polluted. a beat of quiet, then Dia hijacks the brain button: "HOW DARE YOU", red and shaking,
+ * with her eye where the player's face would be. the player cannot move or open the brain window meanwhile.
+ * a short pause after her card has folded away, and the death begins (chunk 12). */
+#define WRATH_TEXT        "HOW DARE YOU"
+#define WRATH_BEAT        0.9f              /* seconds between the last drop of ooze and her voice */
+#define WRATH_SECONDS     3.0f              /* how long her card stays up */
+#define WRATH_TO_DEATH    1.6f              /* after her card has had its WRATH_SECONDS: it folds away (~0.5 s), then a short pause, then the death */
+
+static void death_begin(void) {
+    /* chunk 12 (death cutscene I: camera + filters) starts here: freeze the world, zoom, grey, red.
+     * until it exists, the vessel just gets its legs back so the build stays playable. */
+    world_set_controls_visible(1);
+}
+
+static void dia_wrath(void) {
+    thought_wrath(WRATH_TEXT, WRATH_SECONDS);
+    story_after(WRATH_SECONDS + WRATH_TO_DEATH, death_begin);
+}
+
 static void shrine_done(void) {
     shrine_fouled = 1;
+    dying = 1;
     brainwin_drop_tag(THOUGHT_SHRINE);                      /* "I doubt that ends well" has come true, or is about to */
     mission_complete(mission_pollute);
-    /* chunk 11 (Dia's wrath) starts from here */
+    world_set_controls_visible(0);                          /* she is watching: the vessel stands still */
+    story_after(WRATH_BEAT, dia_wrath);
 }
 
 static void shrine_thought(void) {
@@ -304,7 +329,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0;
+    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
