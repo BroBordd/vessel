@@ -77,10 +77,31 @@ void shrine_draw(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     if (!on) return;
     int x = (int)((tx + 0.5f) * tile) - cam_x, y = (int)((ty + 0.9f) * tile) - cam_y;
     float p = prog;
-    float shake = (enabled && p > 0 && !polluted) ? 1.0f : 0.0f;                    /* the stone shudders while it is being fouled */
+    float shake = (enabled && p > 0 && !polluted) ? 1.0f : 0.0f;                    /* the stone shudders under the blows */
     int sx = x + (int)floorf(sinf(t * 60.0f) * shake * 0.6f + 0.5f) * s;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
 
     col(r, 0, 0, 0, 70);   box(r, sx, y, -8, -1, 16, 2);                           /* ground shadow */
+
+    if (polluted) {                                                                /* BROKEN: a stump, a gap in the steps, rubble, dull shards */
+        col(r, 112, 118, 144, 255); box(r, sx, y, -7, -3, 6, 3); box(r, sx, y, 3, -3, 4, 2);
+        col(r, 158, 166, 192, 255); box(r, sx, y, -7, -3, 6, 1); box(r, sx, y, 3, -3, 4, 1);
+        col(r, 86, 92, 118, 255);   box(r, sx, y, -7, -1, 6, 1); box(r, sx, y, 3, -1, 4, 1);
+        col(r, 134, 140, 166, 255); box(r, sx, y, -5, -5, 4, 2);
+        col(r, 170, 178, 204, 255); box(r, sx, y, -5, -5, 4, 1);
+        col(r, 148, 154, 180, 255); box(r, sx, y, -2, -8, 4, 5);                   /* the stump, jagged on top */
+        col(r, 112, 118, 146, 255); box(r, sx, y, 1, -8, 1, 5);
+        col(r, 148, 154, 180, 255); box(r, sx, y, -2, -9, 2, 1);
+        col(r, 30, 30, 44, 255);    box(r, sx, y, 0, -8, 1, 2); box(r, sx, y, -1, -6, 1, 2);   /* cracks left in it */
+        col(r, 134, 140, 166, 255);                                                /* rubble on the ground */
+        box(r, sx, y, -10, -2, 3, 2); box(r, sx, y, 7, -1, 3, 2); box(r, sx, y, -1, -1, 2, 1); box(r, sx, y, 4, -4, 2, 2); box(r, sx, y, -9, -4, 2, 1);
+        col(r, 170, 178, 204, 255); box(r, sx, y, -10, -2, 3, 1); box(r, sx, y, 7, -1, 3, 1); box(r, sx, y, 4, -4, 2, 1);
+        col(r, 96, 102, 126, 255);  box(r, sx, y, 8, -9 + 8, 1, 1); box(r, sx, y, -6, -1, 1, 1);   /* chips */
+        col(r, 100, 100, 124, 255); box(r, sx, y, 2, -2, 1, 1); box(r, sx, y, -4, -2, 2, 1);      /* the gem's dull shards */
+        col(r, 70, 70, 92, 255);    box(r, sx, y, 2, -1, 1, 1);
+        return;
+    }
+
     col(r, 112, 118, 144, 255); box(r, sx, y, -7, -3, 14, 3);                      /* wide step */
     col(r, 158, 166, 192, 255); box(r, sx, y, -7, -3, 14, 1);
     col(r, 86, 92, 118, 255);   box(r, sx, y, -7, -1, 14, 1);
@@ -90,10 +111,10 @@ void shrine_draw(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     col(r, 112, 118, 146, 255); box(r, sx, y, 1, -12, 1, 7);
     col(r, 186, 194, 218, 255); box(r, sx, y, -3, -13, 6, 1);                      /* cap */
 
-    /* the gem and its glow: icy blue when clean, a sick dark green-violet when fouled */
+    /* the gem and its glow: icy blue when whole, going dull and grey as the stone takes the blows */
     float bob = sinf(t * 2.0f) * 0.7f;
     int gy = -19 + (int)floorf(bob + 0.5f);
-    int gr = mix(110, 70, p), gg = mix(224, 44, p), gb = mix(255, 78, p);
+    int gr = mix(110, 100, p), gg = mix(224, 100, p), gb = mix(255, 124, p);
     int glow = (int)((50 + 30 * sinf(t * 3.0f)) * (1.0f - 0.7f * p));
     col(r, gr, gg, gb, glow); box(r, sx, y, -4, gy - 2, 8, 8);
     col(r, gr, gg, gb, 255);
@@ -102,21 +123,21 @@ void shrine_draw(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     col(r, gr / 2 + 40, gg / 2 + 40, gb / 2 + 40, 255);                            /* runes on the pillar echo the gem */
     box(r, sx, y, -1, -10, 2, 1); box(r, sx, y, -1, -8, 2, 1);
 
-    if (p > 0) {                                                                   /* the ooze */
-        int w = (int)(p * 13.0f + 0.5f); if (w < 1) w = 1;
-        col(r, 44, 34, 58, 255);  box(r, sx, y, -w / 2, -2, w, 2);                 /* puddle on the base */
-        col(r, 86, 158, 58, 255); box(r, sx, y, -w / 2 + 1, -2, w > 3 ? w - 3 : 1, 1);
-        for (int k = 0; k < 3; k++) {                                              /* drips down the pillar */
-            int len = (int)(p * (4.0f + k * 2.0f));
-            if (len < 1) continue;
-            col(r, 52, 38, 66, 255); box(r, sx, y, -2 + k * 2, -12, 1, len);
-            col(r, 92, 168, 60, 255); box(r, sx, y, -2 + k * 2, -12 + len - 1, 1, 1);
-        }
-        for (int k = 0; k < 4; k++) {                                              /* bubbles popping up off it */
-            float ph = fmodf(t * 1.3f + k * 0.37f, 1.0f);
-            if (ph > p + 0.1f) continue;
-            col(r, 120, 200, 80, (int)(230 * (1.0f - ph)));
-            box(r, sx, y, -5 + k * 3 + (int)floorf(sinf(t * 4.0f + k) + 0.5f), -4 - (int)(ph * 9.0f), 1, 1);
+    if (p > 0) {                                                                   /* cracks spread with every blow */
+        col(r, 30, 30, 44, 255);
+        if (p > 0.12f) box(r, sx, y, 0, -12, 1, 2);
+        if (p > 0.25f) box(r, sx, y, -1, -10, 1, 2);
+        if (p > 0.38f) box(r, sx, y, 0, -8, 1, 2);
+        if (p > 0.5f)  { box(r, sx, y, -2, -13, 2, 1); box(r, sx, y, 1, -6, 1, 1); }
+        if (p > 0.62f) { box(r, sx, y, -1, -6, 1, 2); box(r, sx, y, -3, -5, 2, 1); }
+        if (p > 0.74f) { box(r, sx, y, 2, -5, 2, 1); box(r, sx, y, 4, -4, 1, 2); }
+        if (p > 0.85f) { box(r, sx, y, 0, gy + 1, 1, 2); box(r, sx, y, -1, gy + 2, 1, 1); }    /* the gem itself splits */
+        for (int k = 0; k < 4; k++) {                                              /* chips and dust flying off */
+            float ph = fmodf(t * 1.7f + k * 0.29f, 1.0f);
+            if (ph > p + 0.15f) continue;
+            int dir = (k & 1) ? 1 : -1;
+            col(r, 190, 196, 216, (int)(230 * (1.0f - ph)));
+            box(r, sx, y, dir * (3 + (int)(ph * 6.0f)) + k % 2, -9 - (int)(ph * 5.0f) + (int)(ph * ph * 12.0f), 1, 1);
         }
     }
 }

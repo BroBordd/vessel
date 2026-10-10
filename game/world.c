@@ -916,7 +916,7 @@ static void draw_interact_button(SDL_Renderer *r) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
             SDL_RenderSetClipRect(r, &clip);
-            col(r, 88, 160, 60, 245); pdisc(r, bcx, bcy, br, ucell);
+            col(r, 112, 118, 144, 245); pdisc(r, bcx, bcy, br, ucell);       /* the stone fills the button as it cracks */
             SDL_RenderSetClipRect(r, NULL);
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }
