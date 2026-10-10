@@ -306,6 +306,27 @@ int main(void) {
         limbo_end(); story_limbo_take_end();
     }
 
+    /* chunk 7: the beginning. a beat of stars, "Where am I?" in the soul's voice, a hold of about 3.5 s, then limbo ends
+     * (stand-in: the world and the old intro follow). nothing joins the brain window; the dev entry stays in limbo */
+    {   int bc = brainwin_count();
+        story_limbo_begin(0);
+        CHECK(story_limbo_active() && thought_voice() == &SOUL, "story_limbo_begin did not start limbo with the soul's voice");
+        for (float t = 0; t < 0.9f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(!thought_active(), "a thought came before the beat of silence");
+        for (float t = 0; t < 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 1.2 s */
+        CHECK(thought_active() && limbo.n == 1 && strcmp(limbo.lines[0], "Where am I?") == 0, "no \"Where am I?\" after the beat");
+        for (float t = 0; t < 3.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 4.2 s: still holding */
+        CHECK(story_limbo_active() && !story_limbo_take_end(), "limbo ended before the hold was over");
+        for (float t = 0; t < 0.5f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 4.7 s */
+        CHECK(story_limbo_take_end() == 1, "limbo did not end after \"Where am I?\" and its hold");
+        CHECK(!story_limbo_active() && thought_voice() != &SOUL, "the soul's voice stayed after limbo");
+        CHECK(brainwin_count() == bc, "\"Where am I?\" joined the brain window");
+        story_limbo_begin(1);                                                                          /* dev entry: says it and stays */
+        for (float t = 0; t < 12.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
+        CHECK(story_limbo_active() && !story_limbo_take_end(), "the dev limbo ended by itself");
+        limbo_end(); story_limbo_take_end();
+    }
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails ? 1 : 0;
 }

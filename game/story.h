@@ -23,6 +23,9 @@ void story_after(float seconds, void (*fn)(void));
  * limbo_end: leaves limbo (voice back to the ID card person); game.c then shows the world again. */
 void limbo_run(const char *const *thoughts, int n, float gap, void (*on_done)(void));
 void limbo_end(void);
+/* the beginning of the game: call it the moment limbo starts after PLAY. a beat, "Where am I?", a hold, limbo_end (the old intro
+ * follows for now). stay = 1: dev only, says the thought and stays in limbo. */
+void story_limbo_begin(int stay);
 /* engine hooks for game.c: while the state is ST_LIMBO call story_limbo_update(dt) every frame; story_limbo_take_end()
  * is 1 once after limbo_end() (time to leave ST_LIMBO). story_limbo_active: a limbo_run has begun and limbo_end has not run. */
 void story_limbo_update(float dt);

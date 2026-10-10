@@ -27,11 +27,8 @@
 /* ST_LIMBO (vessel 2): the space screen, the stars and the top buttons only, no map and no HUD. the soul waits here
  * at the start of the game and after every death. the brain button works (thoughts), the pause button does not. */
 typedef enum { ST_MENU, ST_WORLD, ST_LIMBO } State;
-/* PLAY -> the menu fades out (menu.c) -> ST_LIMBO. no loading screen. until the story drives limbo itself (chunks 6-10),
- * limbo from PLAY waits a few seconds, then hands over to the old start of the game */
-#define LIMBO_STANDIN_THOUGHT 1.0f      /* "Where am I?" this long after limbo begins */
-#define LIMBO_STANDIN_FADE    3.7f      /* the menu music starts to fade ... */
-#define LIMBO_STANDIN_END     4.5f      /* ... and the world takes over (cloud music starts) */
+/* PLAY -> the menu fades out (menu.c) -> ST_LIMBO. no loading screen. the story drives limbo (story_limbo_begin: "Where am I?", a hold,
+ * limbo_end); until the summoning exists (chunks 8-10) limbo_end hands over to the old start of the game */
 /* The game is a child of the app process. Closing the activity needs Java,
  * so for now exit == take the parent app down with us. */
 static void quit_app(void) {
@@ -101,15 +98,13 @@ int main(int argc, char **argv) {
     brainwin_init(W, H);
     pausebtn_init(W, H);
     State state = ST_MENU;
-    float limbo_t = 0;
-    int limbo_auto = 0;                 /* 1: limbo came from PLAY and will hand over to the world (the stand-in above) */
-    /* stand-in until the story enters limbo itself (chunks 4-7): VESSEL_LIMBO=1 in the environment starts there,
-     * so the screen can be looked at, and says one thought after a second */
+    /* dev: VESSEL_LIMBO=1 in the environment starts in limbo (desktop only), says its thought and stays there, so the screen can be looked at */
     if (getenv("VESSEL_LIMBO")) {
         world_init(W, H);                                   /* the thought card and the HUD need their init */
         thought_set_voice(&SOUL);
         space_init(W, H);
         state = ST_LIMBO;
+        story_limbo_begin(1);
     }
 
     fcntl(0, F_SETFL, O_NONBLOCK);
@@ -170,24 +165,17 @@ int main(int argc, char **argv) {
             menu_update(dt); menu_draw(r);
             if (menu_faded()) {                                  /* gone: go on from this very frame, the stars have not stopped */
                 world_init(W, H);                                /* hidden: the thought card and the HUD are initialised here */
-                state = ST_LIMBO; limbo_t = 0; limbo_auto = 1;
+                state = ST_LIMBO;
                 thought_set_voice(&SOUL);                        /* in limbo the thoughts wear the soul's face */
                 space_draw(r);                                   /* world_init made no frame of its own: keep this one stars only */
+                story_limbo_begin(0);                            /* a beat, "Where am I?", a hold, then the world */
             }
         } else if (state == ST_LIMBO) {
             space_update(dt); space_draw(r);
             story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
             if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
-                state = ST_WORLD; limbo_auto = 0;
-                world_update(0); world_draw(r);
-            }
-            limbo_t += dt;
-            if (limbo_t > LIMBO_STANDIN_THOUGHT && limbo_t - dt <= LIMBO_STANDIN_THOUGHT) thought_say("Where am I?", 0);   /* stand-in, see above */
-            if (limbo_auto && limbo_t > LIMBO_STANDIN_FADE && limbo_t - dt <= LIMBO_STANDIN_FADE) jukebox_scene_fade(LIMBO_STANDIN_END - LIMBO_STANDIN_FADE);
-            if (limbo_auto && limbo_t > LIMBO_STANDIN_END) {
-                jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music (the ground gets divine_tale later) */
-                state = ST_WORLD; limbo_auto = 0;
-                thought_set_voice(NULL);                         /* a body: the ID card person speaks again */
+                jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music (chunk 10 moves this into the summon) */
+                state = ST_WORLD;
                 world_update(0); world_draw(r);
             }
         } else {

@@ -171,6 +171,33 @@ void story_limbo_update(float dt) {
     if (limbo.on_done) { void (*fn)(void) = limbo.on_done; limbo.on_done = NULL; fn(); }
 }
 
+/* ---------- the beginning: "Where am I?" (vessel 2, chunk 7) ----------
+ * PLAY -> the menu fades out into limbo (game.c) -> story_limbo_begin(). a beat of silence over the stars, the soul thinks
+ * "Where am I?", a hold, and limbo ends. STAND-IN until chunks 8-10: limbo_end() hands over to the old start of the game
+ * (cloud music, the old welcome dialogs that world_init already queued), so the build stays playable. the summoning replaces it.
+ * the menu music keeps playing through limbo and fades out over the last LIMBO_FADE_T seconds. */
+#define LIMBO_BEAT      1.0f                /* stars only, before the first thought */
+#define LIMBO_WHERE_HOLD 3.5f               /* from the thought to the end of limbo: the soul waits (about 3.5 s) */
+#define LIMBO_FADE_T    0.8f                /* the last part of the hold: the menu music fades out */
+
+static const char *const LIMBO_WHERE[] = { "Where am I?" };
+static int limbo_stay;                      /* dev: stay in limbo for good (VESSEL_LIMBO=1) */
+
+static void limbo_where_end(void) { limbo_end(); }          /* STAND-IN: chunk 10 starts the summoning here instead */
+static void limbo_where_fade(void) {
+    jukebox_scene_fade(LIMBO_FADE_T);
+    limbo_run(NULL, 0, LIMBO_FADE_T, limbo_where_end);
+}
+static void limbo_where_say(void) {
+    limbo_run(LIMBO_WHERE, 1, limbo_stay ? 1000.0f : LIMBO_WHERE_HOLD - LIMBO_FADE_T, limbo_stay ? NULL : limbo_where_fade);
+}
+
+/* stay = 1: the dev entry (VESSEL_LIMBO=1), says the thought and then stays in limbo forever */
+void story_limbo_begin(int stay) {
+    limbo_stay = stay;
+    limbo_run(NULL, 0, LIMBO_BEAT, limbo_where_say);
+}
+
 /* ---------- scene 3: down on the ground ---------- */
 /* nobody stands near the landing spot: the player lands alone in GRASSLANDS. Alex is placed far
  * away (landed() below); her scripted deal comes in chunk 9 (docs/story/vessel-1.md). */
