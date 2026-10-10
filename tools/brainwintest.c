@@ -130,6 +130,13 @@ int main(int argc, char **argv) {
     CHECK(brainwin_debug_auto(), "AUTO did not turn the loop back on");
     int c0 = brainwin_debug_current(); run(10.0f);
     CHECK(brainwin_debug_current() != c0, "the loop did not move after AUTO");
+    /* AUTO is a toggle: pressed while on, it turns the loop off and the thought stays put */
+    tap(autob.x + autob.w / 2, autob.y + autob.h / 2);
+    CHECK(!brainwin_debug_auto(), "AUTO pressed while on did not turn it off");
+    c0 = brainwin_debug_current(); run(20.0f);
+    CHECK(brainwin_debug_current() == c0, "the loop kept moving with AUTO off");
+    tap(autob.x + autob.w / 2, autob.y + autob.h / 2);
+    CHECK(brainwin_debug_auto(), "AUTO did not come back on");
 
     /* 5. more thoughts: the count follows, the window still fits, the array has a limit */
     int n0 = brainwin_count();

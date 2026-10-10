@@ -4,7 +4,7 @@
 #define LOADING_H
 #include <SDL2/SDL.h>
 
-#define LOADING_SECONDS 2.0f
+#define LOADING_SECONDS 1.0f
 
 void loading_init(int w, int h);
 /* returns 1 once LOADING_SECONDS have elapsed */

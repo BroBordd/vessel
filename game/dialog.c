@@ -8,6 +8,7 @@
 #include <string.h>
 
 #define DIALOG_CPS  28.0f           /* typing speed, characters per second */
+#define FAST_X      2.0f            /* finger on the screen: letters come this much faster, and the blips are this much higher */
 #define MAX_WRAP    640
 
 static int   W, H;
@@ -23,6 +24,8 @@ static int   blipped;               /* how many letters of this page already had
 static int   reply_mode, gen, btn_press;        /* reply_mode: the current page's DialogLine.reply; gen: bumps on every dialog_play */
 static SDL_Rect talk_btn, skip_btn;
 static float open_t, t;             /* open_t: since the dialog opened, t: since this page began */
+static float ty;                    /* typing clock of this page: runs like t, but FAST_X times faster while a finger is down */
+static int   finger;                /* a finger is on the screen (any touch that has not ended) */
 static char  wrapped[MAX_WRAP];
 static int   nlines, widest, total;
 
@@ -128,7 +131,7 @@ static void layout_box(void) {
     /* the reply buttons sit bottom-right inside the box */
     int right = L.bx + L.bw - L.pad, by = L.by + L.bh - L.pad - btn_h, gap = 3 * L.cell;
     talk_btn = (SDL_Rect){ right - (font_width("TALK", L.cell) + 4 * L.cell), by, font_width("TALK", L.cell) + 4 * L.cell, btn_h };
-    int sw = font_width("SKIP", L.cell) + 4 * L.cell + gap + 4 * L.q;
+    int sw = font_width("BYE", L.cell) + 4 * L.cell + gap + 4 * L.q;
     skip_btn = (SDL_Rect){ talk_btn.x - gap - sw, by, sw, btn_h };
 }
 
@@ -140,11 +143,11 @@ static void start_page(void) {
     wrap_text(L.maxchars);
     spans_fired = 0;
     layout_box();
-    t = 0;
+    t = 0; ty = 0;
     if (page_hook) page_hook(idx);
 }
 
-static int typing_done(void) { return (int)(t * DIALOG_CPS) >= total; }
+static int typing_done(void) { return (int)(ty * DIALOG_CPS) >= total; }
 
 /* ---------- public API ---------- */
 void dialog_init(int w, int h) {
@@ -156,7 +159,7 @@ void dialog_init(int w, int h) {
 void dialog_play(const DialogLine *l, int n, void (*done)(void)) {
     if (!l || n <= 0) return;
     lines = l; count = n; idx = 0; on_done = done; gen++;
-    active = 1; armed = 0; open_t = 0;
+    active = 1; armed = 0; open_t = 0; finger = 0;      /* a finger lifted while no dialog was open was never seen: start from "up" */
     start_page();
 }
 
@@ -175,7 +178,7 @@ static void next_page(void) {
     } else start_page();
 }
 
-/* the player answered a REPLY page (text == NULL: skipped) */
+/* the player answered a REPLY page (text == NULL: pressed BYE) */
 static void do_reply(const char *text) {
     int g = gen, page = idx;
     char buf[96];
@@ -195,8 +198,9 @@ static int btn_at(int x, int y) {
 
 void dialog_touch(int a, int x, int y) {
     if (!active) return;
+    finger = (a == 0 || a == 2);                /* down / move: a finger is on the screen; up / cancel: it is not */
     if (talk_active()) { talk_touch(a, x, y); return; }
-    if (reply_mode) {                           /* TALK / SKIP buttons, once the text has finished typing */
+    if (reply_mode) {                           /* TALK / BYE buttons, once the text has finished typing */
         if (!typing_done()) return;
         if (a == 0) btn_press = btn_at(x, y);
         else if (a == 2) { if (btn_press && btn_at(x, y) != btn_press) btn_press = 0; }
@@ -220,9 +224,10 @@ void dialog_touch(int a, int x, int y) {
 void dialog_update(float dt) {
     talk_update(dt);                            /* the keyboard may still be sliding away after the dialog ended */
     if (!active) return;
-    open_t += dt; t += dt;
+    float speed = finger && !talk_active() ? FAST_X : 1.0f;
+    open_t += dt; t += dt; ty += dt * speed;
     {   /* a highlighted span is complete once its last letter has been typed */
-        int typed = (int)(t * DIALOG_CPS), g = gen, pg = idx;
+        int typed = (int)(ty * DIALOG_CPS), g = gen, pg = idx;
         while (spans_fired < nspan && typed >= span_end[spans_fired + 1]) {
             int sp = spans_fired++;
             if (hl_hook) hl_hook(pg, sp);
@@ -233,7 +238,7 @@ void dialog_update(float dt) {
         /* the speakers are `audio_latency()` behind what we mix, so look that far ahead: each bop is fired
          * early enough to be HEARD as its letter appears (capped, so the first few letters of a page still get theirs) */
         float lead = audio_latency(); if (lead > 0.30f) lead = 0.30f;
-        int upto = (int)((t + lead) * DIALOG_CPS); if (upto > total) upto = total;
+        int upto = (int)((ty + lead * speed) * DIALOG_CPS); if (upto > total) upto = total;
         int play = -1;
         for (; blipped < upto; blipped++) if (isalnum((unsigned char)wrapped[blipped])) play = blipped;
         if (play >= 0) {
@@ -241,7 +246,7 @@ void dialog_update(float dt) {
             unsigned h = 7; for (; *nm; nm++) h = h * 31 + (unsigned char)*nm;
             float voice = 0.82f + (float)(h % 9) * 0.05f;                         /* every speaker has their own pitch */
             float letter = ((unsigned char)wrapped[play] * 7 % 5) * 0.035f;        /* and the letters wobble around it */
-            sfx_blip(voice + letter);
+            sfx_blip((voice + letter) * speed);                                    /* finger down: twice as high */
         }
     }
 }
@@ -288,7 +293,7 @@ void dialog_draw(SDL_Renderer *r) {
     }
 
     /* typewriter text, one wrapped line at a time. {highlighted} runs are green + underlined */
-    int remaining = (int)(t * DIALOG_CPS);
+    int remaining = (int)(ty * DIALOG_CPS);
     const char *p = wrapped;
     int ly = L.ty, base = 0;            /* base: index of p inside wrapped (lines up with wspan) */
     while (*p && remaining > 0) {
@@ -314,9 +319,9 @@ void dialog_draw(SDL_Renderer *r) {
         if (*p == '\n') p++; else break;
     }
 
-    /* reply buttons: TALK (always) and SKIP (when saying nothing is allowed) */
+    /* reply buttons: TALK (always) and BYE (when walking away is allowed) */
     if (!typing && reply_mode) {
-        float since = t - (float)total / DIALOG_CPS;
+        float since = ty - (float)total / DIALOG_CPS;
         int pulse = 170 + (int)(70.0f * ((int)(since * 4.0f) & 1 ? 1.0f : 0.0f));
         for (int k = 0; k < 2; k++) {
             if (k == 1 && reply_mode != REPLY_OPTIONAL) break;
@@ -329,14 +334,14 @@ void dialog_draw(SDL_Renderer *r) {
                 font_draw(r, "TALK", b.x + 2 * L.cell, b.y + (b.h - 7 * L.cell) / 2, L.cell);
             } else {
                 SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
-                font_draw(r, "SKIP", b.x + 2 * L.cell, b.y + (b.h - 7 * L.cell) / 2, L.cell);
+                font_draw(r, "BYE", b.x + 2 * L.cell, b.y + (b.h - 7 * L.cell) / 2, L.cell);
                 if (((int)(since * 2.5f) & 1) == 0) triangle(r, b.x + b.w - 2 * L.cell - 4 * L.q, b.y + (b.h - 7 * L.q) / 2, L.q);
             }
         }
     }
     /* blinking continue arrow, only once the page has finished typing */
     if (!typing && !reply_mode) {
-        float since = t - (float)total / DIALOG_CPS;
+        float since = ty - (float)total / DIALOG_CPS;
         if (((int)(since * 2.5f) & 1) == 0) {
             SDL_SetRenderDrawColor(r, 255, 255, 255, A);
             triangle(r, L.bx + L.bw - L.pad - 4 * L.q, L.by + L.bh - L.pad - 7 * L.q, L.q);

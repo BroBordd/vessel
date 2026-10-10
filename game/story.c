@@ -344,5 +344,5 @@ void story_start(void) {
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);
-    story_after(1.0f, intro);                   /* wait for the fade-in, then the welcome window */
+    story_after(0.5f, intro);                   /* wait for the fade-in (world.c FADE_IN_T), then the welcome window */
 }

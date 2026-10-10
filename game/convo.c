@@ -65,7 +65,8 @@ static int only(const Heard *h, uint64_t allowed) { return (h->mask & ~allowed) 
 static void on_reply(int page, const char *text) {
     (void)page;
     Heard h; memset(&h, 0, sizeof h);
-    if (text) lang_parse(text, &h);
+    if (!text) text = "Bye";                                /* the BYE button: the player says goodbye, and the npc answers that */
+    lang_parse(text, &h);
     Persona *ps = C.mind;
 
     if (C.stage == ST_SORRY) {                              /* the npc demanded an apology: no skipping here */
@@ -73,12 +74,6 @@ static void on_reply(int page, const char *text) {
         if (h.mask & M(I_SORRY)) { ps->mood += 22; if (ps->mood > 100) ps->mood = 100; C.stage = ST_FREE; say_key("accept.sorry", REPLY_OPTIONAL, text); return; }
         if (++C.demands >= 3) { say_key("end.angry", REPLY_NONE, text); return; }
         say_key("demand.again", REPLY_REQUIRED, text);
-        return;
-    }
-
-    if (!text) {                                            /* SKIP: the player says nothing */
-        if (C.stage == ST_QUESTIONS) say_key("end.noquestions", REPLY_NONE, NULL);
-        else say_key("end.silence", REPLY_NONE, NULL);
         return;
     }
 

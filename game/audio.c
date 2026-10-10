@@ -155,7 +155,7 @@ static float blip_phase, blip_f;
 void sfx_blip(float pitch) {
     if (!dev) return;
     if (pitch < 0.4f) pitch = 0.4f;
-    if (pitch > 2.5f) pitch = 2.5f;
+    if (pitch > 3.0f) pitch = 3.0f;
     SDL_LockAudioDevice(dev);
     blip_on = 1; blip_pos = 0; blip_phase = 0.0f; blip_f = BLIP_HZ * pitch;
     SDL_UnlockAudioDevice(dev);

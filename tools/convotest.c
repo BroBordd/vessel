@@ -58,6 +58,28 @@ int main(void) {
     skip(); settle(6.0f); for (int i = 0; i < 3; i++) { tap_page(); settle(6.0f); }
     printf("  chat ended: %d, dialog active: %d\n", ended, dialog_active()); if (ended != 1) fails++;
 
+    printf("3) free chat -> BYE button: the npc answers a goodbye, then the chat ends\n");
+    mind.mood = 0; ended = 0; convo_open(&DEA, &mind, 0, on_end);
+    skip();
+    printf("  after BYE the npc still answers: dialog active %d, ended %d\n", dialog_active(), ended); if (!dialog_active() || ended) fails++;
+    for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
+    printf("  chat ended: %d, dialog active: %d\n", ended, dialog_active()); if (ended != 1 || dialog_active()) fails++;
+
+    printf("4) a finger on the screen types twice as fast\n");
+    {
+        static char longtxt[300]; memset(longtxt, 'a', sizeof longtxt - 1);
+        for (int i = 4; i < (int)sizeof longtxt - 1; i += 5) longtxt[i] = ' ';        /* 299 letters: ~10.7 s at 28 cps, ~5.3 s at 2x */
+        static DialogLine one[1]; one[0] = (DialogLine){ &DEA, longtxt, REPLY_NONE };
+        dialog_play(one, 1, NULL); settle(6.0f); tap_page();
+        printf("  no finger, 6 s: page still typing (dialog active %d)\n", dialog_active()); if (!dialog_active()) fails++;
+        settle(8.0f); tap_page();                                                      /* now it is done: this ends it */
+        dialog_play(one, 1, NULL);
+        dialog_touch(0, 10, 10);                                                       /* finger down and held */
+        settle(6.0f);
+        dialog_touch(1, 10, 10);                                                       /* lifted: only advances if typing was done */
+        printf("  finger held, 6 s: page was done and ended (dialog active %d)\n", dialog_active()); if (dialog_active()) fails++;
+    }
+
     printf("%s\n", fails ? "FAILED" : "all conversation flows ok");
     return fails;
 }

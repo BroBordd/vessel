@@ -27,6 +27,7 @@ static int   W, H, is_open, closing;
 static float u, anim, tt;           /* anim: window slide 0..1. tt: running clock for the pictures */
 static int   cur, auto_on;
 static float tm, flick, typed;      /* seconds on this thought, flicker timer, letters typed so far */
+static int   fdown;                 /* a finger is down on the window */
 static int   grab;                  /* what the finger went down on: 0 nothing, 1 close, 2 auto, 3 outside, 10+i a number */
 
 /* layout */
@@ -175,7 +176,7 @@ SDL_Rect brainwin_debug_pick(int i) { return pick_r[clampi(i, 0, BRAIN_MAX_THOUG
 
 void brainwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    nth = 0; is_open = closing = 0; anim = 0; tt = 0; grab = 0;
+    nth = 0; is_open = closing = 0; anim = 0; tt = 0; grab = 0; fdown = 0;
     cur = 0; auto_on = 1; tm = 0; flick = 0; typed = 0;
     layout();
 }
@@ -189,6 +190,7 @@ int brainwin_active(void) { return is_open || closing; }
 
 int brainwin_touch(int a, int x, int y) {
     if (!is_open) return closing;                           /* sliding away: swallow touches, do nothing */
+    fdown = (a == 0 || a == 2);
     if (a == 0) {
         grab = 0;
         if (inside(close_r, x, y)) grab = 1;
@@ -202,7 +204,7 @@ int brainwin_touch(int a, int x, int y) {
         if (a != 1) return 1;
         if (gk == 1 && inside(close_r, x, y))  { is_open = 0; closing = 1; }
         else if (gk == 3 && !inside(win, x, y)) { is_open = 0; closing = 1; }
-        else if (gk == 2 && inside(auto_r, x, y)) { auto_on = 1; tm = 0; }
+        else if (gk == 2 && inside(auto_r, x, y)) { if (auto_on) auto_on = 0; else { auto_on = 1; tm = 0; } }   /* a toggle */
         else if (gk >= 10 && gk - 10 < nth && inside(pick_r[gk - 10], x, y)) {
             if (gk - 10 != cur) { auto_on = 0; go(gk - 10); }      /* the thought on the monitor already: nothing, it must not replay */
         }
@@ -220,7 +222,7 @@ void brainwin_update(float dt) {
     if (!is_open || nth == 0) return;
 
     if (flick > 0) { flick -= dt; if (flick < 0) flick = 0; }
-    typed += dt * TYPE_CPS;
+    typed += dt * TYPE_CPS * (fdown ? 2.0f : 1.0f);      /* a finger on the window: letters come twice as fast */
     tm += dt;
     if (auto_on && nth > 1 && tm >= dwell(cur)) go((cur + 1) % nth);
 }

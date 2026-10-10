@@ -5,11 +5,11 @@
  * the story only says WHO talks and WHAT HAPPENS WHEN IT ENDS:
  *
  *   static Persona DEA_MIND = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };   // name, style, mood, warmth, toxic, patience
- *   convo_open(&DEA, &DEA_MIND, again, on_end);        // npc speaks first, then you may talk or skip
- *   convo_ask_questions(&DEA, &DEA_MIND, on_end);      // "Do you have any questions?" (no/skip ends it)
+ *   convo_open(&DEA, &DEA_MIND, again, on_end);        // npc speaks first, then you may talk or say bye
+ *   convo_ask_questions(&DEA, &DEA_MIND, on_end);      // "Do you have any questions?" (no/BYE ends it)
  *
  * the player's typed line is shown as a face popup of the player, then the npc answers from the
- * language database. the chat ends when the player skips, says bye, the npc gets bored or angry,
+ * language database. the chat ends when the player says bye (the BYE button says it for them: the npc answers a goodbye), the npc gets bored or angry,
  * or says "no" to "any questions?". on_end (may be NULL) runs then.
  */
 #ifndef CONVO_H

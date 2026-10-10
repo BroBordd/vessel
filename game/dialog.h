@@ -16,7 +16,7 @@ typedef struct { const Person *who; const char *text; int reply; } DialogLine;
 
 /* DialogLine.reply (leave it out for a normal page):
  *   REPLY_NONE      a normal page: tap the blinking arrow to go on
- *   REPLY_OPTIONAL  after the text, TALK and SKIP buttons appear. SKIP = say nothing.
+ *   REPLY_OPTIONAL  after the text, TALK and BYE buttons appear. BYE = walk away (text == NULL below).
  *   REPLY_REQUIRED  only a TALK button: the player must say something
  * TALK opens the keyboard overlay (talk.c). what happens next is up to dialog_on_reply. */
 enum { REPLY_NONE = 0, REPLY_OPTIONAL = 1, REPLY_REQUIRED = 2 };
@@ -37,7 +37,7 @@ void dialog_on_page(void (*fn)(int page));
 void dialog_on_highlight(void (*fn)(int page, int span));
 
 /* optional: fn(page, text) runs when the player answers a REPLY page. text is what they typed, or
- * NULL if they pressed SKIP. afterwards the dialog moves to the next page, UNLESS fn started a new
+ * NULL if they pressed BYE. afterwards the dialog moves to the next page, UNLESS fn started a new
  * dialog_play (that is how conversations keep going). dropped when the dialog ends. set it right
  * before dialog_play, like dialog_on_page. */
 void dialog_on_reply(void (*fn)(int page, const char *text));
