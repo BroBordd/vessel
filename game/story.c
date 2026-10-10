@@ -59,7 +59,10 @@ void story_after(float seconds, void (*fn)(void)) {
         if (!timers[i].fn) { timers[i].left = seconds; timers[i].fn = fn; return; }
 }
 
+static void alex_watch(void);               /* the proximity trigger, defined with the ground scene below */
+
 void story_update(float dt) {
+    alex_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -74,12 +77,14 @@ void story_update(float dt) {
 /* ---------- state ---------- */
 static int mission_talk_dea = -1;
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
+static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
+static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
 static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens a few tiles below her) */
 
 /* ---------- scene 3: down on the ground ---------- */
-/* nobody stands near the landing spot: the player lands alone in GRASSLANDS.
- * Alex is placed far away in a later chunk (docs/story/vessel-1.md, chunks 8-9). */
+/* nobody stands near the landing spot: the player lands alone in GRASSLANDS. Alex is placed far
+ * away (landed() below); her scripted deal comes in chunk 9 (docs/story/vessel-1.md). */
 
 /* what the player says out loud after the fall (face popup). the controls are hidden while a
  * dialog is open and come back by themselves when it ends (world.c) */
@@ -88,9 +93,47 @@ static const DialogLine LANDING[] = {
     { &VESSEL, "She could at least have warned me." },
 };
 
+/* Alex stands far from where we land: between 26 and 40 tiles away, somewhere the player can really
+ * walk to. the "far" is the point: it is a walk, and the first thought sends the player looking. */
+#define ALEX_MIN_DIST   26
+#define ALEX_MAX_DIST   40
+#define ALEX_SIGHT      6.5f                /* tiles: about half a screen, so she is on screen when it fires */
+
+/* the player has caught sight of Alex: a thought and the next task. safe to call twice */
+static void alex_spotted(void) {
+    if (alex_seen) return;
+    alex_seen = 1;
+    thought_say("Maybe she has seen the orb.", 0);
+    mission_ask_alex = task_toast("Ask Alex");
+}
+
+/* the proximity trigger, run every frame: walking within sight of Alex (not while a dialog is open) */
+static void alex_watch(void) {
+    if (alex_id >= 0 && !alex_seen && !dialog_active() && world_dist_to_npc(alex_id) < ALEX_SIGHT)
+        alex_spotted();
+}
+
+/* stand-in until chunk 9 gives Alex her scripted deal: the free typed chat, and the task ticks */
+static void on_talk_alex(int npc_id) {
+    (void)npc_id;
+    alex_spotted();
+    mission_complete(mission_ask_alex);
+    convo_open(&ALEX, &ALEX_MIND, 0, NULL);
+}
+
+/* the complaint is over and the stick is back: the first thought, sending the player to look */
+static void landing_done(void) {
+    thought_say("I need to find that orb.", 0);
+}
+
 /* the player just got back on their feet after the fall */
 static void landed(void) {
-    dialog_play(LANDING, (int)(sizeof LANDING / sizeof LANDING[0]), NULL);
+    int tx, ty;
+    if (world_find_far_spot(ALEX_MIN_DIST, ALEX_MAX_DIST, &tx, &ty)) {
+        alex_id = npc_add(&ALEX, tx, ty, on_talk_alex);
+        if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
+    }
+    dialog_play(LANDING, (int)(sizeof LANDING / sizeof LANDING[0]), landing_done);
 }
 
 /* ---------- scene 2: Dea ---------- */
@@ -164,6 +207,8 @@ void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     mission_talk_dea = -1;
     mission_find_orb = -1;
+    mission_ask_alex = -1;
+    alex_id = -1; alex_seen = 0;
     dea_spoken = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

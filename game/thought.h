@@ -14,7 +14,9 @@
  *    thought waits (its timer does not run) until the card has folded away again.
  *  - several thoughts queue up and play one after the other.
  *
- * keep thoughts short: the bar shows at most 5 lines (about 60 letters on a phone), the rest is cut.
+ * keep thoughts short. on a phone the bar fits 13 letters per line, and two lines (about 26 letters)
+ * is what fits the top row: a third line makes the bar grow down over the mission list. it shows at
+ * most 5 lines, the rest is cut.
  *
  * the story can fire one at any time: thought_say("I need to find that orb.", 0); */
 

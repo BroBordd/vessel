@@ -16,6 +16,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MAP_MAX 80                  /* biggest map we can hold */
 #define TILE_U 8                    /* tile edge in "pixel units" */
@@ -358,6 +359,53 @@ void world_set_controls_visible(int on) {
 float world_debug_zoom(void) { return zoom; }
 int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
+
+float world_dist_to_npc(int npc_id) {
+    if (npc_id < 0 || npc_id >= npc_count()) return 1e9f;
+    float nx, ny; npc_tile(npc_id, &nx, &ny);
+    float dx = pxp / tile - nx, dy = pyp / tile - ny;
+    return sqrtf(dx * dx + dy * dy);
+}
+
+/* flood fill over walkable tiles from the player (4 neighbours: the feet box is smaller than a
+ * tile, so any chain of open tiles can be walked), then pick the open spot nearest to the middle
+ * of the wanted distance range. */
+int world_find_far_spot(int min_tiles, int max_tiles, int *out_tx, int *out_ty) {
+    static uint8_t seen[MAP_MAX][MAP_MAX];
+    static short   qx[MAP_MAX * MAP_MAX], qy[MAP_MAX * MAP_MAX];
+    int x0 = world_player_tile_x(), y0 = world_player_tile_y();
+    if (solid_tile(x0, y0)) return 0;
+    memset(seen, 0, sizeof seen);
+    int head = 0, tail = 0;
+    qx[tail] = (short)x0; qy[tail] = (short)y0; tail++; seen[y0][x0] = 1;
+
+    float want = (min_tiles + max_tiles) / 2.0f, best_score = 1e9f, far_d = -1;
+    int best_x = -1, best_y = -1, far_x = -1, far_y = -1;
+    static const int DX[4] = { 1, -1, 0, 0 }, DY[4] = { 0, 0, 1, -1 };
+    while (head < tail) {
+        int x = qx[head], y = qy[head]; head++;
+        int open = 1;                                           /* all 8 neighbours walkable too */
+        for (int j = -1; j <= 1 && open; j++)
+            for (int i = -1; i <= 1; i++) if (solid_tile(x + i, y + j)) { open = 0; break; }
+        if (open) {
+            float d = sqrtf((float)((x - x0) * (x - x0) + (y - y0) * (y - y0)));
+            if (d > far_d) { far_d = d; far_x = x; far_y = y; }
+            if (d >= min_tiles && d <= max_tiles) {
+                float score = fabsf(d - want);
+                if (score < best_score) { best_score = score; best_x = x; best_y = y; }
+            }
+        }
+        for (int k = 0; k < 4; k++) {
+            int nx = x + DX[k], ny = y + DY[k];
+            if (solid_tile(nx, ny) || seen[ny][nx]) continue;
+            seen[ny][nx] = 1; qx[tail] = (short)nx; qy[tail] = (short)ny; tail++;
+        }
+    }
+    if (best_x < 0) { best_x = far_x; best_y = far_y; }         /* nothing in range: the farthest open spot */
+    if (best_x < 0) return 0;
+    *out_tx = best_x; *out_ty = best_y;
+    return 1;
+}
 
 void world_open_hole(int tx, int ty, void (*on_enter)(void)) {
     hole_on = 1; hole_tx = tx; hole_ty = ty; hole_t = 0; hole_cb = on_enter; hole_in_range = 0;

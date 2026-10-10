@@ -24,6 +24,16 @@ void world_set_controls_visible(int on);   /* analog stick + interact button */
 int  world_player_tile_x(void);
 int  world_player_tile_y(void);
 
+/* finds a tile on the current map that the player can really walk to from where they stand (never
+ * behind water or trees), with open ground all around it (so a character placed there is not
+ * wedged in), roughly halfway between min_tiles and max_tiles away. same map = same answer every
+ * time. returns 1 and fills tile_x / tile_y, or 0 if the map has no such place. if nothing fits the
+ * range, it falls back to the farthest reachable open spot. */
+int  world_find_far_spot(int min_tiles, int max_tiles, int *tile_x, int *tile_y);
+
+/* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
+float world_dist_to_npc(int npc_id);
+
 /* opens a hole made of clouds in the floor at a tile (it grows open over ~1.5 s). once it is open,
  * standing close shows an arrow on the interact button; pressing it runs on_enter. */
 void world_open_hole(int tile_x, int tile_y, void (*on_enter)(void));
