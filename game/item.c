@@ -98,7 +98,7 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
 
 /* ---------- the inventory widget ---------- */
 static int W, H, ux, uy, uw, bt, slot, icell, pad;
-static int open, ui_down;
+static int ui_open, ui_down;
 
 void item_ui_init(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
@@ -108,7 +108,7 @@ void item_ui_init(int w, int h, int right_edge, int top, int width) {
     uw = width; ux = right_edge - width; uy = top;
     slot = width / 3; if (slot < 24) slot = 24;
     icell = (slot - 2 * bt - 2 * pad) / ITEM_ICON_CELLS; if (icell < 1) icell = 1;
-    open = ui_down = 0;
+    ui_open = ui_down = 0;
 }
 
 static int owned(void) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) n += have[k]; return n; }
@@ -123,7 +123,7 @@ static int block_h(void) { return pad + ITEM_ICON_CELLS * big_cell() + pad + fon
 
 static void rect_of(int *x, int *y, int *w, int *h) {
     int n = owned();
-    if (open) { *x = ux; *y = uy; *w = uw; *h = 2 * bt + n * block_h(); }
+    if (ui_open) { *x = ux; *y = uy; *w = uw; *h = 2 * bt + n * block_h(); }
     else      { *w = n * slot + (n > 1 ? (n - 1) * pad : 0); *h = slot; *x = ux + uw - *w; *y = uy; }
 }
 int item_ui_hit(int x, int y) {
@@ -131,13 +131,13 @@ int item_ui_hit(int x, int y) {
     int rx, ry, rw, rh; rect_of(&rx, &ry, &rw, &rh);
     return x >= rx && y >= ry && x < rx + rw && y < ry + rh;
 }
-int item_ui_open(void) { return open && owned() > 0; }
+int item_ui_open(void) { return ui_open && owned() > 0; }
 
 int item_ui_touch(int a, int x, int y) {
-    if (owned() == 0) { open = ui_down = 0; return 0; }
+    if (owned() == 0) { ui_open = ui_down = 0; return 0; }
     if (a == 0) { if (item_ui_hit(x, y)) { ui_down = 1; return 1; } return 0; }
     if (!ui_down) return 0;
-    if (a == 1) { if (item_ui_hit(x, y)) open = !open; ui_down = 0; return 1; }
+    if (a == 1) { if (item_ui_hit(x, y)) ui_open = !ui_open; ui_down = 0; return 1; }
     if (a == 3) ui_down = 0;                                 /* cancelled */
     return 1;                                                /* a drag that began on the inventory stays its own */
 }
@@ -150,7 +150,7 @@ void item_ui_draw(SDL_Renderer *r, float t) {
     int pulse = new_t < 2.5f ? 150 + (int)(105 * sinf(new_t * 9.0f)) : 235;                  /* the frame blinks for a moment after a pickup */
     SDL_Rect fr = { rx, ry, rw, rh };
     SDL_SetRenderDrawColor(r, 255, 255, 255, pulse); SDL_RenderFillRect(r, &fr);
-    if (open) {
+    if (ui_open) {
         SDL_Rect in = { rx + bt, ry + bt, rw - 2 * bt, rh - 2 * bt };
         SDL_SetRenderDrawColor(r, 6, 8, 20, 245); SDL_RenderFillRect(r, &in);
         int by = ry + bt, bc = big_cell();
