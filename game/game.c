@@ -22,6 +22,7 @@
 #include "musicwin.h"
 #include "pausebtn.h"
 #include "brainwin.h"
+#include "mapwin.h"
 #include "lang.h"
 #include "gfx.h"
 
@@ -131,7 +132,9 @@ int main(int argc, char **argv) {
                 *nl = 0;
                 int a, x, y, pr;
                 if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
-                    if (musicwin_touch(a, x, y)) {
+                    if (mapwin_touch(a, x, y)) {
+                        /* the map window is open: it takes every touch */
+                    } else if (musicwin_touch(a, x, y)) {
                         /* the music window is open: it takes every touch */
                     } else if (brainwin_touch(a, x, y)) {
                         /* the brain window is open: it takes every touch */
@@ -207,6 +210,7 @@ int main(int argc, char **argv) {
         pausebtn_draw(r);
         musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
         brainwin_update(dt); brainwin_draw(r);           /* the brain window (never open together with the music one) */
+        mapwin_update(dt); mapwin_draw(r);               /* the map window, over everything (a tap on the minimap opens it) */
         SDL_RenderPresent(r);
         if (!gpu) memcpy(px, back, fbsz);
 

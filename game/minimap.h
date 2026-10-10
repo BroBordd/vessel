@@ -13,7 +13,8 @@
 typedef struct { float tx, ty; int kind; } MiniMark;      /* kind: 0 npc, 1 hole, 2 shrine, 3 grave, 4 item */
 
 void minimap_init(int w, int h, int right_edge, int top, int width);   /* the box (frame included) is `width` px wide and square, right-aligned to right_edge, starts at top */
-int  minimap_bottom(void);                                  /* y just below the box */
+int  minimap_bottom(void);
+int  minimap_hit(int x, int y);                             /* is (x, y) on the box (a tap there opens the map window, mapwin.h) */                                  /* y just below the box */
 void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int mh,
                   const Rgb *palette, int npal, float player_tx, float player_ty, int facing,
                   const MiniMark *marks, int nmarks, float t);

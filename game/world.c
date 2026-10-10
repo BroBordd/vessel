@@ -7,6 +7,7 @@
 #include "npc.h"
 #include "shrine.h"
 #include "item.h"
+#include "mapwin.h"
 #include "grave.h"
 #include "heart.h"
 #include "summon.h"
@@ -360,6 +361,26 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
+/* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks */
+static const Rgb MAP_PAL[] = {
+    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 } };
+static int gather_marks(MiniMark *marks) {
+    int nm = 0;
+    for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
+    if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
+    if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
+    for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
+    if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
+    return nm;
+}
+static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
+    static MiniMark marks[MAX_MARKS];
+    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 7;
+    v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
+    v->nmarks = gather_marks(marks); v->marks = marks;
+}
+static int mm_down;                                         /* a finger went down on the minimap: let go on it and the map window opens */
+
 /* ---------- API ---------- */
 /* swaps in a whole new map: npcs and the hole are cleared, the player goes to that map's spawn */
 static void load_map(int which) {
@@ -369,7 +390,7 @@ static void load_map(int which) {
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
-    near_shrine = 0;
+    near_shrine = 0; mm_down = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = (mw / 2 + 0.5f) * tile;
@@ -409,6 +430,7 @@ void world_init(int w, int h) {
     {   /* the minimap hangs right under the ID card: same right edge, same width */
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
         minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u), cw);
+        mapwin_init(w, h); mapwin_set_source(map_source);
         item_ui_init(w, h, cx + cw, minimap_bottom() + (int)(5 * u), cw);       /* the inventory hangs under the minimap */
     }
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
@@ -610,6 +632,12 @@ void world_touch(int a, int x, int y) {
     }
     if (!controls_visible || phase != PH_PLAY) return;
     if (item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
+    if (a == 0 && minimap_hit(x, y)) { mm_down = 1; return; }          /* the minimap: tap it for the map window */
+    if (mm_down) {
+        if (a == 1) { mm_down = 0; if (minimap_hit(x, y)) { stick_on = 0; kx = ky = 0; btn_down = btn_inside = 0; mapwin_open(); } }
+        else if (a == 3) mm_down = 0;
+        return;
+    }
 
     /* interact button: press on it, release on it = interact */
     int can = near_id >= 0 || near_hole || near_shrine;
@@ -709,6 +737,7 @@ static void update_hole_range(void) {
 }
 
 void world_update(float dt) {
+    if (mapwin_active() && (dialog_active() || !controls_visible || phase != PH_PLAY)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     if (death_msg[0]) death_msg_t += dt;
     if (death_on && death_fall_t >= 0) death_fall_t += dt;
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
@@ -1131,15 +1160,8 @@ void world_draw(SDL_Renderer *r) {
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
-        static const Rgb PAL[] = {                                /* same order as the T_* enum */
-            { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 } };
-        MiniMark marks[MAX_MARKS]; int nm = 0;
-        for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
-        if (shrine_enabled() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; nm++; }
-        if (item_exists() && shrine_enabled() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
-        for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
-        if (hole_on && hole_t >= HOLE_OPEN_T) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
+        MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 7, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the

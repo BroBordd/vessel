@@ -22,6 +22,7 @@ void minimap_init(int w, int h, int right_edge, int top, int width) {
     by = top;
 }
 int minimap_bottom(void) { return by + side + 2 * bt; }
+int minimap_hit(int x, int y) { return x >= bx && y >= by && x < bx + side + 2 * bt && y < by + side + 2 * bt; }
 
 static void fill(SDL_Renderer *r, int x, int y, int w, int h) { SDL_Rect q = { x, y, w, h }; SDL_RenderFillRect(r, &q); }
 

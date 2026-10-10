@@ -17,6 +17,7 @@
 #include "story.c"
 #include "lang.h"
 #include "pausebtn.h"
+#include "mapwin.h"
 
 #define TW 540
 #define TH 1170
@@ -258,6 +259,42 @@ int main(void) {
             tap(ix, iy + 4); run(0.2f);
             CHECK(!item_ui_open(), "tapping the panel did not fold the inventory");
             CHECK(!btn_down && !stick_on, "a tap on the inventory started the stick or the button"); }
+        {   /* the map window: a tap on the minimap opens it, drag / zoom / YOU / X work (game.c routes the touches, so the test does it too) */
+            int mx = TW - 30, my = 0;
+            for (int y = 60; y < 300; y++) if (minimap_hit(mx, y)) { my = y; break; }
+            CHECK(my > 0, "no minimap to tap");
+            put_player(shx - 1.6f, shy); run(0.2f);
+            CHECK(!mapwin_active(), "the map window is open before anyone tapped");
+            tap(mx, my + 10); run(0.1f);
+            CHECK(mapwin_active(), "tapping the minimap did not open the map window");
+            mapwin_update(0.016f); mapwin_draw(rr); shot("build/ground_map_open.bmp");
+            SDL_Rect wn, vw, zi, zo, yo, cl; mapwin_debug_rects(&wn, &vw, &zi, &zo, &yo, &cl);
+            float z0 = mapwin_debug_zoom(), cx0, cy0; mapwin_debug_center(&cx0, &cy0);
+            CHECK(cx0 > 20 && cy0 > 20, "the map does not open on its middle (%.0f,%.0f)", cx0, cy0);
+            CHECK(mapwin_touch(2, 5, 5) && mapwin_touch(0, TW / 2, TH / 2) , "the window does not take every touch");
+            mapwin_touch(1, TW / 2, TH / 2);
+            mapwin_touch(0, zi.x + 3, zi.y + 3); mapwin_touch(1, zi.x + 3, zi.y + 3);
+            float z1 = mapwin_debug_zoom();
+            CHECK(z1 > z0 * 1.4f, "+ did not zoom in (%.1f -> %.1f)", z0, z1);
+            int dx0 = vw.x + vw.w / 2, dy0 = vw.y + vw.h / 2; float bx0, by0; mapwin_debug_center(&bx0, &by0);
+            mapwin_touch(0, dx0, dy0); mapwin_touch(2, dx0 - 40, dy0 - 30); mapwin_touch(1, dx0 - 40, dy0 - 30);
+            float bx1, by1; mapwin_debug_center(&bx1, &by1);
+            CHECK(bx1 > bx0 + 0.5f && by1 > by0 + 0.5f, "dragging left/up did not move the view right/down (%.1f,%.1f -> %.1f,%.1f)", bx0, by0, bx1, by1);
+            mapwin_touch(0, zo.x + 3, zo.y + 3); mapwin_touch(1, zo.x + 3, zo.y + 3);
+            CHECK(mapwin_debug_zoom() < z1, "- did not zoom out");
+            mapwin_touch(0, yo.x + 3, yo.y + 3); mapwin_touch(1, yo.x + 3, yo.y + 3);
+            {   float yx, yy; mapwin_debug_center(&yx, &yy);
+                CHECK(fabsf(yx - pxp / tile) < 0.6f && fabsf(yy - pyp / tile) < 0.6f, "YOU did not centre on the player (%.1f,%.1f vs %.1f,%.1f)", yx, yy, pxp / tile, pyp / tile); }
+            mapwin_update(0.016f); mapwin_draw(rr); shot("build/ground_map_you.bmp");
+            mapwin_touch(0, cl.x + 3, cl.y + 3); mapwin_touch(1, cl.x + 3, cl.y + 3);
+            CHECK(!mapwin_active(), "X did not close the map window");
+            CHECK(!btn_down && !stick_on, "the map window left the stick or the button pressed");
+            tap(mx, my + 10); run(0.1f);
+            CHECK(mapwin_active(), "the map window does not open a second time");
+            dialog_play(LANDING, 1, NULL); run(0.2f);
+            CHECK(!mapwin_active(), "a dialog starting did not close the map window");
+            for (int i = 0; i < 6 && dialog_active(); i++) { run(1.0f); tap(TW / 2, TH * 4 / 5); }
+        }
         put_player(shx - 1.6f, shy); run(0.4f);
         CHECK(near_shrine, "the button does not see the shrine at 1.6 tiles (with the hammer)");
         shot("build/ground_shrine_near.bmp");
