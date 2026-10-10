@@ -34,5 +34,6 @@ void story_limbo_update(float dt);
 int  story_limbo_take_end(void);
 int  story_limbo_take_enter(void);          /* the story sends us INTO limbo from the world (a death, chunk 12): reported once, game.c switches */
 int  story_limbo_active(void);
+int  story_limbo_opening(void);             /* limbo at the start of the game (the soul's popup): the brain button stays away until the world runs */
 
 #endif

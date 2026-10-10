@@ -14,6 +14,7 @@
 #include "jukebox.h"
 #include "menu.h"
 #include "world.h"
+#include "dialog.h"
 #include "space.h"
 #include "story.h"
 #include "nowplaying.h"
@@ -149,6 +150,8 @@ int main(int argc, char **argv) {
                         if (act == MENU_EXIT) quit_app();
                     } else if (state == ST_WORLD) {
                         world_touch(a, x, y);
+                    } else if (state == ST_LIMBO) {
+                        if (dialog_active()) dialog_touch(a, x, y);          /* the soul's popup at the start: a tap on the arrow goes on */
                     }
                 }
                 s = nl + 1;
@@ -172,14 +175,19 @@ int main(int argc, char **argv) {
             }
         } else if (state == ST_LIMBO) {
             space_update(dt); space_draw(r);
+            dialog_update(dt);                                   /* the soul's popup (the world is not running, so we drive the dialog here) */
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            dialog_draw(r);
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
             story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
             if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
-                jukebox_scene("ascendant_soul.ogg", 1);          /* cloud map music: starts with the summoning, which begins on the world_update(0) below */
+                if (!world_dawning()) jukebox_scene("ascendant_soul.ogg", 1);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             }
         } else {
             if (!pausebtn_paused()) world_update(dt);
+            if (world_dawning()) { space_update(dt); space_draw(r); }   /* the opening: the stars shine through the brightening sky */
             world_draw(r);
             if (story_limbo_take_enter()) {                      /* a death: the world has faded to black, the soul is alone with the stars */
                 state = ST_LIMBO;
@@ -187,8 +195,10 @@ int main(int argc, char **argv) {
                 space_draw(r);                                   /* this frame is stars only (the black world was drawn just above) */
             }
         }
-        pausebtn_set_enabled(state == ST_WORLD);
-        thought_set_enabled(state == ST_WORLD || state == ST_LIMBO);
+        /* the pause and brain buttons come in together, once the game really runs (not during the opening's popup and dawn). a death's limbo
+         * keeps the brain button: the soul thinks there */
+        pausebtn_set_enabled(state == ST_WORLD && !world_dawning());
+        thought_set_enabled((state == ST_WORLD && !world_dawning()) || (state == ST_LIMBO && !story_limbo_opening()));
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
         thought_update(pausebtn_paused() ? 0.0f : dt);   /* the brain button, right of the pause one (frozen while paused) */

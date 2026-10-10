@@ -92,6 +92,8 @@ void world_death_text(const char *text);       /* chunk 15: the words over the c
  * chunk 10 uses it at the start of the game. */
 void world_summon(void (*on_done)(void));
 int  world_summoning(void);                    /* it is running */
+void world_begin_dawn(void);                   /* the opening: the stars brighten into the sky, the cloud floor builds in, THEN the summoning runs */
+int  world_dawning(void);                      /* the dawn is running (game.c draws the stars under the world and keeps the buttons away) */
 
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);

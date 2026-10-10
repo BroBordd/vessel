@@ -186,25 +186,31 @@ void story_limbo_update(float dt) {
  * "Where am I?", a hold, and limbo ends: game.c fades the world in on the cloud island, starts the cloud music
  * and the summoning (world_summon, queued by story_start) runs. intro_done() follows it (see below).
  * the menu music keeps playing through limbo and fades out over the last LIMBO_FADE_T seconds. */
-#define LIMBO_BEAT      1.0f                /* stars only, before the first thought */
-#define LIMBO_WHERE_HOLD 3.5f               /* from the thought to the end of limbo: the soul waits (about 3.5 s) */
-#define LIMBO_FADE_T    0.8f                /* the last part of the hold: the menu music fades out */
+#define LIMBO_BEAT      1.0f                /* stars only, before the soul speaks */
+#define LIMBO_MUSIC_FADE 3.0f               /* the menu music dies away over the dawn (it is about as long as the sky takes to brighten) */
 
-static const char *const LIMBO_WHERE[] = { "Where am I?" };
+/* the opening is a real popup, not a thought: the soul's face and name at the bottom, a tap on the arrow to go on (game.c runs the
+ * dialog in limbo). the brain button stays away until the game starts (story_limbo_opening, game.c): it only comes in with the pause
+ * button, when the world is running. after the line limbo ends and the world begins its dawn (world_begin_dawn): the sky brightens, the
+ * cloud floor builds in, and then the summoning runs. */
+static const DialogLine LIMBO_WHERE_DLG[] = { { &SOUL, "Where am I?" } };
 static int limbo_stay;                      /* dev: stay in limbo for good (VESSEL_LIMBO=1) */
+static int limbo_opening;                   /* the opening of the game is running: no brain button yet */
 
-static void limbo_where_end(void) { limbo_end(); }          /* game.c shows the world, the summoning is already waiting there */
-static void limbo_where_fade(void) {
-    jukebox_scene_fade(LIMBO_FADE_T);
-    limbo_run(NULL, 0, LIMBO_FADE_T, limbo_where_end);
+static void limbo_where_done(void) {
+    limbo_opening = 0;
+    jukebox_scene_fade(LIMBO_MUSIC_FADE);   /* the menu music goes as the sky comes */
+    world_begin_dawn();                     /* the summoning is already queued (story_start): the dawn holds it back until the floor is built */
+    limbo_end();
 }
-static void limbo_where_say(void) {
-    limbo_run(LIMBO_WHERE, 1, limbo_stay ? 1000.0f : LIMBO_WHERE_HOLD - LIMBO_FADE_T, limbo_stay ? NULL : limbo_where_fade);
-}
+static void limbo_where_say(void) { dialog_play(LIMBO_WHERE_DLG, 1, limbo_stay ? NULL : limbo_where_done); }
 
-/* stay = 1: the dev entry (VESSEL_LIMBO=1), says the thought and then stays in limbo forever */
+int story_limbo_opening(void) { return limbo_opening; }
+
+/* stay = 1: the dev entry (VESSEL_LIMBO=1), says the line and then stays in limbo forever */
 void story_limbo_begin(int stay) {
     limbo_stay = stay;
+    limbo_opening = 1;
     limbo_run(NULL, 0, LIMBO_BEAT, limbo_where_say);
 }
 
@@ -605,7 +611,6 @@ static void cloud_thought(void) {
 static void dea_spotted(void) {
     if (dea_seen) return;
     dea_seen = 1;
-    think("Someone is up there.", NULL, BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 0);   /* the task toast dings */
     mission_talk_dea = task_toast("Talk to Goddess");
 }
 
@@ -636,6 +641,7 @@ void story_start(void) {
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
+    limbo_opening = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);
     world_set_controls_visible(0);

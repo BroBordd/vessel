@@ -138,9 +138,9 @@ int main(void) {
     put_player((float)dea_tx, (float)(dea_ty + 5));             /* walk into sight of her */
     run(0.5f);
     CHECK(dea_seen && mission_talk_dea >= 0, "sighting Dea did not add the Talk to Goddess task");
-    CHECK(brainwin_count() == 2, "\"Someone is up there.\" did not join the head (%d)", brainwin_count());
+    CHECK(brainwin_count() == 1, "sighting Dea added a thought (%d): only the task, no \"Someone is up there.\"", brainwin_count());
     run(3.0f);
-    CHECK(brainwin_count() == 2, "the sighting fired more than once (%d)", brainwin_count());
+    CHECK(brainwin_count() == 1, "the sighting fired more than once (%d)", brainwin_count());
     on_enter_hole();                                            /* skip Dea's talk: straight into the hole (drops the cloud thoughts) */
     CHECK(brainwin_count() == 0, "the cloud thoughts did not go silently when leaving the sky (%d)", brainwin_count());
     run(9.0f);                                                  /* fall 5.5 + lie 1.5 + get up 1.2 */
@@ -561,24 +561,59 @@ int main(void) {
         limbo_end(); story_limbo_take_end();
     }
 
-    /* chunk 7: the beginning. a beat of stars, "Where am I?" in the soul's voice, a hold of about 3.5 s, then limbo ends
-     * (stand-in: the world and the old intro follow). nothing joins the brain window; the dev entry stays in limbo */
+    /* the beginning (chunk 7, reworked): a beat of stars, then a real popup from the soul ("Where am I?", its face and name, a tap on the arrow
+     * to go on: not a thought, no brain button). the tap ends limbo and starts the dawn: the sky brightens from black, the cloud floor builds in
+     * from the middle, the summoning is held back until the floor is built. nothing joins the brain window; the dev entry stays in limbo */
     {   int bc = brainwin_count();
+        world_return_to_clouds();                                 /* (the earlier tests left the world on the Grasslands) */
+        world_summon(NULL);                                       /* what story_start queues at world_init */
         story_limbo_begin(0);
-        CHECK(story_limbo_active() && thought_voice() == &SOUL, "story_limbo_begin did not start limbo with the soul's voice");
-        for (float t = 0; t < 0.9f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(!thought_active(), "a thought came before the beat of silence");
-        for (float t = 0; t < 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 1.2 s */
-        CHECK(thought_active() && limbo.n == 1 && strcmp(limbo.lines[0], "Where am I?") == 0, "no \"Where am I?\" after the beat");
-        for (float t = 0; t < 3.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 4.2 s: still holding */
-        CHECK(story_limbo_active() && !story_limbo_take_end(), "limbo ended before the hold was over");
-        for (float t = 0; t < 0.5f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }    /* 4.7 s */
-        CHECK(story_limbo_take_end() == 1, "limbo did not end after \"Where am I?\" and its hold");
-        CHECK(!story_limbo_active() && thought_voice() != &SOUL, "the soul's voice stayed after limbo");
+        CHECK(story_limbo_active() && story_limbo_opening(), "story_limbo_begin did not start the opening");
+        for (float t = 0; t < 0.9f; t += 0.01f) { story_limbo_update(0.01f); dialog_update(0.01f); }
+        CHECK(!dialog_active() && !thought_active(), "something came before the beat of silence");
+        for (float t = 0; t < 0.3f; t += 0.01f) { story_limbo_update(0.01f); dialog_update(0.01f); }    /* 1.2 s */
+        CHECK(dialog_active() && !thought_active(), "no soul popup after the beat (or it is a thought again)");
+        for (float t = 0; t < 4.0f; t += 0.01f) { story_limbo_update(0.01f); dialog_update(0.01f); }    /* the popup waits for a tap */
+        CHECK(dialog_active() && story_limbo_active() && !story_limbo_take_end(), "limbo ended without a tap on the popup");
+        CHECK(!world_dawning(), "the dawn began before the tap");
+        for (int i = 0; i < 6 && dialog_active(); i++) {          /* tap the arrow */
+            for (float t = 0; t < 1.5f; t += 0.01f) dialog_update(0.01f);
+            dialog_touch(0, TW / 2, TH * 4 / 5); dialog_touch(1, TW / 2, TH * 4 / 5);
+        }
+        CHECK(!dialog_active(), "the soul's popup did not end");
+        CHECK(story_limbo_take_end() == 1, "limbo did not end after the popup");
+        CHECK(!story_limbo_active() && thought_voice() != &SOUL && !story_limbo_opening(), "limbo / the soul's voice / the opening flag stayed after limbo");
         CHECK(brainwin_count() == bc, "\"Where am I?\" joined the brain window");
+        CHECK(world_dawning(), "the dawn did not begin when limbo ended");
+        {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch;
+            #define DAWN_FRAME(dt) do { SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr); SDL_SetRenderDrawBlendMode(rr, SDL_BLENDMODE_BLEND); world_update(dt); world_draw(rr); } while (0)
+            DAWN_FRAME(0.0f);
+            CHECK(pix[4 * pitch + 4 * 4 + 2] < 12, "the screen is not black at the start of the dawn (blue %d)", pix[4 * pitch + 4 * 4 + 2]);
+            for (float t = 0; t < 1.1f; t += 0.016f) DAWN_FRAME(0.016f);
+            int b1 = pix[4 * pitch + 4 * 4 + 2];
+            CHECK(b1 > 12 && b1 < 200, "the sky is not partly bright a second into the dawn (blue %d)", b1);
+            shot("build/dawn_1.bmp");
+            for (float t = 0; t < 1.7f; t += 0.016f) DAWN_FRAME(0.016f);     /* 2.8 s: the sky is whole, the floor is still going up */
+            int b2 = pix[4 * pitch + 4 * 4 + 2];
+            CHECK(b2 > b1 && b2 > 200, "the sky did not brighten all the way (blue %d -> %d)", b1, b2);
+            int mid = pix[(TH / 2) * pitch + (TW / 2) * 4];           /* the middle of the floor: built first */
+            CHECK(world_dawning() && summon_time() == 0.0f && !summon_beam_rows(), "the summoning started during the dawn (t %.2f)", summon_time());
+            shot("build/dawn_2.bmp");
+            for (float t = 0; t < 1.3f; t += 0.016f) DAWN_FRAME(0.016f);     /* 4.1 s: the floor is nearly whole */
+            shot("build/dawn_3.bmp");
+            int fl = 0, tot = 0;                                      /* the floor is white-ish cloud: count it on a row through the island */
+            for (int x = 0; x < TW; x += 6) { Uint8 *c = pix + (TH / 2) * pitch + x * 4; tot++; if (c[0] > 225 && c[1] > 230) fl++; }
+            CHECK(fl > tot / 3, "the cloud floor is not built by 4 s (%d of %d samples)", fl, tot);
+            (void)mid;
+            for (float t = 0; t < 1.0f; t += 0.016f) DAWN_FRAME(0.016f);
+            CHECK(!world_dawning(), "the dawn did not end");
+            CHECK(world_summoning() && summon_time() > 0.0f, "the summoning did not begin when the dawn ended");
+        }
         story_limbo_begin(1);                                                                          /* dev entry: says it and stays */
-        for (float t = 0; t < 12.0f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
-        CHECK(story_limbo_active() && !story_limbo_take_end(), "the dev limbo ended by itself");
+        for (float t = 0; t < 12.0f; t += 0.01f) { story_limbo_update(0.01f); dialog_update(0.01f); }
+        CHECK(dialog_active() && story_limbo_active() && !story_limbo_take_end(), "the dev limbo ended by itself");
+        for (int i = 0; i < 6 && dialog_active(); i++) { for (float t = 0; t < 1.5f; t += 0.01f) dialog_update(0.01f); dialog_touch(0, TW / 2, TH * 4 / 5); dialog_touch(1, TW / 2, TH * 4 / 5); }
+        CHECK(story_limbo_active() && !story_limbo_take_end(), "the dev limbo ended after the tap (it must stay)");
         limbo_end(); story_limbo_take_end();
     }
 

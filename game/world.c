@@ -102,6 +102,17 @@ static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 enum { PH_PLAY, PH_SINK, PH_FALL, PH_LAND, PH_GETUP };
 #define SINK_T  1.0f                /* walking into the hole and sinking */
 #define FALL_T  5.5f                /* falling through the sky */
+/* the DAWN: the opening's way from space to the cloud island (replaces the plain fade from black). game.c keeps drawing the stars under
+ * the world while it runs. the sky tiles brighten from nothing (so the stars fade out behind them), the cloud floor builds in from the
+ * middle outwards, tile by tile in pixel steps, and only then does the summoning begin (it is held back until the dawn is over). no HUD,
+ * no buttons and no controls meanwhile. */
+#define DAWN_SKY_T    2.6f          /* the sky goes from black to full brightness over this long */
+#define DAWN_BUILD_AT 0.9f          /* the cloud floor starts to appear this long after the dawn begins */
+#define DAWN_BUILD_T  3.4f          /* ... and is whole this long after that */
+#define DAWN_TOTAL    (DAWN_BUILD_AT + DAWN_BUILD_T + 0.6f)   /* then the summoning starts */
+static int   dawn_on;
+static float dawn_t;
+
 #define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  1.5f                /* lying face-down after the impact */
 #define GETUP_T 1.2f                /* pushing up and standing */
@@ -173,7 +184,8 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
     SDL_Rect q = { x, y, w, h };
     SDL_RenderFillRect(r, &q);
 }
-static void col(SDL_Renderer *r, int R, int G, int B, int A) { SDL_SetRenderDrawColor(r, R, G, B, A); }
+static int col_mul = 255;           /* every colour's alpha is scaled by this / 255: the dawn fades tiles in with it (255 = off) */
+static void col(SDL_Renderer *r, int R, int G, int B, int A) { SDL_SetRenderDrawColor(r, R, G, B, col_mul >= 255 ? A : A * col_mul / 255); }
 
 /* ---------- pixel circles (the stick and the interact button: no smooth round edges) ----------
  * everything is built from square cells of `cell` px laid on a grid centred on (cx, cy).
@@ -238,6 +250,23 @@ static void draw_cloud_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
+/* the dawn's alphas (0..255). the cloud floor comes in in steps of 1/4, so tiles appear like pixels, not like a smooth fade */
+static int dawn_sky_alpha(void) {
+    float k = dawn_t / DAWN_SKY_T; if (k > 1) k = 1;
+    k = k * k * (3.0f - 2.0f * k);                                  /* eases in and out */
+    return (int)(k * 255.0f);
+}
+static int dawn_cloud_alpha(int tx, int ty) {
+    float dx = tx + 0.5f - mw / 2.0f, dy = ty + 0.5f - mh / 2.0f;
+    float key = sqrtf(dx * dx + dy * dy) / 12.5f;                   /* 0 in the middle .. 1 at the rim of the island */
+    if (key > 1) key = 1;
+    key = key * 0.8f + (float)(hash2(tx, ty, 5) & 255) / 255.0f * 0.2f;   /* a little disorder: the edge of the wave is ragged */
+    float a = (dawn_t - DAWN_BUILD_AT - key * DAWN_BUILD_T * 0.65f) / (DAWN_BUILD_T * 0.35f);
+    if (a < 0) a = 0;
+    if (a > 1) a = 1;
+    return (int)(a * 4.0f) * 255 / 4;
+}
+
 /* mario-style scalloped edge: pixel-art puffs (square cells, no smooth curves) bulging out of every cloud tile that touches the sky.
  * two passes (outline, then fill) so neighbouring puffs merge into one bumpy rim. */
 static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, int tx1, int ty1) {
@@ -246,6 +275,7 @@ static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, in
         for (int ty = ty0 - 1; ty <= ty1 + 1; ty++)
             for (int tx = tx0 - 1; tx <= tx1 + 1; tx++) {
                 if (tx < 0 || ty < 0 || tx >= mw || ty >= mh || map[ty][tx] != T_CLOUD) continue;
+                if (dawn_on) { col_mul = dawn_cloud_alpha(tx, ty); if (col_mul <= 0) continue; }     /* the dawn: the puffs come in with their tile */
                 int x = tx * tile - cx, y = ty * tile - cy;
                 for (int d = 0; d < 4; d++) {
                     int nx = tx + dx4[d], ny = ty + dy4[d];
@@ -264,6 +294,7 @@ static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, in
                     }
                 }
             }
+    col_mul = 255;
 }
 
 static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
@@ -358,6 +389,7 @@ void world_init(int w, int h) {
     death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1;
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     blackout_t = -1; blackout_cb = NULL;
+    dawn_on = 0; dawn_t = 0; col_mul = 255;
 
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -388,6 +420,11 @@ void world_summon(void (*on_done)(void)) {
     moving = 0; walk = 0; facing = FACE_DOWN;
 }
 int world_summoning(void) { return summon_active(); }
+
+/* the opening's dawn (see DAWN_*): call it when limbo ends at the start of the game, after story_start has queued the summoning. the
+ * stars brighten into the sky, the cloud floor builds in, then the summoning runs by itself. world_dawning() is true until it starts */
+void world_begin_dawn(void) { dawn_on = 1; dawn_t = 0; }
+int  world_dawning(void) { return dawn_on; }
 
 void world_set_controls_visible(int on) {
     controls_visible = on;
@@ -503,6 +540,7 @@ void world_return_to_clouds(void) {
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
     blackout_t = -1; blackout_cb = NULL;
+    dawn_on = 0; col_mul = 255;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; moving = 0; walk = 0; facing = FACE_DOWN;
@@ -666,8 +704,12 @@ void world_update(float dt) {
     if (death_msg[0]) death_msg_t += dt;
     if (death_on && death_fall_t >= 0) death_fall_t += dt;
     if (death_on) death_t += dt; else t += dt;                /* the world is frozen once the death starts: tiles, water, wind stop */
-    if (summon_chime && summon_active()) { summon_chime = 0; sfx_summon(); }                   /* the world is running: the light and its chime begin together */
-    if (summon_update(dt)) { void (*cb)(void) = summon_cb; summon_cb = NULL; if (cb) cb(); }   /* the light has ended: the player shows again */
+    if (dawn_on) {                                            /* the sky brightens and the floor builds; then the summoning is let go */
+        dawn_t += dt;
+        if (dawn_t >= DAWN_TOTAL) { dawn_on = 0; jukebox_scene("ascendant_soul.ogg", 1); }   /* the cloud music starts with the light */
+    }
+    if (!dawn_on && summon_chime && summon_active()) { summon_chime = 0; sfx_summon(); }                   /* the world is running: the light and its chime begin together */
+    if (!dawn_on && summon_update(dt)) { void (*cb)(void) = summon_cb; summon_cb = NULL; if (cb) cb(); }   /* the light has ended: the player shows again */
     if (blackout_t >= 0 && blackout_t < blackout_dur) {       /* fading to black (chunk 12): on_black runs on the frame it is dark */
         blackout_t += dt;
         if (blackout_t >= blackout_dur) { void (*cb)(void) = blackout_cb; blackout_cb = NULL; if (cb) cb(); }
@@ -925,8 +967,16 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     scene_filter(0);
     for (int ty = ty0; ty <= ty1 && ty < mh; ty++)
-        for (int tx = tx0; tx <= tx1 && tx < mw; tx++)
+        for (int tx = tx0; tx <= tx1 && tx < mw; tx++) {
+            if (dawn_on) {                                            /* the dawn: sky first, brightening; the cloud floor builds in on top of it */
+                col_mul = dawn_sky_alpha();
+                if (col_mul > 0) draw_sky_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
+                if (map[ty][tx] == T_CLOUD) { col_mul = dawn_cloud_alpha(tx, ty); if (col_mul > 0) draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy); }
+                col_mul = 255;
+                continue;
+            }
             draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
+        }
 
     if (cur_map == MAP_CLOUD) draw_cloud_rim(r, cx, cy, tx0, ty0, tx1, ty1);
 
@@ -936,7 +986,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         hcy = (int)((hole_ty + 0.5f) * tile) - cy;
         draw_hole(r, hcx, hcy, 0);
     }
-    summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light */
+    if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
     if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
@@ -986,7 +1036,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
     }
 
-    summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
+    if (!dawn_on) summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
     scene_filter(0);
     for (int i = 0; i < npc_count(); i++)
         if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
@@ -1044,6 +1094,7 @@ void world_draw(SDL_Renderer *r) {
     } else {
         draw_scene(r, cam_x, cam_y);
     }
+    if (dawn_on) { SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE); return; }   /* the dawn is only the scene: no HUD, no controls, no black fade (game.c draws the stars under it) */
     if (death_on && heart_state() != HEART_OFF) {                 /* the heart over the chest, on top of the zoomed scene */
         int fx, fy, cy, ps; world_death_player(&fx, &fy, &cy, &ps);
         heart_draw(r, fx + ps, cy, ps);                           /* a sprite pixel to the viewer's right: a human heart sits left of the middle */
