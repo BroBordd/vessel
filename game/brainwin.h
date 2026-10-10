@@ -24,6 +24,7 @@ typedef enum {
     BRAIN_SCENE_GRASS,      /* the map, scrolling by: grass, trees, a pond and a path */
     BRAIN_SCENE_CLOUDS,     /* the sky they came from: two layers of drifting clouds */
     BRAIN_SCENE_COIN,       /* the spinning task coin, with sparkles */
+    BRAIN_SCENE_GRAVE,      /* a stone at dusk: moon, drifting fireflies, a flower swaying on the mound */
     BRAIN_SCENE_COUNT
 } BrainScene;
 

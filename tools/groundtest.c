@@ -57,6 +57,7 @@ static void check_photo(int gi, const Person *who, const char *what) {
 }
 
 int limbo_done_calls;
+static int head_at_death;                                   /* thoughts in the brain window when vessel 1 died: the soul keeps them all */
 static void limbo_test_done(void) { limbo_done_calls++; }
 
 int main(void) {
@@ -366,6 +367,12 @@ int main(void) {
     CHECK(limbo.n == 1 && strcmp(limbo.lines[0], "Uh. I died.") == 0 && thought_active(), "the soul did not say \"Uh. I died.\" on arriving in limbo");
     CHECK(DEATH_LINES_COUNT >= 1 && DEATH_LINES[0].lines == DEATH_LINES_1, "the vessel table has no entry for vessel 1");
     {   int bc = brainwin_count(), h0 = death_hold_done;
+        /* (this run pressed the hole's button before the sky thought's 2.5 s timer fired, so the cloud thought arrives late, on the ground:
+         * in the real game it is long gone. drop it so the count is the real memories) */
+        brainwin_drop_tag(THOUGHT_CLOUDS);
+        if (brainwin_count() == 0) brainwin_acquire("This place looks really good. I happen to like grass.", BRAIN_SCENE_GRASS, THOUGHT_GRASS);   /* a memory for the test to keep */
+        bc = brainwin_count();
+        head_at_death = bc;
         for (float t = 0; t < DEATH_LIMBO_HOLD - 0.3f; t += 0.01f) { story_limbo_update(0.01f); thought_update(0.01f); }
         CHECK(brainwin_count() == bc, "the death line joined the brain window");
         CHECK(death_hold_done == h0, "the hold after the death line ended too early");
@@ -377,7 +384,9 @@ int main(void) {
      * the Grasslands story state (Alex, the polluted shrine) remembered */
     CHECK(cur_map == MAP_CLOUD, "not back on the cloud map for the next life");
     CHECK(hud_person() == &VAS, "the ID card is not plain VAS again");
-    CHECK(brainwin_count() == 0 && missions_count() == 0, "the head or the task list is not empty (%d, %d)", brainwin_count(), missions_count());
+    /* (story change: the vessel keeps its memories in every body, so the head is NOT emptied; the task list is) */
+    CHECK(head_at_death > 0 && brainwin_count() == head_at_death, "the brain window did not keep its thoughts through the death (%d -> %d)", head_at_death, brainwin_count());
+    CHECK(missions_count() == 0, "the task list is not empty (%d)", missions_count());
     CHECK(!dying && !vessel_dead && !world_death_active(), "dying / vessel_dead / the death cutscene were not reset");
     CHECK(npc_count() == 1 && dea_id >= 0 && alex_id < 0, "the sky should hold only Dea (npcs %d)", npc_count());
     CHECK(!controls_visible && !hole_on && phase == PH_PLAY, "the controls / hole / phase are not as for a fresh summoning");
@@ -465,7 +474,7 @@ int main(void) {
         CHECK(shrine_collides((sx0 + 0.5f) * tile, (sy0 + 0.9f) * tile, 3.0f * px, 3.0f * px), "the shrine does not block the player");
         CHECK(alex_dealt == dealt1 && alex_seen == seen1, "Alex's story state changed (dealt %d, seen %d)", alex_dealt, alex_seen);   /* (this test run skipped her talk, so both are 0 here; in the real game both are 1) */
         CHECK(missions_count() == 0, "a task came with the second landing (%d)", missions_count());
-        CHECK(brainwin_count() == 1 && thought_active(), "the landing line is not the one thought (%d in the head)", brainwin_count());
+        CHECK(brainwin_count() == head_at_death + 1 && thought_active(), "the landing line is not the one new thought (%d in the head, %d before)", brainwin_count(), head_at_death);
         shot("build/ground_again.bmp"); }
     /* chunk 22: a stone stands where vessel 1 died (or the nearest tile where it fits), with Aonia's face on it, clear of the shrine,
      * Alex and the player; it blocks, and walking up to it the portrait is on the screen */
@@ -480,7 +489,14 @@ int main(void) {
         for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) CHECK(!solid_tile((int)gx + i, (int)gy + j), "the grave stands on water or a tree");
         CHECK(grave_collides(gx * tile, gy * tile, 3.0f * px, 3.0f * px), "the grave does not block the player");
         float home_x = pxp, home_y = pyp;
+        /* chunk 23: nothing is thought at the grave from afar; walking up to it the vessel thinks its poem once (card + the grave picture
+         * in the brain window), and not again on the way back */
+        CHECK(world_dist_to_grave() > GRAVE_NEAR && !grave_seen && brainwin_count() == head_at_death + 1, "the grave thought came before we were near it");
         put_player(gx, gy + 3.0f); frame(0.016f); frame(0.016f);              /* walk up to it: three tiles below the stone */
+        CHECK(world_dist_to_grave() < GRAVE_NEAR && grave_seen && brainwin_count() == head_at_death + 2, "no grave thought at the stone (%d in the head)", brainwin_count());
+        CHECK(thought_active(), "the grave thought did not pop the brain card");
+        for (int i = 0; i < 4; i++) { put_player(gx + 12.0f, gy + 3.0f); run(0.2f); put_player(gx, gy + 3.0f); run(0.2f); }
+        CHECK(brainwin_count() == head_at_death + 2, "the grave thought came again (%d in the head)", brainwin_count());
         shot("build/ground_grave_vessel1.bmp");
         check_photo(0, &VESSEL, "vessel 1's grave");
         pxp = home_x; pyp = home_y; frame(0.016f); }

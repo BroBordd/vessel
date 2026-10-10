@@ -484,6 +484,16 @@ void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore
 int  world_place_grave(int tile_x, int tile_y, const Person *dead) { return grave_place(tile_x, tile_y, dead); }
 int  world_grave_count(void) { return grave_count(); }
 void world_grave_tile(int i, float *tx, float *ty) { grave_tile(i, tx, ty); }
+/* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
+float world_dist_to_grave(void) {
+    float best = 1e9f;
+    for (int i = 0; i < grave_count(); i++) {
+        float gx, gy; grave_tile(i, &gx, &gy);
+        float dx = pxp / tile - gx, dy = pyp / tile - gy, d = sqrtf(dx * dx + dy * dy);
+        if (d < best) best = d;
+    }
+    return best;
+}
 
 /* a new life up in the clouds (chunk 14). the cloud map again, the player at its spawn, the hole closed, the colours, camera and fades
  * back to normal; the controls stay hidden (the summoning gives them back). the Grasslands are not touched: gen_map() makes the same

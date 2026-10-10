@@ -369,11 +369,60 @@ static void scene_coin(SDL_Renderer *r, float t) {
     hud_draw_coin(r, cx, cy, cs, t);
 }
 
+/* 5. the grave: a stone at dusk (chunk 23) */
+static void scene_grave(SDL_Renderer *r, float t) {
+    gradient(r, 34, 30, 74, 150, 104, 128);
+    for (int i = 0; i < 14; i++) {                                                  /* the first stars */
+        int gx = (int)(hs(i, 5, 2) % GW), gy = (int)(hs(i, 6, 2) % 11);
+        if (((int)(t * 1.2f) + i) % 3) px(r, gx, gy, 1, 1, 226, 222, 250);
+    }
+    for (int dy = -3; dy <= 3; dy++)                                                /* a pale moon */
+        for (int dx = -3; dx <= 3; dx++)
+            if (dx * dx + dy * dy <= 9) px(r, 33 + dx, 5 + dy, 1, 1, dx + dy < -2 ? 252 : 232, dx + dy < -2 ? 248 : 228, dx + dy < -2 ? 226 : 206);
+    for (int gy = 15; gy < GH; gy++)                                                /* the ground */
+        for (int gx = 0; gx < GW; gx++) {
+            unsigned hh = hs(gx, gy, 9);
+            int R = (((gx / 2) + (gy / 2)) & 1) ? 38 : 44, G = (((gx / 2) + (gy / 2)) & 1) ? 84 : 94, B = 56;
+            if (hh % 19 == 0 && (((int)(hh >> 8) + (int)(t * 1.5f)) & 1)) { R = 70; G = 130; B = 82; }   /* blades stirring */
+            px(r, gx, gy, 1, 1, R, G, B);
+        }
+    for (int dy = 0; dy < 5; dy++)                                                  /* the mound of earth in front of the stone */
+        for (int dx = -9; dx <= 9; dx++) {
+            float e = (dx / 9.0f) * (dx / 9.0f) + (dy / 4.6f) * (dy / 4.6f);
+            if (e <= 1.0f) px(r, 20 + dx, 15 + dy, 1, 1, dy < 2 ? 112 : 88, dy < 2 ? 80 : 62, dy < 2 ? 56 : 44);
+        }
+    for (int gy = 5; gy <= 15; gy++) {                                              /* the slab: rounded top, light left edge, dark right edge */
+        int x0 = 15, x1 = 24;
+        if (gy == 5) { x0 = 17; x1 = 22; } else if (gy == 6) { x0 = 16; x1 = 23; }
+        for (int gx = x0; gx <= x1; gx++) {
+            int R = 150, G = 152, B = 162;
+            if (gx == x0) { R = 192; G = 194; B = 204; }
+            else if (gx == x1) { R = 108; G = 110; B = 124; }
+            else if (hs(gx, gy, 3) % 11 == 0) { R = 136; G = 138; B = 148; }
+            px(r, gx, gy, 1, 1, R, G, B);
+        }
+    }
+    px(r, 18, 9, 4, 1, 92, 94, 108);                                                /* two engraved lines */
+    px(r, 17, 11, 6, 1, 92, 94, 108);
+    px(r, 19, 13, 2, 1, 118, 120, 134);
+    px(r, 15, 15, 10, 1, 70, 72, 84);                                               /* the plinth's shadow */
+    int sway = (int)floorf(sinf(t * 1.6f) * 1.2f + 0.5f);                          /* a flower on the mound, swaying */
+    px(r, 28, 14, 1, 5, 52, 128, 66);
+    px(r, 28 + sway, 12, 1, 1, 244, 140, 182); px(r, 27 + sway, 13, 3, 1, 250, 160, 196); px(r, 28 + sway, 13, 1, 1, 255, 226, 120);
+    for (int i = 0; i < 6; i++) {                                                   /* fireflies drifting by */
+        float ph = t * 0.35f + i * 0.37f;
+        int gx = (int)(fmodf(ph * 9.0f + i * 7.0f, (float)GW)), gy = 10 + (int)(hs(i, 7, 2) % 11) + (int)(sinf(t * 1.3f + i) * 1.6f);
+        if (((int)(t * 2.0f) + i) & 1) px(r, gx, gy, 1, 1, 255, 232, 140);
+        else px(r, gx, gy, 1, 1, 214, 196, 112);
+    }
+}
+
 static void draw_scene(SDL_Renderer *r, int scene, float t) {
     switch (scene) {
     case BRAIN_SCENE_ORB:    scene_orb(r, t);    break;
     case BRAIN_SCENE_GRASS:  scene_grass(r, t);  break;
     case BRAIN_SCENE_CLOUDS: scene_clouds(r, t); break;
+    case BRAIN_SCENE_GRAVE:  scene_grave(r, t);  break;
     default:                 scene_coin(r, t);   break;
     }
 }

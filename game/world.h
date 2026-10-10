@@ -51,6 +51,7 @@ int  world_place_grave(int tile_x, int tile_y, const Person *dead);
  * graves and the player. looks 30 tiles around; returns 0 when there is no such tile. call it after the other props are placed. */
 int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty);
 int  world_grave_count(void);
+float world_dist_to_grave(void);                          /* tiles from the player to the nearest grave on this map (1e9: none) */
 void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */
 int  world_shrine_exists(void);                /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */
 int  world_shrine_polluted(void);

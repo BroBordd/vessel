@@ -29,7 +29,7 @@ Same as vessel 1:
 
 | Who | Notes |
 |---|---|
-| **Vas** | The soul, before it gets a body or a name. Also what the ID card says in between. |
+| **Vas** | The soul, before it gets a body or a name. Also what the ID card says in between. **The soul keeps its memories always, in every body** (story rule, see below). |
 | **Aonia** | Vessel one. Dead. Gets a grave (with his picture on it) on the Grasslands, where he died. |
 | **Doia** | Vessel two. Same job, different look (new `Person`, see chunk 17). Dea plays on the word "two" like she did with "one". |
 | **Dea** | The goddess. She is still toxic. She scolds Vas for dying and hands out number two. |
@@ -38,6 +38,14 @@ Same as vessel 1:
 Later vessels (Tria, Ceathia ...) must be cheap to add. Keep what changes per vessel in one table in
 `story.c` (the `Person`, its name, its death thoughts) and write the limbo, summon and grave pieces as
 engine code that does not know which vessel it is.
+
+## Story rule: the soul always remembers
+
+The vessel **retains its memories no matter what body it has**. Dying changes the body, the name and the look; it does not
+change what the soul knows. So after a death the **brain window keeps every thought** (the ones tied to the sky go silently
+when it leaves the sky, as always), and nobody at the grave is a stranger: it is the vessel's own grave, and it knows it. The
+task list is not a memory and still starts empty for the new body. Anything written below that says the head is emptied, or that
+the dead vessel is "someone else", is superseded by this rule.
 
 ## Story, start to finish
 
@@ -69,7 +77,7 @@ Vessel 1's death cutscene ends as it does today ("Aonia has died.", chunk 15), t
    death has its own line(s) in the vessel table.
 3. **Respawn in the cloud land**: the world fades in on the sky island, the player is **summoned again with
    the golden effect**. Dea is already there, facing us. The ID card says **VAS** again (name reset), HP full,
-   the mission list and the brain window are empty again.
+   the mission list is empty again (the brain window is **not**: the soul remembers).
 4. **Dea scolds us** at once (she speaks first, no walking): she is not impressed that we died, makes it clear
    it was our own fault, then **gives us a new number: Doia (two)**. At the naming the ID card flashes
    ("YOU ARE NOW DOIA", coin ding) and **the player sprite changes to the new look**.
@@ -92,7 +100,7 @@ walk (`story_vessel2_ready()` is the hook, empty for now). The owner will plan t
   - "I do not care that it hurt. There is a reason you are replaceable."
   - "Fine. You are number two now. Doia. Try not to make me remember it."
 - Landing as vessel 2: "Here we go again." (placeholder; the owner may rewrite)
-- Grave, first time we come near it: "Aonia. Whoever that was, he looked like me."
+- Grave, first time we come near it (the vessel's own grave, memories intact): "I am buried here, and I am standing here. The body stays. I walk on." (card: "The body stays. I walk on.")
 
 ## Code map (what exists today that this plan builds on)
 
@@ -150,7 +158,7 @@ Mark `[x]` when the chunk is pushed. Chunks are tiny on purpose; each leaves the
 **E. The grave**
 - [x] **21. The grave prop** — `game/grave.c/.h`, copied from `shrine.c`: a solid, drawn, minimap-visible prop: a stone slab with a small plot of earth, a flower, and a **framed portrait of the dead vessel on the stone** (`char_draw_portrait` at a small size, scaled to the stone, in a dark frame, greyed with `gfx_set_filter` so it reads as an old photo). `world_place_grave(tx, ty, const Person *dead)`; grey block on the minimap.
 - [x] **22. Where he died** — on the second landing `story.c` calls `world_place_grave(death_tx, death_ty, &VESSEL)`; if that tile is not free pick the nearest free one (`world_find_far_spot` with a small range). `groundtest` checks the placement, collision, and that the portrait pixels are on the screen.
-- [ ] **23. Coming near the grave** — a proximity thought once: "Aonia. Whoever that was, he looked like me." (`think()` + brain window picture: the grave).
+- [x] **23. Coming near the grave** — a proximity thought once, in the vessel's own voice (it remembers being him): "I am buried here, and I am standing here. The body stays. I walk on." (`think()` + brain window picture: the grave, `BRAIN_SCENE_GRAVE`).
 - [ ] **24. The end hook** — `story_vessel2_ready()` (empty stub) runs after the landing and the grave; update this file's status. Vessel 2's own mission is planned later.
 
 ## Open decisions (defaults so nobody has to wait)
@@ -158,7 +166,7 @@ Mark `[x]` when the chunk is pushed. Chunks are tiny on purpose; each leaves the
 - The PLAY button is still labelled "PLAY" (the owner says "start"; rename it in chunk 4 if wanted).
 - No soul sprite is drawn in limbo: only the face on the thought card. Easy to add later (a small drifting ghost).
 - Music in limbo: the menu music keeps playing through the first limbo and fades out with the summon; at a death it is silent in limbo (map music is already dead), and the cloud track starts with the summon.
-- The brain window starts empty again after a death (a new vessel, a new head).
+- The brain window is **kept** after a death: the soul remembers everything, whatever body it wears (story rule above; chunk 14 used to empty it).
 - The ID card name goes back to VAS silently-or-with-flash: use the existing `hud_set_person(&VAS)` flash unless it looks wrong.
 - Vessel 2's mission is **not planned**: the orb is still Alex's, the shrine is still polluted.
 
@@ -186,3 +194,5 @@ Mark `[x]` when the chunk is pushed. Chunks are tiny on purpose; each leaves the
 - 2026-10-10: chunk 20 done (the way down was already the existing flow: `questions_done` gives the controls back and opens the hole in front of Dea, the arrow button runs `on_enter_hole` -> `world_fall_to_green(landed)`; now it ends in the real second landing. `landed()` checks `lives > 0` and runs `landed_again()`: nothing is made up and there is no complaint, the Grasslands are put back from the `green` snapshot (chunk 14): Alex on her tile (`npc_add` + facing down; `alex_dealt` / `alex_seen` were never reset, so she remembers the deal and gives the free chat), the shrine on its tile through new `world_restore_shrine(tx, ty, polluted)` / `shrine_restore` (placed, switched off, fully fouled and solid), no task, and the one thought "Here we go again." (`THOUGHT_AGAIN`, `BRAIN_SCENE_GRASS`, coin ding). `gen_map()` makes the same ground every time and `load_map` only clears npcs and the shrine, so nothing else needed fixing. `groundtest`: the hole is open in the sky, the jump starts, we land on the Grasslands with the controls back and Doia's look, only Alex is there on her remembered tile, the shrine is on its tile, polluted, inert and blocking, Alex's story flags are unchanged, no task, exactly one thought; screenshot `build/ground_again.bmp`). Next: chunk 21.
 - 2026-10-10: chunk 21 done (`game/grave.c/.h`, copied from `shrine.c` but built for many: `GRAVE_MAX` 8 graves per map, each `grave_place(tx, ty, const Person *dead)`, so later vessels are one more call and the prop does not know which vessel it is. A stone slab with rounded top, plinth, light and shadow edges and a little moss, a mound of earth in front with grass tufts and one flower, two engraved lines under the photo, and the framed portrait of the dead: a dark one-unit frame, a pale card, then `char_draw_portrait` at half the world's pixel size (`s / 2`) drawn inside `gfx_set_filter(GREY_PHOTO 232, 0)` so it reads as an old photo (CPU and GPU mode, alpha only). `grave_portrait_rect()` gives the photo's screen square (the draw uses it, `groundtest` too). Solid like the shrine (`grave_collides`, in `blocked()` in `world.c`). `world.c`: `grave_reset` in `load_map` (graves go with the map), `world_place_grave(tx, ty, dead)` / `world_grave_count()` / `world_grave_tile(i, ...)`, drawn depth-sorted with the characters, and `scene_filter(0)` is put back after each grave so the death cutscene's grey is not lost; minimap `kind 3`: a grey block with a pale top, always shown. NOT placed anywhere in the story yet: chunk 22 does that. `groundtest`: starts empty, placement and index, a grave without a person is refused, the tile, blocking at the feet and beside the stone and not far away, `blocked()` knows it, the photo is on the screen, 95% colourless, none of the vessel's real skin colour, the dark frame above it, not one flat colour, it is not interactive, `grave_reset` clears it; screenshot `build/ground_grave.bmp` (stone, photo, minimap block checked by eye)). Next: chunk 22.
 - 2026-10-10: chunk 22 done (`story.c` keeps a list of graves, `graves[]` / `grave_n`: at every death `story_vessel_died` pushes the tile where we died and `world_player()` (the Person that died: VESSEL now, VESSEL2 for the next one, so nothing is hard-coded to vessel 1); the world forgets props when a map loads, so `landed_again()` puts every grave back on every landing. Where: the death tile, or the nearest tile where it fits, from new `world_find_prop_spot_near(want_tx, want_ty, &tx, &ty)` in `world.c` (not `world_find_far_spot`, which measures from the player): the tile and its 8 neighbours must be open ground (a grave is about 2.25 tiles wide), and it keeps 3 tiles from the shrine, 2.5 from npcs, 3.5 from other graves and 3 from the player; it looks 30 tiles around. It runs after Alex and the shrine are restored, so they count. Aonia died next to the shrine, so his stone ends up a few tiles from it (test run: died on 37,61, grave on 35,64). `groundtest`: one grave with Aonia's Person, within 6 tiles of the death tile, clear of the shrine, Alex and the player, all nine tiles open, it blocks; the test then walks up to it and checks the photo (on screen, a face, colourless, none of his real skin colour, dark frame) with a shared `check_photo` helper that chunk 21's block uses too; screenshot `build/ground_grave_vessel1.bmp`). Next: chunk 23.
+- 2026-10-10: STORY CHANGE (the soul keeps its memories in every body). `story_reset_for_respawn` no longer calls `brainwin_clear()`: the brain window keeps its thoughts through a death (the task list is still emptied; sky thoughts still go silently when leaving the sky). The grave line is no longer "whoever that was": it is the vessel's own grave. This file's cast, story, draft strings and open decisions are updated. `groundtest`: the head is kept through the death and the new landing thought joins it.
+- 2026-10-10: chunk 23 done (`grave_watch()` in `story.c`, run from `story_update`: the first time the player is within `GRAVE_NEAR` 3.5 tiles of a stone (`world_dist_to_grave()`, new in `world.c/.h`; not while dying or in a dialog) the vessel thinks \"I am buried here, and I am standing here. The body stays. I walk on.\" (`THOUGHT_GRAVE`, coin ding; the brain card shows \"The body stays. I walk on.\"). Once only per game, for any grave (it is always the vessel's own; `grave_seen` is reset by `story_start`). NEW picture `BRAIN_SCENE_GRAVE` in `brainwin.c/.h` (`scene_grave`): a dusk sky with stars and a pale moon, a grey stone with two engraved lines on a mound of earth, a flower swaying, fireflies drifting over the grass. `groundtest`: nothing from afar, the thought and the card at the stone, once only on coming and going. `brainwintest`: the grave picture has its stone, ground, earth and sky; screenshot `build/brain_grave.bmp`). Next: chunk 24.

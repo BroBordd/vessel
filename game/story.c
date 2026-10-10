@@ -81,10 +81,12 @@ void story_after(float seconds, void (*fn)(void)) {
 
 static void alex_watch(void);               /* the proximity triggers, defined with the scenes below */
 static void dea_watch(void);
+static void grave_watch(void);
 
 void story_update(float dt) {
     alex_watch();
     dea_watch();
+    grave_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -112,7 +114,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -321,13 +323,14 @@ static void green_remember(void) {
     }
 }
 
-/* the next life begins (chunks 14-15): everything of the last vessel's story is put away and we are back in the clouds with a plain
- * VAS card, an empty head and an empty task list. Dea is already there, looking down at us. the player's look is still the only one
+/* the next life begins (chunks 14-15): the last vessel's body and tasks are put away and we are back in the clouds with a plain
+ * VAS card and an empty task list. THE HEAD IS NOT EMPTIED: the vessel keeps its memories always, whatever body it wears (story
+ * change after chunk 22), so the brain window keeps every thought it had (the ones tied to the sky already went silently when it left). Dea is already there, looking down at us. the player's look is still the only one
  * there is (VESSEL; chunk 17 adds the second) so there is nothing to put back yet. the Grasslands story state is kept (green, above). */
 static void on_talk_dea(int npc_id);                /* defined with the sky scene below */
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
-    missions_clear(); brainwin_clear();
+    missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
     mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = -1;
     dying = 0; vessel_dead = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
@@ -504,6 +507,18 @@ static void landed_again(void) {
     think("Here we go again.", NULL, BRAIN_SCENE_GRASS, THOUGHT_AGAIN, 1);
 }
 
+/* the grave (chunk 23): the first time we walk up to a stone, the vessel stands at its own grave. it keeps its memories in every body,
+ * so this is not a stranger's stone: the thought is what anyone would think there. once only, in every life (grave_seen is reset by
+ * story_start). the picture in the brain window is the grave at dusk (BRAIN_SCENE_GRAVE). */
+#define GRAVE_NEAR      3.5f                /* tiles from the stone's feet: close enough to read the name, on screen */
+static int grave_seen;
+static void grave_watch(void) {
+    if (grave_seen || dying || dialog_active() || world_grave_count() == 0) return;
+    if (world_dist_to_grave() >= GRAVE_NEAR) return;
+    grave_seen = 1;
+    think("I am buried here, and I am standing here. The body stays. I walk on.", "The body stays. I walk on.", BRAIN_SCENE_GRAVE, THOUGHT_GRAVE, 1);
+}
+
 /* the player just got back on their feet after the fall */
 static void landed(void) {
     int tx, ty;
@@ -611,7 +626,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0;
-    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0;
+    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
     convo_set_player(&VAS);

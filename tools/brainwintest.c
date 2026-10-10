@@ -157,6 +157,24 @@ int main(int argc, char **argv) {
     tap(2, 2); run(1.0f);
     CHECK(!brainwin_active(), "tapping outside did not close the window");
 
+    /* 7. the grave picture (chunk 23): the monitor draws it (dusk sky, grey stone, earth, green ground: not one flat colour, not the
+     * coin picture) and the window takes the thought like any other */
+    brainwin_clear();
+    CHECK(brainwin_acquire("I am buried here, and I am standing here. The body stays. I walk on.", BRAIN_SCENE_GRAVE, 8) == 0, "the grave thought was refused");
+    brainwin_open(); run(2.0f);
+    brainwin_debug_rects(&win, &mon, &autob, &closeb);
+    shot("../build/brain_grave.bmp");
+    {   Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, grey = 0, green = 0, earth = 0, dusk = 0, n = 0;
+        for (int y = mon.y; y < mon.y + mon.h; y++) for (int x = mon.x; x < mon.x + mon.w; x++) {
+            Uint8 *c = pix + y * pitch + x * 4; n++;
+            if (abs(c[0] - c[1]) < 14 && abs(c[1] - c[2]) < 24 && c[0] > 100 && c[0] < 200) grey++;      /* the stone */
+            if (c[1] > c[0] + 24 && c[1] > c[2] + 14) green++;                                           /* the ground */
+            if (c[0] > c[2] + 12 && c[0] < 130 && c[1] < 100) earth++;                                   /* the mound */
+            if (c[2] > c[1] + 20) dusk++;                                                                /* the sky */
+        }
+        CHECK(n > 0 && grey * 100 > n * 4 && green * 100 > n * 8 && earth > 20 && dusk * 100 > n * 10, "the grave picture is missing its stone, ground, earth or sky (grey %d, green %d, earth %d, sky %d of %d)", grey, green, earth, dusk, n); }
+    tap(2, 2); run(1.0f);
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails != 0;
 }
