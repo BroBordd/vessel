@@ -351,10 +351,19 @@ static const DialogLine DEA_SCOLD[] = {
 };
 #define DEA_SCOLD_COUNT ((int)(sizeof DEA_SCOLD / sizeof DEA_SCOLD[0]))
 
-static void scold_done(void) {
+/* chunk 19: after the naming Dea asks if we have any questions, meaner than the first time: a free chat (typed, or BYE to skip). her
+ * mood starts below zero, so the answers are colder than before. when the chat is over, questions_done runs.
+ * STAND-IN until chunk 20: questions_done gives the controls back and opens the hole at once. */
+#define DEA_RESPAWN_MOOD  (-30)
+static void questions_done(void) {
     world_set_controls_visible(1);
     open_the_hole();
 }
+static void scold_done(void) {
+    if (DEA_MIND.mood > DEA_RESPAWN_MOOD) DEA_MIND.mood = DEA_RESPAWN_MOOD;     /* meaner than at the first meeting (mood 0) */
+    convo_ask_line(&DEA, &DEA_MIND, "Well? Do you have any questions? Be quick about it.", questions_done);
+}
+
 /* the last page is the naming (chunk 18): the moment her line "You are number two now. Doia." begins, the ID card flashes (coin
  * ding, "YOU ARE NOW DOIA"), our face in every dialog and thought is Doia's and the player's body changes to the new look. */
 #define DEA_SCOLD_NAMING_PAGE (DEA_SCOLD_COUNT - 1)

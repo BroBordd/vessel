@@ -378,7 +378,7 @@ int main(void) {
         CHECK(hud_person() == &VAS && dea_spoken && npc_count() == 1, "the card, Dea or the sky changed before the scolding");
         shot("build/ground_scold.bmp");
         int pages = 0, named_at = -1;
-        for (int i = 0; i < 12 && dialog_active(); i++) {
+        for (int i = 0; i < 12 && dialog_active() && !convo_active(); i++) {
             run(2.0f);
             if (named_at < 0 && hud_person() == &VESSEL2) named_at = i;    /* chunk 18: the naming happens as the last page begins */
             if (i == 1) CHECK(hud_person() == &VAS && world_player() == &VESSEL, "named too early");
@@ -389,8 +389,17 @@ int main(void) {
         CHECK(named_at >= DEA_SCOLD_COUNT - 1 && pages - named_at <= 2, "the naming did not come on the last page (tap %d of %d)", named_at, pages);
         CHECK(world_player() == &VESSEL2, "the player's body did not change to Doia");
         CHECK(convo_player() == &VESSEL2, "dialogs and thoughts do not use Doia's face");
-        CHECK(!dialog_active() && pages >= DEA_SCOLD_COUNT, "the scolding did not end after its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
-        CHECK(controls_visible && hole_on, "the scolding did not give the controls (and, for now, the hole) back");
+        CHECK(pages >= DEA_SCOLD_COUNT, "the scolding did not run its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
+        /* chunk 19: then Dea asks her questions, in a worse mood than the first time; BYE skips them; then the (stand-in) way down */
+        CHECK(convo_active() && dialog_active(), "Dea did not ask her questions after the scolding");
+        CHECK(DEA_MIND.mood < 0, "Dea is not in a worse mood than the first meeting (%d)", DEA_MIND.mood);
+        CHECK(!controls_visible && !hole_on, "the controls / hole came back before the questions were over");
+        shot("build/ground_questions.bmp");
+        run(6.0f);
+        tap(TW - 140, TH - 40); tap(TW - 150, TH - 45); tap(TW - 160, TH - 50);        /* the BYE button */
+        for (int i = 0; i < 8 && convo_active(); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
+        CHECK(!convo_active() && !dialog_active(), "the questions did not end after BYE");
+        CHECK(controls_visible && hole_on, "the conversation did not give the controls (and, for now, the hole) back");
         CHECK(hud_person() == &VESSEL2 && strcmp(hud_person()->name, "Doia") == 0, "the ID card does not say Doia");
         shot("build/ground_resummon.bmp");
         /* chunk 17: the player's look is switchable and vessel 2 looks clearly different (same screen spot, other colours) */
