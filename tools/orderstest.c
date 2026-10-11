@@ -81,6 +81,25 @@ int main(void) {
     run(VESSEL2_TASK_DELAY + 0.5f);
     CHECK(missions_count() == 1, "the task came in twice");
 
+    /* chunk 29: Alex says no, once. no question, no chat; then the two thoughts, in order, the second a little later */
+    lives = 1;
+    {   int bc = brainwin_count();
+        on_talk_alex(0);
+        CHECK(dialog_active() && !convo_active(), "Alex's refusal did not start as a plain dialog");
+        int pages = 0;
+        for (int i = 0; i < ALEX_REFUSE_COUNT + 2 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); pages++; }
+        CHECK(!dialog_active() && !convo_active(), "the refusal left a dialog or a chat open (no question, no chat)");
+        CHECK(pages >= ALEX_REFUSE_COUNT, "the refusal ran %d pages, want %d", pages, ALEX_REFUSE_COUNT);
+        CHECK(brainwin_count() == bc + 1, "the first thought did not come right after the refusal (%d -> %d)", bc, brainwin_count());
+        run(5.5f);
+        CHECK(brainwin_count() == bc + 2, "the second thought did not come after the first (%d -> %d)", bc, brainwin_count());
+        on_talk_alex(0);
+        CHECK(!dialog_active() && !convo_active(), "the refusal played twice (or a chat opened)");
+        run(6.0f);
+        CHECK(brainwin_count() == bc + 2, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
+    }
+    lives = 0;
+
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
     convo_open(&ALEX, &ALEX_MIND, 1, locked_end);
     CHECK(!convo_active() && !dialog_active(), "Alex's chat opened while locked");

@@ -118,7 +118,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -537,8 +537,31 @@ static void alex_chat_end(void) {
 
 static void alex_deal_done(void) { convo_ask_line(&ALEX, &ALEX_MIND, "Got any questions before you go?", alex_chat_end); }
 
+/* chunk 29: vessel 2 asks for the orb. she says no, once, in her own face popup. we cannot argue (the chat is locked), so the dialog ends
+ * with no question and no free chat; only the head answers: she will not give it up, and the one heavy thing we know of is with our own
+ * old body. every later talk with her is just the chat lock (the thought "I can't say that"). */
+static const DialogLine ALEX_REFUSE[] = {
+    { &ALEX, "The orb? It's mine. I found it. No." },
+    { &ALEX, "Why do you want it so badly?" },
+};
+#define ALEX_REFUSE_COUNT ((int)(sizeof ALEX_REFUSE / sizeof ALEX_REFUSE[0]))
+static int alex_refused;                            /* she has said no (once only) */
+static void oldbody_thought(void) {
+    think("I know where there is one.", NULL, BRAIN_SCENE_GRAVE, THOUGHT_OLDBODY, 1);
+}
+static void alex_refuse_done(void) {
+    think("She won't give it up. I need something heavy to change her mind.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_REFUSED, 1);
+    story_after(4.5f, oldbody_thought);                     /* the second thought waits for the first card to fold away */
+}
+
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
+    if (lives >= 1) {                                       /* vessel 2 and later: the orb is hers and she says no */
+        if (alex_refused) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }   /* locked: the vessel only thinks */
+        alex_refused = 1;
+        dialog_play(ALEX_REFUSE, ALEX_REFUSE_COUNT, alex_refuse_done);
+        return;
+    }
     if (alex_dealt) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }     /* free chat. she nags about the shrine */
     alex_dealt = 1;
     alex_spotted();
@@ -706,7 +729,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; alex_refused = 0; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
