@@ -16,8 +16,8 @@
 #ifndef ANALYZE_H
 #define ANALYZE_H
 
-#define AN_NOTE_LO  36          /* MIDI note of the lowest key we detect: C2 */
-#define AN_NOTES    61          /* 36 .. 96 = C2 .. C7 */
+#define AN_NOTE_LO  48          /* MIDI note of the lowest key we detect: C3 */
+#define AN_NOTES    61          /* 48 .. 108 = C3 .. C8 */
 #define AN_RATE     44100
 
 void an_reset(void);
@@ -38,7 +38,7 @@ void an_feed(const short *pcm, int frames);
 void an_notes(float *out);
 /* strongest hit of each drum since the last call (0 = none), then cleared */
 void an_drums(float *kick, float *snare, float *hat);
-/* loudest note (0..1) in the bass (below C3), middle (C3 .. B4) and lead (C5 and up) registers */
+/* loudest note (0..1) in the bass (C3 .. B3), middle (C4 .. B5) and lead (C6 and up) registers */
 void an_registers(float *bass, float *mid, float *lead);
 
 #endif

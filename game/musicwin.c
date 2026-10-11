@@ -11,7 +11,7 @@
 
 #define BANDS     MUSIC_BANDS
 #define EQ_ROWS   16
-#define LO_MIDI   36                   /* C2 */
+#define LO_MIDI   48                   /* C3 */
 
 typedef struct { int r, g, b; } C3;
 static const C3 COL_BASS = { 80, 170, 255 }, COL_MID = { 110, 230, 160 }, COL_LEAD = { 255, 140, 200 };
@@ -69,7 +69,7 @@ static void label_center(SDL_Renderer *r, const char *s, SDL_Rect q, int cl) {
 static const int WHITE_IDX[12] = { 0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6 };   /* pitch class -> white key number in the octave */
 static int is_white(int m) { return WHITE_IDX[((m % 12) + 12) % 12] >= 0; }
 static int white_index(int m) { int o = (m - LO_MIDI) / 12; return o * 7 + WHITE_IDX[((m % 12) + 12) % 12]; }
-static C3  reg_col(int m) { return m < 48 ? COL_BASS : m < 72 ? COL_MID : COL_LEAD; }
+static C3  reg_col(int m) { return m < 60 ? COL_BASS : m < 84 ? COL_MID : COL_LEAD; }
 
 static SDL_Rect white_rect(int m) { return (SDL_Rect){ kx0 + white_index(m) * kw, piano_r.y, kw, piano_r.h }; }
 static SDL_Rect black_rect(int m) {
@@ -96,7 +96,7 @@ static void layout(void) {
     c2   = (int)(1.3f * u); if (c2 < 2) c2 = 2;
     int m = (int)(8 * u); if (m < 4) m = 4;
 
-    hi_midi = W < H ? 84 : 96;                               /* portrait: 4 octaves, landscape: 5 */
+    hi_midi = W < H ? 96 : 108;                              /* portrait: C3..C7, landscape: C3..C8 (the last C family) */
     int top_white = white_index(hi_midi);
     nwhites = top_white + 1;
 

@@ -246,7 +246,7 @@ void an_registers(float *bass, float *mid, float *lead) {
     float b = 0, m = 0, l = 0;
     for (int i = 0; i < AN_NOTES; i++) {
         int midi = AN_NOTE_LO + i; float v = note_v[i];
-        if (midi < 48) { if (v > b) b = v; } else if (midi < 72) { if (v > m) m = v; } else if (v > l) l = v;
+        if (midi < 60) { if (v > b) b = v; } else if (midi < 84) { if (v > m) m = v; } else if (v > l) l = v;
     }
     *bass = b; *mid = m; *lead = l;
 }
