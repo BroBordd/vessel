@@ -66,6 +66,18 @@ int   grave_search_near(float player_x, float player_y, int allow);   /* in reac
 void  grave_search_start(void);                             /* the tap. nothing unless in reach, and only one search at a time */
 int   grave_search_update(float dt);                        /* every frame while playing. returns 1 on the frame it is done (on_done has run) */
 
+/* THE BURIAL (chunk 34): the pull played backwards. the story switches it on for a grave (grave_bury_enable); once that grave's body lies on the
+ * grass (grave_body_out) and the player stands next to it, the interact button shows a hand lowering him into the plot, and HOLDING it fills a bar
+ * (letting go early makes it creep back). when it is full the body is dragged back into the plot (grave_close, 1.5 s) and on_done runs, once: the
+ * burial does not switch itself on again. */
+#define GRAVE_BURY_HOLD_T 2.5f
+void  grave_bury_enable(int i, void (*on_done)(void));
+int   grave_bury_enabled(void);
+int   grave_bury_index(void);
+float grave_bury_progress(void);                            /* 0..1 */
+int   grave_bury_near(float player_x, float player_y, int allow);   /* in reach of the body (hysteresis). allow = 0 forces "no" */
+int   grave_bury_update(float dt, int holding);             /* every frame while playing. returns 1 on the frame it is done (on_done has run) */
+
 /* where the portrait is drawn (screen px) for a camera at (cam_x, cam_y): the square the old photo fills, inside its frame */
 void  grave_portrait_rect(int i, int cam_x, int cam_y, int *x, int *y, int *w, int *h);
 

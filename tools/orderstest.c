@@ -7,6 +7,7 @@
  * it #includes world.c and story.c to reach their statics. exits non-zero if a check fails:
  *   cc -O1 -DGFX_REDIRECT -include game/gfx.h $(sdl2-config --cflags) -Igame -o build/orderstest tools/orderstest.c $(ls game/*.c | grep -v -e game/game.c -e game/world.c -e game/story.c) $(sdl2-config --libs) -lm
  *   build/orderstest */
+#define PULL_DECAY_T_TEST 3.2f
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -184,8 +185,31 @@ int main(void) {
         CHECK(sfx_debug_errors() == e0 + 2 && mission_flashing(mission_bury), "no second buzz / flash after 3 s (%d)", sfx_debug_errors() - e0);
         CHECK(brainwin_count() == tc0 + 1 && !item_has(ITEM_HAMMER), "the thought was added twice, or the hammer was taken");
         pxp = (sbx + 3.0f) * tile; run(0.3f);
-        item_set_locked(ITEM_HAMMER, 0); pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
-        CHECK(item_has(ITEM_HAMMER), "an unlocked hammer was not picked up (chunk 34 will unlock it)");
+
+        /* chunk 34: bury him. after the search the button next to the body is a hand lowering him; HOLDING it drags him back into the plot, the task
+         * completes and the hammer is free. a short hold only fills the bar a little and it creeps back */
+        CHECK(grave_bury_enabled() && grave_bury_index() == aonia_grave, "the search did not switch the burial on");
+        int mc0 = missions_count();
+        pxp = sbx * tile; pyp = (sby - 1.0f) * tile; run(0.3f);
+        CHECK(near_bury && !near_search && !near_grave, "the burial button does not show next to the body after the search");
+        world_touch(0, bx, by); run(0.8f); world_touch(1, bx, by); run(0.1f);
+        CHECK(grave_bury_progress() > 0.1f && grave_bury_progress() < 0.5f && grave_bury_enabled() && grave_body_out(aonia_grave), "a short hold did something wrong (%.2f)", grave_bury_progress());
+        CHECK(item_locked(ITEM_HAMMER) && !aonia_buried, "a short hold buried him");
+        run(PULL_DECAY_T_TEST); CHECK(grave_bury_progress() == 0, "the bar did not creep back (%.2f)", grave_bury_progress());
+        world_touch(0, bx, by); run(1.4f);
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/bury_button.bmp");             /* the hand over the pit, earth rising (look at it) */
+        run(GRAVE_BURY_HOLD_T);
+        world_touch(1, bx, by); run(0.1f);
+        CHECK(aonia_buried && !grave_bury_enabled(), "a full hold did not bury him");
+        CHECK(grave_body_moving(aonia_grave) || !grave_is_open(aonia_grave), "he was not dragged back into the plot");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/bury_slide.bmp");              /* him sliding back in (look at it) */
+        run(2.0f);
+        CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot did not close");
+        CHECK(!item_locked(ITEM_HAMMER), "the hammer is still locked after the burial");
+        CHECK(missions_count() == mc0 - 1, "the task Bury Aonia did not complete and fade (%d -> %d)", mc0, missions_count());
+        CHECK(!near_bury, "the burial button shows after he was buried");
+        pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
+        CHECK(item_has(ITEM_HAMMER), "the unlocked hammer was not picked up after the burial");
         item_clear(); item_reset(px, tile);                                      /* tidy up for the tests that follow */
     }
 

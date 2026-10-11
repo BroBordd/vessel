@@ -562,7 +562,12 @@ static int aonia_searched, hammer_tx, hammer_ty;
 /* chunk 33: respect for the dead. while he lies unburied the hammer is locked: walking into it does not take it. the task "Bury Aonia" flashes red and
  * shakes, an error buzz sounds, and the vessel thinks that he goes back first (once in the brain window, afterwards only the card). chunk 34 unlocks it
  * when he is buried. the engine allows one such try every few seconds (item.h). */
-static int respect_said;
+static int respect_said, aonia_buried, hammer_taken;      /* hammer_taken: chunk 35 sets it when we pick the hammer up */
+static void aonia_buried_done(void) {                       /* chunk 34: he is back in the earth */
+    aonia_buried = 1; aonia_out = 0;
+    mission_complete(mission_bury);
+    world_lock_item(ITEM_HAMMER, 0, NULL);                  /* the hammer can be taken now (chunk 35 says what we think then) */
+}
 static void hammer_blocked(void) {
     mission_flash(mission_bury);
     sfx_error();
@@ -576,6 +581,7 @@ static void aonia_searched_done(void) {
     hammer_tx = (int)floorf(bx); hammer_ty = (int)floorf(by) + 2;                 /* on the grass, just below him (clear of his body) */
     world_drop_item(ITEM_HAMMER, hammer_tx, hammer_ty);
     hammer_lock();
+    world_enable_grave_bury(aonia_grave, aonia_buried_done);        /* he can be put back as soon as he has been searched */
     think("He still has it. The hammer.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_SEARCH, 1);
 }
 static void aonia_pulled(void) {
@@ -651,7 +657,9 @@ static void landed_again(void) {
                 if (aonia_out) {                                                  /* (he is already out: the plot is open again after a new landing) */
                     world_grave_set_open(gi, 1, 1);
                     if (!aonia_searched) world_enable_grave_search(gi, aonia_searched_done);
-                    else { world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty); hammer_lock(); }   /* (chunk 35: not once we have taken it) */
+                    else { world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty); hammer_lock(); world_enable_grave_bury(gi, aonia_buried_done); }   /* (chunk 35: not once we have taken it) */
+                } else if (aonia_buried) {
+                    if (!hammer_taken) world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty);      /* buried, but the hammer was left (chunk 35 sets it taken) */
                 } else if (alex_refused) aonia_pull_on();
             }
         }
@@ -779,7 +787,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

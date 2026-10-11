@@ -69,6 +69,8 @@ void world_enable_grave_pull(int grave_index, void (*on_done)(void));
  * searches (1 s) and on_done runs once. world_grave_body_tile: where the body lies (feet, tiles). */
 void world_enable_grave_search(int grave_index, void (*on_done)(void));
 void world_grave_body_tile(int i, float *tx, float *ty);
+/* the burial (grave.h, chunk 34): next to a body that lies on the grass the button shows a hand lowering him; HOLDING it drags him back into the plot, then on_done runs once */
+void world_enable_grave_bury(int grave_index, void (*on_done)(void));
 /* chunk 31: open the plot of grave i (the body slides out feet first, 1.5 s) or close it (it slides back in). grave.h has the rest (body_out, set_open ...) */
 void world_grave_open(int grave_index, int open);
 void world_grave_set_open(int grave_index, int open, int instant);   /* instant: no slide (a map made again) */

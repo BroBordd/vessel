@@ -22,10 +22,14 @@ static struct { int i, on, in_range; float prog, tick; void (*cb)(void); } pull 
 #define SEARCH_LEAVE 2.6f
 static struct { int i, on, in_range, active; float prog, tick; int n; void (*cb)(void); } srch = { -1 };
 
+/* the burial (chunk 34) */
+static struct { int i, on, in_range; float prog, tick; void (*cb)(void); } bury = { -1 };
+
 void grave_reset(int pixel_scale, int tile_size) {
     s = pixel_scale; tile = tile_size; count = 0;
     memset(&pull, 0, sizeof pull); pull.i = -1;
     memset(&srch, 0, sizeof srch); srch.i = -1;
+    memset(&bury, 0, sizeof bury); bury.i = -1;
 }
 
 int grave_place(int tile_x, int tile_y, const Person *dead) {
@@ -119,6 +123,40 @@ int   grave_search_update(float dt) {
         sfx_blip(1.9f);
         if (srch.cb) { void (*cb)(void) = srch.cb; srch.cb = NULL; cb(); }
         return 1;
+    }
+    return 0;
+}
+void  grave_bury_enable(int i, void (*on_done)(void)) {
+    if (i < 0 || i >= count) return;
+    bury.i = i; bury.on = 1; bury.in_range = 0; bury.prog = bury.tick = 0; bury.cb = on_done;
+}
+int   grave_bury_enabled(void) { return bury.on; }
+int   grave_bury_index(void) { return bury.i; }
+float grave_bury_progress(void) { return bury.prog; }
+int   grave_bury_near(float pxw, float pyw, int allow) {
+    if (!bury.on || !allow || bury.i < 0 || bury.i >= count || !grave_body_out(bury.i)) { bury.in_range = 0; return 0; }
+    float bx, by; grave_body_tile(bury.i, &bx, &by);
+    float dx = pxw - bx * tile, dy = pyw - by * tile, d = sqrtf(dx * dx + dy * dy) / tile;
+    if (!bury.in_range && d < SEARCH_RANGE) bury.in_range = 1;
+    else if (bury.in_range && d > SEARCH_LEAVE) bury.in_range = 0;
+    return bury.in_range;
+}
+int   grave_bury_update(float dt, int holding) {
+    if (!bury.on) return 0;
+    if (holding) {
+        bury.prog += dt / GRAVE_BURY_HOLD_T;
+        bury.tick -= dt;
+        if (bury.tick <= 0) { bury.tick = 0.3f; sfx_blip(0.8f - 0.4f * bury.prog); }     /* the pull's tick, falling instead of rising: he goes down */
+        if (bury.prog >= 1.0f) {
+            bury.on = 0; bury.in_range = 0; bury.prog = 0;
+            sfx_blip(0.35f);
+            grave_close(bury.i);                                     /* he is dragged back into the plot */
+            if (bury.cb) { void (*cb)(void) = bury.cb; bury.cb = NULL; cb(); }
+            return 1;
+        }
+    } else {
+        bury.tick = 0;
+        if (bury.prog > 0) { bury.prog -= dt / PULL_DECAY_T; if (bury.prog < 0) bury.prog = 0; }
     }
     return 0;
 }
