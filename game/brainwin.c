@@ -213,6 +213,8 @@ int brainwin_touch(int a, int x, int y) {
     return 1;
 }
 
+void brainwin_close(void) { if (is_open) { is_open = 0; closing = 1; } }
+
 void brainwin_update(float dt) {
     tt += dt;
     float target = is_open ? 1.0f : 0.0f;

@@ -190,6 +190,8 @@ int  musicwin_active(void) { return is_open || closing; }
 static void release(void) { if (held_midi >= 0) { sfx_note_off(held_midi); held_midi = -1; } }
 static void close_win(void) { release(); music_scrub_release(); is_open = 0; closing = 1; grab = 0; }
 
+void musicwin_close(void) { if (is_open) close_win(); }
+
 static void set_volume_from_x(int x) {                      /* the slider: the knob centre follows the finger */
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
     float v = (float)(x - (vol_r.x + kw2 / 2)) / (float)(vol_r.w - kw2);

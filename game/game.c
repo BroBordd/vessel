@@ -24,6 +24,7 @@
 #include "brainwin.h"
 #include "mapwin.h"
 #include "lang.h"
+#include "screen.h"
 #include "gfx.h"
 
 /* ST_LIMBO (vessel 2): the space screen, the stars and the top buttons only, no map and no HUD. the soul waits here
@@ -37,6 +38,21 @@ static void quit_app(void) {
     pid_t pp = getppid();
     if (pp > 1) kill(pp, SIGKILL);
     _exit(0);
+}
+
+/* the Android back button (the app sends "k 4"). it never leaves the game: it closes the window that is open, else pauses / resumes the
+ * world. when there is nothing for it to do (the menu, limbo) it says so and the app sends itself to the background instead. */
+static int handle_back(State st) {
+    if (mapwin_active())   { mapwin_close();   return 1; }
+    if (musicwin_active()) { musicwin_close(); return 1; }
+    if (brainwin_active()) { brainwin_close(); return 1; }
+    if (st == ST_WORLD && !world_dawning()) {
+        int was = pausebtn_paused();
+        pausebtn_set_paused(!was);
+        if (!was) world_touch(3, 0, 0);                     /* just paused: let go of the stick */
+        return 1;
+    }
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -111,6 +127,7 @@ int main(int argc, char **argv) {
 
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[1024]; int alen = 0;
+    int bg = 0;                                     /* the app is in the background: nothing runs, nothing is drawn, the world is paused for when it comes back */
 
     /* fixed 60fps pacing: sleep only the time left in each frame budget */
     const Uint64 pf = SDL_GetPerformanceFrequency();
@@ -131,7 +148,15 @@ int main(int argc, char **argv) {
             while ((nl = memchr(s, '\n', acc + alen - s))) {
                 *nl = 0;
                 int a, x, y, pr;
-                if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
+                if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
+                    if (a == 4 && !handle_back(state)) { printf("back: unhandled\n"); fflush(stdout); }
+                } else if (sscanf(s, "p %d", &a) == 1) {             /* the app went to the background (1) or came back (0) */
+                    bg = a != 0;
+                    if (bg && state == ST_WORLD) { pausebtn_set_paused(1); world_touch(3, 0, 0); }       /* it waits for them, paused */
+                } else if (sscanf(s, "r %d %d %d", &a, &x, &y) == 3) {   /* the screen turned or was resized: landscape?, width, height */
+                    screen_set(a, x, y);
+                    printf("screen: %dx%d%s\n", x, y, a ? " landscape" : " portrait"); fflush(stdout);
+                } else if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
                     if (mapwin_touch(a, x, y)) {
                         /* the map window is open: it takes every touch */
                     } else if (musicwin_touch(a, x, y)) {
@@ -160,6 +185,12 @@ int main(int argc, char **argv) {
                 s = nl + 1;
             }
             alen -= s - acc; memmove(acc, s, alen);
+        }
+
+        if (bg) {                                   /* in the background: just keep an ear on the app */
+            SDL_Delay(50);
+            prev = SDL_GetPerformanceCounter(); next_frame = prev + frame_ticks;
+            continue;
         }
 
         Uint64 now = SDL_GetPerformanceCounter();

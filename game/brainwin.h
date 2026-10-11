@@ -41,6 +41,7 @@ int  brainwin_count(void);
 
 void brainwin_open(void);
 int  brainwin_active(void);                             /* open (or still sliding away) */
+void brainwin_close(void);                              /* slides it away (the Android back button); nothing if it is not open */
 /* a = Android MotionEvent action. returns 1 when the touch was used (always, while the window is open) */
 int  brainwin_touch(int a, int x, int y);
 void brainwin_update(float dt);

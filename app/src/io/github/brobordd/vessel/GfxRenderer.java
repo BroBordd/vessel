@@ -138,6 +138,7 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
     @Override
     public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         ready = false;
+        lastGen = 0;                                                 // a new context has an empty scene: the newest frame in the file is drawn again at once
         sceneTex[0] = sceneFbo[0] = zoomTex[0] = zoomFbo[0] = 0;     // a new context starts empty
         try {
             progRect = program(VS_RECT, FS_RECT);
@@ -172,15 +173,18 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 unused, int width, int height) {
         if (progRect == 0 || progTex == 0) return;
         sw = width; sh = height;
-        gw = width / MainActivity.SCALE; gh = height / MainActivity.SCALE;
-        if (sceneTex[0] != 0) {
-            GLES30.glDeleteTextures(2, new int[] { sceneTex[0], zoomTex[0] }, 0);
-            GLES30.glDeleteFramebuffers(2, new int[] { sceneFbo[0], zoomFbo[0] }, 0);
+        if (gw == 0) {                                               // the first surface decides the game's size, for good
+            gw = width / MainActivity.SCALE; gh = height / MainActivity.SCALE;
         }
-        makeTarget(sceneTex, sceneFbo, gw, gh);
-        makeTarget(zoomTex, zoomFbo, gw, gh);
+        host.w = gw; host.h = gh;
+        if (sceneTex[0] == 0) {                                      // (a rotation keeps the targets: the game keeps its size, only the screen changes)
+            makeTarget(sceneTex, sceneFbo, gw, gh);
+            makeTarget(zoomTex, zoomFbo, gw, gh);
+        }
+        host.fit(sw, sh);                                            // where the picture goes on this screen
         ready = true;
-        host.startGpu(gw, gh);
+        host.startGpu(gw, gh);                                       // does nothing if the game already runs
+        host.onViewSized(sw, sh);                                    // tells the game about the new screen (portrait / landscape)
     }
 
     @Override
@@ -349,12 +353,18 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
         GLES30.glViewport(0, 0, gw, gh);
     }
 
-    /** Stretches the scene texture over the whole screen. Runs every vsync, new game frame or not. */
+    /** Draws the scene texture on the screen, as big as fits and centred (black bars round it, nothing stretched or cut off).
+     *  Runs every vsync, new game frame or not. */
     private void present() {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
-        GLES30.glViewport(0, 0, sw, sh);
         setBlend(false);
         setScissor(false, 0, 0, 0, 0);
+        GLES30.glViewport(0, 0, sw, sh);
+        GLES30.glClearColor(0f, 0f, 0f, 1f);
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
+        int vw = Math.round(gw * host.viewScale), vh = Math.round(gh * host.viewScale);
+        int vx = host.viewX, vyTop = host.viewY;
+        GLES30.glViewport(vx, sh - (vyTop + vh), vw, vh);            // GL's y is up, the app's is down
         drawTexture(sceneTex[0], 0, 0, gw, gh);
     }
 

@@ -19,6 +19,7 @@
 void musicwin_init(int w, int h);
 void musicwin_open(void);
 int  musicwin_active(void);                /* open (or still sliding away) */
+void musicwin_close(void);                 /* slides it away (the Android back button); nothing if it is not open */
 /* a = Android MotionEvent action. returns 1 when the touch was used (always, while the window is open) */
 int  musicwin_touch(int a, int x, int y);
 void musicwin_update(float dt);

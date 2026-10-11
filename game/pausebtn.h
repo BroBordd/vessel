@@ -12,6 +12,7 @@
 void pausebtn_init(int w, int h);
 void pausebtn_set_enabled(int on);          /* the game world is on screen (turning it off also resumes) */
 int  pausebtn_paused(void);
+void pausebtn_set_paused(int p);            /* only while the world is on screen (the Android back button and the app going to the background) */
 /* returns 0 = not ours, 1 = used, 2 = used and the game was just paused (drop held controls) */
 int  pausebtn_touch(int a, int x, int y);
 void pausebtn_update(float dt);

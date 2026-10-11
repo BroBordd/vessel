@@ -6,7 +6,9 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.pm.ConfigurationInfo;
 import android.graphics.Bitmap;
+import android.content.res.Configuration;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.media.AudioFormat;
 import android.media.AudioManager;
@@ -28,10 +30,12 @@ import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
@@ -47,10 +51,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     GfxRenderer gfx;
     boolean gpu;
     volatile Process proc;
-    OutputStream stdin;
+    volatile OutputStream stdin;
     ExecutorService inputQ = Executors.newSingleThreadExecutor();
-    volatile boolean running;
-    int w, h, sw, sh;
+    volatile boolean running;     // the game process is meant to be alive: the audio thread and the CPU blitter keep going
+    volatile boolean paused;      // the app is in the background: the audio waits, and the game was told to wait too
+
+    /** The game's own size in pixels. The first surface decides it and it never changes afterwards: the game lays itself out once, for this size.
+     *  Rotating, split screen or resizing the window only changes the SCREEN; the picture keeps its size and is letterboxed (see fit()). */
+    int w, h;
+    volatile int sw, sh;                          // the surface (screen) size now
+    volatile int viewX, viewY;                    // where the game's picture sits on the screen, in screen pixels
+    volatile float viewScale = SCALE;             // screen pixels per game pixel
+
+    // CPU path
+    MappedByteBuffer fbMap;
+    volatile int blitGen;                         // a blitter thread runs while its generation is the current one
 
     @Override
     protected void onCreate(Bundle b) {
@@ -85,12 +100,29 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         Log.i("game", "render path: " + (gpu ? "gpu" : "cpu"));
         setContentView(v);
-        v.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        hideSystemUi();
+    }
+
+    void hideSystemUi() {
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemUi();             // the bars come back after a dialog, a notification shade, a rotation...
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration c) {
+        super.onConfigurationChanged(c);          // (we handle the changes ourselves, see the manifest: the activity is never recreated)
+        hideSystemUi();
     }
 
     boolean hasEs3() {
@@ -103,8 +135,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
+    /** The game process lives as long as the activity does: going to the home screen only PAUSES it (the audio stops, the game waits, the
+     *  surface may go away), and coming back carries on exactly where it was. */
     @Override
     protected void onPause() {
+        paused = true;
+        send("p 1\n");                            // the game pauses the world and stops drawing
         if (gv != null) gv.onPause();
         super.onPause();
     }
@@ -112,23 +148,71 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onResume() {
         super.onResume();
+        paused = false;                           // the audio thread wakes up first, so the game's audio is not stuck when it hears us
+        hideSystemUi();
         if (gv != null) gv.onResume();
+        send("p 0\n");
+        if (gpu && w > 0 && !alive()) startGpu(w, h);          // the system killed the game while we were away: start it again
+    }
+
+    boolean alive() {
+        Process p = proc;
+        if (p == null) return false;
+        try { p.exitValue(); return false; } catch (IllegalThreadStateException e) { return true; }
+    }
+
+    /** The back button never closes the app: the game gets it ("k 4") and closes a window, or pauses. If it has nothing to do with it, it
+     *  answers "back: unhandled" and the app goes to the background instead (see spawn). */
+    @Override
+    public void onBackPressed() {
+        if (!alive()) { super.onBackPressed(); return; }      // no game running (not installed?): do not trap the user
+        send("k 4\n");
+    }
+
+    /** Sends one line to the game's stdin (on a worker thread, never blocks the UI). */
+    void send(final String line) {
+        try {
+            inputQ.execute(new Runnable() {
+                public void run() {
+                    try {
+                        OutputStream o = stdin;
+                        if (o != null) { o.write(line.getBytes()); o.flush(); }
+                    } catch (Exception ignored) {}
+                }
+            });
+        } catch (RejectedExecutionException ignored) {}
+    }
+
+    /** Works out where the game's picture goes on a surface of this size: as big as fits, centred, nothing cut off or stretched. */
+    void fit(int surfW, int surfH) {
+        sw = surfW; sh = surfH;
+        if (w <= 0 || h <= 0 || surfW <= 0 || surfH <= 0) return;
+        float s = Math.min((float) surfW / w, (float) surfH / h);
+        viewScale = s;
+        viewX = (int) ((surfW - w * s) / 2);
+        viewY = (int) ((surfH - h * s) / 2);
+    }
+
+    /** The screen was sized or turned (called for every new surface size): tells the game, which keeps its own layout (see game/screen.h). */
+    void onViewSized(int surfW, int surfH) {
+        send("r " + (surfW > surfH ? 1 : 0) + " " + surfW + " " + surfH + "\n");
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder) {}
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int fmt, int width, int height) {
-        if (gpu || proc != null) return;      // the GPU path starts the game from GfxRenderer.onSurfaceChanged
-        sw = width; sh = height;
-        w = width / SCALE; h = height / SCALE;
-        start(holder);
+        if (gpu) return;                          // the GPU path is driven by GfxRenderer.onSurfaceChanged
+        if (w == 0) { w = width / SCALE; h = height / SCALE; }   // the first surface decides the game's size
+        fit(width, height);
+        if (!alive()) start(holder);              // first time (or the game died): start it
+        startBlit(holder);                        // a new surface (after the background, a rotation): a new blitter for it
+        onViewSized(width, height);
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
-        running = false;
-        if (proc != null) { proc.destroy(); proc = null; }
+        blitGen++;                                // the blitter of this surface stops; the game itself carries on (paused if we are in the background)
     }
 
     // --- audio: read PCM (S16 stereo 44100) from the FIFO, play via AudioTrack ---
@@ -156,7 +240,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     FileInputStream in = new FileInputStream(fifo); // blocks until game opens it
                     byte[] buf = new byte[4096];
                     int n;
-                    while (running && (n = in.read(buf)) > 0) at.write(buf, 0, n);
+                    while (running && (n = in.read(buf)) > 0) {
+                        if (paused) {                      // in the background: stop consuming, the game's audio then waits on the pipe
+                            at.pause();
+                            while (paused && running) {
+                                try { Thread.sleep(40); } catch (InterruptedException ie) { break; }
+                            }
+                            if (running) at.play();
+                        }
+                        at.write(buf, 0, n);
+                    }
                     in.close();
                 } catch (Exception e) {
                     Log.e("game", "audio", e);
@@ -186,7 +279,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     BufferedReader r = new BufferedReader(
                             new InputStreamReader(p.getInputStream()));
                     String l;
-                    while ((l = r.readLine()) != null) Log.i("game", l);
+                    while ((l = r.readLine()) != null) {
+                        Log.i("game", l);
+                        if (l.equals("back: unhandled")) {           // the game had nothing for the back button to do: go to the home screen
+                            runOnUiThread(new Runnable() { public void run() { moveTaskToBack(true); } });
+                        }
+                    }
                     Log.i("game", "[exited " + p.waitFor() + "]");
                 } catch (Exception e) {
                     Log.e("game", "reader", e);
@@ -198,8 +296,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /** GPU path: called on the GL thread once the surface (and so the game's pixel size) is known. */
     void startGpu(int gw, int gh) {
-        if (proc != null) return;
-        w = gw; h = gh;
+        if (alive()) return;                      // already running (a rotation, or back from the background): nothing to do
+        if (w == 0) { w = gw; h = gh; }           // the first surface decides the game's size, for good
         final File bin = gameBinary();
         if (!bin.exists()) {
             Log.e("game", "NOT FOUND: " + bin);
@@ -216,8 +314,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    /** CPU path: the game draws pixels into a shared file, a thread copies them to the screen. */
-    void start(final SurfaceHolder holder) {
+    /** CPU path: starts the game, which draws pixels into a shared file. (startBlit puts them on the screen.) */
+    void start(SurfaceHolder holder) {
         final File bin = gameBinary();
         if (!bin.exists()) {
             Log.e("game", "NOT FOUND: " + bin);
@@ -229,51 +327,55 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             File fb = new File(getFilesDir(), "fb");
             RandomAccessFile raf = new RandomAccessFile(fb, "rw");
             raf.setLength((long) w * h * 4);
-            final MappedByteBuffer map = raf.getChannel()
-                    .map(FileChannel.MapMode.READ_WRITE, 0, (long) w * h * 4);
+            fbMap = raf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, (long) w * h * 4);
+            raf.close();
 
             running = true;
             startAudio();
 
             proc = spawn(bin, "cpu");
-
-            new Thread(new Runnable() {
-                public void run() {
-                    Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-                    Rect dst = new Rect(0, 0, sw, sh);
-                    while (running) {
-                        map.rewind();
-                        bmp.copyPixelsFromBuffer(map);
-                        // GPU-backed canvas (API 26+); CPU lockCanvas() was the bottleneck.
-                        // Posting is paced by the buffer queue (vsync), so no sleep there.
-                        boolean hw = Build.VERSION.SDK_INT >= 26;
-                        Canvas c = hw ? holder.lockHardwareCanvas() : holder.lockCanvas();
-                        if (c != null) {
-                            c.drawBitmap(bmp, null, dst, null);
-                            holder.unlockCanvasAndPost(c);
-                        }
-                        if (!hw) {
-                            try { Thread.sleep(16); } catch (InterruptedException e) { return; }
-                        }
-                    }
-                }
-            }).start();
         } catch (Exception e) {
             Log.e("game", "start failed", e);
         }
     }
 
+    /** CPU path: a thread copies the game's pixels to this surface, letterboxed. One per surface; a newer generation stops the older one. */
+    void startBlit(final SurfaceHolder holder) {
+        if (fbMap == null) return;
+        final int gen = ++blitGen;
+        final MappedByteBuffer map = fbMap;
+        final int gw = w, gh = h;
+        new Thread(new Runnable() {
+            public void run() {
+                Bitmap bmp = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888);
+                while (running && gen == blitGen) {
+                    ByteBuffer src = map.duplicate();
+                    src.rewind();
+                    bmp.copyPixelsFromBuffer(src);
+                    Rect dst = new Rect(viewX, viewY, viewX + Math.round(gw * viewScale), viewY + Math.round(gh * viewScale));
+                    // GPU-backed canvas (API 26+); CPU lockCanvas() was the bottleneck.
+                    // Posting is paced by the buffer queue (vsync), so no sleep there.
+                    boolean hw = Build.VERSION.SDK_INT >= 26;
+                    Canvas c = hw ? holder.lockHardwareCanvas() : holder.lockCanvas();
+                    if (c != null) {
+                        c.drawColor(Color.BLACK);                   // the bars round the picture
+                        c.drawBitmap(bmp, null, dst, null);
+                        holder.unlockCanvasAndPost(c);
+                    }
+                    if (!hw) {
+                        try { Thread.sleep(16); } catch (InterruptedException e) { return; }
+                    }
+                }
+            }
+        }).start();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        float k = viewScale;                       // screen pixels -> game pixels: undo the letterbox
         final String line = "t " + e.getActionMasked() + " "
-                + (int) (e.getX() / SCALE) + " " + (int) (e.getY() / SCALE) + "\n";
-        inputQ.execute(new Runnable() {
-            public void run() {
-                try {
-                    if (stdin != null) { stdin.write(line.getBytes()); stdin.flush(); }
-                } catch (Exception ignored) {}
-            }
-        });
+                + (int) ((e.getX() - viewX) / k) + " " + (int) ((e.getY() - viewY) / k) + "\n";
+        send(line);
         return true;
     }
 

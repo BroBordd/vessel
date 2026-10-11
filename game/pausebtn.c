@@ -24,6 +24,7 @@ static SDL_Rect resume_rect(void) {
 void pausebtn_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; enabled = paused = pdown = rdown = 0; vis = pa = 0; }
 void pausebtn_set_enabled(int on) { enabled = on; if (!on) paused = 0; }
 int  pausebtn_paused(void) { return paused; }
+void pausebtn_set_paused(int p) { if (enabled) paused = p ? 1 : 0; }
 
 int pausebtn_touch(int a, int x, int y) {
     if (!enabled) return 0;
