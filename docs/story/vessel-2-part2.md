@@ -74,7 +74,10 @@ and, as we take the hammer, "Rest well. I need this."
 ### 4. Alex
 Back in her house: hammer out, a swing button next to her. She is hit again and again, says what people say, falls.
 Her death uses the same stylised language as Aonia's: freeze, red tint on her, flatline, the words **"Alex has died."**
-She does not get a grave. The **orb** drops. We pick it up. The task is done, nobody has seen.
+She does not get a grave. The orb does **not** drop by itself: it is still on her. Next to her body the interact button becomes the
+**magnifying glass (search)** again (the same icon as on Aonia's body). A tap searches her and **takes the orb out**. We have it. The task
+"Get the orb from Alex" is done and the next goal ("Repair the shrine") simply coins in: **silently**, no thought, no comment, no
+music sting. The vessel just gets on with it.
 
 **How she dies (the head).** The killing blow is a hit on her **head**: the last swing knocks her head **away from the
 body**, it flies off and comes to rest a short way from her. Her body falls and lies on the floor of the house.
@@ -111,7 +114,7 @@ Walk up to her temple with the orb. Hand it over (a short scripted talk). That i
 - Buried: "Rest well." / taking the hammer: "I need this. I'm sorry."
 - Alex hit (between hits): "Hey! What are you doing?" / "Stop it!" / "Please!" / "It's just an orb..."
 - Death text: "Alex has died."
-- After: "Nobody saw. Dea will be pleased."
+- After taking the orb: nothing. No thought, no line. (Silent on purpose.)
 - Task: "Repair the shrine" / repairing thought: "This hammer surely can do everything, huh."
 - Task: "Die" / limbo: "Uh. I died. Again."
 - Naming vessel 3: "Fine. You are number three now. Tria."
@@ -160,7 +163,7 @@ Mark `[x]` when the chunk is pushed.
 - [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. **The last hit knocks her head off the body** (a separate head sprite flies a few tiles and lies still), and the body then plays the endless idle: red spark bursts from the neck in a straight line, the body shakes a little, a watery "pfft" sound (`sfx_pfft()` in `audio.c`: short filtered noise burst, falling pitch) on every burst (see story section 4). Check: camera target is the npc, controls return afterwards; the head is detached from the body; the spark idle keeps running (burst counter goes up over time, `sfx_debug_pfft()`).
 
 ### The orb
-- [ ] **39. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); it drops where she fell (`item_place`), walking over it picks it up; the task "Get the orb from Alex" is done and **"Repair the shrine"** coins in; thought: "Nobody saw. Dea will be pleased." Check: orb in pockets, task swap.
+- [ ] **39. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); no orb on the ground: next to Alex's lying body the interact button shows the **magnifying glass** (reuse chunk 32's icon and search timing); a tap searches her once and puts the orb straight into the pockets (inventory slot unfolds). The task "Get the orb from Alex" is done and **"Repair the shrine"** coins in **silently**: no thought, no dialog, no extra sound beyond the normal task toast. Check: no orb before the search, orb in pockets after, task swap, no thought queued.
 
 ### The shrine
 - [ ] **40. Repair** — `shrine.c`: `shrine_repair` plays the break backwards (cracks heal, the stump grows, the rubble lifts, the gem lights again) while the interact button is HELD with the hammer. `world_enable_shrine_repair(on_done)`. The first time the hold starts, the thought **"This hammer surely can do everything, huh."** (`BRAIN_SCENE_HAMMER`). Check: progress reaches 100% only by holding; the shrine draws whole afterwards.
@@ -187,3 +190,4 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-11: chunk 25 done: this file.
 - 2026-10-11: the grave scene reworked: we pull the old body out by the legs, search him (magnifying-glass button) so the hammer falls to the ground, picking it up too early flashes and shakes the task "Bury Aonia" in red with an error sound, and the body has to be buried again first. Chunks 30-35 replace the old 30-32; the later chunks are renumbered 36-44.
 - 2026-10-11: story section 4 extended: Alex dies by a hit to the head that knocks it off the body; her body lies on the floor with an endless idle of small red sparks from the neck (straight-line squirts, body shakes, watery pfft sound like squeezing a pinholed bottle). Chunk 38 updated to match.
+- 2026-10-11: Alex's orb is taken by searching her body (magnifying-glass button), not dropped; afterwards the next goal comes in silently, no thought. Story section 4, draft strings and chunk 39 updated.
