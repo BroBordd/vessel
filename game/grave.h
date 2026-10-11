@@ -38,6 +38,21 @@ float grave_pull_progress(void);                            /* 0..1 */
 int   grave_pull_near(float player_x, float player_y, int allow);   /* in reach of the switched-on grave (hysteresis). allow = 0 forces "no" */
 int   grave_pull_update(float dt, int holding);             /* every frame while playing. returns 1 on the frame it is done (on_done has run) */
 
+/* THE OPEN PLOT AND THE BODY (chunk 31): grave_open(i) opens the earth plot and the dead vessel's body (the grave's own Person, greyed) is drawn
+ * SLIDING OUT of it, feet first, over GRAVE_SLIDE_T seconds, then lying on the grass beside it (head towards the stone). grave_close(i) plays
+ * it all backwards (the body slides back in and the plot closes). the stone and the photo stay. grave_set_open(i, open, instant) sets the state
+ * at once (a map that is made again). grave_update(dt) runs the slide (world.c calls it every frame). */
+#define GRAVE_SLIDE_T 1.5f
+#define GRAVE_BODY_DX 22                                    /* units (one unit = one world pixel cell) from the plot's middle to the lying body's middle */
+void  grave_open(int i);
+void  grave_close(int i);
+void  grave_set_open(int i, int open, int instant);
+void  grave_update(float dt);
+int   grave_is_open(int i);                                 /* the plot is open (or opening): 1 until the close has finished */
+int   grave_body_out(int i);                                /* the body lies on the grass, the slide is over (searchable, chunks 32-34) */
+int   grave_body_moving(int i);                             /* a slide is under way, either way */
+void  grave_body_tile(int i, float *tx, float *ty);         /* where the body lies (feet position, tiles) */
+
 /* where the portrait is drawn (screen px) for a camera at (cam_x, cam_y): the square the old photo fills, inside its frame */
 void  grave_portrait_rect(int i, int cam_x, int cam_y, int *x, int *y, int *w, int *h);
 

@@ -738,6 +738,8 @@ void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore
 int  world_place_grave(int tile_x, int tile_y, const Person *dead) { return grave_place(tile_x, tile_y, dead); }
 int  world_grave_count(void) { return grave_count(); }
 void world_grave_tile(int i, float *tx, float *ty) { grave_tile(i, tx, ty); }
+void world_grave_open(int i, int open) { if (open) grave_open(i); else grave_close(i); }
+void world_grave_set_open(int i, int open, int instant) { grave_set_open(i, open, instant); }
 void world_enable_grave_pull(int i, void (*on_done)(void)) { grave_pull_enable(i, on_done); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
 float world_dist_to_grave(void) {
@@ -984,6 +986,7 @@ void world_update(float dt) {
             walk += dt * 8.0f;
         } else walk = 0;
 
+        grave_update(dt);
         if (npcs_here()) npc_update(pxp, pyp);
         update_hole_range();
         update_door_range();

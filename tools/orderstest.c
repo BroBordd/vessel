@@ -85,6 +85,10 @@ int main(void) {
 
     /* chunk 29: Alex says no, once. no question, no chat; then the two thoughts, in order, the second a little later */
     lives = 1;
+    int agx = (int)(pxp / tile) - 5, agy = (int)(pyp / tile);          /* our first body's stone, as landed_again would have put it (chunk 31) */
+    aonia_grave = world_place_grave(agx, agy, &VESSEL);
+    CHECK(aonia_grave >= 0, "could not place Aonia's grave");
+    CHECK(!grave_pull_enabled(), "the grave pull was on before Alex said no");
     {   int bc = brainwin_count();
         on_talk_alex(0);
         CHECK(dialog_active() && !convo_active(), "Alex's refusal did not start as a plain dialog");
@@ -101,6 +105,36 @@ int main(void) {
         CHECK(brainwin_count() == bc + 2, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
     }
     lives = 0;
+    CHECK(grave_pull_enabled() && grave_pull_index() == aonia_grave, "Alex's no did not switch the grave pull on");
+
+    /* chunk 31: hold at the stone: the plot opens, he slides out feet first (1.5 s), then lies beside it; the task \"Bury Aonia\" coins in */
+    {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        int tasks0 = missions_count(), bc = brainwin_count();
+        pxp = (agx + 0.5f) * tile; pyp = (agy + 0.9f + 1.2f) * tile; run(0.3f);
+        CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot was open before the pull");
+        world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.3f);
+        CHECK(aonia_out && grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the pull did not open the plot and start the slide");
+        CHECK(mission_bury >= 0 && missions_count() == tasks0 + 1, "the task \"Bury Aonia\" did not coin in");
+        CHECK(brainwin_count() >= bc + 1, "the pull thought did not come (%d -> %d)", bc, brainwin_count());   /* (standing at his stone also brings the grave thought of chunk 23) */
+        world_touch(1, bx, by);
+        {   int gcx = (int)((agx + 0.5f) * tile) - (int)cam_x, gcy = (int)((agy + 0.9f) * tile) - (int)cam_y; (void)gcx; (void)gcy; }
+        run(0.7f);
+        CHECK(grave_body_moving(aonia_grave) && !grave_body_out(aonia_grave), "the slide ended too early");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/grave_slide.bmp");
+        run(1.2f);
+        CHECK(grave_body_out(aonia_grave) && !grave_body_moving(aonia_grave), "the body is not out after the slide");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/grave_out.bmp");
+        float bxt, byt, gtx, gty; grave_body_tile(aonia_grave, &bxt, &byt); grave_tile(aonia_grave, &gtx, &gty);
+        CHECK(bxt > gtx + 1.0f && fabsf(byt - gty) < 0.01f, "the body does not lie beside the plot (%.2f,%.2f vs %.2f,%.2f)", bxt, byt, gtx, gty);
+        CHECK(!grave_pull_enabled(), "the pull is still on after the body was pulled out");
+        /* backwards: the plot closes again */
+        world_grave_open(aonia_grave, 0); run(0.7f);
+        CHECK(grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the close did not start sliding back");
+        run(1.2f);
+        CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot did not close after the body slid back in");
+        world_grave_open(aonia_grave, 1); run(2.0f);                     /* leave him out for the rest of the story */
+        CHECK(grave_body_out(aonia_grave), "the body did not come out again");
+    }
 
     /* chunk 30: the grave pull. a grave is placed near the player; nothing happens until the story switches it on; then the interact button
      * shows next to it, a short hold fills the bar and it creeps back, a full hold calls on_done once and the pull is over */

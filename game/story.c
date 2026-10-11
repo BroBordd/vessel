@@ -104,6 +104,7 @@ void story_update(float dt) {
 /* ---------- state ---------- */
 static int mission_talk_dea = -1;
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
+static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (the old body is out of the ground) */
 static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
@@ -118,7 +119,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -351,7 +352,7 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = -1;
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets */
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
@@ -549,7 +550,21 @@ static int alex_refused;                            /* she has said no (once onl
 static void oldbody_thought(void) {
     think("I know where there is one.", NULL, BRAIN_SCENE_GRAVE, THOUGHT_OLDBODY, 1);
 }
+/* chunk 31: after her no, the stone where our first body lies can be worked: HOLD the button there and we pull him out of the ground by the
+ * legs. the plot opens, he slides out feet first, and the task "Bury Aonia" coins in (chunks 32-35 go on from here). aonia_grave is the
+ * index of his stone on this map (set when the stones are put back, -1 when there is none); aonia_out is kept for the next landing. */
+static int aonia_grave = -1, aonia_out;
+static void aonia_pulled(void) {
+    aonia_out = 1;
+    world_grave_open(aonia_grave, 1);
+    think("I'm pulling my own body out of the ground.", "I'm pulling my own body out.", BRAIN_SCENE_GRAVE, THOUGHT_PULL, 1);
+    mission_bury = task_toast("Bury " VESSEL_NAME);
+}
+static void aonia_pull_on(void) {
+    if (aonia_grave >= 0 && !aonia_out) world_enable_grave_pull(aonia_grave, aonia_pulled);
+}
 static void alex_refuse_done(void) {
+    aonia_pull_on();                                        /* the grave can be worked from now on */
     think("She won't give it up. I need something heavy to change her mind.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_REFUSED, 1);
     story_after(4.5f, oldbody_thought);                     /* the second thought waits for the first card to fold away */
 }
@@ -604,7 +619,14 @@ static void landed_again(void) {
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
     for (int i = 0; i < grave_n; i++) {                     /* a stone where each one died: that tile, or the nearest where it fits */
         int gx, gy;
-        if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) world_place_grave(gx, gy, graves[i].who);
+        if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) {
+            int gi = world_place_grave(gx, gy, graves[i].who);
+            if (gi >= 0 && graves[i].who == &VESSEL) {                     /* our first body's stone (chunk 31) */
+                aonia_grave = gi;
+                if (aonia_out) world_grave_set_open(gi, 1, 1);                    /* (he is already out: the plot is open again after a new landing) */
+                else if (alex_refused) aonia_pull_on();
+            }
+        }
     }
     think("Here we go again.", NULL, BRAIN_SCENE_AGAIN, THOUGHT_AGAIN, 1);
     story_vessel2_ready();                                  /* the hook for vessel 2's own story (chunk 24) */
@@ -729,7 +751,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; alex_refused = 0; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
