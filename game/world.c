@@ -62,6 +62,11 @@ static int   near_id = -1;          /* npc in talking range, or -1 */
 static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
 static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and a TAP searches */
+static int   fight_npc = -1, fight_left, fight_total;   /* chunk 36: the hostile npc being fought, the hits she still takes, and how many she took in all */
+static void (*fight_cb)(void);
+static float fight_cd, fight_swing;                      /* the cooldown between hits (s), and the hammer's slam on the button (1 -> 0) */
+#define FIGHT_COOLDOWN 0.45f
+#define FIGHT_SWING_T  0.20f
 static int   near_shrine;           /* Dia's shrine is in reach and usable: the button shows the sludge drop, and HOLDING it pollutes */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
@@ -517,6 +522,7 @@ static void load_map(int which) {
     near_shrine = near_grave = near_search = near_bury = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
+    fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0;   /* the npc ids are gone with the map */
     pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
     pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
     facing = FACE_DOWN;
@@ -736,6 +742,25 @@ int  world_shrine_polluted(void) { return shrine_polluted(); }
 void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
+
+/* the fight (chunk 36) */
+void world_enable_fight(int npc_id, int hits, void (*on_down)(void)) {
+    fight_npc = npc_id; fight_left = fight_total = hits; fight_cb = on_down; fight_cd = fight_swing = 0;
+}
+int world_fight_left(void)  { return fight_left; }
+int world_fight_total(void) { return fight_total; }
+static int fight_ready(void) { return fight_npc >= 0 && fight_left > 0 && near_id == fight_npc && npc_hostile(fight_npc) && item_has(ITEM_HAMMER); }
+static void fight_hit(void) {
+    if (fight_cd > 0) return;                                /* the hammer is still coming back up */
+    fight_cd = FIGHT_COOLDOWN; fight_swing = 1.0f;
+    npc_hit(fight_npc, pxp, pyp);
+    sfx_hit();
+    if (--fight_left <= 0) {
+        void (*cb)(void) = fight_cb;
+        fight_npc = -1; fight_cb = NULL;                     /* over: it does not switch itself on again */
+        if (cb) cb();
+    }
+}
 void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore(tile_x, tile_y, polluted); }
 int  world_place_grave(int tile_x, int tile_y, const Person *dead) { return grave_place(tile_x, tile_y, dead); }
 int  world_grave_count(void) { return grave_count(); }
@@ -863,6 +888,13 @@ void world_touch(int a, int x, int y) {
                 if (near_search) grave_search_start();
                 else if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
+                else if (fight_ready()) {                            /* chunk 36: a hostile npc and the hammer: a tap is a swing, not a talk */
+                    float nx, ny; npc_tile(near_id, &nx, &ny);
+                    float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
+                    if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
+                    else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
+                    fight_hit();
+                }
                 else {
                     talk_npc = near_id;
                     float nx, ny; npc_tile(near_id, &nx, &ny);       /* turn to face them before the talk starts */
@@ -998,6 +1030,9 @@ void world_update(float dt) {
         } else walk = 0;
 
         grave_update(dt);
+        npc_tick(dt);
+        if (fight_cd > 0) { fight_cd -= dt; if (fight_cd < 0) fight_cd = 0; }
+        if (fight_swing > 0) { fight_swing -= dt / FIGHT_SWING_T; if (fight_swing < 0) fight_swing = 0; }
         if (npcs_here()) npc_update(pxp, pyp);
         update_hole_range();
         update_door_range();
@@ -1269,6 +1304,21 @@ static void draw_interact_button(SDL_Renderer *r) {
         fill(r, bcx - 3 * a, bcy + bob, 6 * a, a);
         fill(r, bcx - 2 * a, bcy + a + bob, 4 * a, a);
         fill(r, bcx - a, bcy + 2 * a + bob, 2 * a, a);
+        return;
+    }
+    if (fight_ready()) {                                         /* the hammer. it rocks while idle, slams down at a hit, and the button dims while it comes back up */
+        int a = br / 9; if (a < 2) a = 2;
+        int swing = fight_swing > 0 ? (int)(fight_swing * a * 3.0f) : (int)(sinf(t * 5.0f) * a * 0.4f);
+        if (fight_cd > 0) {
+            int hgt = (int)(2 * br * fight_cd / FIGHT_COOLDOWN);
+            SDL_Rect clip = { bcx - br, bcy - br, 2 * br, hgt };
+            SDL_RenderSetClipRect(r, &clip);
+            col(r, 150, 40, 48, 245); pdisc(r, bcx, bcy, br, ucell);          /* the red drains out of the button while it cools */
+            SDL_RenderSetClipRect(r, NULL);
+            col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
+        }
+        int side = ITEM_ICON_CELLS * a;
+        item_draw_icon(r, ITEM_HAMMER, bcx - side / 2, bcy - side / 2 + swing, a);
         return;
     }
     int ps = (int)(br * 1.25f / 10); if (ps < 1) ps = 1;

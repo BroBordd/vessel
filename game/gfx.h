@@ -55,6 +55,8 @@ void gfx_set_filter(int grey, int red);
  * the existing calls stay as they are. gold 0..256: how far every colour set from now on goes toward flat gold (its own
  * brightness picks the shade, so a silhouette keeps a hint of its shading). 0 = off. */
 void gfx_set_gold(int gold);
+/* WHITE (chunk 36, a hit npc): the same again, its own switch. white 0..256: how far every colour set from now on goes toward flat white. 0 = off. */
+void gfx_set_white(int white);
 
 /* GPU mode: map the shared file (created by the app) and start recording. 0 on success. */
 int  gfx_init_gpu(const char *path, int w, int h);

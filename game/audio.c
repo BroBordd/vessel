@@ -260,6 +260,40 @@ void sfx_flatline_stop(void) {
 int sfx_debug_beeps(void) { return n_beeps; }
 int sfx_debug_flatlines(void) { return n_flats; }
 
+/* ---------- the hammer hit (chunk 36): a thump (a sine falling from 130 to 50 Hz) with a short burst of noise at the start ---------- */
+static int   hit_on, hit_pos, n_hits;
+static float hit_phase;
+static unsigned hit_seed = 12345u;
+#define HIT_T     0.16f
+#define HIT_GAIN  0.45f
+void sfx_hit(void) {
+    n_hits++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    hit_on = 1; hit_pos = 0; hit_phase = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_hits(void) { return n_hits; }
+static void hit_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)hit_pos / (float)OUT_RATE;
+        if (tt >= HIT_T) { hit_on = 0; return; }
+        float k = tt / HIT_T;
+        float env = (1.0f - k) * (1.0f - k);
+        if (tt < 0.003f) env *= tt / 0.003f;                                  /* no click on the way in */
+        hit_phase += (130.0f - 80.0f * k) / (float)OUT_RATE;
+        if (hit_phase >= 1.0f) hit_phase -= 1.0f;
+        hit_seed = hit_seed * 1664525u + 1013904223u;
+        float noise = ((float)(hit_seed >> 16) / 32768.0f - 1.0f) * (tt < 0.025f ? 1.0f - tt / 0.025f : 0.0f);
+        int v = (int)((0.8f * sinf(6.2831853f * hit_phase) + 0.35f * noise) * env * HIT_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        hit_pos++;
+    }
+}
+
 /* ---------- the error buzz (chunk 33): two short low buzzes, "no". a square wave at 110 Hz softened with a sine, its own voice ---------- */
 static int   err_on, err_pos, n_errors;
 static float err_phase;
@@ -666,6 +700,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (blip_on) blip_mix(out, frames);
     if (mon_on) mon_mix(out, frames);
     if (err_on) err_mix(out, frames);
+    if (hit_on) hit_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
 }
 

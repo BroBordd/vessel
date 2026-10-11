@@ -13,6 +13,15 @@ int  npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int npc_
  * player while in talking range, and go back to this once the player walks away. */
 void npc_set_facing(int id, int facing);
 
+/* chunk 36: a hostile npc can be hit with the hammer (the world's interact button turns into a swing for a player who carries it; she never
+ * attacks). npc_hit makes her flash white and shoves her back a little, away from (from_x, from_y) (world px); npc_tick (every frame) runs the
+ * flash and the recoil. the recoil is only drawn: her tile does not move. */
+void npc_set_hostile(int id, int on);
+int  npc_hostile(int id);
+void npc_hit(int id, float from_x, float from_y);
+int  npc_flashing(int id);
+void npc_tick(float dt);
+
 /* engine hooks, called by the world */
 void  npc_reset(int pixel_scale, int tile_size);                /* clears all npcs */
 void  npc_update(float player_x, float player_y);                /* player feet position, world px */

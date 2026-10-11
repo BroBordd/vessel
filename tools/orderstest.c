@@ -35,6 +35,9 @@ static int searched_n;
 static void search_done(void) { searched_n++; }
 static int locked_ended;
 static void locked_end(void) { locked_ended++; }
+static int talked_n, down_n;
+static void fight_talk(int id) { (void)id; talked_n++; }
+static void fight_down(void) { down_n++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
 
 int main(void) {
@@ -284,6 +287,53 @@ int main(void) {
         world_touch(1, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f);
         world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f); world_touch(1, bx, by);
         CHECK(pulled_n == 1, "the pull ran again (%d)", pulled_n);
+    }
+
+    /* chunk 36: the swing. a hostile npc + the hammer: the button is a swing, each tap hits (flash, shove, thump, cooldown), N hits call on_down
+     * once. without the hammer, or without the flag, a tap talks instead */
+    {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        int ntx = (int)(pxp / tile) + 6, nty = (int)(pyp / tile) - 6;
+        talked_n = 0; down_n = 0;
+        int nid = npc_add(&ALEX, ntx, nty, fight_talk);
+        CHECK(nid >= 0, "could not add the npc for the fight test");
+        pxp = (ntx + 0.5f) * tile; pyp = (nty + 0.9f + 1.0f) * tile;       /* one tile in front of her */
+        item_clear(); item_reset(px, tile);
+        run(0.3f);
+        CHECK(near_id == nid, "the test npc is not in reach (%d)", near_id);
+        tap(bx, by);                                                       /* no flag, no hammer: a talk */
+        CHECK(talked_n == 1, "a tap next to a plain npc did not talk (%d)", talked_n);
+        world_give_item(ITEM_HAMMER);
+        npc_set_hostile(nid, 1);
+        world_enable_fight(nid, 3, fight_down);
+        CHECK(world_fight_left() == 3 && world_fight_total() == 3, "the fight did not start with 3 hits (%d/%d)", world_fight_left(), world_fight_total());
+        run(0.3f);
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_button.bmp");      /* the hammer on the button (look at it) */
+        int h0 = sfx_debug_hits();
+        tap(bx, by);
+        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2, "the first tap did not hit (%d hits, %d left)", sfx_debug_hits() - h0, world_fight_left());
+        CHECK(talked_n == 1 && !dialog_active(), "a swing also talked");
+        CHECK(npc_flashing(nid), "the npc did not flash white");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_flash.bmp");       /* her, flashing white and shoved back (look at it) */
+        tap(bx, by);                                                       /* straight away: the hammer is still coming up */
+        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2, "a tap inside the cooldown hit again (%d left)", world_fight_left());
+        run(0.3f); CHECK(!npc_flashing(nid), "the flash did not end");
+        run(FIGHT_COOLDOWN);
+        tap(bx, by);
+        CHECK(sfx_debug_hits() == h0 + 2 && world_fight_left() == 1 && down_n == 0, "the second hit went wrong (%d left, down %d)", world_fight_left(), down_n);
+        run(FIGHT_COOLDOWN + 0.1f);
+        tap(bx, by);
+        CHECK(world_fight_left() == 0 && down_n == 1, "the third hit did not call on_down once (%d)", down_n);
+        run(FIGHT_COOLDOWN + 0.1f);
+        tap(bx, by); run(FIGHT_COOLDOWN + 0.1f); tap(bx, by);
+        CHECK(down_n == 1 && sfx_debug_hits() == h0 + 3, "the fight went on after it was over (down %d, hits %d)", down_n, sfx_debug_hits() - h0);
+        CHECK(talked_n >= 2, "after the fight a tap does not talk again (%d)", talked_n);
+        /* a hostile npc without the hammer is just talked to */
+        item_clear(); item_reset(px, tile);
+        npc_set_hostile(nid, 1); world_enable_fight(nid, 2, fight_down);
+        run(0.3f); int t0 = talked_n; tap(bx, by);
+        CHECK(world_fight_left() == 2 && talked_n == t0 + 1, "without the hammer the tap hit instead of talking");
+        world_enable_fight(-1, 0, NULL);
+        item_clear(); item_reset(px, tile);
     }
 
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */

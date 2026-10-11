@@ -74,7 +74,9 @@ int  sfx_debug_summons(void);           /* tests: how many times sfx_summon was 
 int  sfx_debug_beeps(void);             /* tests: how many times sfx_beep / sfx_flatline were called */
 int  sfx_debug_flatlines(void);
 void sfx_error(void);                   /* chunk 33: a short low double buzz ("not allowed"), its own voice */
-int  sfx_debug_errors(void);            /* tests: how many times sfx_error was called */
+int  sfx_debug_errors(void);
+void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
+int  sfx_debug_hits(void);              /* tests: how many times sfx_hit was called */            /* tests: how many times sfx_error was called */
 /* piano notes for the music window: the note rings while the key is held (a short release after).
  * midi 60 = middle C. several can sound at once. not part of the music analysis. */
 void sfx_note_on(int midi);
