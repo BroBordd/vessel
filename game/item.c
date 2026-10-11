@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "item.h"
 #include "font.h"
+#include "audio.h"
 #include <math.h>
 #include <string.h>
 
@@ -20,6 +21,21 @@ static const char *HAMMER[ITEM_ICON_CELLS] = {
     "....GWwG....",
     ".....GG.....",
 };
+/* the magnifying glass (chunk 32). B glass, b glint on the glass. the rim is light steel (L), not the dark outline, so it reads on the dark button */
+static const char *SEARCH[ITEM_ICON_CELLS] = {
+    "...LLLLL....",
+    "..LBBBBBL...",
+    ".LBbbBBBBL..",
+    ".LBbBBBBBL..",
+    ".LBBBBBBBL..",
+    ".LBBBBBBBL..",
+    "..LBBBBBLL..",
+    "...LLLLLWL..",
+    ".......LLWL.",
+    ".........LWL",
+    "..........LL",
+    "............",
+};
 static const char *const *ICONS[ITEM_COUNT] = { HAMMER };
 static const char *NAMES[ITEM_COUNT] = { "HAMMER" };
 
@@ -29,9 +45,14 @@ static int s = 1, tile = 16;                /* pixel scale and tile size of the 
 static int on, on_kind, tx, ty;             /* what lies on the map */
 static int have[ITEM_COUNT];
 static float new_t = 99.0f;                 /* seconds since the last pickup (the slot's frame pulses for a moment) */
+static float drop_t = 99.0f;                /* seconds since the item on the map was dropped (chunk 32); 99 = it was simply placed */
+#define DROP_BOUNCE_T 0.2f
+#define DROP_HEIGHT   14                    /* units it falls from */
 
-void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; }
-void item_place(int kind, int tile_x, int tile_y) { if (kind < 0 || kind >= ITEM_COUNT) return; on = 1; on_kind = kind; tx = tile_x; ty = tile_y; }
+void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; }
+void item_place(int kind, int tile_x, int tile_y) { if (kind < 0 || kind >= ITEM_COUNT) return; on = 1; on_kind = kind; tx = tile_x; ty = tile_y; drop_t = 99.0f; }
+void item_drop(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); if (on) drop_t = 0; }
+int  item_dropping(void) { return on && drop_t < ITEM_DROP_T; }
 int  item_exists(void) { return on; }
 void item_tile(float *x, float *y) { *x = tx + 0.5f; *y = ty + 0.5f; }
 int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind]; }
@@ -40,7 +61,12 @@ void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; }
 
 int item_update(float dt, float pxw, float pyw, int allow) {
     if (new_t < 99.0f) new_t += dt;
-    if (!on || !allow) return -1;
+    if (on && drop_t < 99.0f) {                                 /* chunk 32: a dropped item falls first, and thunks when it lands */
+        float before = drop_t; drop_t += dt;
+        if (before < ITEM_DROP_T && drop_t >= ITEM_DROP_T) sfx_blip(0.42f);
+        if (drop_t > ITEM_DROP_T + DROP_BOUNCE_T + 1.0f) drop_t = 99.0f;
+    }
+    if (!on || !allow || item_dropping()) return -1;
     float dx = pxw - (tx + 0.5f) * tile, dy = pyw - (ty + 0.5f) * tile;
     if (sqrtf(dx * dx + dy * dy) / tile >= ITEM_PICK_R) return -1;
     int k = on_kind;
@@ -55,13 +81,14 @@ static void rgb_of(char c, int *R, int *G, int *B) {
         case 'L': *R = 206; *G = 214; *B = 232; break;
         case 'D': *R = 122; *G = 130; *B = 156; break;
         case 'W': *R = 196; *G = 136; *B = 74;  break;
+        case 'B': *R = 150; *G = 200; *B = 236; break;
+        case 'b': *R = 244; *G = 250; *B = 255; break;
         default:  *R = 132; *G = 84;  *B = 42;  break;      /* w */
     }
 }
 
 /* the picture, optionally turned on its side (the handle points right): used for the one lying on the grass */
-static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lying) {
-    const char *const *rows = ICONS[kind];
+static void draw_rows(SDL_Renderer *r, const char *const *rows, int x, int y, int cell, int lying) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     for (int j = 0; j < ITEM_ICON_CELLS; j++)
         for (int i = 0; i < ITEM_ICON_CELLS; i++) {
@@ -73,19 +100,35 @@ static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lyi
             SDL_RenderFillRect(r, &q);
         }
 }
+static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lying) { draw_rows(r, ICONS[kind], x, y, cell, lying); }
 void item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell) {
     if (kind < 0 || kind >= ITEM_COUNT || cell < 1) return;
     draw_icon(r, kind, x, y, cell, 0);
+}
+void item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell) {
+    if (cell < 1) return;
+    draw_rows(r, SEARCH, x, y, cell, 0);
 }
 
 void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     if (!on) return;
     int x = (int)((tx + 0.5f) * tile) - cam_x, y = (int)((ty + 0.5f) * tile) - cam_y;      /* centre of the spot */
     int bob = (int)floorf(sinf(t * 3.0f) * 0.9f + 0.5f);
+    int lift = 0;                                                                           /* chunk 32: how high a dropped item still is (units) */
+    if (drop_t < ITEM_DROP_T) { float k = drop_t / ITEM_DROP_T; lift = (int)(DROP_HEIGHT * (1.0f - k * k) + 0.5f); bob = 0; }
+    else if (drop_t < ITEM_DROP_T + DROP_BOUNCE_T) { lift = (int)(3.0f * sinf((drop_t - ITEM_DROP_T) / DROP_BOUNCE_T * 3.14159f) + 0.5f); bob = 0; }
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 70);
     SDL_Rect sh = { x - 7 * s, y + 3 * s, 14 * s, 2 * s }; SDL_RenderFillRect(r, &sh);      /* ground shadow */
-    draw_icon(r, on_kind, x - 6 * s, y - 6 * s + bob * s, s, 1);
+    draw_icon(r, on_kind, x - 6 * s, y - 6 * s + bob * s - lift * s, s, 1);
+    if (drop_t >= ITEM_DROP_T && drop_t < ITEM_DROP_T + 0.5f) {                             /* landed: a burst of glints */
+        float k = (drop_t - ITEM_DROP_T) / 0.5f; int a = (int)(255 * (1.0f - k)), d = (int)(3 + 9 * k);
+        SDL_SetRenderDrawColor(r, 255, 255, 255, a);
+        for (int q = 0; q < 4; q++) {
+            int ox = (q & 1 ? d : -d), oy = (q & 2 ? d : -d) / 2;
+            SDL_Rect v = { x + ox * s, y - 4 * s + oy * s, s, s }; SDL_RenderFillRect(r, &v);
+        }
+    }
     float ph = fmodf(t * 0.8f, 1.0f);                                                       /* a glint, so it can be spotted on the grass */
     if (ph < 0.35f) {
         int a = (int)(255 * sinf(ph / 0.35f * 3.14159f));

@@ -65,6 +65,10 @@ int  world_place_grave(int tile_x, int tile_y, const Person *dead);
 int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty);
 /* the pull (grave.h, chunk 30): the interact button shows a grip next to grave i and HOLDING it fills a bar; when it is full on_done runs once */
 void world_enable_grave_pull(int grave_index, void (*on_done)(void));
+/* the search (grave.h, chunk 32): once body i lies on the grass and the player is next to it, the interact button shows a magnifying glass; a TAP
+ * searches (1 s) and on_done runs once. world_grave_body_tile: where the body lies (feet, tiles). */
+void world_enable_grave_search(int grave_index, void (*on_done)(void));
+void world_grave_body_tile(int i, float *tx, float *ty);
 /* chunk 31: open the plot of grave i (the body slides out feet first, 1.5 s) or close it (it slides back in). grave.h has the rest (body_out, set_open ...) */
 void world_grave_open(int grave_index, int open);
 void world_grave_set_open(int grave_index, int open, int instant);   /* instant: no slide (a map made again) */
@@ -75,6 +79,7 @@ void world_grave_tile(int i, float *tx, float *ty);       /* feet position in ti
  * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
+void world_drop_item(int kind, int tile_x, int tile_y);     /* chunk 32: like world_place_item, but it falls there (cannot be picked up until it has landed) */
 int  world_has_item(int kind);
 void world_give_item(int kind);
 void world_clear_items(void);

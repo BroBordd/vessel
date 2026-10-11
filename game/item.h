@@ -22,6 +22,11 @@ const char *item_name(int kind);            /* "HAMMER" (capitals: the pixel fon
 /* world hooks */
 void  item_reset(int pixel_scale, int tile_size);       /* a new map: whatever lay on the old one is gone (the inventory stays) */
 void  item_place(int kind, int tile_x, int tile_y);     /* it lies there */
+/* chunk 32: it FALLS there (out of someone's hand): drops from a little above, lands with a thunk and a bounce, a glint. it cannot be
+ * picked up until it has landed. item_dropping() is 1 until then (tests). */
+#define ITEM_DROP_T 0.45f
+void  item_drop(int kind, int tile_x, int tile_y);
+int   item_dropping(void);
 int   item_exists(void);                                /* something lies on this map */
 void  item_tile(float *tx, float *ty);                  /* where, in tiles (minimap) */
 int   item_has(int kind);
@@ -34,6 +39,8 @@ void  item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t);
 
 /* an icon, top-left at (x, y), each cell `cell` px. */
 void  item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell);
+/* chunk 32: the magnifying glass (12 x 12, same style) on the interact button next to a body that can be searched (chunks 32, 39). not an item. */
+void  item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell);
 
 /* the inventory widget. the box is `width` px wide (the minimap's width) and right-aligned to right_edge, starts at top */
 void  item_ui_init(int w, int h, int right_edge, int top, int width);

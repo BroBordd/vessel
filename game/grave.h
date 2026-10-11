@@ -53,6 +53,19 @@ int   grave_body_out(int i);                                /* the body lies on 
 int   grave_body_moving(int i);                             /* a slide is under way, either way */
 void  grave_body_tile(int i, float *tx, float *ty);         /* where the body lies (feet position, tiles) */
 
+/* THE SEARCH (chunk 32): the story switches it on for a grave (grave_search_enable). once that grave's body lies on the grass (grave_body_out) and the
+ * player stands next to it, the interact button shows a magnifying glass. a TAP starts the search; it takes GRAVE_SEARCH_T seconds (walking out of
+ * reach cancels it) and then on_done runs, once: the search is over and does not switch itself on again. the story decides what he was carrying. */
+#define GRAVE_SEARCH_T 1.0f
+void  grave_search_enable(int i, void (*on_done)(void));
+int   grave_search_enabled(void);                           /* switched on and not finished */
+int   grave_search_index(void);                             /* which grave (-1: none) */
+int   grave_search_active(void);                            /* a search is under way (the tap has been made) */
+float grave_search_progress(void);                          /* 0..1 while searching */
+int   grave_search_near(float player_x, float player_y, int allow);   /* in reach of the body (hysteresis). allow = 0 forces "no" and cancels a search */
+void  grave_search_start(void);                             /* the tap. nothing unless in reach, and only one search at a time */
+int   grave_search_update(float dt);                        /* every frame while playing. returns 1 on the frame it is done (on_done has run) */
+
 /* where the portrait is drawn (screen px) for a camera at (cam_x, cam_y): the square the old photo fills, inside its frame */
 void  grave_portrait_rect(int i, int cam_x, int cam_y, int *x, int *y, int *w, int *h);
 

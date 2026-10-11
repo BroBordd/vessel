@@ -17,7 +17,16 @@ static struct { int tx, ty; const Person *who; int open; float t; } g[GRAVE_MAX]
 #define PULL_DECAY_T 3.0f           /* seconds for a full bar to creep back after letting go */
 static struct { int i, on, in_range; float prog, tick; void (*cb)(void); } pull = { -1 };
 
-void grave_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; count = 0; memset(&pull, 0, sizeof pull); pull.i = -1; }
+/* the search (chunk 32) */
+#define SEARCH_RANGE 2.0f           /* tiles from the body's middle: this close and the button shows the magnifying glass */
+#define SEARCH_LEAVE 2.6f
+static struct { int i, on, in_range, active; float prog, tick; int n; void (*cb)(void); } srch = { -1 };
+
+void grave_reset(int pixel_scale, int tile_size) {
+    s = pixel_scale; tile = tile_size; count = 0;
+    memset(&pull, 0, sizeof pull); pull.i = -1;
+    memset(&srch, 0, sizeof srch); srch.i = -1;
+}
 
 int grave_place(int tile_x, int tile_y, const Person *dead) {
     if (count >= GRAVE_MAX || !dead) return -1;
@@ -76,6 +85,40 @@ int   grave_pull_update(float dt, int holding) {
     } else {
         pull.tick = 0;
         if (pull.prog > 0) { pull.prog -= dt / PULL_DECAY_T; if (pull.prog < 0) pull.prog = 0; }
+    }
+    return 0;
+}
+void  grave_search_enable(int i, void (*on_done)(void)) {
+    if (i < 0 || i >= count) return;
+    srch.i = i; srch.on = 1; srch.in_range = srch.active = 0; srch.prog = srch.tick = 0; srch.n = 0; srch.cb = on_done;
+}
+int   grave_search_enabled(void) { return srch.on; }
+int   grave_search_index(void) { return srch.i; }
+int   grave_search_active(void) { return srch.on && srch.active; }
+float grave_search_progress(void) { return srch.prog; }
+int   grave_search_near(float pxw, float pyw, int allow) {
+    if (!srch.on || !allow || srch.i < 0 || srch.i >= count || !grave_body_out(srch.i)) { srch.in_range = srch.active = 0; srch.prog = 0; return 0; }
+    float bx, by; grave_body_tile(srch.i, &bx, &by);
+    float dx = pxw - bx * tile, dy = pyw - by * tile, d = sqrtf(dx * dx + dy * dy) / tile;
+    if (!srch.in_range && d < SEARCH_RANGE) srch.in_range = 1;
+    else if (srch.in_range && d > SEARCH_LEAVE) srch.in_range = 0;
+    if (!srch.in_range) { srch.active = 0; srch.prog = 0; }          /* walked away: the search is lost */
+    return srch.in_range;
+}
+void  grave_search_start(void) {
+    if (!srch.on || !srch.in_range || srch.active) return;
+    srch.active = 1; srch.prog = 0; srch.tick = 0; srch.n = 0;
+}
+int   grave_search_update(float dt) {
+    if (!srch.on || !srch.active) return 0;
+    srch.prog += dt / GRAVE_SEARCH_T;
+    srch.tick -= dt;
+    if (srch.tick <= 0) { srch.tick = 0.17f; sfx_blip((srch.n++ & 1) ? 1.5f : 1.25f); }      /* a soft, quick rustle: hands through his clothes */
+    if (srch.prog >= 1.0f) {
+        srch.prog = 0; srch.on = 0; srch.active = 0; srch.in_range = 0;
+        sfx_blip(1.9f);
+        if (srch.cb) { void (*cb)(void) = srch.cb; srch.cb = NULL; cb(); }
+        return 1;
     }
     return 0;
 }

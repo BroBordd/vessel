@@ -30,6 +30,8 @@ static void frame(float dt) {
 static void run(float sec) { for (float s = 0; s < sec; s += 0.016f) frame(0.016f); }
 static int pulled_n;
 static void pull_done(void) { pulled_n++; }
+static int searched_n;
+static void search_done(void) { searched_n++; }
 static int locked_ended;
 static void locked_end(void) { locked_ended++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
@@ -134,6 +136,64 @@ int main(void) {
         CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot did not close after the body slid back in");
         world_grave_open(aonia_grave, 1); run(2.0f);                     /* leave him out for the rest of the story */
         CHECK(grave_body_out(aonia_grave), "the body did not come out again");
+
+        /* chunk 32: search him. the search was switched on by the pull; it needs the body out and the player beside it. a tap searches (1 s),
+         * the hammer falls out of his hand onto the grass next to him (it cannot be taken while it falls), once only */
+        CHECK(grave_search_enabled() && grave_search_index() == aonia_grave, "the pull did not switch the search on");
+        CHECK(!item_exists() && !item_has(ITEM_HAMMER), "a hammer lay on the map before the search");
+        run(0.3f);
+        CHECK(!near_search, "the magnifying glass shows at the stone, 3 tiles from the body");
+        float sbx, sby; grave_body_tile(aonia_grave, &sbx, &sby);
+        pxp = sbx * tile; pyp = (sby + 1.2f) * tile; run(0.3f);                 /* beside him */
+        CHECK(near_search && !near_grave, "the magnifying glass does not show next to the body");
+        world_touch(0, bx, by); world_touch(1, bx, by); run(0.4f);              /* one tap */
+        CHECK(grave_search_active(), "a tap did not start the search");
+        CHECK(grave_search_progress() > 0.2f && grave_search_progress() < 0.7f, "0.4 s of a 1 s search is at %.2f", grave_search_progress());
+        CHECK(!item_exists() && !aonia_searched, "the hammer came before the search was over");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/search_button.bmp");   /* the glass sweeping over the button (look at it) */
+        int sbc = brainwin_count();
+        run(0.8f);
+        CHECK(aonia_searched && item_exists() && !grave_search_enabled(), "the search did not end with the hammer on the ground");
+        CHECK(item_dropping(), "the hammer does not fall (it was placed at once)");
+        float hx_, hy_; item_tile(&hx_, &hy_);
+        CHECK(fabsf(hx_ - sbx) < 1.5f && hy_ > sby && hy_ < sby + 2.0f, "the hammer is not on the grass next to him (%.2f,%.2f vs %.2f,%.2f)", hx_, hy_, sbx, sby);
+        CHECK(!item_has(ITEM_HAMMER), "the hammer was in the pockets while it fell");
+        CHECK(brainwin_count() == sbc + 1, "the search thought did not come (%d -> %d)", sbc, brainwin_count());
+        pxp = (sbx + 3.0f) * tile; run(0.8f);                                    /* (the fall is over; step off so nothing picks it up) */
+        CHECK(!item_dropping() && item_exists(), "the hammer did not land");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/search_hammer.bmp");   /* the hammer on the grass beside him (look at it) */
+        CHECK(!near_search, "the magnifying glass shows after the search was done");
+        world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
+        CHECK(brainwin_count() == sbc + 1, "searching again added a thought");
+        item_clear(); item_reset(px, tile);                                      /* tidy up for the tests that follow */
+    }
+
+    /* chunk 32, engine: walking away cancels a search; a second body can be searched too; once only */
+    {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        int gx = (int)(pxp / tile) + 3, gy = (int)(pyp / tile) + 8;
+        int gi = world_place_grave(gx, gy, &VESSEL2);
+        CHECK(gi >= 0, "could not place a grave for the search test");
+        world_grave_set_open(gi, 1, 1);
+        searched_n = 0;
+        world_enable_grave_search(gi, search_done);
+        float sbx, sby; grave_body_tile(gi, &sbx, &sby);
+        pxp = sbx * tile; pyp = (sby + 1.2f) * tile; run(0.3f);
+        CHECK(near_search, "the glass does not show next to the second body");
+        world_touch(0, bx, by); world_touch(1, bx, by); run(0.4f);
+        pxp = (sbx + 6.0f) * tile; run(1.5f);                                    /* walks away mid-search */
+        CHECK(searched_n == 0 && !grave_search_active() && grave_search_enabled(), "walking away did not cancel the search (%d)", searched_n);
+        pxp = sbx * tile; run(0.3f);
+        CHECK(near_search && grave_search_progress() == 0, "the search did not start over from nothing");
+        world_touch(0, bx, by); world_touch(1, bx, by); run(1.3f);
+        CHECK(searched_n == 1, "a whole search did not call on_done exactly once (%d)", searched_n);
+        world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
+        CHECK(searched_n == 1 && !near_search, "the search ran twice (%d)", searched_n);
+        /* a grave whose body is still in the ground cannot be searched */
+        int gj = world_place_grave(gx + 4, gy, &VESSEL2);
+        searched_n = 0; world_enable_grave_search(gj, search_done);
+        float tbx, tby; grave_tile(gj, &tbx, &tby);
+        pxp = (tbx + 3.0f) * tile; pyp = (tby + 1.2f) * tile; run(0.3f);
+        CHECK(!near_search, "the glass shows for a body that is still buried");
     }
 
     /* chunk 30: the grave pull. a grave is placed near the player; nothing happens until the story switches it on; then the interact button
