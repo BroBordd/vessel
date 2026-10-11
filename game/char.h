@@ -38,6 +38,9 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
 
 void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift);
 
+/* the getting-up after the fall (k 0 = lying face-down .. 1 = standing, facing us): kneels, then stands, then turns round. feet at (x, y). */
+void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, float k);
+
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
  * talking = 1 flaps the mouth. */
 void char_draw_portrait(SDL_Renderer *r, const Person *p, int x, int y, int s, int talking);

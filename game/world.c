@@ -119,7 +119,7 @@ static float dawn_t;
 
 #define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  1.5f                /* lying face-down after the impact */
-#define GETUP_T 1.2f                /* pushing up and standing */
+#define GETUP_T 1.8f                /* pushing up, kneeling, standing, turning round */
 static int   phase;
 static float ph_t, sink_x0, sink_y0;
 static void (*up_cb)(void);
@@ -1191,11 +1191,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         draw_hole(r, hcx, hcy, 1);
     } else if (phase == PH_LAND || phase == PH_GETUP) {
         float k = phase == PH_GETUP ? ph_t / GETUP_T : 0.0f;
-        if (k < 0.62f) {
-            char_draw_prone(r, player_look, sx0, sy0, px, k / 0.62f);
-        } else {
-            char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
-        }
+        char_draw_getup(r, player_look, sx0, sy0, px, k);
         if (phase == PH_LAND && ph_t < 0.6f) {                    /* dust kicked up by the impact */
             for (int i = 0; i < 10; i++) {
                 float a = i * 0.6283f + 0.3f, d = (0.15f + ph_t * 1.6f) * tile * (0.6f + (i % 3) * 0.25f);

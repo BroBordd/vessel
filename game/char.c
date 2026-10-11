@@ -189,6 +189,51 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
         }
 }
 
+/* getting up after the fall, k 0..1. the real sprite (seen from behind: they landed face-down) is built of two rigid parts that bend at the
+ * hip, like a body would: the legs pivot on the feet, the head and torso pivot on the hips.
+ *   0.00-0.20  lying on the belly, head to the left; the head and shoulders lift a little (pushing up)
+ *   0.20-0.55  the torso comes upright over the hips while the legs still lie flat behind: kneeling
+ *   0.55-0.85  the legs swing under them and they stand
+ *   0.85-1.00  on their feet, they turn round (back, side, front) to face us */
+static float ease01(float k) { if (k < 0) k = 0; if (k > 1) k = 1; return k * k * (3.0f - 2.0f * k); }
+void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, float k) {
+    if (k < 0) k = 0;
+    if (k >= 0.85f) { char_draw(r, p, x, y, k < 0.91f ? FACE_UP : k < 0.96f ? FACE_LEFT : FACE_DOWN, 0, 0.0f, s); return; }
+    const float Q = 1.5708f, PUSH = 0.21f, KNEEL = -0.12f;
+    float a_top, a_leg = -Q, stand = 0;
+    if (k < 0.20f)      a_top = -Q + PUSH * ease01(k / 0.20f);
+    else if (k < 0.55f) a_top = (-Q + PUSH) + (KNEEL - (-Q + PUSH)) * ease01((k - 0.20f) / 0.35f);
+    else { stand = ease01((k - 0.55f) / 0.30f); a_top = KNEEL * (1.0f - stand); a_leg = -Q * (1.0f - stand); }
+    float up = 1.0f - fabsf(a_top) / Q; if (up < 0) up = 0;               /* 0 = torso flat, 1 = upright */
+    float shx = (6.0f - 4.0f * up) * s * (1.0f - stand);                  /* keep the body centred over (x, y) as it unfolds */
+    float shy = -3.5f * s * (1.0f - up) * (1.0f - stand);                 /* a lying body rests on the ground line, not through it */
+
+    float wsh = 8.0f + 5.0f * (1.0f - stand) * (1.0f - 0.5f * up);        /* the shadow: a long strip while down, a small one standing */
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 80);
+    fill(r, x - (int)(wsh * s / 2), y - s, (int)(wsh * s), (int)((2.0f + 2.0f * (1.0f - up)) * s));
+
+    float ct = cosf(a_top), st = sinf(a_top), cl = cosf(a_leg), sl = sinf(a_leg);
+    float hipx = 2.0f * sl, hipy = -2.0f * cl;                            /* the hip: where the torso joins the legs (2 rows above the feet) */
+    int sz = (int)(s * 1.3f + 0.5f); if (sz < s + 1) sz = s + 1;          /* a rotated grid of squares needs them a little big to leave no gaps */
+    for (int j = 0; j < SPR_H; j++)
+        for (int i = 0; i < SPR_W; i++) {
+            char ch = cell_at(p, FACE_UP, i, j);
+            if (ch == '.') continue;
+            switch (ch) {
+            case 'h': use(r, p->hair);  break;
+            case 's': use(r, p->skin);  break;
+            case 'c': use(r, p->shirt); break;
+            case 'p': use(r, p->pants); break;
+            case 'b': use(r, p->boots); break;
+            }
+            float cx = (i - 5 + 0.5f), cy = (j - SPR_H + 0.5f);          /* from the middle of the feet, in sprite pixels */
+            float px_, py_;
+            if (j >= 10) { px_ = cx * cl - cy * sl; py_ = cx * sl + cy * cl; }                       /* legs: about the feet */
+            else { float ux = cx, uy = cy + 2.0f; px_ = hipx + ux * ct - uy * st; py_ = hipy + ux * st + uy * ct; }   /* head and torso: about the hip */
+            fill(r, x + (int)(shx + px_ * s) - sz / 2, y + (int)(shy + py_ * s) - sz / 2, sz, sz);
+        }
+}
+
 void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift) {
     if (lift < 0) lift = 0;
     if (lift > 1) lift = 1;
