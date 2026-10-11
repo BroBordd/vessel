@@ -118,8 +118,9 @@ static int   dawn_on;
 static float dawn_t;
 
 #define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
-#define LAND_T  1.5f                /* lying face-down after the impact */
-#define GETUP_T 2.0f                /* the push-up, the swing up, a beat standing, turning round */
+#define LAND_T  2.5f                /* lying face-down after the impact, eyes shut */
+#define GETUP_T 3.0f                /* standing, flashing three times (0.5 s lighter, 0.5 s back) */
+#define FLASH_PEAK 0.8f             /* how white the flash gets (1 would lose the silhouette) */
 static int   phase;
 static float ph_t, sink_x0, sink_y0;
 static void (*up_cb)(void);
@@ -1190,15 +1191,35 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         SDL_RenderSetClipRect(r, NULL);
         draw_hole(r, hcx, hcy, 1);
     } else if (phase == PH_LAND || phase == PH_GETUP) {
-        float k = phase == PH_GETUP ? ph_t / GETUP_T : 0.0f;
-        char_draw_getup(r, player_look, sx0, sy0, px, k);
-        if (phase == PH_LAND && ph_t < 0.6f) {                    /* dust kicked up by the impact */
-            for (int i = 0; i < 10; i++) {
-                float a = i * 0.6283f + 0.3f, d = (0.15f + ph_t * 1.6f) * tile * (0.6f + (i % 3) * 0.25f);
-                col(r, 236, 230, 214, (int)(190 * (1.0f - ph_t / 0.6f)));
-                int sz = px * (2 + i % 2);
-                fill(r, sx0 + (int)(cosf(a) * d) - sz / 2, sy0 - 2 * px + (int)(sinf(a) * d * 0.5f), sz, sz);
+        if (phase == PH_LAND) {
+            char_draw_lying(r, player_look, sx0, sy0, px);
+            if (ph_t < 0.6f) {                                        /* dust kicked up by the impact */
+                for (int i = 0; i < 10; i++) {
+                    float a = i * 0.6283f + 0.3f, d = (0.15f + ph_t * 1.6f) * tile * (0.6f + (i % 3) * 0.25f);
+                    col(r, 236, 230, 214, (int)(190 * (1.0f - ph_t / 0.6f)));
+                    int sz = px * (2 + i % 2);
+                    fill(r, sx0 + (int)(cosf(a) * d) - sz / 2, sy0 - 2 * px + (int)(sinf(a) * d * 0.5f), sz, sz);
+                }
             }
+            if (ph_t < 1.5f) {                                        /* bits of earth and grass thrown up, falling back down and lying there */
+                static const int dc[4][3] = { { 112, 80, 52 }, { 70, 132, 70 }, { 150, 112, 72 }, { 52, 104, 56 } };
+                for (int i = 0; i < 16; i++) {
+                    float ang = -3.1416f + 3.1416f * ((i * 37 % 16) + 0.5f) / 16.0f;      /* a fan over the top */
+                    float vx = cosf(ang) * (0.9f + (i % 4) * 0.35f), vy = 1.8f + (i % 3) * 0.7f;
+                    float h = vy * ph_t - 0.5f * 7.0f * ph_t * ph_t, gx = vx * ph_t;
+                    if (h < 0) { h = 0; gx = vx * (2.0f * vy / 7.0f); }                    /* landed: stays where it fell */
+                    int a = ph_t < 1.1f ? 255 : (int)(255 * (1.5f - ph_t) / 0.4f);
+                    if (a < 0) a = 0;
+                    const int *c = dc[i % 4]; int sz = px * (1 + i % 2);
+                    col(r, c[0], c[1], c[2], a);
+                    fill(r, sx0 + (int)(gx * tile) - sz / 2, sy0 - px - (int)(h * tile) - sz / 2, sz, sz);
+                }
+            }
+        } else {                                                      /* up on their feet: the spawn flash, 3 x (0.5 s lighter, 0.5 s back) */
+            float f = fmodf(ph_t, 1.0f), tri = f < 0.5f ? f / 0.5f : (1.0f - f) / 0.5f;
+            char_set_lighten(FLASH_PEAK * tri);
+            char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            char_set_lighten(0);
         }
     } else if (death_on && death_fall_t >= 0) {                   /* the vessel topples backwards and stays down */
         float k = death_fall_t / DEATH_FALL_T; if (k > 1) k = 1;
