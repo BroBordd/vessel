@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "house.h"
+#include "font.h"
 #include <math.h>
 
 /* drawing in sprite pixels ("units"): 8 per tile. (OX, OY) is where unit (0, 0) lands on screen, P is screen px per unit */
@@ -42,7 +43,7 @@ static void bush(int x, int y, int mirror) {
     rc(x, y + 7, 9, 1, 28, 80, 40, 255);
 }
 
-void house_draw_outside(SDL_Renderer *r, int ox, int oy, int px, float t) {
+void house_draw_outside(SDL_Renderer *r, int ox, int oy, int px, float t, const char *label) {
     R = r; OX = ox; OY = oy; P = px;
     rc(-1, 44, 60, 5, 0, 0, 0, 70);                                  /* the ground shadow */
     for (int k = 0; k < 6; k++) {                                    /* log wall, six logs */
@@ -94,8 +95,22 @@ void house_draw_outside(SDL_Renderer *r, int ox, int oy, int px, float t) {
         rc(xx, yy, sz, sz, 228, 228, 236, (int)(170.0f * (1.0f - ph)));
     }
 
-    bush(-4, 39, 0);                                                 /* a bush at each corner */
-    bush(52, 39, 1);
+    bush(-4, 39, 0);                                                 /* a bush at the left corner */
+
+    rc(56, 47, 10, 2, 0, 0, 0, 60);                                  /* the sign: a board on a post, planted in the ground by the right corner */
+    rc(63, 40, 3, 8, 118, 80, 46, 255); rc(63, 40, 1, 8, 156, 112, 68, 255); rc(63, 47, 3, 1, 84, 56, 32, 255);
+    rc(56, 32, 16, 9, 112, 74, 42, 255);                             /* board: dark rim... */
+    rc(57, 33, 14, 7, 198, 152, 98, 255);                            /* ...pale wood... */
+    rc(57, 33, 14, 1, 224, 182, 122, 255); rc(57, 36, 14, 1, 182, 134, 84, 255); rc(57, 39, 14, 1, 182, 134, 84, 255);   /* ...planks */
+    rc(56, 41, 16, 1, 84, 56, 32, 255);
+    if (label && *label) {                                           /* written on it, in dark ink */
+        int fw = font_width(label, 1), fh = font_height(1);
+        int cell = (12 * P) / (fw > 0 ? fw : 1), ch = (6 * P) / (fh > 0 ? fh : 1);
+        if (ch < cell) cell = ch;
+        if (cell < 1) cell = 1;
+        SDL_SetRenderDrawColor(R, 62, 38, 20, 255);
+        font_draw(R, label, OX + 58 * P + (12 * P - fw * cell) / 2, OY + 33 * P + (7 * P - fh * cell) / 2, cell);
+    }
 }
 
 /* ================= THE ROOM ================= */

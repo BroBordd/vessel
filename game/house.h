@@ -21,9 +21,10 @@
 #define HOUSE_IN_ALEX_X 5               /* where Alex stands */
 #define HOUSE_IN_ALEX_Y 4
 
-/* the hut. (ox, oy) = screen px of the footprint's top-left corner, px = screen px per sprite pixel. the roof and the smoke reach a bit
+/* the hut, with a wooden sign planted in the ground beside it that has `label` written on it (the sign stands on the tile just right of
+ * the footprint, which world.c makes solid: it is part of the house). (ox, oy) = screen px of the footprint's top-left corner, px = screen px per sprite pixel. the roof and the smoke reach a bit
  * above and beside the footprint. sorted by the foot line: the footprint's bottom edge. */
-void house_draw_outside(SDL_Renderer *r, int ox, int oy, int px, float t);
+void house_draw_outside(SDL_Renderer *r, int ox, int oy, int px, float t, const char *label);
 
 /* the room. is a furniture piece standing on this tile (it blocks the player)? */
 int  house_inside_solid(int tx, int ty);

@@ -185,7 +185,7 @@ void brainwin_init(int w, int h) {
 void brainwin_open(void) {
     if (is_open) return;
     is_open = 1; closing = 0; auto_on = 1;
-    go(cur);
+    go(nth - 1);                                            /* the newest thought first (the last in the index) */
 }
 int brainwin_active(void) { return is_open || closing; }
 

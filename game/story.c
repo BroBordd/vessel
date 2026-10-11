@@ -376,11 +376,10 @@ static void open_the_hole(void);                    /* defined with the sky scen
  * itself (ID card, player look) is chunk 18 (scold_page), and her questions chunk 19, so scold_done() is the hook those will take over.
  * scold_done opens her questions (chunk 19), questions_done the hole (chunk 20). */
 static const DialogLine DEA_SCOLD[] = {
-    { &VAS, "Why did I die?" },
-    { &DEA, "Because I got angry. You broke my shrine." },
-    { &DEA, "For a girl and a ball. My ball. How stupid can one vessel be?" },
-    { &DEA, "I do not care that it hurt. There is a reason you are replaceable." },
-    { &DEA, "Fine. You are number two now. " VESSEL2_NAME ". Try not to make me remember it." },
+    { &VESSEL2, "Why did I die?" },
+    { &DEA, "Because you broke my shrine." },
+    { &VESSEL2, "Ah." },
+    { &DEA, "Dumb. Truly dumb. You are number two now. " VESSEL2_NAME ". Try not to be as dumb as the last one." },
 };
 #define DEA_SCOLD_COUNT ((int)(sizeof DEA_SCOLD / sizeof DEA_SCOLD[0]))
 

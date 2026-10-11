@@ -588,6 +588,7 @@ int world_place_house(int sx, int sy, const char *label) {
             if (map[y][x] == T_WATER || map[y][x] == T_TREE) map[y][x] = T_GRASS;
     for (int y = sy - HUT_H; y < sy; y++)
         for (int x = sx - HUT_W / 2; x <= sx + HUT_W / 2; x++) map[y][x] = T_HUT;
+    map[sy - 1][sx + HUT_W / 2 + 1] = T_HUT;                                /* the sign stands in the ground right of the hut: solid, part of the house */
     house_on = 1; house_sx = sx; house_sy = sy;
     snprintf(house_label, sizeof house_label, "%s", label ? label : "");
     return 1;
@@ -1160,7 +1161,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             if (house_piece_foot(i) * tile <= pyp) house_piece_draw(r, i, -cx, -cy, px, t);
     } else {
         item_draw_ground(r, cx, cy, t);                           /* lying on the grass: under everyone */
-        if (hut_foot && hut_foot <= pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t);
+        if (hut_foot && hut_foot <= pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t, house_label);
         if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
         for (int i = 0; i < grave_count(); i++)
             if (grave_foot_y(i) <= pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }     /* (the photo is greyed with the filter: put the scene's own back) */
@@ -1219,17 +1220,10 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         for (int i = 0; i < house_piece_count(); i++)
             if (house_piece_foot(i) * tile > pyp) house_piece_draw(r, i, -cx, -cy, px, t);
     } else {
-        if (hut_foot && hut_foot > pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t);
+        if (hut_foot && hut_foot > pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t, house_label);
         if (shrine_foot_y() > pyp) shrine_draw(r, cx, cy, t);
         for (int i = 0; i < grave_count(); i++)
             if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
-    }
-    if (house_on && !indoors && house_label[0]) {                             /* the sign above the house: who lives there */
-        int cell = px; if (cell < 2) cell = 2;
-        int tw = font_width(house_label, cell), th = font_height(cell), pad = 2 * cell;
-        int sxm = (int)((house_sx + 0.5f) * tile) - cx, syt = (house_sy - HUT_H) * tile - cy - th - 2 * pad - 2 * cell;
-        col(r, 0, 0, 0, 150); fill(r, sxm - tw / 2 - pad, syt, tw + 2 * pad, th + 2 * pad);
-        col(r, 255, 255, 255, 255); font_draw(r, house_label, sxm - tw / 2, syt + pad, cell);
     }
     gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
