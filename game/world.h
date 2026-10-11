@@ -63,6 +63,8 @@ int  world_place_grave(int tile_x, int tile_y, const Person *dead);
 /* the nearest tile to (want_tx, want_ty) where a grave fits (chunk 22): open ground all around it, clear of the shrine, the npcs, the other
  * graves and the player. looks 30 tiles around; returns 0 when there is no such tile. call it after the other props are placed. */
 int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty);
+/* the pull (grave.h, chunk 30): the interact button shows a grip next to grave i and HOLDING it fills a bar; when it is full on_done runs once */
+void world_enable_grave_pull(int grave_index, void (*on_done)(void));
 int  world_grave_count(void);
 float world_dist_to_grave(void);                          /* tiles from the player to the nearest grave on this map (1e9: none) */
 void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */

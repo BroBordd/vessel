@@ -59,6 +59,7 @@ static float kx, ky;                /* knob offset, -1..1 */
 static int   bcx, bcy, br;          /* centre and radius */
 static int   btn_down, btn_inside;
 static int   near_id = -1;          /* npc in talking range, or -1 */
+static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_shrine;           /* Dia's shrine is in reach and usable: the button shows the sludge drop, and HOLDING it pollutes */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
@@ -511,7 +512,7 @@ static void load_map(int which) {
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
-    near_shrine = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
+    near_shrine = near_grave = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
@@ -737,6 +738,7 @@ void world_restore_shrine(int tile_x, int tile_y, int polluted) { shrine_restore
 int  world_place_grave(int tile_x, int tile_y, const Person *dead) { return grave_place(tile_x, tile_y, dead); }
 int  world_grave_count(void) { return grave_count(); }
 void world_grave_tile(int i, float *tx, float *ty) { grave_tile(i, tx, ty); }
+void world_enable_grave_pull(int i, void (*on_done)(void)) { grave_pull_enable(i, on_done); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
 float world_dist_to_grave(void) {
     if (indoors) return 1e9f;
@@ -828,11 +830,12 @@ void world_touch(int a, int x, int y) {
     }
 
     /* interact button: press on it, release on it = interact */
-    int can = near_id >= 0 || near_hole || near_shrine || near_door;
+    int can = near_id >= 0 || near_hole || near_shrine || near_grave || near_door;
     if (a == 0 && can && button_hit(x, y)) {
         btn_down = 1; btn_inside = 1;
-        if (near_shrine) {                                              /* turn to face it before the sabotage starts */
-            float sfx_, sfy_; shrine_tile(&sfx_, &sfy_);
+        if (near_shrine || near_grave) {                                /* turn to face it before the sabotage / the pull starts */
+            float sfx_, sfy_;
+            if (near_shrine) shrine_tile(&sfx_, &sfy_); else grave_tile(grave_pull_index(), &sfx_, &sfy_);
             float fdx = sfx_ * tile - pxp, fdy = sfy_ * tile - pyp;
             if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
             else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
@@ -842,7 +845,7 @@ void world_touch(int a, int x, int y) {
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int fire = a == 1 && btn_inside && can && !near_shrine;      /* the shrine is a hold, not a tap (world_update) */
+            int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave;      /* the shrine and the grave are holds, not taps (world_update) */
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_hole) { if (hole_cb) hole_cb(); }
@@ -961,7 +964,7 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0; near_shrine = 0; near_door = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_door = 0;
     } else {
         if (dialog_active() || door_t >= 0) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (door_t >= 0) {
@@ -986,9 +989,11 @@ void world_update(float dt) {
         update_door_range();
         item_update(dt, pxp, pyp, !dialog_active() && !near_hole && !indoors);   /* walking over the hammer picks it up (not from inside the house) */
         near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && !indoors && item_has(ITEM_HAMMER));   /* no hammer, no button */
-        near_id = (dialog_active() || near_hole || near_shrine || near_door || !npcs_here()) ? -1 : npc_nearby();
-        if (near_id < 0 && !near_hole && !near_shrine && !near_door) btn_down = btn_inside = 0;
+        near_grave = grave_pull_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !indoors);
+        near_id = (dialog_active() || near_hole || near_shrine || near_grave || near_door || !npcs_here()) ? -1 : npc_nearby();
+        if (near_id < 0 && !near_hole && !near_shrine && !near_grave && !near_door) btn_down = btn_inside = 0;
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
+        if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
     }
 
     if (death_on) {
@@ -1155,6 +1160,30 @@ static void draw_interact_button(SDL_Renderer *r) {
         int swing = (int)(sinf(t * (p > 0 ? 16.0f : 5.0f)) * a * (p > 0 ? 0.9f : 0.4f));
         int side = ITEM_ICON_CELLS * a;
         item_draw_icon(r, ITEM_HAMMER, bcx - side / 2, bcy - side / 2 + swing, a);
+        return;
+    }
+    if (near_grave) {                                            /* a grip pulling up out of a mound. holding fills the button from the bottom with earth */
+        float p = grave_pull_progress();
+        if (p > 0) {
+            int hgt = (int)(2 * br * p);
+            SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
+            SDL_RenderSetClipRect(r, &clip);
+            col(r, 96, 74, 58, 245); pdisc(r, bcx, bcy, br, ucell);          /* the earth rises as he comes out */
+            SDL_RenderSetClipRect(r, NULL);
+            col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
+        }
+        int a = br / 8; if (a < 2) a = 2;
+        int tug = (int)(sinf(t * (p > 0 ? 14.0f : 4.0f)) * a * (p > 0 ? 0.7f : 0.3f));   /* it tugs while held, idles gently otherwise */
+        col(r, 255, 255, 255, 255);
+        fill(r, bcx - a, bcy - 5 * a + tug, 2 * a, a);                       /* the arrow up: tip ... */
+        fill(r, bcx - 2 * a, bcy - 4 * a + tug, 4 * a, a);
+        fill(r, bcx - 3 * a, bcy - 3 * a + tug, 6 * a, a);                   /* ... head ... */
+        fill(r, bcx - a, bcy - 2 * a + tug, 2 * a, 3 * a);                   /* ... and shaft */
+        col(r, 150, 118, 92, 255);
+        fill(r, bcx - 4 * a, bcy + 2 * a, 8 * a, 2 * a);                     /* the mound ... */
+        fill(r, bcx - 3 * a, bcy + a, 6 * a, a);
+        col(r, 52, 40, 32, 255);
+        fill(r, bcx - a, bcy + a, 2 * a, a);                                 /* ... and the dark gap he comes out of */
         return;
     }
     if (near_door) {                                             /* a little door, ajar, with a knob */
@@ -1400,7 +1429,7 @@ void world_draw(SDL_Renderer *r) {
         float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
-        if (near_id >= 0 || near_hole || near_shrine || near_door) draw_interact_button(r);
+        if (near_id >= 0 || near_hole || near_shrine || near_grave || near_door) draw_interact_button(r);
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */

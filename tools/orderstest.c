@@ -28,6 +28,8 @@ static void frame(float dt) {
     world_draw(rr); thought_draw(rr);
 }
 static void run(float sec) { for (float s = 0; s < sec; s += 0.016f) frame(0.016f); }
+static int pulled_n;
+static void pull_done(void) { pulled_n++; }
 static int locked_ended;
 static void locked_end(void) { locked_ended++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
@@ -99,6 +101,40 @@ int main(void) {
         CHECK(brainwin_count() == bc + 2, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
     }
     lives = 0;
+
+    /* chunk 30: the grave pull. a grave is placed near the player; nothing happens until the story switches it on; then the interact button
+     * shows next to it, a short hold fills the bar and it creeps back, a full hold calls on_done once and the pull is over */
+    {   int gx = (int)(pxp / tile) + 4, gy = (int)(pyp / tile);
+        int gi = world_place_grave(gx, gy, &VESSEL);
+        CHECK(gi >= 0, "could not place a grave for the pull test");
+        pxp = (gx + 0.5f) * tile; pyp = (gy + 0.9f + 1.2f) * tile;       /* just in front of the stone */
+        int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        run(0.3f);
+        CHECK(!near_grave && !grave_pull_enabled(), "the grave pull is on before the story switched it on");
+        world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f); world_touch(1, bx, by); run(0.1f);
+        CHECK(grave_pull_progress() == 0 && pulled_n == 0, "the button worked on a grave that was not switched on");
+
+        world_enable_grave_pull(gi, pull_done);
+        CHECK(grave_pull_enabled() && grave_pull_index() == gi, "the pull did not switch on");
+        run(0.3f);
+        CHECK(near_grave, "the button does not show next to the switched-on grave");
+        world_touch(0, bx, by); run(0.1f);                                /* a tap is not enough */
+        world_touch(1, bx, by); run(0.1f);
+        CHECK(pulled_n == 0 && !dialog_active(), "a tap pulled the body (or opened a dialog)");
+        world_touch(0, bx, by); run(1.0f);                                /* hold, then let go early */
+        float p1 = grave_pull_progress();
+        SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/pull_button.bmp");      /* the grip on the button, mid-hold (look at it) */
+        CHECK(p1 > 0.25f && p1 < 0.6f, "one second of 2.5 should fill about 40%% (%.2f)", p1);
+        world_touch(1, bx, by); run(1.0f);
+        CHECK(grave_pull_progress() < p1 && grave_pull_progress() > 0, "the bar did not creep back (%.2f -> %.2f)", p1, grave_pull_progress());
+        CHECK(pulled_n == 0, "letting go early still pulled the body");
+        world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f);            /* hold all the way */
+        CHECK(pulled_n == 1, "a full hold did not call on_done exactly once (%d)", pulled_n);
+        CHECK(!grave_pull_enabled() && !near_grave, "the pull is still on after it was done");
+        world_touch(1, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f);
+        world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.5f); world_touch(1, bx, by);
+        CHECK(pulled_n == 1, "the pull ran again (%d)", pulled_n);
+    }
 
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
     convo_open(&ALEX, &ALEX_MIND, 1, locked_end);

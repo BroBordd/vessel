@@ -2,14 +2,22 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "grave.h"
 #include "gfx.h"
+#include "audio.h"
 #include <math.h>
+#include <string.h>
 
 #define GREY_PHOTO 232              /* gfx_set_filter grey, 0..256: nearly colourless, like an old photo */
 
 static int s, tile, count;
 static struct { int tx, ty; const Person *who; } g[GRAVE_MAX];
 
-void grave_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; count = 0; }
+/* the pull (chunk 30) */
+#define PULL_RANGE  2.0f            /* tiles from the stone's feet: this close and the button shows the grip */
+#define PULL_LEAVE  2.5f
+#define PULL_DECAY_T 3.0f           /* seconds for a full bar to creep back after letting go */
+static struct { int i, on, in_range; float prog, tick; void (*cb)(void); } pull = { -1 };
+
+void grave_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; count = 0; memset(&pull, 0, sizeof pull); pull.i = -1; }
 
 int grave_place(int tile_x, int tile_y, const Person *dead) {
     if (count >= GRAVE_MAX || !dead) return -1;
@@ -18,6 +26,40 @@ int grave_place(int tile_x, int tile_y, const Person *dead) {
 }
 
 int   grave_count(void) { return count; }
+
+void  grave_pull_enable(int i, void (*on_done)(void)) {
+    if (i < 0 || i >= count) return;
+    pull.i = i; pull.on = 1; pull.in_range = 0; pull.prog = pull.tick = 0; pull.cb = on_done;
+}
+int   grave_pull_enabled(void) { return pull.on; }
+int   grave_pull_index(void) { return pull.i; }
+float grave_pull_progress(void) { return pull.prog; }
+int   grave_pull_near(float pxw, float pyw, int allow) {
+    if (!pull.on || !allow || pull.i < 0 || pull.i >= count) { pull.in_range = 0; return 0; }
+    float dx = pxw - (g[pull.i].tx + 0.5f) * tile, dy = pyw - (g[pull.i].ty + 0.9f) * tile;
+    float d = sqrtf(dx * dx + dy * dy) / tile;
+    if (!pull.in_range && d < PULL_RANGE) pull.in_range = 1;
+    else if (pull.in_range && d > PULL_LEAVE) pull.in_range = 0;
+    return pull.in_range;
+}
+int   grave_pull_update(float dt, int holding) {
+    if (!pull.on) return 0;
+    if (holding) {
+        pull.prog += dt / GRAVE_PULL_HOLD_T;
+        pull.tick -= dt;
+        if (pull.tick <= 0) { pull.tick = 0.3f; sfx_blip(0.4f + 0.4f * pull.prog); }    /* a slow, low tick: heavy work */
+        if (pull.prog >= 1.0f) {
+            pull.prog = 1.0f; pull.on = 0; pull.in_range = 0;
+            sfx_blip(0.35f);
+            if (pull.cb) { void (*cb)(void) = pull.cb; pull.cb = NULL; cb(); }
+            return 1;
+        }
+    } else {
+        pull.tick = 0;
+        if (pull.prog > 0) { pull.prog -= dt / PULL_DECAY_T; if (pull.prog < 0) pull.prog = 0; }
+    }
+    return 0;
+}
 void  grave_tile(int i, float *x, float *y) { *x = g[i].tx + 0.5f; *y = g[i].ty + 0.9f; }
 const Person *grave_person(int i) { return g[i].who; }
 float grave_foot_y(int i) { return (g[i].ty + 0.9f) * tile; }
