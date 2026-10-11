@@ -55,6 +55,8 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 
 /* the "flash" (the spawn blink after the fall): everything the character is drawn with is mixed toward white by this much, 0..1 */
 static float g_lighten;
+static int   g_headless, g_shut;                    /* chunk 38: no head; eyes forced shut */
+void char_set_headless(int on) { g_headless = on != 0; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 static void setc(SDL_Renderer *r, int R, int G, int B) {
     if (g_lighten > 0) { R += (int)((255 - R) * g_lighten); G += (int)((255 - G) * g_lighten); B += (int)((255 - B) * g_lighten); }
@@ -107,12 +109,13 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         for (int x = 0; x < SPR_W; x++) {
             char c = cell_at(p, facing, x, y);
             if (c == '.') continue;
+            if (g_headless && y < 8) continue;                            /* chunk 38: the head is gone (and the long hair with it, see cell_at) */
             int dy = y;
             if (y == 11 && lift >= 0 && ((x < 5) == (lift == 0))) dy = 10;   /* raised foot */
             switch (c) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
-            case 'c': use(r, p->shirt); break;
+            case 'c': if (g_headless && y == 8) setc(r, 150, 16, 28); else use(r, p->shirt); break;     /* (the cut across the neck) */
             case 'p': use(r, p->pants); break;
             case 'b': use(r, p->boots); break;
             }
@@ -121,11 +124,11 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         }
 
     /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
-    if (facing != FACE_UP) {
+    if (facing != FACE_UP && !g_headless) {
         int ex[2], n = 0;
         if (facing == FACE_DOWN) { ex[n++] = 2; ex[n++] = 6; }
         else                     { ex[n++] = flip ? 2 : 6; }
-        int shut = eyes_shut(p);
+        int shut = g_shut || eyes_shut(p);
         for (int i = 0; i < n; i++) {
             setc(r, 28, 22, 40);
             if (shut) { fill(r, ox + ex[i] * s, oy + 5 * s, 2 * s, s); continue; }       /* the lid: a thin line where the eye was */
@@ -137,7 +140,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
     }
 
     /* white shades over the eyes (rows 4-5): one wide bar from the front, one lens + temple from the side */
-    if ((p->acc & ACC_SHADES) && facing != FACE_UP) {
+    if ((p->acc & ACC_SHADES) && facing != FACE_UP && !g_headless) {
         SDL_SetRenderDrawColor(r, 250, 250, 255, 255);
         if (facing == FACE_DOWN) {
             fill(r, ox + 1 * s, oy + 4 * s, 3 * s, 2 * s);
@@ -182,7 +185,7 @@ void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
     int bob = (moving && frame) ? 1 : 0;
     int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s - bob * s;
     draw_sprite(r, p, facing, ox, oy, s, SPR_H, moving ? frame : -1);
-    if (p->acc & ACC_HALO) draw_halo(r, ox, oy, s);
+    if ((p->acc & ACC_HALO) && !g_headless) draw_halo(r, ox, oy, s);
 }
 
 void char_draw(SDL_Renderer *r, const Person *p, int x, int y,
@@ -205,10 +208,11 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
         for (int i = 0; i < SPR_W; i++) {
             char ch = cell_at(p, FACE_DOWN, i, j);
             if (ch == '.') continue;
+            if (g_headless && j < 8) continue;                                  /* chunk 38 */
             switch (ch) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
-            case 'c': use(r, p->shirt); break;
+            case 'c': if (g_headless && j == 8) setc(r, 150, 16, 28); else use(r, p->shirt); break;
             case 'p': use(r, p->pants); break;
             case 'b': use(r, p->boots); break;
             }
@@ -289,4 +293,13 @@ void char_draw_portrait(SDL_Renderer *r, const Person *p, int x, int y, int s, i
         SDL_SetRenderDrawColor(r, 150, 70, 80, 255);
         fill(r, x + 4 * s, y + 7 * s, 2 * s, s);
     }
+}
+
+/* chunk 38: just the head, front view, eyes shut, a dark red cut at the bottom; centred on (x, y) */
+void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s) {
+    int ox = x - (SPR_W / 2) * s, oy = y - 4 * s;
+    g_shut = 1;
+    draw_sprite(r, p, FACE_DOWN, ox, oy, s, 8, -1);
+    g_shut = 0;
+    setc(r, 150, 16, 28); fill(r, ox + 2 * s, oy + 7 * s, 6 * s, s);          /* the neck, cut */
 }

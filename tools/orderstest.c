@@ -340,6 +340,11 @@ int main(void) {
      * fight (no health bar, no lines). before that (no hammer taken / not in the house) nothing is switched on */
     {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
         int ntx = (int)(pxp / tile) - 6, nty = (int)(pyp / tile) - 6;
+        for (int ok = 0, oy = -12; oy <= 12 && !ok; oy++) for (int ox = -12; ox <= 12 && !ok; ox++) {      /* an open patch of floor: 7 x 6 tiles with nothing solid (the head and the blood need room) */
+            int cx_ = (int)(pxp / tile) + ox, cy_ = (int)(pyp / tile) + oy, free_ = 1;
+            for (int j = -4; j <= 1 && free_; j++) for (int i = -3; i <= 3 && free_; i++) if (solid_tile(cx_ + i, cy_ + j)) free_ = 0;
+            if (free_ && abs(ox) + abs(oy) >= 2) { ntx = cx_; nty = cy_; ok = 1; }
+        }
         int was_buried = aonia_buried;
         lives = 1; alex_fight_on = alex_struck = 0; hammer_taken = 0; aonia_buried = 0;      /* (not buried: hammer_watch does not take the hammer for us) */
         alex_id = npc_add(&ALEX, ntx, nty, fight_talk);
@@ -356,8 +361,35 @@ int main(void) {
         CHECK(alex_struck && sfx_debug_hits() == h0 + 1 && world_fight_left() == 0, "one tap did not end it (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
         CHECK(npc_flashing(alex_id) && !npc_hostile(alex_id), "she did not flash, or is still hostile after the hit");
         CHECK(!dialog_active() && missions_count() == mc && brainwin_count() == tc, "the hit opened a dialog / changed the tasks / added a thought (chunk 38 does that)");
+        /* chunk 38: the head comes off, the blood splashes, she falls */
+        CHECK(npc_headless(alex_id) && npc_lying(alex_id), "she is not headless and lying after the hit");
+        CHECK(gore_head_exists() && gore_drops_flying() > 0, "no head / no blood in the air after the hit (%d, %d)", gore_head_exists(), gore_drops_flying());
+        run(0.25f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_blood.bmp");        /* the splash in the air (look at it) */
+        CHECK(!world_death_active(), "the death cutscene began before the blood had landed");
         run(FIGHT_COOLDOWN + 0.2f); tap(bx, by); run(0.3f);
         CHECK(sfx_debug_hits() == h0 + 1, "a second hit landed after the end");
+        run(1.0f);                                                         /* about 2.2 s after the hit */
+        CHECK(!gore_busy() && gore_head_settled(), "the head / the blood did not come to rest");
+        CHECK(gore_stain_count() >= 25, "the blood left only %d stains", gore_stain_count());
+        {   float hx, hy, ax, ay; gore_head_pos(&hx, &hy); npc_tile(alex_id, &ax, &ay);
+            CHECK(fabsf(hx - ax * tile) + fabsf(hy - ay * tile) > 1.0f * tile, "the head lies where the body is (it did not fly): head %.1f,%.1f body %.1f,%.1f tile %d", hx, hy, ax * tile, ay * tile, tile); }
+        CHECK(world_death_active() && world_death_npc() == alex_id, "the death cutscene is not on Alex (%d, %d)", world_death_active(), world_death_npc());
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_stains.bmp");                    /* the stains on the floor, the head (look at it) */
+        {   int b0 = sfx_debug_beeps(), f0 = sfx_debug_flatlines();
+            run(DEATH_SETTLE_T + 0.4f);
+            CHECK(zoom > 2.0f, "the camera did not push in on her (%.2f)", zoom);
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_death.bmp");                 /* grey room, red body (look at it) */
+            run(DEATH_BEEPS * DEATH_BEEP_GAP + 0.3f);
+            CHECK(sfx_debug_beeps() - b0 == DEATH_BEEPS && sfx_debug_flatlines() - f0 == 1, "the peeps / the flatline are wrong (%d, %d)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
+            run(ALEX_TEXT_AT + 0.6f);
+            CHECK(strcmp(death_msg, "Alex has died.") == 0, "the words are missing (\"%s\")", death_msg);
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_text.bmp");                  /* the words (look at it) */
+            CHECK(!alex_dead, "alex_dead before the cutscene ended");
+            run(ALEX_END_HOLD + 0.5f);
+            CHECK(!world_death_active() && world_death_npc() < 0 && alex_dead, "the world is not free after the words (%d)", world_death_active());
+            run(2.0f);
+            CHECK(zoom < 1.2f, "the camera did not ease out (%.2f)", zoom);
+        }
         alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;
         item_clear(); item_reset(px, tile);
     }

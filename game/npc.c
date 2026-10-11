@@ -11,6 +11,7 @@
 #define NPC_FLASH_T   0.18f         /* the white flash of a hit */
 #define NPC_SHOVE_T   0.22f         /* the recoil eases back over this long */
 #define NPC_SHOVE_UNITS 2           /* ... starting this many pixel units back */
+#define NPC_FALL_T    0.9f          /* the topple of a dead npc */
 
 typedef struct {
     const Person *who;
@@ -20,6 +21,8 @@ typedef struct {
     int   hostile;                  /* chunk 36: the hammer can hit her */
     float flash, shove;             /* seconds left of the white flash / of the recoil */
     int   shove_x, shove_y;         /* the recoil's direction (-1, 0, 1) */
+    int   lying, headless;          /* chunk 38 */
+    float lying_t;                  /* seconds since she began to fall */
 } Npc;
 
 static Npc n[MAX_NPC];
@@ -30,7 +33,7 @@ void npc_reset(int pixel_scale, int tile_size) { count = 0; nearby = -1; s = pix
 
 int npc_add(const Person *who, int tile_x, int tile_y, void (*on_talk)(int)) {
     if (count >= MAX_NPC) return -1;
-    n[count] = (Npc){ who, tile_x + 0.5f, tile_y + 0.9f, FACE_DOWN, FACE_DOWN, 0, on_talk, 0, 0, 0, 0, 0 };
+    n[count] = (Npc){ who, tile_x + 0.5f, tile_y + 0.9f, FACE_DOWN, FACE_DOWN, 0, on_talk, 0, 0, 0, 0, 0, 0, 0, 0 };
     return count++;
 }
 
@@ -48,6 +51,7 @@ void npc_update(float px, float py) {
             n[i].facing = n[i].rest_facing;                 /* player walked away: back to the default stance */
         }
         if (!n[i].in_range) continue;
+        if (n[i].lying) continue;                           /* chunk 38: nobody to talk to */
         if (fabsf(dx) > fabsf(dy)) n[i].facing = dx < 0 ? FACE_LEFT : FACE_RIGHT;
         else                       n[i].facing = dy < 0 ? FACE_UP : FACE_DOWN;
         if (d < best) { best = d; nearby = i; }
@@ -71,8 +75,13 @@ void npc_hit(int id, float from_x, float from_y) {
     else                       n[id].shove_y = dy < 0 ? -1 : 1;
     n[id].flash = NPC_FLASH_T; n[id].shove = NPC_SHOVE_T;
 }
+void npc_set_lying(int id)           { if (id >= 0 && id < count && !n[id].lying) { n[id].lying = 1; n[id].lying_t = 0; } }
+int  npc_lying(int id)               { return id >= 0 && id < count && n[id].lying; }
+void npc_set_headless(int id, int on) { if (id >= 0 && id < count) n[id].headless = on != 0; }
+int  npc_headless(int id)            { return id >= 0 && id < count && n[id].headless; }
 void npc_tick(float dt) {
     for (int i = 0; i < count; i++) {
+        if (n[i].lying) n[i].lying_t += dt;
         if (n[i].flash > 0) { n[i].flash -= dt; if (n[i].flash < 0) n[i].flash = 0; }
         if (n[i].shove > 0) { n[i].shove -= dt; if (n[i].shove < 0) n[i].shove = 0; }
     }
@@ -92,8 +101,17 @@ void npc_draw(SDL_Renderer *r, int id, int cam_x, int cam_y) {
     float k = n[id].shove / NPC_SHOVE_T;                   /* the recoil: all the way back at the hit, eased out */
     int off = (int)(NPC_SHOVE_UNITS * s * k * k + 0.5f);
     if (n[id].flash > 0) gfx_set_white(256);
+    if (n[id].headless) char_set_headless(1);
+    if (n[id].lying) {                                      /* chunk 38: down on her back, head to the right */
+        float f = n[id].lying_t / NPC_FALL_T; if (f > 1) f = 1;
+        char_draw_fall(r, n[id].who, (int)(n[id].tx * tile) - cam_x, (int)(n[id].ty * tile) - cam_y, s, 1.5708f * f * f);
+        char_set_headless(0);
+        if (n[id].flash > 0) gfx_set_white(0);
+        return;
+    }
     char_draw(r, n[id].who, (int)(n[id].tx * tile) - cam_x + off * n[id].shove_x, (int)(n[id].ty * tile) - cam_y + off * n[id].shove_y,
               n[id].facing, 0, 0.0f, s);
+    char_set_headless(0);
     if (n[id].flash > 0) gfx_set_white(0);
 }
 

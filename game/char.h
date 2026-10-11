@@ -44,6 +44,11 @@ void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s);
 /* mixes everything drawn from now on with white: 0 = normal .. 1 = white. the spawn flash. remember to set it back to 0. */
 void char_set_lighten(float k);
 
+/* chunk 38: Alex's body without its head (a dark red cut across the neck): everything drawn while it is on has no head, no face, no halo.
+ * char_draw_head: just the head (front view, eyes shut, red at the neck), centred on (x, y), 10 x 8 sprite pixels. */
+void char_set_headless(int on);
+void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s);
+
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
  * talking = 1 flaps the mouth. (the eyes blink, each person on their own clock: see eyes_shut in char.c) */
 void char_draw_portrait(SDL_Renderer *r, const Person *p, int x, int y, int s, int talking);

@@ -259,10 +259,12 @@ static void alex_watch(void) {
  * no fight session: once the hammer is ours and we are inside her house, Alex is hostile and ONE swing is the end of her. world_enable_fight(id, 1, ...)
  * turns the interact button into the hammer next to her; the tap calls alex_struck_cb (the flash and the recoil are the engine's). chunk 38 goes on from
  * there: she falls, the head comes off, the blood. alex_struck remembers it. */
-static int alex_fight_on, alex_struck;
+static int alex_fight_on, alex_struck, alex_dead;
+static void alex_killed(void);                              /* her death: defined with the death scenes below (chunk 38) */
 static void alex_struck_cb(void) {
     alex_struck = 1;
     npc_set_hostile(alex_id, 0);
+    alex_killed();
 }
 static void alex_hammer_watch(void) {
     if (alex_fight_on || alex_struck || lives < 1 || !hammer_taken || alex_id < 0 || !world_indoors()) return;
@@ -480,6 +482,35 @@ static void story_vessel_died(void) {
     world_fade_to_black(DEATH_FADE_T, death_to_limbo);
 }
 int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0; return e; }
+
+/* ---------- Alex dies (chunk 38) ----------
+ * the one swing took her head off (world_npc_behead: the head flies, the blood splashes, the body falls). when the blood has landed the death
+ * cutscene runs on HER: the camera pushes in, the scene goes grey and she goes red, the peeps, the flatline, the words "Alex has died." and then
+ * the world is free again. no heart (she has no chest to show it on), no grave: her body stays lying in the house. alex_dead remembers it. */
+#define ALEX_BLOOD_T     2.0f           /* the head and the drops need this long to land */
+#define ALEX_TEXT_AT     1.2f           /* after the flatline: the words */
+#define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
+static int alex_beeps;
+static void alex_death_end(void) {
+    world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
+    alex_dead = 1;
+}
+static void alex_death_text(void) {
+    world_death_text("Alex has died.");
+    story_after(ALEX_END_HOLD, alex_death_end);
+}
+static void alex_death_flat(void) { sfx_flatline(); story_after(ALEX_TEXT_AT, alex_death_text); }
+static void alex_death_beep(void) {
+    sfx_beep();
+    if (--alex_beeps > 0) story_after(DEATH_BEEP_GAP, alex_death_beep);
+    else story_after(DEATH_BEEP_GAP, alex_death_flat);
+}
+static void alex_death_ready(void) { alex_beeps = DEATH_BEEPS; alex_death_beep(); }
+static void alex_death_begin(void) { world_death_begin_at(alex_id, alex_death_ready); }
+static void alex_killed(void) {
+    world_npc_behead(alex_id);
+    story_after(ALEX_BLOOD_T, alex_death_begin);
+}
 
 static void death_text(void) {
     world_death_text(VESSEL_NAME " has died.");
@@ -816,7 +847,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

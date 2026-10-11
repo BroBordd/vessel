@@ -108,6 +108,13 @@ void world_death_begin(void (*on_ready)(void));
 int  world_death_active(void);
 void world_death_player(int *feet_x, int *feet_y, int *chest_y, int *pixel);
 void world_death_cancel(void);
+/* chunk 38: the cutscene about an npc (Alex): the camera pushes in on her, everything else goes grey (the player too) and she goes red. no heart: the
+ * story plays the peeps and the flatline itself. world_death_cancel ends it as before. */
+void world_death_begin_at(int npc_id, void (*on_ready)(void));
+int  world_death_npc(void);                    /* the npc the cutscene is about, -1 for the player's own */
+/* chunk 38: the one swing's kill: her head comes off and flies away from the player, red pixel squares splash everywhere and stay as stains on the
+ * floor, the body falls and lies (npc.h). the stains and the head are the gore module's (gore.h) and only show inside the room. */
+void world_npc_behead(int npc_id);
 
 /* world_fade_to_black(seconds, on_black): everything on screen (HUD too) fades to black; on_black runs on the frame it is
  * fully dark and the screen then stays black until world_init (the story hands over to limbo there, chunk 12). */

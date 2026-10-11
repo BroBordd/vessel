@@ -22,6 +22,13 @@ void npc_hit(int id, float from_x, float from_y);
 int  npc_flashing(int id);
 void npc_tick(float dt);
 
+/* chunk 38: she is dead. npc_set_lying: she topples over backwards (0.9 s) and stays down: she cannot be talked to any more (npc_nearby skips her).
+ * npc_set_headless: drawn without her head (char_set_headless); the head itself is the gore module's. */
+void npc_set_lying(int id);
+int  npc_lying(int id);
+void npc_set_headless(int id, int on);
+int  npc_headless(int id);
+
 /* engine hooks, called by the world */
 void  npc_reset(int pixel_scale, int tile_size);                /* clears all npcs */
 void  npc_update(float player_x, float player_y);                /* player feet position, world px */

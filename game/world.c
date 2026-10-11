@@ -9,6 +9,7 @@
 #include "item.h"
 #include "mapwin.h"
 #include "grave.h"
+#include "gore.h"
 #include "house.h"
 #include "heart.h"
 #include "summon.h"
@@ -105,6 +106,7 @@ static float death_t;
 static char  death_msg[48];         /* the words over the cutscene (chunk 15), "" = none */
 static float death_msg_t;
 static float death_fall_t = -1;     /* the collapse (chunk 15.1): -1 = standing, else seconds since it began */
+static int   death_npc = -1;        /* chunk 38: the cutscene is about this npc (the camera, the red) instead of the player; -1 = the player */
 #define DEATH_FALL_T    1.1f        /* the topple takes this long */
 static void (*death_cb)(void);
 static void (*summon_cb)(void);       /* the summoning's on_done (chunk 8) */
@@ -516,6 +518,7 @@ static void load_map(int which) {
     cur_map = which;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
+    gore_reset(px, tile);
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
@@ -539,7 +542,7 @@ void world_init(int w, int h) {
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
     zoom = zoom_target = 1.0f; talk_npc = -1;
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1;
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     blackout_t = -1; blackout_cb = NULL;
     dawn_on = 0; dawn_t = 0; col_mul = 255;
@@ -791,7 +794,7 @@ float world_dist_to_grave(void) {
 void world_return_to_clouds(void) {
     load_map(MAP_CLOUD);
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
-    death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
+    death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; death_npc = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
     blackout_t = -1; blackout_cb = NULL;
     dawn_on = 0; col_mul = 255;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
@@ -808,17 +811,40 @@ void world_fade_to_black(float seconds, void (*on_black)(void)) {
     blackout_t = 0; blackout_dur = seconds > 0.05f ? seconds : 0.05f; blackout_cb = on_black;
 }
 void world_death_begin(void (*on_ready)(void)) {
-    death_on = 1; death_t = 0; death_cb = on_ready; heart_reset(); death_msg[0] = 0; death_fall_t = -1;
+    death_on = 1; death_t = 0; death_cb = on_ready; heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
     world_set_controls_visible(0);
     facing = FACE_DOWN; moving = 0; walk = 0; talk_npc = -1;      /* facing us, standing still */
 }
+void world_death_begin_at(int npc_id, void (*on_ready)(void)) {      /* chunk 38: the same cutscene, about an npc. the player stands, grey, and looks at her */
+    world_death_begin(on_ready);
+    death_npc = npc_id;
+    float nx, ny; npc_tile(npc_id, &nx, &ny);
+    float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
+    if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
+    else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
+}
+int world_death_npc(void) { return death_npc; }
 int world_death_active(void) { return death_on; }
+
+static int gore_floor_ok(int tx, int ty) { return !solid_tile(tx, ty); }
+/* chunk 38: the one swing. the head comes off and flies away from the player, blood splashes everywhere, the body falls */
+void world_npc_behead(int npc_id) {
+    float nx, ny; npc_tile(npc_id, &nx, &ny);
+    float x = nx * tile, y = ny * tile, dx = x - pxp, dy = y - pyp, m = sqrtf(dx * dx + dy * dy);
+    if (m < 1.0f) { dx = 0; dy = 1; m = 1; }
+    dx /= m; dy /= m;
+    gore_set_floor(gore_floor_ok);
+    npc_set_headless(npc_id, 1);
+    gore_head_launch(npc_person(npc_id), x, y, 9.0f * px, dx, dy);
+    gore_burst(x, y, 9.0f * px, dx, dy);
+    npc_set_lying(npc_id);
+}
 void world_death_fall(void) { if (death_on && death_fall_t < 0) death_fall_t = 0; }
 void world_death_text(const char *text) {                          /* the words over the cutscene: fade in, then stay */
     snprintf(death_msg, sizeof death_msg, "%s", text ? text : ""); death_msg_t = 0;
 }
 void world_death_cancel(void) {                                   /* back to normal (the stand-in ending of chunk 12-14) */
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1;
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
     zoom_target = 1.0f;
     world_set_controls_visible(1);
 }
@@ -1031,6 +1057,7 @@ void world_update(float dt) {
 
         grave_update(dt);
         npc_tick(dt);
+        gore_update(dt);
         if (fight_cd > 0) { fight_cd -= dt; if (fight_cd < 0) fight_cd = 0; }
         if (fight_swing > 0) { fight_swing -= dt / FIGHT_SWING_T; if (fight_swing < 0) fight_swing = 0; }
         if (npcs_here()) npc_update(pxp, pyp);
@@ -1054,6 +1081,7 @@ void world_update(float dt) {
         k = k * k * (3.0f - 2.0f * k);                            /* eases in and out: a slow, heavy push */
         zoom = 1.0f + (ZOOM_DEATH - 1.0f) * k;
         zoom_fx = pxp; zoom_fy = pyp - 6.0f * px;                 /* the middle of the sprite (12 units tall) */
+        if (death_npc >= 0) { float nx, ny; npc_tile(death_npc, &nx, &ny); zoom_fx = nx * tile; zoom_fy = ny * tile - 3.0f * px; }   /* chunk 38: on her, lying */
     } else if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
         float nx, ny; npc_tile(talk_npc, &nx, &ny);
         zoom_fx = (pxp + nx * tile) / 2.0f;
@@ -1371,6 +1399,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
 
     if (cur_map == MAP_CLOUD) draw_cloud_rim(r, cx, cy, tx0, ty0, tx1, ty1);
+    if (indoors) { scene_filter(1); gore_draw_floor(r, cx, cy); scene_filter(0); }          /* chunk 38: the stains on the floor (red even in the grey) */
 
     int hcx = 0, hcy = 0;
     if (hole_on) {
@@ -1394,10 +1423,10 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     }
     if (npcs_here())
         for (int i = 0; i < npc_count(); i++)
-            if (npc_foot_y(i) <= pyp) npc_draw(r, i, cx, cy);
+            if (npc_foot_y(i) <= pyp) { scene_filter(death_npc == i); npc_draw(r, i, cx, cy); scene_filter(0); }
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
-    scene_filter(1);                                              /* the player: red, in a grey world */
+    scene_filter(death_npc < 0);                                  /* the player: red, in a grey world (grey when the cutscene is about an npc) */
     if (summon_active()) {                                        /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
         int rows = summon_player_rows();
         if (rows > 0) {
@@ -1457,7 +1486,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     scene_filter(0);
     if (npcs_here())
         for (int i = 0; i < npc_count(); i++)
-            if (npc_foot_y(i) > pyp) npc_draw(r, i, cx, cy);
+            if (npc_foot_y(i) > pyp) { scene_filter(death_npc == i); npc_draw(r, i, cx, cy); scene_filter(0); }
     if (indoors) {
         for (int i = 0; i < house_piece_count(); i++)
             if (house_piece_foot(i) * tile > pyp) house_piece_draw(r, i, -cx, -cy, px, t);
@@ -1467,6 +1496,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         for (int i = 0; i < grave_count(); i++)
             if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
     }
+    if (indoors) { scene_filter(1); gore_draw_air(r, cx, cy); scene_filter(0); }          /* chunk 38: the drops in the air and her head */
     gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
 
