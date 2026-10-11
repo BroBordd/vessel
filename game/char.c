@@ -189,25 +189,27 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
         }
 }
 
-/* getting up after the fall, k 0..1: the classic cartoon "tip upright". the whole body (seen from behind: they landed face-down) is ONE rigid
- * piece pivoting on the feet, so legs and torso always move together:
- *   0.00-0.22  lying on the belly, head to the left; two little struggles (the head lifts, drops, lifts, drops)
- *   0.22-0.62  swings up with a hop, overshoots upright by a hair and settles back (ease-out-back), no squash
- *   0.62-0.85  standing still for a beat
- *   0.85-1.00  turns round on the spot (back, side, front) to face us */
+/* getting up after the fall, k 0..1. seen from the SIDE (the classic platformer way): lying face-down, head to the left, and the hand really
+ * is used: the body is ONE rigid piece pivoting on the feet, and the near arm reaches to the ground and stays planted while the body rises.
+ *   0.00-0.10  lying face-down, eyes shut, an arm stretched forward beside the head
+ *   0.10-0.18  the eyes open, the hand comes in and plants on the ground under the shoulder
+ *   0.18-0.45  push-up: the body rises about the feet, the arm straight from shoulder to the planted hand
+ *   0.45-0.75  the hand lets go (it swings down to the side), the body swings upright with a hop and a small overshoot (ease-out-back)
+ *   0.75-0.90  standing, side on, for a beat
+ *   0.90-1.00  turns to face us */
 static float ease01(float k) { if (k < 0) k = 0; if (k > 1) k = 1; return k * k * (3.0f - 2.0f * k); }
 static float ease_out_back(float t) { const float c1 = 1.70158f, c3 = c1 + 1.0f; float u = t - 1.0f; return 1.0f + c3 * u * u * u + c1 * u * u; }
 void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, float k) {
     if (k < 0) k = 0;
-    if (k >= 0.85f) { char_draw(r, p, x, y, k < 0.91f ? FACE_UP : k < 0.96f ? FACE_LEFT : FACE_DOWN, 0, 0.0f, s); return; }
-    const float Q = 1.5708f, PI_ = 3.14159265f;
-    float a, hop = 0, sq = 1.0f;
-    if (k < 0.22f)      a = -Q + 0.14f * fabsf(sinf(2.0f * PI_ * k / 0.22f));
-    else if (k < 0.62f) { float t = (k - 0.22f) / 0.40f; a = -Q * (1.0f - ease_out_back(t)); hop = sinf(PI_ * t) * 2.2f; }
-    else                a = 0;                                                    /* upright: a short beat before turning round */
+    if (k >= 0.75f) { char_draw(r, p, x, y, k < 0.90f ? FACE_LEFT : FACE_DOWN, 0, 0.0f, s); return; }
+    const float Q = 1.5708f, PI_ = 3.14159265f, A_PUSH = -0.55f;
+    float a, hop = 0;
+    if (k < 0.18f)      a = -Q;
+    else if (k < 0.45f) a = -Q + (A_PUSH + Q) * ease01((k - 0.18f) / 0.27f);
+    else                { float t = (k - 0.45f) / 0.30f; a = A_PUSH * (1.0f - ease_out_back(t)); hop = sinf(PI_ * t) * 2.0f; }
     float up = 1.0f - fabsf(a) / Q; if (up < 0) up = 0; if (up > 1) up = 1;     /* 0 = flat on the ground, 1 = upright */
     float shx = 6.0f * s * (1.0f - up);                                           /* a lying body is centred over (x, y) */
-    float shy = -3.5f * s * (1.0f - up) - hop * s;                                /* resting on the ground line, not through it */
+    float shy = -4.5f * s * (1.0f - up) - hop * s;                                /* ...and rests on the ground line */
 
     float wsh = 8.0f + 5.0f * (1.0f - up);                                        /* the shadow: a long strip while down, a small one standing */
     SDL_SetRenderDrawColor(r, 0, 0, 0, hop > 0 ? 60 : 80);
@@ -215,10 +217,12 @@ void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, floa
 
     float ca = cosf(a), sa = sinf(a);
     int sz = (int)(s * 1.3f + 0.5f); if (sz < s + 1) sz = s + 1;                  /* a rotated grid of squares needs them a little big to leave no gaps */
+#define GU_PT(cx, cy, ox, oy) do { float cx_ = (cx), cy_ = (cy); (ox) = shx / s + cx_ * ca - cy_ * sa; (oy) = shy / s + cx_ * sa + cy_ * ca; } while (0)
+#define GU_SQ(px_, py_) fill(r, x + (int)((px_) * s) - sz / 2, y + (int)((py_) * s) - sz / 2, sz, sz)
     for (int j = 0; j < SPR_H; j++)
         for (int i = 0; i < SPR_W; i++) {
-            char ch = cell_at(p, FACE_UP, i, j);
-            if (ch == '.') continue;
+            char ch = cell_at(p, FACE_LEFT, i, j);
+            if (ch == '.' || (j == 9 && ch == 's')) continue;                    /* (the hands are drawn as an arm) */
             switch (ch) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
@@ -226,10 +230,34 @@ void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, floa
             case 'p': use(r, p->pants); break;
             case 'b': use(r, p->boots); break;
             }
-            float cx = (i - 5 + 0.5f), cy = (j - SPR_H + 0.5f) * sq;             /* from the middle of the feet, in sprite pixels (squashed on landing) */
-            float rx = cx * ca - cy * sa, ry = cx * sa + cy * ca;
-            fill(r, x + (int)(shx + rx * s) - sz / 2, y + (int)(shy + ry * s) - sz / 2, sz, sz);
+            float qx, qy; GU_PT((SPR_W - 1 - i) - 5 + 0.5f, j - SPR_H + 0.5f, qx, qy); GU_SQ(qx, qy);
         }
+    {   /* the eye, on the side facing the ground: shut until the hand comes in */
+        int shut = k < 0.10f;
+        SDL_SetRenderDrawColor(r, 28, 22, 40, 255);
+        for (int row = shut ? 5 : 4; row <= (shut ? 5 : 6); row++)
+            for (int ex = 2; ex <= 3; ex++) { float qx, qy; GU_PT(ex - 5 + 0.5f, row - SPR_H + 0.5f, qx, qy); GU_SQ(qx, qy); }
+        if (!shut) { SDL_SetRenderDrawColor(r, 255, 255, 255, 255); float qx, qy; GU_PT(3 - 5 + 0.5f, 4 - SPR_H + 0.5f, qx, qy); GU_SQ(qx, qy); }
+    }
+    {   /* the near arm: sleeve, then the hand. the hand goes: stretched forward -> planted under the shoulder -> let go, down to the side */
+        float shx_, shy_, rx_, ry_; GU_PT(0.0f, -3.4f, shx_, shy_); GU_PT(0.5f, -1.2f, rx_, ry_);
+        const float REACH_X = -5.0f, REACH_Y = -1.2f, G_X = -2.5f, G_Y = 0.0f;   /* post-shift frame, sprite pixels */
+        float hx, hy;
+        if (k < 0.10f)      { hx = REACH_X; hy = REACH_Y; }
+        else if (k < 0.18f) { float t = ease01((k - 0.10f) / 0.08f); hx = REACH_X + (G_X - REACH_X) * t; hy = REACH_Y + (G_Y - REACH_Y) * t; }
+        else if (k < 0.45f) { hx = G_X; hy = G_Y; }
+        else if (k < 0.58f) { float t = ease01((k - 0.45f) / 0.13f); hx = G_X + (rx_ - G_X) * t; hy = G_Y + (ry_ - G_Y) * t; }
+        else                { hx = rx_; hy = ry_; }
+        float dx = hx - shx_, dy = hy - shy_, dist = sqrtf(dx * dx + dy * dy);
+        int steps = (int)(dist * 2.2f); if (steps < 2) steps = 2;
+        for (int q = 0; q <= steps; q++) {
+            float t = (float)q / steps;
+            use(r, t < 0.6f ? p->shirt : p->skin);
+            GU_SQ(shx_ + dx * t, shy_ + dy * t);
+        }
+    }
+#undef GU_PT
+#undef GU_SQ
 }
 
 void char_draw_prone(SDL_Renderer *r, const Person *p, int x, int y, int s, float lift) {

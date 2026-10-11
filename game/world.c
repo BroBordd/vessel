@@ -119,7 +119,7 @@ static float dawn_t;
 
 #define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  1.5f                /* lying face-down after the impact */
-#define GETUP_T 1.8f                /* pushing up, kneeling, standing, turning round */
+#define GETUP_T 2.0f                /* the push-up, the swing up, a beat standing, turning round */
 static int   phase;
 static float ph_t, sink_x0, sink_y0;
 static void (*up_cb)(void);
