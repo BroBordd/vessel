@@ -26,7 +26,7 @@ Same as vessel 1 and 2:
   and `tools/groundtest.c` (line in its header) must still pass. Add a headless check to the tests for every
   behaviour you add. `tools/preview.c` renders screenshots without a phone.
 - The game is open source and meant to be **semi horror**. Dark is fine. Keep it in the game's own style: stylised pixel
-  art, the heart monitor, grey filters. No graphic detail beyond what Aonia's death already shows.
+  art, the heart monitor, grey filters. No graphic detail beyond what Aonia's death already shows, except Alex's death (story section 4): the detached head and the endless red spark idle, drawn as stylised pixel squares only.
 
 ## Cast and names
 
@@ -75,6 +75,15 @@ and, as we take the hammer, "Rest well. I need this."
 Back in her house: hammer out, a swing button next to her. She is hit again and again, says what people say, falls.
 Her death uses the same stylised language as Aonia's: freeze, red tint on her, flatline, the words **"Alex has died."**
 She does not get a grave. The **orb** drops. We pick it up. The task is done, nobody has seen.
+
+**How she dies (the head).** The killing blow is a hit on her **head**: the last swing knocks her head **away from the
+body**, it flies off and comes to rest a short way from her. Her body falls and lies on the floor of the house.
+From the neck of the lying body, **small red sparks keep spraying out forever** as its idle animation (the room is never
+quiet again; this runs for as long as the house is loaded). Each spray makes the body **shake** a little and plays a
+**watery "pfft"**, like squeezing a plastic bottle with a pinhole in it: a thin jet of drops squirts out in a
+**straight line**, sparkling, then drops back down. The sparks are small pixel squares (pixel art only, no smooth curves),
+red on the grey of the death scene, in short rhythmic bursts (squeeze, pfft, pause, squeeze, pfft). Stylised, never
+detailed: sparks and a shaking body, no anatomy.
 
 ### 5. The shrine
 New task **"Repair the shrine"**. The broken shrine is on the map. Hold the interact button with the hammer: it
@@ -148,7 +157,7 @@ Mark `[x]` when the chunk is pushed.
 ### Beating Alex
 - [ ] **36. The swing** — engine: with the hammer, an npc marked hostile (`npc_set_hostile(id, 1)`) makes the interact button a hammer swing; each tap hits: the npc flashes white and is shoved one pixel unit back, a hit sound, a short cooldown (`world_enable_fight(npc_id, hits, on_down)`). Check: N taps call `on_down` once.
 - [ ] **37. Alex fights back** — Alex is hostile once the hammer is in her house with us. A small pixel health bar over her; she says one `ALEX_HURT[]` line between hits (face popup, tap to go on) and stays on her feet until the last. Check: bar goes down per hit; lines in order.
-- [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. Check: camera target is the npc, controls return afterwards.
+- [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. **The last hit knocks her head off the body** (a separate head sprite flies a few tiles and lies still), and the body then plays the endless idle: red spark bursts from the neck in a straight line, the body shakes a little, a watery "pfft" sound (`sfx_pfft()` in `audio.c`: short filtered noise burst, falling pitch) on every burst (see story section 4). Check: camera target is the npc, controls return afterwards; the head is detached from the body; the spark idle keeps running (burst counter goes up over time, `sfx_debug_pfft()`).
 
 ### The orb
 - [ ] **39. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); it drops where she fell (`item_place`), walking over it picks it up; the task "Get the orb from Alex" is done and **"Repair the shrine"** coins in; thought: "Nobody saw. Dea will be pleased." Check: orb in pockets, task swap.
@@ -177,3 +186,4 @@ Mark `[x]` when the chunk is pushed.
 
 - 2026-10-11: chunk 25 done: this file.
 - 2026-10-11: the grave scene reworked: we pull the old body out by the legs, search him (magnifying-glass button) so the hammer falls to the ground, picking it up too early flashes and shakes the task "Bury Aonia" in red with an error sound, and the body has to be buried again first. Chunks 30-35 replace the old 30-32; the later chunks are renumbered 36-44.
+- 2026-10-11: story section 4 extended: Alex dies by a hit to the head that knocks it off the body; her body lies on the floor with an endless idle of small red sparks from the neck (straight-line squirts, body shakes, watery pfft sound like squeezing a pinholed bottle). Chunk 38 updated to match.
