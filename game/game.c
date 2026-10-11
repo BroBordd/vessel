@@ -40,12 +40,34 @@ static void quit_app(void) {
     _exit(0);
 }
 
-/* the Android back button (the app sends "k 4"). it never leaves the game: it closes the window that is open, else pauses / resumes the
- * world. when there is nothing for it to do (the menu, limbo) it says so and the app sends itself to the background instead. */
+/* the Android back button (the app sends "k 4"). it never leaves the game: it closes the foreground-most window (the one that opened last, in
+ * case several are stacked), else pauses / resumes the world. when there is nothing for it to do (the menu, limbo) it says so and the app
+ * sends itself to the background instead. */
+enum { WIN_MAP, WIN_MUSIC, WIN_BRAIN, WIN_N };
+static int win_order[WIN_N], win_n;                         /* the open windows, oldest first: the last one is in front */
+
+static int win_active(int w) {
+    return w == WIN_MAP ? mapwin_active() : w == WIN_MUSIC ? musicwin_active() : brainwin_active();
+}
+static void win_close(int w) {
+    if (w == WIN_MAP) mapwin_close(); else if (w == WIN_MUSIC) musicwin_close(); else brainwin_close();
+}
+/* called every frame: windows that just opened go on top of the stack, windows that are gone leave it */
+static void win_track(void) {
+    int k = 0;
+    for (int i = 0; i < win_n; i++) if (win_active(win_order[i])) win_order[k++] = win_order[i];
+    win_n = k;
+    for (int w = 0; w < WIN_N; w++) {
+        if (!win_active(w)) continue;
+        int in = 0;
+        for (int i = 0; i < win_n; i++) if (win_order[i] == w) in = 1;
+        if (!in) win_order[win_n++] = w;
+    }
+}
+
 static int handle_back(State st) {
-    if (mapwin_active())   { mapwin_close();   return 1; }
-    if (musicwin_active()) { musicwin_close(); return 1; }
-    if (brainwin_active()) { brainwin_close(); return 1; }
+    win_track();                                            /* (also catches a window that opened since the last frame) */
+    if (win_n > 0) { win_close(win_order[win_n - 1]); return 1; }   /* the front window; one still sliding away just swallows the press */
     if (st == ST_WORLD && !world_dawning()) {
         int was = pausebtn_paused();
         pausebtn_set_paused(!was);
@@ -187,6 +209,7 @@ int main(int argc, char **argv) {
             alen -= s - acc; memmove(acc, s, alen);
         }
 
+        win_track();
         if (bg) {                                   /* in the background: just keep an ear on the app */
             SDL_Delay(50);
             prev = SDL_GetPerformanceCounter(); next_frame = prev + frame_ticks;
