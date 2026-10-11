@@ -246,9 +246,29 @@ static void alex_spotted(void) {
 }
 
 /* the proximity trigger, run every frame: walking within sight of Alex (not while a dialog is open) */
+static int lives;                           /* vessels lived and lost: 1 after Aonia */
+static int aonia_buried, hammer_taken;                      /* chunks 34-35: he is buried again; we have taken the hammer (a new landing does not put it back) */
+static void alex_hammer_watch(void);
 static void alex_watch(void) {
     if (alex_id >= 0 && !alex_seen && !dialog_active() && world_dist_to_npc(alex_id) < ALEX_SIGHT)
         alex_spotted();
+    alex_hammer_watch();
+}
+
+/* ---------- one swing (chunk 37) ----------
+ * no fight session: once the hammer is ours and we are inside her house, Alex is hostile and ONE swing is the end of her. world_enable_fight(id, 1, ...)
+ * turns the interact button into the hammer next to her; the tap calls alex_struck_cb (the flash and the recoil are the engine's). chunk 38 goes on from
+ * there: she falls, the head comes off, the blood. alex_struck remembers it. */
+static int alex_fight_on, alex_struck;
+static void alex_struck_cb(void) {
+    alex_struck = 1;
+    npc_set_hostile(alex_id, 0);
+}
+static void alex_hammer_watch(void) {
+    if (alex_fight_on || alex_struck || lives < 1 || !hammer_taken || alex_id < 0 || !world_indoors()) return;
+    alex_fight_on = 1;
+    npc_set_hostile(alex_id, 1);
+    world_enable_fight(alex_id, 1, alex_struck_cb);
 }
 
 /* ---------- Alex's deal (chunk 9) ----------
@@ -310,7 +330,6 @@ static const DialogLine DEA_WRATH[] = { { &DEA, "You don't deserve to live." } }
  * vessel is summoned again. STAND-IN until then: limbo just stays after the soul's line and its hold (no way back yet). */
 #define DEATH_FADE_T        1.0f
 static int vessel_dead;
-static int lives;                           /* vessels lived and lost: 1 after Aonia */
 static int death_tx, death_ty;              /* the tile where the last vessel died */
 static int limbo_enter_req;
 
@@ -356,6 +375,7 @@ static void story_reset_for_respawn(void) {
     mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets */
+    alex_fight_on = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
     brainwin_clear();                               /* the new vessel starts with an empty head: none of vessel 1's thoughts */
@@ -505,7 +525,6 @@ static void shrine_thought(void) {
 
 /* the hammer's thoughts, every frame: picking it up (what the vessel thinks depends on whether it knows about the shrine yet), and the
  * hint when standing at a switched-on shrine with empty hands */
-static int aonia_buried, hammer_taken;                      /* chunks 34-35: he is buried again; we have taken the hammer (a new landing does not put it back) */
 static void hammer_watch(void) {
     if (dying || dialog_active()) return;
     int knows = mission_pollute >= 0 && !shrine_fouled;
@@ -654,6 +673,7 @@ static void landed_again(void) {
         world_place_house(green.house_tx, green.house_ty, "Alex");   /* the map is made again: her house is put back, and she is inside it */
         world_house_alex_tile(&ax, &ay);
         alex_id = npc_add(&ALEX, ax, ay, on_talk_alex);
+        alex_fight_on = 0;                                  /* a new map: the fight is switched on again once we stand in her house with the hammer */
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
     }
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
@@ -796,7 +816,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

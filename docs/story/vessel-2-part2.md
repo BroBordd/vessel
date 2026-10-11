@@ -26,7 +26,7 @@ Same as vessel 1 and 2:
   and `tools/groundtest.c` (line in its header) must still pass. Add a headless check to the tests for every
   behaviour you add. `tools/preview.c` renders screenshots without a phone.
 - The game is open source and meant to be **semi horror**. Dark is fine. Keep it in the game's own style: stylised pixel
-  art, the heart monitor, grey filters. No graphic detail beyond what Aonia's death already shows, except Alex's death (story section 4): the detached head and the endless red spark idle, drawn as stylised pixel squares only.
+  art, the heart monitor, grey filters. No graphic detail beyond what Aonia's death already shows, except Alex's death (story section 4): the detached head, the blood splash and the endless red spark idle, drawn as stylised pixel squares only.
 
 ## Cast and names
 
@@ -72,21 +72,22 @@ now **drags him back into his grave** and the plot closes. Task done. The hammer
 and, as we take the hammer, "This can come in handy." (the soul feels no remorse: it is a tool)
 
 ### 4. Alex
-Back in her house: hammer out, a swing button next to her. She is hit again and again, says what people say, falls.
+Back in her house: hammer out, a swing button next to her. **One swing is enough** (no fight, no health bar, no pleading): the hit takes her head off and the blood goes everywhere. She falls.
 Her death uses the same stylised language as Aonia's: freeze, red tint on her, flatline, the words **"Alex has died."**
 She does not get a grave. The orb does **not** drop by itself: it is still on her. Next to her body the interact button becomes the
 **magnifying glass (search)** again (the same icon as on Aonia's body). A tap searches her and **takes the orb out**. We have it. The task
 "Get the orb from Alex" is done and the next goal ("Repair the shrine") simply coins in: **silently**, no thought, no comment, no
 music sting. The vessel just gets on with it.
 
-**How she dies (the head).** The killing blow is a hit on her **head**: the last swing knocks her head **away from the
-body**, it flies off and comes to rest a short way from her. Her body falls and lies on the floor of the house.
+**How she dies (the head).** The one swing is a hit on her **head**: it knocks her head **away from the
+body**, it flies off and comes to rest a short way from her, and **blood splashes everywhere**: red pixel squares burst out of the
+neck and land on the floor, the walls' foot and around her as stains that stay. Her body falls and lies on the floor of the house.
 From the neck of the lying body, **small red sparks keep spraying out forever** as its idle animation (the room is never
 quiet again; this runs for as long as the house is loaded). Each spray makes the body **shake** a little and plays a
 **watery "pfft"**, like squeezing a plastic bottle with a pinhole in it: a thin jet of drops squirts out in a
 **straight line**, sparkling, then drops back down. The sparks are small pixel squares (pixel art only, no smooth curves),
 red on the grey of the death scene, in short rhythmic bursts (squeeze, pfft, pause, squeeze, pfft). Stylised, never
-detailed: sparks and a shaking body, no anatomy.
+detailed: red squares, sparks and a shaking body, no anatomy.
 
 ### 5. The shrine
 New task **"Repair the shrine"**. The broken shrine is on the map. Hold the interact button with the hammer: it
@@ -112,7 +113,6 @@ Walk up to her temple with the orb. Hand it over (a short scripted talk). That i
 - Search: "He still has it. The hammer." (it falls on the ground)
 - Pick up too early: error sound, the task "Bury Aonia" flashes red and shakes; thought: "Not like this. He goes back first."
 - Buried: "Rest well." / taking the hammer: "This can come in handy."
-- Alex hit (between hits): "Hey! What are you doing?" / "Stop it!" / "Please!" / "It's just an orb..."
 - Death text: "Alex has died."
 - After taking the orb: nothing. No thought, no line. (Silent on purpose.)
 - Task: "Repair the shrine" / repairing thought: "This hammer surely can do everything, huh."
@@ -159,8 +159,8 @@ Mark `[x]` when the chunk is pushed.
 
 ### Beating Alex
 - [x] **36. The swing** — engine: with the hammer, an npc marked hostile (`npc_set_hostile(id, 1)`) makes the interact button a hammer swing; each tap hits: the npc flashes white and is shoved one pixel unit back, a hit sound, a short cooldown (`world_enable_fight(npc_id, hits, on_down)`). Check: N taps call `on_down` once.
-- [ ] **37. Alex fights back** — Alex is hostile once the hammer is in her house with us. A small pixel health bar over her; she says one `ALEX_HURT[]` line between hits (face popup, tap to go on) and stays on her feet until the last. Check: bar goes down per hit; lines in order.
-- [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. **The last hit knocks her head off the body** (a separate head sprite flies a few tiles and lies still), and the body then plays the endless idle: red spark bursts from the neck in a straight line, the body shakes a little, a watery "pfft" sound (`sfx_pfft()` in `audio.c`: short filtered noise burst, falling pitch) on every burst (see story section 4). Check: camera target is the npc, controls return afterwards; the head is detached from the body; the spark idle keeps running (burst counter goes up over time, `sfx_debug_pfft()`).
+- [x] **37. One swing** — no fight session (owner decision): once the hammer is ours (`hammer_taken`) and we stand in her house, Alex is hostile (`npc_set_hostile`) and `world_enable_fight(alex_id, 1, alex_struck_cb)` makes the interact button the hammer; ONE tap is the whole fight. No health bar, no `ALEX_HURT` lines. The engine's flash and recoil play; `alex_struck` is set; she stops being hostile. Chunk 38 makes her fall. Check: not hostile before the hammer is taken or outside the house; one tap = one thump, `alex_struck`, no dialog / task / thought.
+- [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. **The one hit knocks her head off the body** (a separate head sprite flies a few tiles and lies still) **and blood splashes everywhere**: a burst of red pixel squares flies out from the neck in all directions and lands as red stains (square pixel splatters) on the floor around her, which stay. Then the body plays the endless idle: red spark bursts from the neck in a straight line, the body shakes a little, a watery "pfft" sound (`sfx_pfft()` in `audio.c`: short filtered noise burst, falling pitch) on every burst (see story section 4). Check: camera target is the npc, controls return afterwards; the head is detached from the body; the spark idle keeps running (burst counter goes up over time, `sfx_debug_pfft()`).
 
 ### The orb
 - [ ] **39. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); no orb on the ground: next to Alex's lying body the interact button shows the **magnifying glass** (reuse chunk 32's icon and search timing); a tap searches her once and puts the orb straight into the pockets (inventory slot unfolds). The task "Get the orb from Alex" is done and **"Repair the shrine"** coins in **silently**: no thought, no dialog, no extra sound beyond the normal task toast. Check: no orb before the search, orb in pockets after, task swap, no thought queued.
@@ -179,7 +179,7 @@ Mark `[x]` when the chunk is pushed.
 ## Open decisions (defaults so nobody has to wait)
 
 - **How Doia dies at the end:** the repaired shrine drains us on a hold (chunk 41). Alternative: Dea's voice orders it and we simply fall. Default is the shrine.
-- **Does Alex hurt us:** no. She only talks and takes the hits (chunk 37). Fighting back would need npc motion.
+- **Does Alex hurt us:** no. She does not even talk: one swing and she is down (chunk 37). Fighting back would need npc motion.
 - **No grave for Alex.** Her body stays lying in the house.
 - **Task list stays secret-quiet:** no task says "kill". The only tasks are "Get the orb from Alex", "Repair the shrine", "Die" (and "Give the orb to Dea" if wanted in chunk 40).
 - **Chat lock ends** once the orb is handed over (chunk 43) or when vessel 3 starts, whichever the owner prefers. Default: it ends with the orb handover.
@@ -203,3 +203,5 @@ Mark `[x]` when the chunk is pushed.
 - 2026-10-11: owner decision: the vessel has no emotions, so the hammer pickup thought (chunk 35, story section 3, draft strings) is "This can come in handy." instead of "Rest well. I need this. I'm sorry."
 - 2026-10-11: chunk 35 done: `story.c` `hammer_watch` has a vessel 2+ branch (`lives >= 1`; vessel 1's pickup thoughts and the shrine hint no longer run there, because `hammer_said` is carried over from the first life). Once he is buried and the hammer is in the pockets: `hammer_taken = 1` (a new landing no longer puts the hammer back on the grass), the answered "I need something heavy" thought (`THOUGHT_REFUSED`) is dropped from the brain window, and the flat thought "This can come in handy." (`BRAIN_SCENE_HAMMER`, `THOUGHT_HAMMER`) is thought once. The task list does not change ("Get the orb from Alex" stays). Checked in `tools/orderstest.c` (taken flag, thought card, task count unchanged); screenshot `build/hammer_ours.bmp`.
 - 2026-10-11: chunk 36 done: engine only, nothing in `story.c` switches it on yet (chunk 37 does). `npc.c`: `npc_set_hostile/npc_hostile`, `npc_hit(id, from_x, from_y)` (white flash for `NPC_FLASH_T` = 0.18 s and a recoil away from the player: `NPC_SHOVE_UNITS` = 2 pixel units back, eased out over 0.22 s, drawn only: her tile does not move), `npc_flashing`, `npc_tick(dt)`. `gfx.c`: `gfx_set_white(0..256)`, its own colour switch like the gold one. `audio.c`: `sfx_hit()` (a dull thump falling from 130 to 50 Hz with a short crack) and `sfx_debug_hits()`. `world.c`: `world_enable_fight(npc_id, hits, on_down)`, `world_fight_left/total` (for chunk 37's health bar). With the hammer in the pockets and a hostile npc in talking range, the button is the hammer (rocking when idle, slamming down at a hit, a red cool-down draining out of it for `FIGHT_COOLDOWN` = 0.45 s) and a TAP hits (the player turns to face her); taps inside the cooldown do nothing; the last hit calls `on_down` once and the fight is over. Without the hammer, or without the flag, the button is still the talk face. Checked in `tools/orderstest.c` (plain npc talks, 3 hits = 3 thumps and `on_down` once, cooldown ignores taps, flash ends, no hit after the end, no hammer = talk); screenshots `build/swing_button.bmp`, `build/swing_flash.bmp`.
+- 2026-10-11: owner decision: no fight session. One swing kills Alex (head off, blood everywhere). Chunk 37 "Alex fights back" (health bar, `ALEX_HURT` lines) is replaced by "One swing"; chunk 38 gets the blood splash. Story section 4, the draft strings and the open questions updated.
+- 2026-10-11: chunk 37 done: `story.c`: `alex_hammer_watch` (called from `alex_watch`): once `lives >= 1`, `hammer_taken` and `world_indoors()`, Alex is made hostile and `world_enable_fight(alex_id, 1, alex_struck_cb)` is switched on (`alex_fight_on`, reset on a new landing / respawn / new game). `alex_struck_cb` sets `alex_struck` and clears her hostile flag; it says and adds nothing, chunk 38 hooks the fall in there. Checked in `tools/orderstest.c` (not hostile before the hammer is taken or outside the house, hostile with 1 hit inside, one tap = one thump + flash + `alex_struck`, no dialog / task / thought, no second hit).

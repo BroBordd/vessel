@@ -336,6 +336,32 @@ int main(void) {
         item_clear(); item_reset(px, tile);
     }
 
+    /* chunk 37: one swing. in her house, with the hammer taken (chunk 35), Alex is hostile and the hammer button is on; ONE tap is the end of the
+     * fight (no health bar, no lines). before that (no hammer taken / not in the house) nothing is switched on */
+    {   int bx = TW - 26 * TW / 360 - 44 * TW / 360, by = TH - 26 * TW / 360 - 44 * TW / 360;
+        int ntx = (int)(pxp / tile) - 6, nty = (int)(pyp / tile) - 6;
+        int was_buried = aonia_buried;
+        lives = 1; alex_fight_on = alex_struck = 0; hammer_taken = 0; aonia_buried = 0;      /* (not buried: hammer_watch does not take the hammer for us) */
+        alex_id = npc_add(&ALEX, ntx, nty, fight_talk);
+        pxp = (ntx + 0.5f) * tile; pyp = (nty + 0.9f + 1.0f) * tile;
+        item_clear(); item_reset(px, tile); world_give_item(ITEM_HAMMER);
+        indoors = 1; run(0.3f);
+        CHECK(!npc_hostile(alex_id) && world_fight_left() == 0, "Alex is hostile before the hammer was taken the story's way");
+        hammer_taken = 1; indoors = 0; run(0.3f);
+        CHECK(!npc_hostile(alex_id) && world_fight_left() == 0, "Alex is hostile while we are not in her house");
+        indoors = 1; run(0.3f);
+        CHECK(npc_hostile(alex_id) && world_fight_left() == 1 && world_fight_total() == 1, "Alex is not hostile with the hammer in her house (%d, %d hits)", npc_hostile(alex_id), world_fight_left());
+        int h0 = sfx_debug_hits(), mc = missions_count(), tc = brainwin_count();
+        tap(bx, by);
+        CHECK(alex_struck && sfx_debug_hits() == h0 + 1 && world_fight_left() == 0, "one tap did not end it (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
+        CHECK(npc_flashing(alex_id) && !npc_hostile(alex_id), "she did not flash, or is still hostile after the hit");
+        CHECK(!dialog_active() && missions_count() == mc && brainwin_count() == tc, "the hit opened a dialog / changed the tasks / added a thought (chunk 38 does that)");
+        run(FIGHT_COOLDOWN + 0.2f); tap(bx, by); run(0.3f);
+        CHECK(sfx_debug_hits() == h0 + 1, "a second hit landed after the end");
+        alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;
+        item_clear(); item_reset(px, tile);
+    }
+
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
     convo_open(&ALEX, &ALEX_MIND, 1, locked_end);
     CHECK(!convo_active() && !dialog_active(), "Alex's chat opened while locked");
