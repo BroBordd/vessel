@@ -7,7 +7,7 @@
 #define DONE_HOLD     1.0f          /* seconds a ticked mission stays visible */
 #define DONE_FADE     0.5f          /* then fades out over this long */
 
-typedef struct { const char *text; int used, done; float done_t, born; } Mission;
+typedef struct { const char *text; int used, done; float done_t, born, flash; } Mission;
 
 static Mission m[MAX_MISSIONS];
 static int   W, H;
@@ -28,7 +28,7 @@ int  missions_count(void) { int n = 0; for (int i = 0; i < MAX_MISSIONS; i++) if
 int mission_add(const char *text) {
     for (int i = 0; i < MAX_MISSIONS; i++)
         if (!m[i].used) {
-            m[i].used = 1; m[i].done = 0; m[i].done_t = 0; m[i].born = 0; m[i].text = text;
+            m[i].used = 1; m[i].done = 0; m[i].done_t = 0; m[i].born = 0; m[i].flash = 0; m[i].text = text;
             return i;
         }
     return -1;
@@ -39,10 +39,17 @@ void mission_complete(int id) {
     m[id].done = 1; m[id].done_t = 0;
 }
 
+void mission_flash(int id) {
+    if (id < 0 || id >= MAX_MISSIONS || !m[id].used || m[id].done) return;
+    m[id].flash = MISSION_FLASH_T;
+}
+int mission_flashing(int id) { return id >= 0 && id < MAX_MISSIONS && m[id].used && m[id].flash > 0; }
+
 void missions_update(float dt) {
     for (int i = 0; i < MAX_MISSIONS; i++) {
         if (!m[i].used) continue;
         m[i].born += dt;
+        if (m[i].flash > 0) { m[i].flash -= dt; if (m[i].flash < 0) m[i].flash = 0; }
         if (m[i].done) {
             m[i].done_t += dt;
             if (m[i].done_t > DONE_HOLD + DONE_FADE) m[i].used = 0;
@@ -103,9 +110,17 @@ void missions_draw(SDL_Renderer *r) {
             fillr(r, bx + 2 * cell, by + 2 * cell, box - 4 * cell, box - 4 * cell);
         }
 
-        if (m[i].done) SDL_SetRenderDrawColor(r, 160, 160, 160, A);
+        int shake = 0;
+        if (m[i].flash > 0) {                                      /* chunk 33: red, and shaking left and right in whole cells */
+            shake = ((int)(m[i].flash * 40.0f) & 1 ? 1 : -1) * cell;
+            SDL_SetRenderDrawColor(r, 255, 70, 60, A);
+            fillr(r, bx, by, box, box);                            /* the checkbox goes red too */
+            SDL_SetRenderDrawColor(r, 0, 0, 0, A);
+            fillr(r, bx + cell, by + cell, box - 2 * cell, box - 2 * cell);
+            SDL_SetRenderDrawColor(r, 255, 70, 60, A);
+        } else if (m[i].done) SDL_SetRenderDrawColor(r, 160, 160, 160, A);
         else           SDL_SetRenderDrawColor(r, 255, 255, 255, A);
-        font_draw(r, m[i].text, tx, y, cell);
+        font_draw(r, m[i].text, tx + shake, y, cell);
         if (m[i].done) fillr(r, tx, y + th / 2, font_width(m[i].text, cell), cell > 1 ? cell / 2 : 1);   /* strikethrough */
         y += rowh;
     }

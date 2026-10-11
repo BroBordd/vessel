@@ -745,6 +745,7 @@ void world_enable_grave_pull(int i, void (*on_done)(void)) { grave_pull_enable(i
 void world_enable_grave_search(int i, void (*on_done)(void)) { grave_search_enable(i, on_done); }
 void world_grave_body_tile(int i, float *tx, float *ty) { grave_body_tile(i, tx, ty); }
 void world_drop_item(int kind, int tile_x, int tile_y) { item_drop(kind, tile_x, tile_y); }
+void world_lock_item(int kind, int on, void (*on_blocked)(void)) { item_set_locked(kind, on); item_set_blocked_cb(on ? on_blocked : NULL); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
 float world_dist_to_grave(void) {
     if (indoors) return 1e9f;

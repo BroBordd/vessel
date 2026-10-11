@@ -165,6 +165,27 @@ int main(void) {
         CHECK(!near_search, "the magnifying glass shows after the search was done");
         world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
         CHECK(brainwin_count() == sbc + 1, "searching again added a thought");
+
+        /* chunk 33: respect the dead. he is unburied, so the hammer is locked: walking onto it does not take it; the task flashes red, the error
+         * buzz sounds and the vessel thinks (once in the window); one try every 3 s at most */
+        CHECK(item_locked(ITEM_HAMMER), "the hammer is not locked while he lies unburied");
+        int e0 = sfx_debug_errors(), b0 = item_blocked_count(), tc0 = brainwin_count();
+        pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
+        CHECK(!item_has(ITEM_HAMMER) && item_exists(), "walking onto the locked hammer took it");
+        CHECK(sfx_debug_errors() == e0 + 1 && item_blocked_count() == b0 + 1, "the error buzz / the turned-away try were not counted (%d, %d)", sfx_debug_errors() - e0, item_blocked_count() - b0);
+        CHECK(mission_flashing(mission_bury), "the task Bury Aonia does not flash");
+        CHECK(brainwin_count() == tc0 + 1, "the 'not like this' thought did not come once (%d -> %d)", tc0, brainwin_count());
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/respect_flash.bmp");           /* the red, shaking line (look at it) */
+        run(0.8f);
+        CHECK(!mission_flashing(mission_bury), "the flash did not end after %.1f s", MISSION_FLASH_T);
+        run(1.0f);                                                                  /* still standing on it, 1.8 s in: too soon for another */
+        CHECK(sfx_debug_errors() == e0 + 1, "a second buzz came within 3 s (%d)", sfx_debug_errors() - e0);
+        run(1.6f);                                                                  /* past 3 s: again, but the window keeps one thought */
+        CHECK(sfx_debug_errors() == e0 + 2 && mission_flashing(mission_bury), "no second buzz / flash after 3 s (%d)", sfx_debug_errors() - e0);
+        CHECK(brainwin_count() == tc0 + 1 && !item_has(ITEM_HAMMER), "the thought was added twice, or the hammer was taken");
+        pxp = (sbx + 3.0f) * tile; run(0.3f);
+        item_set_locked(ITEM_HAMMER, 0); pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
+        CHECK(item_has(ITEM_HAMMER), "an unlocked hammer was not picked up (chunk 34 will unlock it)");
         item_clear(); item_reset(px, tile);                                      /* tidy up for the tests that follow */
     }
 

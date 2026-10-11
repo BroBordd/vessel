@@ -27,6 +27,13 @@ void  item_place(int kind, int tile_x, int tile_y);     /* it lies there */
 #define ITEM_DROP_T 0.45f
 void  item_drop(int kind, int tile_x, int tile_y);
 int   item_dropping(void);
+/* chunk 33: a LOCKED kind cannot be picked up. walking into its reach does not take it: instead (at most once every ITEM_BLOCK_GAP seconds)
+ * the callback set with item_set_blocked_cb runs, once per try ("not like this"). item_reset (a new map) drops the locks and the callback. */
+#define ITEM_BLOCK_GAP 3.0f
+void  item_set_locked(int kind, int on);
+int   item_locked(int kind);
+void  item_set_blocked_cb(void (*cb)(void));
+int   item_blocked_count(void);                         /* tests: how many tries were turned away */
 int   item_exists(void);                                /* something lies on this map */
 void  item_tile(float *tx, float *ty);                  /* where, in tiles (minimap) */
 int   item_has(int kind);

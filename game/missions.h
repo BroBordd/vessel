@@ -7,6 +7,9 @@
 /* checklist in the top-left corner. keep the text extremely short: "Talk to Alex". */
 int  mission_add(const char *text);       /* returns an id, or -1 if the list is full. text must stay alive */
 void mission_complete(int id);            /* ticks it off, then it fades away */
+void mission_flash(int id);               /* chunk 33: the line turns red and shakes for MISSION_FLASH_T seconds ("not yet"). nothing for an unknown id */
+int  mission_flashing(int id);            /* tests: the line is flashing right now */
+#define MISSION_FLASH_T 0.6f
 
 /* engine hooks, called by the world */
 void missions_init(int w, int h);         /* also clears the list */

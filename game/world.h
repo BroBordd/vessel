@@ -79,6 +79,7 @@ void world_grave_tile(int i, float *tx, float *ty);       /* feet position in ti
  * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
+void world_lock_item(int kind, int on, void (*on_blocked)(void));   /* chunk 33: a locked item on the ground is not picked up; on_blocked runs when someone walks into it (at most every 3 s) */
 void world_drop_item(int kind, int tile_x, int tile_y);     /* chunk 32: like world_place_item, but it falls there (cannot be picked up until it has landed) */
 int  world_has_item(int kind);
 void world_give_item(int kind);

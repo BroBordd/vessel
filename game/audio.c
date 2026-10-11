@@ -260,6 +260,46 @@ void sfx_flatline_stop(void) {
 int sfx_debug_beeps(void) { return n_beeps; }
 int sfx_debug_flatlines(void) { return n_flats; }
 
+/* ---------- the error buzz (chunk 33): two short low buzzes, "no". a square wave at 110 Hz softened with a sine, its own voice ---------- */
+static int   err_on, err_pos, n_errors;
+static float err_phase;
+#define ERR_HZ    110.0f
+#define ERR_BUZZ  0.09f                         /* seconds per buzz */
+#define ERR_GAP   0.06f
+#define ERR_GAIN  0.22f
+
+void sfx_error(void) {
+    n_errors++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    err_on = 1; err_pos = 0; err_phase = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_errors(void) { return n_errors; }
+
+static void err_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)err_pos / (float)OUT_RATE;
+        if (tt >= ERR_BUZZ * 2 + ERR_GAP) { err_on = 0; return; }
+        float local = tt < ERR_BUZZ ? tt : tt - ERR_BUZZ - ERR_GAP;
+        float env = 0.0f;
+        if (local >= 0.0f && local < ERR_BUZZ) {
+            env = 1.0f;
+            if (local < 0.004f) env = local / 0.004f;                        /* no click on the way in */
+            if (local > ERR_BUZZ - 0.012f) env = (ERR_BUZZ - local) / 0.012f;   /* nor on the way out */
+        }
+        err_phase += ERR_HZ / (float)OUT_RATE;
+        if (err_phase >= 1.0f) err_phase -= 1.0f;
+        float sq = err_phase < 0.5f ? 1.0f : -1.0f, sn = sinf(6.2831853f * err_phase);
+        int v = (int)((0.6f * sq + 0.4f * sn) * env * ERR_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        err_pos++;
+    }
+}
+
 static void mon_mix(Sint16 *out, int frames) {
     const int rel_total = (int)(0.060f * OUT_RATE), tail = (int)(0.400f * OUT_RATE);
     for (int i = 0; i < frames; i++) {
@@ -625,6 +665,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (sfx_on) sfx_mix(out, frames);
     if (blip_on) blip_mix(out, frames);
     if (mon_on) mon_mix(out, frames);
+    if (err_on) err_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
 }
 

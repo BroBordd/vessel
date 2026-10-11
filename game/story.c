@@ -120,7 +120,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL, THOUGHT_SEARCH };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -559,11 +559,23 @@ static int aonia_grave = -1, aonia_out;
  * him (a glint, a thunk) and the vessel remembers it. once only. hammer_tx / hammer_ty is where it fell (a new landing puts it back there). chunk 33
  * locks it until he is buried again. */
 static int aonia_searched, hammer_tx, hammer_ty;
+/* chunk 33: respect for the dead. while he lies unburied the hammer is locked: walking into it does not take it. the task "Bury Aonia" flashes red and
+ * shakes, an error buzz sounds, and the vessel thinks that he goes back first (once in the brain window, afterwards only the card). chunk 34 unlocks it
+ * when he is buried. the engine allows one such try every few seconds (item.h). */
+static int respect_said;
+static void hammer_blocked(void) {
+    mission_flash(mission_bury);
+    sfx_error();
+    if (!respect_said) { respect_said = 1; think("Not like this. He goes back first.", NULL, BRAIN_SCENE_GRAVE, THOUGHT_RESPECT, 0); }
+    else if (!dying) thought_say("Not like this. He goes back first.", 0);
+}
+static void hammer_lock(void) { world_lock_item(ITEM_HAMMER, 1, hammer_blocked); }
 static void aonia_searched_done(void) {
     float bx, by; world_grave_body_tile(aonia_grave, &bx, &by);
     aonia_searched = 1;
     hammer_tx = (int)floorf(bx); hammer_ty = (int)floorf(by) + 2;                 /* on the grass, just below him (clear of his body) */
     world_drop_item(ITEM_HAMMER, hammer_tx, hammer_ty);
+    hammer_lock();
     think("He still has it. The hammer.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_SEARCH, 1);
 }
 static void aonia_pulled(void) {
@@ -639,7 +651,7 @@ static void landed_again(void) {
                 if (aonia_out) {                                                  /* (he is already out: the plot is open again after a new landing) */
                     world_grave_set_open(gi, 1, 1);
                     if (!aonia_searched) world_enable_grave_search(gi, aonia_searched_done);
-                    else world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty);     /* (chunk 35: not once we have taken it) */
+                    else { world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty); hammer_lock(); }   /* (chunk 35: not once we have taken it) */
                 } else if (alex_refused) aonia_pull_on();
             }
         }
@@ -767,7 +779,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

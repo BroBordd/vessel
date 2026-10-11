@@ -49,7 +49,14 @@ static float drop_t = 99.0f;                /* seconds since the item on the map
 #define DROP_BOUNCE_T 0.2f
 #define DROP_HEIGHT   14                    /* units it falls from */
 
-void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; }
+static int locked[ITEM_COUNT], n_blocked;
+static float block_cd;                      /* seconds until the next turned-away try may speak */
+static void (*blocked_cb)(void);
+void item_set_locked(int kind, int lk) { if (kind >= 0 && kind < ITEM_COUNT) locked[kind] = lk ? 1 : 0; }
+int  item_locked(int kind) { return kind >= 0 && kind < ITEM_COUNT && locked[kind]; }
+void item_set_blocked_cb(void (*cb)(void)) { blocked_cb = cb; }
+int  item_blocked_count(void) { return n_blocked; }
+void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; memset(locked, 0, sizeof locked); blocked_cb = NULL; block_cd = 0; }
 void item_place(int kind, int tile_x, int tile_y) { if (kind < 0 || kind >= ITEM_COUNT) return; on = 1; on_kind = kind; tx = tile_x; ty = tile_y; drop_t = 99.0f; }
 void item_drop(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); if (on) drop_t = 0; }
 int  item_dropping(void) { return on && drop_t < ITEM_DROP_T; }
@@ -61,6 +68,7 @@ void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; }
 
 int item_update(float dt, float pxw, float pyw, int allow) {
     if (new_t < 99.0f) new_t += dt;
+    if (block_cd > 0) block_cd -= dt;
     if (on && drop_t < 99.0f) {                                 /* chunk 32: a dropped item falls first, and thunks when it lands */
         float before = drop_t; drop_t += dt;
         if (before < ITEM_DROP_T && drop_t >= ITEM_DROP_T) sfx_blip(0.42f);
@@ -70,6 +78,10 @@ int item_update(float dt, float pxw, float pyw, int allow) {
     float dx = pxw - (tx + 0.5f) * tile, dy = pyw - (ty + 0.5f) * tile;
     if (sqrtf(dx * dx + dy * dy) / tile >= ITEM_PICK_R) return -1;
     int k = on_kind;
+    if (locked[k]) {                                            /* chunk 33: it stays where it is */
+        if (block_cd <= 0) { block_cd = ITEM_BLOCK_GAP; n_blocked++; if (blocked_cb) blocked_cb(); }
+        return -1;
+    }
     on = 0; item_give(k);
     return k;
 }
