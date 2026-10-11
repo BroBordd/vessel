@@ -93,10 +93,10 @@ int main(int argc, char **argv) {
     CHECK(brainwin_active(), "a cancelled touch outside closed the window");
     CHECK(mon.w * 10 >= win.w * 8, "the monitor is tiny (%d of %d)", mon.w, win.w);
 
-    /* 2. starts on thought 1, looks at every scene, and loops by itself */
-    CHECK(brainwin_debug_current() == 0 && brainwin_debug_auto(), "did not start on the first thought, looping");
+    /* 2. starts on the newest thought, looks at every scene, and loops by itself */
+    CHECK(brainwin_debug_current() == brainwin_count() - 1 && brainwin_debug_auto(), "did not start on the newest thought, looping");
     run(2.0f); shot("../build/brain_0_orb.bmp");
-    int seen[16] = { 0 }, order = 0, last = 0;
+    int seen[16] = { 0 }, order = 0, last = brainwin_debug_current();
     for (float t = 0; t < 40.0f; t += 0.05f) {
         run(0.05f);
         int c = brainwin_debug_current(); seen[c] = 1;
