@@ -24,4 +24,13 @@ void convo_ask_questions(const Person *who, Persona *mind, void (*on_end)(void))
 void convo_ask_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void));   /* the same, with the npc's exact words (a scripted "got any questions?") */
 int  convo_active(void);
 
+/* THE CHAT LOCK (vessel 2, chunk 27): while locked, convo_open / convo_ask_line / convo_ask_questions do NOT open the typed chat. nothing
+ * is typed and nothing is asked: the vessel THINKS `thought` (a card, so the player knows why) and the call's on_end runs right away.
+ * convo_lock_reply(who, line) lets one person answer with their own exact words instead (a plain popup, then on_end): Dea's "You heard
+ * me. Go." Scripted dialogs (dialog_play) are not affected. convo_unlock() also forgets the replies. */
+void convo_lock(const char *thought);
+void convo_lock_reply(const Person *who, const char *line);
+void convo_unlock(void);
+int  convo_locked(void);
+
 #endif

@@ -416,6 +416,8 @@ static void scold_page(int page) {
 }
 static void orders_given(void) {                    /* the scolding is over: the orders (chunk 26), then her questions (chunk 19) */
     secret_on = 1;
+    convo_lock("I can't say that. I was told to keep quiet.");      /* chunk 27: no typed chat with anyone while the order stands */
+    convo_lock_reply(&DEA, "You heard me. Go.");
     dialog_play(DEA_ORDERS, DEA_ORDERS_COUNT, scold_done);
 }
 static void dea_scold(void) {
@@ -699,7 +701,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
-    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0;
+    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;

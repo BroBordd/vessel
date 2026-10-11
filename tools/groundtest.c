@@ -490,14 +490,13 @@ int main(void) {
         CHECK(convo_player() == &VESSEL2, "dialogs and thoughts do not use Doia's face");
         CHECK(pages >= DEA_SCOLD_COUNT, "the scolding did not run its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
         /* chunk 19: then Dea asks her questions, in a worse mood than the first time; BYE skips them; then the (stand-in) way down */
-        CHECK(convo_active() && dialog_active(), "Dea did not ask her questions after the scolding");
+        CHECK(dialog_active() && !convo_active(), "after the orders Dea should only say \"You heard me. Go.\" (the chat is locked, chunk 27)");
         CHECK(DEA_MIND.mood < 0, "Dea is not in a worse mood than the first meeting (%d)", DEA_MIND.mood);
         CHECK(!controls_visible && !hole_on, "the controls / hole came back before the questions were over");
         shot("build/ground_questions.bmp");
         run(6.0f);
-        tap(TW - 140, TH - 40); tap(TW - 150, TH - 45); tap(TW - 160, TH - 50);        /* the BYE button */
-        for (int i = 0; i < 8 && convo_active(); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
-        CHECK(!convo_active() && !dialog_active(), "the questions did not end after BYE");
+        for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }      /* her one locked line (no BYE any more) */
+        CHECK(!convo_active() && !dialog_active(), "her last line did not end");
         CHECK(controls_visible && hole_on, "the conversation did not give the controls and the hole back");
         CHECK(hud_person() == &VESSEL2 && strcmp(hud_person()->name, "Doia") == 0, "the ID card does not say Doia");
         shot("build/ground_resummon.bmp");

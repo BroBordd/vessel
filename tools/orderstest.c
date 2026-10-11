@@ -1,7 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
- * chunk 26: Dea's orders. a short headless run of the second life's scolding: the naming comes first, then her orders (take the orb,
+ * chunk 26-27: Dea's orders and the chat lock. a short headless run of the second life's scolding: the naming comes first, then her orders (take the orb,
  * tell no one, do not complain), then her questions; the secret flag is off before and on after the orders. it starts at the respawn
  * (story_reset_for_respawn), so it does not depend on the long groundtest chain.
  * it #includes world.c and story.c to reach their statics. exits non-zero if a check fails:
@@ -28,6 +28,8 @@ static void frame(float dt) {
     world_draw(rr); thought_draw(rr);
 }
 static void run(float sec) { for (float s = 0; s < sec; s += 0.016f) frame(0.016f); }
+static int locked_ended;
+static void locked_end(void) { locked_ended++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
 
 int main(void) {
@@ -50,7 +52,7 @@ int main(void) {
     dea_scold();                                     /* what talking to / seeing Dea does on the second life */
     CHECK(dialog_active() && !secret_on, "the scolding did not start, or the order came before it");
     int named_at = -1, secret_at = -1, pages = 0;
-    for (int i = 0; i < 12 && dialog_active() && !convo_active(); i++) {
+    for (int i = 0; i < DEA_SCOLD_COUNT + DEA_ORDERS_COUNT && dialog_active(); i++) {   /* the scolding and the orders; her locked line comes after */
         run(2.0f);
         if (named_at < 0 && hud_person() == &VESSEL2) named_at = i;
         if (secret_at < 0 && secret_on) secret_at = i;
@@ -60,8 +62,35 @@ int main(void) {
     CHECK(secret_on, "Dea's orders did not set the secret flag");
     CHECK(secret_at > named_at, "the orders did not come after the naming (named %d, secret %d)", named_at, secret_at);
     CHECK(pages >= DEA_SCOLD_COUNT + DEA_ORDERS_COUNT, "the orders did not run their %d pages after the scolding (%d taps)", DEA_ORDERS_COUNT, pages);
-    CHECK(convo_active() && dialog_active(), "Dea did not go on to her questions after the orders");
-    CHECK(!controls_visible, "the controls came back before the questions were over");
+    /* chunk 27: the order closes the typed chat. Dea's "questions" are now just her line "You heard me. Go." (a popup, no chat window),
+     * and then the controls and the hole come back */
+    CHECK(convo_locked(), "the chat is not locked after the orders");
+    CHECK(dialog_active() && !convo_active(), "Dea's questions opened a typed chat although the order stands");
+    CHECK(!controls_visible, "the controls came back before her last line");
+    for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+    CHECK(!dialog_active() && !convo_active(), "her last line did not end");
+    CHECK(controls_visible && hole_on, "the controls / hole did not come back after her last line");
+
+    /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
+    convo_open(&ALEX, &ALEX_MIND, 1, locked_end);
+    CHECK(!convo_active() && !dialog_active(), "Alex's chat opened while locked");
+    CHECK(thought_active(), "no thought about the order when talking to Alex");
+    CHECK(locked_ended == 1, "on_end of a locked chat did not run (%d)", locked_ended);
+    convo_ask_questions(&ALEX, &ALEX_MIND, locked_end);
+    CHECK(!convo_active() && locked_ended == 2, "convo_ask_questions opened a chat while locked");
+    convo_open(&DEA, &DEA_MIND, 1, locked_end);
+    CHECK(!convo_active() && dialog_active() && locked_ended == 2, "Dea did not answer with her own line (popup, no chat)");
+    for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+    CHECK(!dialog_active() && locked_ended == 3, "Dea's locked line did not run on_end (%d)", locked_ended);
+    /* scripted dialogs are not affected */
+    {   static const DialogLine one[] = { { &ALEX, "Hello." } };
+        dialog_play(one, 1, NULL); CHECK(dialog_active(), "a scripted dialog was blocked by the lock");
+        for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); } }
+    /* unlocked: the typed chat opens again */
+    convo_unlock();
+    CHECK(!convo_locked(), "convo_unlock did not unlock");
+    convo_open(&ALEX, &ALEX_MIND, 1, NULL);
+    CHECK(convo_active(), "the chat does not open after convo_unlock");
 
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
     return fails ? 1 : 0;

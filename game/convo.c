@@ -3,6 +3,7 @@
 #include "convo.h"
 #include "dialog.h"
 #include "lang.h"
+#include "thought.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -111,22 +112,46 @@ void convo_set_player(const Person *p) { C.player = p; }
 const Person *convo_player(void) { return C.player; }
 int  convo_active(void) { return C.running; }
 
+/* the chat lock (chunk 27) */
+static struct { int on; char thought[120]; const Person *reply_who; char reply[120]; DialogLine line[1]; } L;
+void convo_lock(const char *thought) { L.on = 1; snprintf(L.thought, sizeof L.thought, "%s", thought ? thought : ""); }
+void convo_lock_reply(const Person *who, const char *line) { L.reply_who = who; snprintf(L.reply, sizeof L.reply, "%s", line ? line : ""); }
+void convo_unlock(void) { memset(&L, 0, sizeof L); }
+int  convo_locked(void) { return L.on; }
+
+/* a locked chat: no window. the one the vessel talks to answers with their own line if they have one, otherwise the vessel thinks why
+ * it cannot speak. either way the story goes on (on_end). returns 1 when the call was swallowed */
+static int locked_chat(const Person *who, void (*on_end)(void)) {
+    if (!L.on) return 0;
+    if (who && who == L.reply_who && *L.reply) {
+        L.line[0].who = who; L.line[0].text = L.reply; L.line[0].reply = REPLY_NONE;
+        dialog_play(L.line, 1, on_end);
+        return 1;
+    }
+    if (*L.thought) thought_say(L.thought, 0);
+    if (on_end) on_end();
+    return 1;
+}
+
 static void begin(const Person *who, Persona *mind, Stage st, void (*on_end)(void)) {
     C.who = who; C.mind = mind; C.stage = st; C.turns = 0; C.demands = 0; C.on_end = on_end; C.running = 1;
     lang_set_player(C.player ? C.player->name : "Vas");
 }
 
 void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void)) {
+    if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_FREE, on_end);
     say_key(again ? "open.again" : "open", REPLY_OPTIONAL, NULL);
 }
 
 void convo_ask_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void)) {
+    if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_QUESTIONS, on_end);
     speak(line, REPLY_OPTIONAL, NULL);
 }
 
 void convo_ask_questions(const Person *who, Persona *mind, void (*on_end)(void)) {
+    if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_QUESTIONS, on_end);
     say_key("ask.questions", REPLY_OPTIONAL, NULL);
 }
