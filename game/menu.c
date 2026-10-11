@@ -85,8 +85,10 @@ void menu_draw(SDL_Renderer *r) {
         int down = pressed == i && inside;
         SDL_Rect outer = { b->x, b->y, b->w, b->h };
         SDL_Rect inner = { b->x + bt, b->y + bt, b->w - 2 * bt, b->h - 2 * bt };
-        SDL_SetRenderDrawColor(r, 255, 255, 255, A);
-        SDL_RenderFillRect(r, &outer);
+        SDL_SetRenderDrawColor(r, 255, 255, 255, A);              /* the border as four bars, not a white fill with the black on top of it:\n                                                                    * blended twice they turned whitish while fading out */
+        SDL_Rect bars[4] = { { outer.x, outer.y, outer.w, bt }, { outer.x, outer.y + outer.h - bt, outer.w, bt },
+                             { outer.x, outer.y + bt, bt, outer.h - 2 * bt }, { outer.x + outer.w - bt, outer.y + bt, bt, outer.h - 2 * bt } };
+        for (int k = 0; k < 4; k++) SDL_RenderFillRect(r, &bars[k]);
         if (down) SDL_SetRenderDrawColor(r, 255, 255, 255, A);
         else      SDL_SetRenderDrawColor(r, 0, 0, 0, A);
         SDL_RenderFillRect(r, &inner);

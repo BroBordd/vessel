@@ -196,7 +196,7 @@ void story_limbo_update(float dt) {
  * dialog in limbo). the brain button stays away until the game starts (story_limbo_opening, game.c): it only comes in with the pause
  * button, when the world is running. after the line limbo ends and the world begins its dawn (world_begin_dawn): the sky brightens, the
  * cloud floor builds in, and then the summoning runs. */
-static const DialogLine LIMBO_WHERE_DLG[] = { { &SOUL, "Where am I?" } };
+static const DialogLine LIMBO_WHERE_DLG[] = { { &SOUL, "Where am I?" }, { &SOUL, "What is going to happen to me?" } };
 static int limbo_stay;                      /* dev: stay in limbo for good (VESSEL_LIMBO=1) */
 static int limbo_opening;                   /* the opening of the game is running: no brain button yet */
 
@@ -206,7 +206,7 @@ static void limbo_where_done(void) {
     world_begin_dawn();                     /* the summoning is already queued (story_start): the dawn holds it back until the floor is built */
     limbo_end();
 }
-static void limbo_where_say(void) { dialog_play(LIMBO_WHERE_DLG, 1, limbo_stay ? NULL : limbo_where_done); }
+static void limbo_where_say(void) { dialog_play(LIMBO_WHERE_DLG, (int)(sizeof LIMBO_WHERE_DLG / sizeof LIMBO_WHERE_DLG[0]), limbo_stay ? NULL : limbo_where_done); }
 
 int story_limbo_opening(void) { return limbo_opening; }
 
@@ -288,7 +288,7 @@ static int hammer_hinted, hammer_said;
  * the player cannot move meanwhile. a short pause after the popup is tapped away, and the death begins (chunk 12). */
 #define WRATH_BEAT        0.9f              /* seconds between the last drop of ooze and her voice */
 #define WRATH_TO_DEATH    0.8f              /* after her line has been tapped away: a short pause, then the death */
-static const DialogLine DEA_WRATH[] = { { &DEA, "How dare you." } };     /* a plain popup, her normal face (no red card any more) */
+static const DialogLine DEA_WRATH[] = { { &DEA, "You don't deserve to live." } };     /* a plain popup, her normal face (no red card any more) */
 
 /* ---------- the death (chunks 12-15) ----------
  * chunk 12: the camera pushes in to 300 %, the world freezes and drains grey, the player goes red (world.c).
@@ -420,7 +420,9 @@ static void respawn_summoned(void) {
 static void death_limbo_hold_over(void) {
     death_hold_done++;
     story_reset_for_respawn();
-    world_summon(respawn_summoned);
+    world_summon(respawn_summoned);                         /* (queued: the dawn holds it back until the floor is built) */
+    jukebox_scene_fade(LIMBO_MUSIC_FADE);                   /* the Grasslands' music goes as the sky comes, like at the start of the game */
+    world_begin_dawn();                                     /* the same transition as the start: the stars brighten into the sky, the cloud floor builds in */
     limbo_end();
 }
 static void death_say_done(void) { limbo_run(NULL, 0, DEATH_LIMBO_HOLD, death_limbo_hold_over); }
