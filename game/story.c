@@ -373,7 +373,7 @@ static void open_the_hole(void);                    /* defined with the sky scen
  * the second summoning is over: Dea has been standing there all along, looking at us, and she speaks FIRST (no walking, no sighting
  * task, no thought). the words are all hers and to VAS (we are plain VAS again). the last line gives us our new number: the naming
  * itself (ID card, player look) is chunk 18 (scold_page), and her questions chunk 19, so scold_done() is the hook those will take over.
- * scold_done opens her questions (chunk 19), questions_done the hole (chunk 20). */
+ * orders_given (chunk 26) gives the job, scold_done opens her questions (chunk 19), questions_done the hole (chunk 20). */
 static const DialogLine DEA_SCOLD[] = {
     { &VESSEL2, "Why did I die?" },
     { &DEA, "Because you broke my shrine." },
@@ -381,6 +381,16 @@ static const DialogLine DEA_SCOLD[] = {
     { &DEA, "Dumb. Truly dumb. You are number two now. " VESSEL2_NAME ". Try not to be as dumb as the last one." },
 };
 #define DEA_SCOLD_COUNT ((int)(sizeof DEA_SCOLD / sizeof DEA_SCOLD[0]))
+
+/* chunk 26: right after the naming Dea gives the job (before her questions). the orb is hers and Alex has it; we are to take it, tell
+ * no one and not complain. from here on `secret_on` is set: the order stands (chunk 27 closes the typed chat with it).
+ * all her words, to VAS/Doia; we do not answer. */
+static const DialogLine DEA_ORDERS[] = {
+    { &DEA, "Now listen. Alex has my orb. Go to her house and take it." },
+    { &DEA, "Do not tell anyone. Do not complain. Not a word." },
+};
+#define DEA_ORDERS_COUNT ((int)(sizeof DEA_ORDERS / sizeof DEA_ORDERS[0]))
+static int secret_on;                               /* Dea's order to keep quiet is in force (set when she gives it) */
 
 /* chunk 19: after the naming Dea asks if we have any questions, meaner than the first time: a free chat (typed, or BYE to skip). her
  * mood starts below zero, so the answers are colder than before. when the chat is over, questions_done runs: chunk 20, the controls come
@@ -404,10 +414,14 @@ static void scold_page(int page) {
     convo_set_player(&VESSEL2);
     world_set_player(&VESSEL2);
 }
+static void orders_given(void) {                    /* the scolding is over: the orders (chunk 26), then her questions (chunk 19) */
+    secret_on = 1;
+    dialog_play(DEA_ORDERS, DEA_ORDERS_COUNT, scold_done);
+}
 static void dea_scold(void) {
     mission_complete(mission_talk_dea);
     dialog_on_page(scold_page);
-    dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, scold_done);
+    dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, orders_given);
 }
 static void respawn_summoned(void) {
     world_set_controls_visible(1);                              /* no auto talk: we walk to her and talk to her ourselves */
@@ -685,7 +699,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
-    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0;
+    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0;
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;

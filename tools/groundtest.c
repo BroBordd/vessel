@@ -455,7 +455,7 @@ int main(void) {
     CHECK(!dying && !vessel_dead && !world_death_active(), "dying / vessel_dead / the death cutscene were not reset");
     CHECK(npc_count() == 1 && dea_id >= 0 && alex_id < 0, "the sky should hold only Dea (npcs %d)", npc_count());
     CHECK(!controls_visible && !hole_on && phase == PH_PLAY, "the controls / hole / phase are not as for a fresh summoning");
-    CHECK(green.alex_there && green.alex_tx == 7 && green.alex_ty == 40, "Alex's place on the Grasslands was not remembered (%d,%d,%d)", green.alex_there, green.alex_tx, green.alex_ty);
+    CHECK(green.alex_there && green.house_tx > 0 && green.house_ty > 0, "Alex's house on the Grasslands was not remembered (%d,%d,%d)", green.alex_there, green.house_tx, green.house_ty);   /* (Alex lives in the house now, so its doorstep is what is kept) */
     CHECK(green.shrine_there && green.shrine_polluted == 1 && shrine_fouled, "the polluted shrine was not remembered");
     CHECK(alex_dealt == dealt0 && alex_seen == seen0, "the Grasslands story state (alex_dealt / alex_seen) was reset");
     /* chunk 15: the hold ends limbo (once, the soul's voice goes) and the summoning runs again over the cloud island: fade in, chime,
@@ -471,16 +471,21 @@ int main(void) {
         CHECK(brainwin_count() == bc && missions_count() == 0 && !thought_active(), "a thought or task came with the second summoning");
         CHECK(hud_person() == &VAS && dea_spoken && npc_count() == 1, "the card, Dea or the sky changed before the scolding");
         shot("build/ground_scold.bmp");
-        int pages = 0, named_at = -1;
+        int pages = 0, named_at = -1, secret_at = -1;
+        CHECK(!secret_on, "the secret order is already in force before Dea gave it");
         for (int i = 0; i < 12 && dialog_active() && !convo_active(); i++) {
             run(2.0f);
-            if (named_at < 0 && hud_person() == &VESSEL2) named_at = i;    /* chunk 18: the naming happens as the last page begins */
+            if (named_at < 0 && hud_person() == &VESSEL2) named_at = i;
+            if (secret_at < 0 && secret_on) secret_at = i;      /* chunk 26: the orders come after the naming, the flag with them */    /* chunk 18: the naming happens as the last page begins */
             if (i == 1) CHECK(hud_person() == &VAS && world_player() == &VESSEL2, "the card is named too early (the body already looks like Doia)");
             tap(TW / 2, TH * 4 / 5); pages++;
         }
         /* the naming came while the dialog was still open, no earlier than the last page could begin (a page needs a tap or two), and
          * at most a tap or two (the last page: type out, dismiss) before the end */
-        CHECK(named_at >= DEA_SCOLD_COUNT - 1 && pages - named_at <= 2, "the naming did not come on the last page (tap %d of %d)", named_at, pages);
+        CHECK(named_at >= DEA_SCOLD_COUNT - 1 && pages - named_at <= 2 + DEA_ORDERS_COUNT, "the naming did not come on the last scolding page (tap %d of %d)", named_at, pages);
+        CHECK(secret_on, "Dea's orders did not set the secret flag");
+        CHECK(secret_at > named_at, "the orders did not come after the naming (named at %d, secret at %d)", named_at, secret_at);
+        CHECK(pages >= DEA_SCOLD_COUNT + DEA_ORDERS_COUNT, "the orders did not run their %d pages after the scolding (%d taps)", DEA_ORDERS_COUNT, pages);
         CHECK(world_player() == &VESSEL2, "the player's body did not change to Doia");
         CHECK(convo_player() == &VESSEL2, "dialogs and thoughts do not use Doia's face");
         CHECK(pages >= DEA_SCOLD_COUNT, "the scolding did not run its %d pages (%d taps)", DEA_SCOLD_COUNT, pages);
@@ -520,7 +525,7 @@ int main(void) {
     /* chunk 20: the hole in front of Dea, the jump and the fall to the Grasslands. they are exactly as vessel 1 left them: Alex where she
      * stood (and she remembers the deal), the shrine where it was, still polluted and inert. no complaint, no task, one thought */
     {   world_set_player(&VESSEL2);                                  /* the look test above left the default on; the story has Doia on */
-        int ax = green.alex_tx, ay = green.alex_ty, sx0 = green.shrine_tx, sy0 = green.shrine_ty;
+        int hx0 = green.house_tx, hy0 = green.house_ty, sx0 = green.shrine_tx, sy0 = green.shrine_ty;
         int dealt1 = alex_dealt, seen1 = alex_seen;
         CHECK(hole_on && cur_map == MAP_CLOUD, "the hole is not open in the sky");
         on_enter_hole();                                              /* the arrow button at the hole */
@@ -530,8 +535,8 @@ int main(void) {
         CHECK(controls_visible && !dialog_active(), "the controls did not come back after the landing / a dialog opened");
         CHECK(world_player() == &VESSEL2, "the player lost Doia's look on the way down");
         CHECK(npc_count() == 1 && alex_id >= 0, "the Grasslands should hold only Alex (npcs %d)", npc_count());
-        {   float fx, fy; npc_tile(alex_id, &fx, &fy);
-            CHECK((int)fx == ax && (int)fy == ay, "Alex is not where vessel 1 left her (%d,%d, want %d,%d)", (int)fx, (int)fy, ax, ay); }
+        {   int hx, hy; world_house_tile(&hx, &hy);
+            CHECK(world_house_exists() && hx == hx0 && hy == hy0, "Alex's house is not where vessel 1 left it (%d,%d, want %d,%d)", hx, hy, hx0, hy0); }
         CHECK(world_shrine_exists() && world_shrine_polluted(), "the shrine is not there and polluted");
         {   float fx, fy; world_shrine_tile(&fx, &fy);
             CHECK((int)fx == sx0 && (int)fy == sy0, "the shrine moved (%d,%d, want %d,%d)", (int)fx, (int)fy, sx0, sy0); }
