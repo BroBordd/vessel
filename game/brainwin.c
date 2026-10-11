@@ -419,12 +419,307 @@ static void scene_grave(SDL_Renderer *r, float t) {
     }
 }
 
+/* ---------- shared bits for the story pictures ---------- */
+typedef struct { char c; unsigned char R, G, B; } Pal;
+static void pxa(SDL_Renderer *r, int gx, int gy, int w, int h, int R, int G, int B, int A) {
+    SDL_SetRenderDrawColor(r, R, G, B, A);
+    fillr(r, ox + gx * s, oy + gy * s, w * s, h * s);
+}
+static void spr(SDL_Renderer *r, int gx, int gy, const char *const *rows, int n, const Pal *pal, int np) {
+    for (int j = 0; j < n; j++)
+        for (int i = 0; rows[j][i]; i++) {
+            char c = rows[j][i];
+            if (c == '.') continue;
+            for (int k = 0; k < np; k++) if (pal[k].c == c) { px(r, gx + i, gy + j, 1, 1, pal[k].R, pal[k].G, pal[k].B); break; }
+        }
+}
+static void sparkle(SDL_Renderer *r, int gx, int gy, int R, int G, int B, int A) {      /* a little plus */
+    pxa(r, gx, gy - 1, 1, 3, R, G, B, A); pxa(r, gx - 1, gy, 3, 1, R, G, B, A);
+}
+static void ground(SDL_Renderer *r, int y0, int R, int G, int B, float t) {            /* a checkered meadow strip from row y0 down */
+    for (int gy = y0; gy < GH; gy++)
+        for (int gx = 0; gx < GW; gx++) {
+            unsigned hh = hs(gx, gy, 11);
+            int chk = (((gx / 2) + (gy / 2)) & 1) ? 6 : 0;
+            int rr = R + chk, gg = G + chk * 2, bb = B + chk;
+            if (hh % 21 == 0 && (((int)(hh >> 8) + (int)(t * 1.6f)) & 1)) { rr += 26; gg += 34; bb += 20; }   /* blades stirring */
+            px(r, gx, gy, 1, 1, rr, gg, bb);
+        }
+}
+/* Alex: the same colours as her in-game look (hair 236,196,84, teal shirt, plum trousers). 9 x 13 */
+static void draw_alex(SDL_Renderer *r, int gx, int gy, int step) {
+    static const char *A[13] = {
+        "..HHHHH..", ".HHHHHHH.", ".HHSSSHH.", ".HSeSeSH.", ".HSSSSSH.", ".HHSSSHH.", ".HTTTTTH.",
+        ".TTTTTTT.", ".STTTTTS.", "..PPPPP..", "..PP.PP..", "..PP.PP..", "..BB.BB..",
+    };
+    static const Pal PA[] = { { 'H', 236, 196, 84 }, { 'S', 244, 200, 164 }, { 'T', 60, 170, 170 }, { 'P', 70, 60, 110 }, { 'B', 40, 30, 30 }, { 'e', 40, 30, 30 } };
+    pxa(r, gx - 1, gy + 13, 11, 1, 0, 0, 0, 60);                                    /* shadow */
+    spr(r, gx, gy + step, A, 13, PA, 6);
+}
+/* the orb: a violet-gold ball with a glint and a pulsing glow, cx,cy = its centre, rad about 3 */
+static void draw_orb_ball(SDL_Renderer *r, int cx, int cy, int rad, float t) {
+    float pu = 0.7f + 0.3f * sinf(t * 4.0f);
+    for (int dy = -rad - 3; dy <= rad + 3; dy++)
+        for (int dx = -rad - 3; dx <= rad + 3; dx++) {
+            float d = sqrtf((float)(dx * dx + dy * dy));
+            if (d > rad && d <= rad + 3) pxa(r, cx + dx, cy + dy, 1, 1, 200, 170, 255, (int)(60 * pu * (1.0f - (d - rad) / 3.0f)));
+        }
+    for (int dy = -rad; dy <= rad; dy++)
+        for (int dx = -rad; dx <= rad; dx++) {
+            float d = sqrtf((float)(dx * dx + dy * dy));
+            if (d > rad + 0.3f) continue;
+            if (d > rad - 0.9f) px(r, cx + dx, cy + dy, 1, 1, 96, 70, 190);        /* rim */
+            else if (dx + dy < -rad / 2) px(r, cx + dx, cy + dy, 1, 1, 200, 180, 255);
+            else px(r, cx + dx, cy + dy, 1, 1, 150, 120, 240);
+        }
+    px(r, cx - rad / 2, cy - rad / 2, 1, 1, 255, 255, 255);                          /* the glint */
+}
+/* DIA'S SHRINE as a picture (the in-game one, shrine.c, at 1 grid pixel per unit). (cx, fy) = feet centre. p 0..1 = how cracked */
+static void shrine_g(SDL_Renderer *r, int cx, int fy, float t, float p) {
+#define SB(ux, uy, uw, uh, R, G, B, A) pxa(r, cx + (ux), fy + (uy), (uw), (uh), (R), (G), (B), (A))
+    SB(-8, -1, 16, 2, 0, 0, 0, 70);
+    SB(-7, -3, 14, 3, 112, 118, 144, 255); SB(-7, -3, 14, 1, 158, 166, 192, 255); SB(-7, -1, 14, 1, 86, 92, 118, 255);
+    SB(-5, -5, 10, 2, 134, 140, 166, 255); SB(-5, -5, 10, 1, 170, 178, 204, 255);
+    SB(-2, -12, 4, 7, 148, 154, 180, 255); SB(1, -12, 1, 7, 112, 118, 146, 255); SB(-3, -13, 6, 1, 186, 194, 218, 255);
+    int gy = -19 + (int)floorf(sinf(t * 2.0f) * 0.7f + 0.5f);
+    int gr = mix(110, 100, p), gg = mix(224, 100, p), gb = mix(255, 124, p);
+    int glow = (int)((70 + 40 * sinf(t * 3.0f)) * (1.0f - 0.7f * p));
+    for (int dy = -4; dy <= 4; dy++)                                                 /* a round glow, not a square one */
+        for (int dx = -4; dx <= 4; dx++) {
+            float d = sqrtf((float)(dx * dx + dy * dy));
+            if (d <= 4.2f && d > 1.5f) SB(dx, gy + 1 + dy, 1, 1, gr, gg, gb, (int)(glow * (1.0f - d / 4.4f) * 0.8f));
+        }
+    SB(-1, gy, 2, 1, gr, gg, gb, 255); SB(-2, gy + 1, 4, 2, gr, gg, gb, 255); SB(-1, gy + 3, 2, 1, gr, gg, gb, 255);
+    SB(-1, gy + 1, 1, 1, 255, 255, 255, (int)(230 * (1.0f - p)));
+    SB(-1, -10, 2, 1, gr / 2 + 40, gg / 2 + 40, gb / 2 + 40, 255); SB(-1, -8, 2, 1, gr / 2 + 40, gg / 2 + 40, gb / 2 + 40, 255);
+    if (p > 0) {
+        if (p > 0.12f) SB(0, -12, 1, 2, 30, 30, 44, 255);
+        if (p > 0.25f) SB(-1, -10, 1, 2, 30, 30, 44, 255);
+        if (p > 0.38f) SB(0, -8, 1, 2, 30, 30, 44, 255);
+        if (p > 0.5f)  { SB(-2, -13, 2, 1, 30, 30, 44, 255); SB(1, -6, 1, 1, 30, 30, 44, 255); }
+        if (p > 0.62f) { SB(-1, -6, 1, 2, 30, 30, 44, 255); SB(-3, -5, 2, 1, 30, 30, 44, 255); }
+        if (p > 0.74f) { SB(2, -5, 2, 1, 30, 30, 44, 255); SB(4, -4, 1, 2, 30, 30, 44, 255); }
+        if (p > 0.85f) { SB(0, gy + 1, 1, 2, 30, 30, 44, 255); SB(-1, gy + 2, 1, 1, 30, 30, 44, 255); }
+    }
+#undef SB
+}
+
+/* 6. "Maybe she has seen the orb." Alex on the grass, a thought bubble of her own with the orb in it (and a "?" in between) */
+static void scene_alex(SDL_Renderer *r, float t) {
+    gradient(r, 120, 186, 244, 214, 238, 252);
+    for (int i = 0; i < 2; i++) cloud(r, fmodf(8.0f + i * 24.0f - t * 1.2f + 560.0f, 56.0f) - 8.0f, 3 + i * 3, 0.7f, 252, 253, 255, 224, 234, 252);
+    ground(r, 16, 66, 148, 70, t);
+    static const char *TREE[7] = { ".GGG.", "GgGGG", "GGgGG", "GGGGG", ".GGG.", "..T..", "..T.." };
+    for (int k = 0; k < 2; k++) {                                                    /* a tree at each side */
+        int sx = k ? 33 : 11, sy = 9;
+        for (int j = 0; j < 7; j++) for (int i = 0; i < 5; i++) {
+            char c = TREE[j][i];
+            if (c == '.') continue;
+            if (c == 'G') px(r, sx + i, sy + j, 1, 1, 28, 104, 40); else if (c == 'g') px(r, sx + i, sy + j, 1, 1, 60, 140, 60); else px(r, sx + i, sy + j, 1, 1, 110, 76, 40);
+        }
+    }
+    int step = ((int)(t * 1.4f) & 1) ? 0 : 0;
+    int bob = (sinf(t * 2.4f) > 0.6f) ? 1 : 0;                                       /* she shifts her weight now and then */
+    (void)step;
+    draw_alex(r, 15, 7 + bob, 0);
+    /* her thought bubble: three trail dots, then the bubble with the orb / a question mark */
+    px(r, 25, 9, 1, 1, 255, 255, 255); px(r, 27, 7, 2, 2, 255, 255, 255);
+    for (int dy = -5; dy <= 5; dy++)
+        for (int dx = -9; dx <= 9; dx++) {
+            float e = (dx / 9.0f) * (dx / 9.0f) + (dy / 5.0f) * (dy / 5.0f);
+            if (e <= 1.0f) px(r, 31 + dx, 4 + dy, 1, 1, e > 0.78f ? 168 : 255, e > 0.78f ? 176 : 255, e > 0.78f ? 214 : 255);
+        }
+    if (((int)(t / 1.4f)) & 1) {
+        static const char *Q[7] = { ".###.", "#...#", "...#.", "..#..", "..#..", ".....", "..#.." };
+        float pu = 0.7f + 0.3f * sinf(t * 5.0f);
+        for (int j = 0; j < 7; j++) for (int i = 0; i < 5; i++) if (Q[j][i] == '#') px(r, 29 + i, 1 + j, 1, 1, (int)(120 * pu), (int)(90 * pu), (int)(210 * pu));
+    } else draw_orb_ball(r, 31, 4, 2, t);
+}
+
+/* 7. "Alex has the orb. All I need is a broken shrine." Alex holds the orb up; the shrine beside her is cracking, again and again */
+static void scene_alexorb(SDL_Renderer *r, float t) {
+    gradient(r, 54, 34, 92, 246, 156, 118);
+    for (int i = 0; i < 10; i++) {
+        int gx = (int)(hs(i, 8, 3) % GW), gy = (int)(hs(i, 9, 3) % 8);
+        if (((int)(t * 1.3f) + i) % 3) px(r, gx, gy, 1, 1, 255, 236, 220);
+    }
+    ground(r, 21, 40, 82, 56, t);
+    float cyc = fmodf(t, 5.0f), p = cyc < 1.0f ? 0.0f : (cyc < 4.0f ? (cyc - 1.0f) / 3.0f : 1.0f);
+    int boom = (cyc >= 4.0f && cyc < 4.25f);
+    shrine_g(r, 32, 21, t, p);
+    int oy2 = (int)floorf(sinf(t * 3.0f) * 0.8f + 0.5f);
+    for (int i = 0; i < 6; i++) {                                                    /* rays out of the orb (behind her) */
+        float a = t * 0.7f + i * 1.0472f;
+        for (int k = 5; k < 8; k++) pxa(r, 19 + (int)floorf(cosf(a) * k + 0.5f), 6 + oy2 + (int)floorf(sinf(a) * k + 0.5f), 1, 1, 255, 240, 190, 235 - (k - 5) * 70);
+    }
+    draw_alex(r, 9, 8, 0);
+    for (int j = 0; j < 4; j++) px(r, 18, 11 - j, 1, 1, 244, 200, 164);              /* her arm, up and out */
+    px(r, 17, 12, 1, 1, 244, 200, 164);
+    draw_orb_ball(r, 19, 6 + oy2, 3, t);
+    for (int k = 0; k < 6; k++) {                                                    /* a dotted line from the orb to the shrine: "all I need" */
+        int on = (((int)(t * 4.0f)) + k) % 6 < 3;
+        if (on) px(r, 23 + k * 2, 7 + k / 2 + oy2 / 2, 1, 1, 255, 236, 170);
+    }
+    if (boom) { SDL_SetRenderDrawColor(r, 255, 255, 255, 120); fillr(r, ox, oy, GW * s, GH * s); }
+}
+
+/* 8. "Breaking a goddess's shrine. I doubt that ends well." a storm gathers over the shrine; lightning every few seconds */
+static void scene_shrine(SDL_Renderer *r, float t) {
+    gradient(r, 22, 12, 40, 118, 34, 66);
+    for (int i = 0; i < 3; i++) cloud(r, fmodf(6.0f + i * 22.0f - t * 2.0f + 560.0f, 66.0f) - 12.0f, 2 + (i & 1) * 3, 1.3f, 58, 36, 76, 32, 20, 52);
+    ground(r, 21, 22, 40, 36, t);
+    for (int i = 0; i < 28; i++) {                                                   /* rain */
+        float yy = fmodf((float)(hs(i, 12, 4) % 1000) * 0.03f + t * 26.0f, (float)(GH + 6)) - 3.0f;
+        int xx = (int)(hs(i, 13, 4) % (GW + 8)) - 8 + (int)(yy * 0.25f);
+        pxa(r, xx, (int)yy, 1, 2, 160, 176, 226, 140);
+    }
+    shrine_g(r, 20, 21, t, 0.0f);
+    float T = 4.2f, ph = fmodf(t, T);
+    int cyc = (int)(t / T);
+    if (ph < 0.26f) {                                                                /* lightning */
+        float f = ph < 0.07f ? 1.0f : ph < 0.14f ? 0.25f : ph < 0.2f ? 0.8f : 0.2f;
+        int bx = 6 + (int)(hs(cyc, 14, 5) % 8) * (cyc & 1 ? 1 : 3) % 28;
+        for (int y = 0; y < 15; y++) {
+            bx += (int)(hs(cyc, y, 6) % 3) - 1;
+            pxa(r, bx - 1, y, 3, 1, 255, 244, 190, (int)(70 * f));
+            pxa(r, bx, y, 1, 1, 255, 252, 226, (int)(255 * f));
+        }
+        SDL_SetRenderDrawColor(r, 255, 244, 230, (int)(80 * f)); fillr(r, ox, oy, GW * s, GH * s);
+    }
+}
+
+/* 9. "A hammer. ..." the hammer, big, turning a little in the light of a sunburst */
+static void scene_hammer(SDL_Renderer *r, float t) {
+    for (int gy = 0; gy < GH; gy++)                                                  /* sunburst: rays spinning slowly behind it */
+        for (int gx = 0; gx < GW; gx++) {
+            float dx = gx + 0.5f - 20.0f, dy = gy + 0.5f - 12.0f;
+            float d = sqrtf(dx * dx + dy * dy), a = atan2f(dy, dx) + t * 0.18f;
+            int ray = (int)floorf(a / (6.2832f / 16.0f)) & 1;
+            float k = d / 24.0f; if (k > 1) k = 1;
+            float v = ray ? 1.0f : 0.9f;
+            px(r, gx, gy, 1, 1, (int)(mix(255, 214, k) * v), (int)(mix(214, 98, k) * v), (int)(mix(128, 96, k) * v));
+        }
+    for (int i = 0; i < 12; i++) {                                                   /* sparkles around */
+        float ph = fmodf(t * 1.1f + i * 0.43f, 2.0f);
+        int gx = 2 + (int)(hs(i, 15, 7) % (GW - 4)), gy = 1 + (int)(hs(i, 16, 7) % (GH - 2));
+        if (ph < 0.4f) sparkle(r, gx, gy, 255, 250, 220, 230); else if (ph < 0.8f) pxa(r, gx, gy, 1, 1, 255, 244, 200, 200);
+    }
+    float cy0 = 12.5f + sinf(t * 2.0f) * 0.9f, ang = -0.5f + 0.12f * sinf(t * 2.2f), ca = cosf(ang), sa = sinf(ang);
+    int sh = 6 - (int)floorf(sinf(t * 2.0f) * 0.9f + 0.5f);
+    pxa(r, 20 - sh, 22, 2 * sh, 1, 90, 40, 40, 90); pxa(r, 20 - sh + 1, 21, 2 * sh - 2, 1, 90, 40, 40, 60);   /* its shadow */
+    for (int gy = 0; gy < GH; gy++)
+        for (int gx = 0; gx < GW; gx++) {
+            float x = gx + 0.5f - 20.0f, y = gy + 0.5f - cy0;
+            float lx = x * ca + y * sa, ly = -x * sa + y * ca;                       /* the point in the hammer's own frame */
+            int R = -1, G = 0, B = 0;
+            if (fabsf(lx) <= 2.2f && ly >= -3.0f && ly <= 9.0f) {                    /* handle */
+                if (fabsf(lx) > 1.4f || ly > 8.1f) { R = 36; G = 40; B = 58; }
+                else if (lx < 0.1f) { R = 196; G = 136; B = 74; } else { R = 132; G = 84; B = 42; }
+            }
+            if (fabsf(lx) <= 3.4f && ly >= -3.6f && ly <= -1.4f) { R = 36; G = 40; B = 58; if (fabsf(lx) < 2.2f && ly > -3.0f && ly < -2.0f) { R = 122; G = 130; B = 156; } }   /* collar */
+            if (fabsf(lx) <= 7.6f && ly >= -8.6f && ly <= -3.4f) {                   /* head */
+                if (fabsf(lx) > 6.6f || ly < -7.6f || ly > -4.4f) { R = 36; G = 40; B = 58; }
+                else if (ly < -5.8f) { R = 206; G = 214; B = 232; }
+                else { R = 122; G = 130; B = 156; }
+                if (R == 206 && lx > 4.5f) { R = 170; G = 180; B = 208; }
+            }
+            if (R >= 0) px(r, gx, gy, 1, 1, R, G, B);
+        }
+    float gl = fmodf(t, 2.6f);                                                       /* a glint travelling over the head */
+    if (gl < 0.4f) {
+        float lx = -5.5f + gl * 28.0f, ly = -6.8f;
+        int gx = (int)(20.0f + lx * ca - ly * sa), gy = (int)(cy0 + lx * sa + ly * ca);
+        sparkle(r, gx, gy, 255, 255, 255, 255);
+    }
+}
+
+/* 10. "I cannot break it with my hands. I need something heavy." a fist bumping the shrine, getting nowhere; the thought of an anvil */
+static void scene_heavy(SDL_Renderer *r, float t) {
+    gradient(r, 58, 66, 108, 156, 156, 190);
+    ground(r, 21, 52, 96, 68, t);
+    float P = 1.8f, p = fmodf(t, P) / P;
+    float k = p < 0.2f ? 0.0f : p < 0.7f ? (p - 0.2f) / 0.5f : p < 0.8f ? 1.0f - (p - 0.7f) / 0.1f : 0.0f;
+    k = k * k * (3.0f - 2.0f * k);
+    int hit = (p >= 0.8f || p < 0.1f);                                               /* it has just landed */
+    int shake = (p >= 0.8f && p < 0.88f) ? 1 : 0;
+    shrine_g(r, 23 + shake, 21, t, 0.0f);
+    int fx = 14 - (int)(9.0f * k), fy = 11;                                          /* the fist: its right edge touches the pillar when k = 0 */
+    for (int gx = 0; gx < fx; gx++) px(r, gx, fy + 1, 1, 4, 214, 60, 60);            /* the sleeve and arm run in from the left */
+    px(r, fx - 1, fy + 1, 1, 4, 232, 90, 90);
+    px(r, fx, fy, 6, 6, 36, 40, 58);                                                 /* the fist, outlined */
+    px(r, fx + 1, fy + 1, 4, 4, 248, 208, 170);
+    px(r, fx + 3, fy + 1, 1, 4, 226, 176, 138); px(r, fx + 1, fy + 3, 4, 1, 226, 176, 138);   /* knuckle lines */
+    px(r, fx + 1, fy + 1, 2, 1, 255, 230, 200);
+    if (hit) {                                                                       /* "tink": a star and dust at the stone, which is not even scratched */
+        float ti = fmodf(p - 0.8f + 1.0f, 1.0f);
+        if (ti < 0.3f) {
+            int a = (int)(230 * (1.0f - ti / 0.3f));
+            sparkle(r, 20, 11, 255, 250, 200, a); sparkle(r, 19, 9, 255, 255, 255, a);
+            pxa(r, 18, 14, 1, 1, 255, 236, 170, a); pxa(r, 17, 12, 1, 1, 255, 236, 170, a);
+        }
+    }
+    /* the thought: an anvil, in a bubble up in the corner */
+    px(r, 30, 13, 1, 1, 255, 255, 255); px(r, 31, 11, 2, 2, 255, 255, 255);
+    for (int dy = -5; dy <= 5; dy++)
+        for (int dx = -7; dx <= 7; dx++) {
+            float e = (dx / 7.0f) * (dx / 7.0f) + (dy / 5.0f) * (dy / 5.0f);
+            if (e <= 1.0f) px(r, 34 + dx, 6 + dy, 1, 1, e > 0.74f ? 168 : 255, e > 0.74f ? 176 : 255, e > 0.74f ? 214 : 255);
+        }
+    static const char *AN[6] = { "##########", "..########", "....####..", "....####..", "...######.", "..########" };
+    int ob = (int)floorf(sinf(t * 2.0f) * 0.7f + 0.5f);
+    for (int j = 0; j < 6; j++) for (int i = 0; i < 10; i++) {
+        if (AN[j][i] != '#') continue;
+        px(r, 29 + i, 3 + j + ob, 1, 1, j == 0 ? 120 : 70, j == 0 ? 126 : 76, j == 0 ? 150 : 100);
+    }
+}
+
+/* 11. "Here we go again." a ring of light running round a little grave: it starts over */
+static void scene_again(SDL_Renderer *r, float t) {
+    gradient(r, 10, 18, 36, 34, 66, 84);
+    for (int i = 0; i < 14; i++) {
+        int gx = (int)(hs(i, 17, 8) % GW), gy = (int)(hs(i, 18, 8) % GH);
+        int tw = ((int)(t * 1.4f) + i) % 3;
+        if (tw == 0) px(r, gx, gy, 1, 1, 200, 214, 250); else if (tw == 1) px(r, gx, gy, 1, 1, 78, 94, 140);
+    }
+    float head = fmodf(t * 0.5f, 1.0f);
+    for (int i = 0; i < 64; i++) {
+        float f = i / 64.0f, a = f * 6.2832f - 1.5708f;
+        float behind = fmodf(head - f + 1.0f, 1.0f);                                 /* 0 at the head, 1 = a full turn behind it */
+        int A = (int)(40 + 215 * (1.0f - behind) * (1.0f - behind));
+        int gx = 20 + (int)floorf(cosf(a) * 9.0f + 0.5f), gy = 12 + (int)floorf(sinf(a) * 9.0f + 0.5f);
+        pxa(r, gx, gy, 1, 1, 255, 214, 120, A);
+        if (behind < 0.25f) pxa(r, 20 + (int)floorf(cosf(a) * 8.0f + 0.5f), 12 + (int)floorf(sinf(a) * 8.0f + 0.5f), 1, 1, 255, 236, 170, A / 2);
+    }
+    float ha = head * 6.2832f - 1.5708f;                                             /* the arrow head, pointing along the ring */
+    int hx = 20 + (int)floorf(cosf(ha) * 9.0f + 0.5f), hy = 12 + (int)floorf(sinf(ha) * 9.0f + 0.5f);
+    px(r, hx - 1, hy - 1, 3, 3, 255, 244, 190); px(r, hx, hy, 1, 1, 255, 255, 255);
+    for (int dy = 0; dy < 4; dy++)                                                   /* the mound */
+        for (int dx = -6; dx <= 6; dx++) {
+            float e = (dx / 6.0f) * (dx / 6.0f) + (dy / 3.6f) * (dy / 3.6f);
+            if (e <= 1.0f) px(r, 20 + dx, 15 + dy, 1, 1, dy < 2 ? 96 : 76, dy < 2 ? 76 : 58, dy < 2 ? 60 : 46);
+        }
+    for (int gy = 8; gy <= 15; gy++) {                                               /* the stone */
+        int x0 = 18, x1 = 22;
+        if (gy == 8) { x0 = 19; x1 = 21; }
+        for (int gx = x0; gx <= x1; gx++) px(r, gx, gy, 1, 1, gx == x0 ? 190 : gx == x1 ? 104 : 148, gx == x0 ? 192 : gx == x1 ? 106 : 150, gx == x0 ? 202 : gx == x1 ? 120 : 160);
+    }
+    px(r, 19, 11, 3, 1, 90, 92, 106);
+    int sway = (int)floorf(sinf(t * 1.6f) * 1.0f + 0.5f);
+    px(r, 25, 14, 1, 3, 52, 128, 66); px(r, 25 + sway, 13, 1, 1, 244, 140, 182); px(r, 24 + sway, 12, 3, 1, 250, 160, 196); px(r, 25 + sway, 12, 1, 1, 255, 226, 120);
+}
+
 static void draw_scene(SDL_Renderer *r, int scene, float t) {
     switch (scene) {
     case BRAIN_SCENE_ORB:    scene_orb(r, t);    break;
     case BRAIN_SCENE_GRASS:  scene_grass(r, t);  break;
     case BRAIN_SCENE_CLOUDS: scene_clouds(r, t); break;
     case BRAIN_SCENE_GRAVE:  scene_grave(r, t);  break;
+    case BRAIN_SCENE_ALEX:    scene_alex(r, t);    break;
+    case BRAIN_SCENE_ALEXORB: scene_alexorb(r, t); break;
+    case BRAIN_SCENE_SHRINE:  scene_shrine(r, t);  break;
+    case BRAIN_SCENE_HAMMER:  scene_hammer(r, t);  break;
+    case BRAIN_SCENE_HEAVY:   scene_heavy(r, t);   break;
+    case BRAIN_SCENE_AGAIN:   scene_again(r, t);   break;
     default:                 scene_coin(r, t);   break;
     }
 }

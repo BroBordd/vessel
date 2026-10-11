@@ -238,7 +238,7 @@ static const DialogLine LANDING[] = {
 static void alex_spotted(void) {
     if (alex_seen) return;
     alex_seen = 1;
-    think("Maybe she has seen the orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ALEX, 0);    /* the task toast dings */
+    think("Maybe she has seen the orb.", NULL, BRAIN_SCENE_ALEX, THOUGHT_ALEX, 0);    /* the task toast dings */
     mission_ask_alex = task_toast("Ask Alex");
 }
 
@@ -482,7 +482,7 @@ static void shrine_done(void) {
 
 static void shrine_thought(void) {
     if (shrine_fouled) return;                              /* too late: it is done already */
-    think("Breaking a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_ORB, THOUGHT_SHRINE, 1);
+    think("Breaking a goddess's shrine. I doubt that ends well.", "I doubt that ends well.", BRAIN_SCENE_SHRINE, THOUGHT_SHRINE, 1);
 }
 
 /* the hammer's thoughts, every frame: picking it up (what the vessel thinks depends on whether it knows about the shrine yet), and the
@@ -493,8 +493,8 @@ static void hammer_watch(void) {
     if (!hammer_said && world_has_item(ITEM_HAMMER)) {
         hammer_said = 1;
         brainwin_drop_tag(THOUGHT_HAMMER);                  /* "I need something heavy" is answered */
-        if (knows) think("A hammer. That should break the shrine.", "That should break the shrine.", BRAIN_SCENE_ORB, THOUGHT_HAMMER, 1);
-        else       think("A hammer. This might come in handy.", "This might come in handy.", BRAIN_SCENE_GRASS, THOUGHT_HAMMER, 1);
+        if (knows) think("A hammer. That should break the shrine.", "That should break the shrine.", BRAIN_SCENE_HAMMER, THOUGHT_HAMMER, 1);
+        else       think("A hammer. This might come in handy.", "This might come in handy.", BRAIN_SCENE_HAMMER, THOUGHT_HAMMER, 1);
         return;
     }
     if (hammer_hinted || hammer_said || !knows || !world_shrine_exists()) return;
@@ -502,7 +502,7 @@ static void hammer_watch(void) {
     float dx = world_player_tile_x() - sx, dy = world_player_tile_y() - sy;
     if (dx * dx + dy * dy > HAMMER_HINT_NEAR * HAMMER_HINT_NEAR) return;
     hammer_hinted = 1;
-    think("I cannot break it with my hands. I need something heavy.", "I need something heavy.", BRAIN_SCENE_ORB, THOUGHT_HAMMER, 1);
+    think("I cannot break it with my hands. I need something heavy.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_HAMMER, 1);
 }
 
 static void alex_deal_highlight(int page, int span) {
@@ -515,7 +515,7 @@ static void alex_deal_highlight(int page, int span) {
 
 /* the free chat after the scripted part is over: the head catches up with what just happened */
 static void alex_chat_end(void) {
-    think("Alex has the orb. All I need is a broken shrine.", "Alex has the orb. I need a broken shrine.", BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
+    think("Alex has the orb. All I need is a broken shrine.", "Alex has the orb. I need a broken shrine.", BRAIN_SCENE_ALEXORB, THOUGHT_ORB, 1);
     story_after(10.0f, shrine_thought);
 }
 
@@ -565,7 +565,7 @@ static void landed_again(void) {
         int gx, gy;
         if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) world_place_grave(gx, gy, graves[i].who);
     }
-    think("Here we go again.", NULL, BRAIN_SCENE_GRASS, THOUGHT_AGAIN, 1);
+    think("Here we go again.", NULL, BRAIN_SCENE_AGAIN, THOUGHT_AGAIN, 1);
     story_vessel2_ready();                                  /* the hook for vessel 2's own story (chunk 24) */
 }
 

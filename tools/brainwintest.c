@@ -175,6 +175,29 @@ int main(int argc, char **argv) {
         CHECK(n > 0 && grey * 100 > n * 4 && green * 100 > n * 8 && earth > 20 && dusk * 100 > n * 10, "the grave picture is missing its stone, ground, earth or sky (grey %d, green %d, earth %d, sky %d of %d)", grey, green, earth, dusk, n); }
     tap(2, 2); run(1.0f);
 
+    /* 8. every scene has its OWN picture: each draws more than one flat colour, and no two look alike (so no thought falls back on the orb) */
+    {   unsigned long hash[BRAIN_SCENE_COUNT];
+        for (int sc = 0; sc < BRAIN_SCENE_COUNT; sc++) {
+            brainwin_clear();
+            CHECK(brainwin_acquire("A thought.", (BrainScene)sc, 1) == 0, "scene %d was refused", sc);
+            brainwin_open(); run(2.0f);
+            brainwin_debug_rects(&win, &mon, &autob, &closeb);
+            SDL_SetRenderDrawColor(rr, 126, 188, 246, 255); SDL_RenderClear(rr); brainwin_draw(rr);
+            Uint8 *pix = (Uint8 *)surf->pixels; int pitch = surf->pitch, kinds = 0; unsigned long hh = 1469598103934665603UL; Uint32 seen[8] = { 0 };
+            for (int y = mon.y; y < mon.y + mon.h; y += 3) for (int x = mon.x; x < mon.x + mon.w; x += 3) {
+                Uint8 *c = pix + y * pitch + x * 4; Uint32 v = (Uint32)c[0] << 16 | (Uint32)c[1] << 8 | c[2];
+                hh = (hh ^ v) * 1099511628211UL;
+                int known = 0; for (int k = 0; k < kinds && k < 8; k++) if (seen[k] == v) known = 1;
+                if (!known && kinds < 8) seen[kinds++] = v;
+            }
+            hash[sc] = hh;
+            CHECK(kinds >= 6, "scene %d draws almost nothing (%d colours)", sc, kinds);
+            snprintf(name, sizeof name, "../build/brain_scene_%d.bmp", sc); SDL_SaveBMP(surf, name);
+            for (int o = 0; o < sc; o++) CHECK(hash[o] != hash[sc], "scenes %d and %d look identical", o, sc);
+            tap(2, 2); run(1.0f);
+        }
+    }
+
     printf(fails ? "%d check(s) FAILED\n" : "all checks passed\n", fails);
     return fails != 0;
 }
