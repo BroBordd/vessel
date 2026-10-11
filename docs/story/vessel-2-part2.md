@@ -35,7 +35,7 @@ Same as vessel 1 and 2:
 | **Vas** | The soul. **The same person in every body, with every memory** (see `vessel-2.md`). Doia is Aonia's soul in a new body, not a stranger. Every thought is first person: "she sent *me* to die". |
 | **Aonia** | Vessel one. Dead. His body lies in the grave on the Grasslands. It still has the **hammer** he broke the shrine with. |
 | **Doia** | Vessel two. The one this file is about. Same soul, `VESSEL2` look. |
-| **Tria** | Vessel three (Dea plays on the word "three"). Appears when Doia dies at the end (chunk 39). New `Person` `VESSEL3`. |
+| **Tria** | Vessel three (Dea plays on the word "three"). Appears when Doia dies at the end (chunk 42). New `Person` `VESSEL3`. |
 | **Dea** | The goddess. Gives the orders. Toxic as ever. Wants her **orb** back and wants it **kept quiet**. |
 | **Alex** | Lives in the house on the Grasslands. Has the orb and says it is **hers**. She does not know who Doia is. |
 | **Dia** | The rival goddess. Her shrine is broken (stump, rubble). Silent in this part. |
@@ -61,10 +61,15 @@ On the Grasslands the task **"Get the orb from Alex"** is already on the list. W
 refuses, the orb is hers, and she does not care who we are. We cannot argue or explain (chat is closed): all we have are our thoughts.
 The vessel thinks it needs something to persuade her. The hammer is with the one who broke the shrine: **with its own old body**.
 
-### 3. The grave
-Outside, find the grave (it already stands where Aonia died). Hold the interact button at it to **dig** (like breaking the shrine).
-The plot opens and **Aonia's body** lies there, grey. The hammer is still in his hand. We take it
-(the pockets show the hammer again). Thought: "That's me. And he kept the hammer."
+### 3. The grave, and respect for the dead
+Outside, find the grave (it already stands where Aonia died). Hold the interact button at it: we **pull his body out of the grave by
+the legs**, feet first, and lay him on the grass beside it. The plot stays open. The task **"Bury Aonia"** coins in.
+The interact button next to the body becomes a **magnifying glass (search)**. Searching him: **the hammer falls out of his hand
+onto the ground** next to him.
+We are not allowed to take it yet. Walking up to pick the hammer up **flashes the task "Bury Aonia" red and shakes it, with an error
+sound**, and the hammer stays where it is: **first we put him back, out of respect for the dead.** Holding the button at the body
+now **drags him back into his grave** and the plot closes. Task done. The hammer can be picked up now. Thoughts: "That's me."
+and, as we take the hammer, "Rest well. I need this."
 
 ### 4. Alex
 Back in her house: hammer out, a swing button next to her. She is hit again and again, says what people say, falls.
@@ -91,7 +96,10 @@ Walk up to her temple with the orb. Hand it over (a short scripted talk). That i
 - Task: "Get the orb from Alex"
 - Alex, refusing: "The orb? It's mine. I found it. No." / "Why do you want it so badly?" (we cannot answer)
 - Thought after: "She won't give it up. I need something heavy to change her mind." / "I know where there is one."
-- Grave, digging: "I'm digging up my own grave." / found: "That's me. He kept the hammer."
+- Grave, pulling him out: "I'm pulling my own body out of the ground." / task: "Bury Aonia"
+- Search: "He still has it. The hammer." (it falls on the ground)
+- Pick up too early: error sound, the task "Bury Aonia" flashes red and shakes; thought: "Not like this. He goes back first."
+- Buried: "Rest well." / taking the hammer: "I need this. I'm sorry."
 - Alex hit (between hits): "Hey! What are you doing?" / "Stop it!" / "Please!" / "It's just an orb..."
 - Death text: "Alex has died."
 - After: "Nobody saw. Dea will be pleased."
@@ -105,11 +113,12 @@ Walk up to her temple with the orb. Hand it over (a short scripted talk). That i
 - `story.c`: `think()`, `task_toast()`, `convo_ask_line`, `dialog_play`, `story_after`, the `green` struct (Grasslands as vessel 1 left them,
   `alex_there`), `graves[]` / `grave_n`, `lives`, `DEATH_LINES[]` (one entry per life), `story_reset_for_respawn()`, `landed_again()`,
   `story_vessel2_ready()` (the hook of this part, empty today), `on_talk_alex` (branches on `alex_dealt`).
-- `shrine.c/.h`: the break (hold the interact button, cracks, stump, rubble). Chunk 37 plays it backwards.
-- `grave.c/.h` + `world_place_grave`: stone, plot, portrait. Chunks 30-31 add the dig and the open plot.
+- `shrine.c/.h`: the break (hold the interact button, cracks, stump, rubble). Chunk 40 plays it backwards.
+- `grave.c/.h` + `world_place_grave`: stone, plot, portrait. Chunks 30-32 add the pull, the open plot, the body and the search; chunk 34 buries him again.
 - `item.c/.h`: `ITEM_HAMMER`, inventory under the minimap, `item_give/has/clear`. `world_clear_items()` empties the pockets on a new life
-  (chunk 38 keeps the orb).
-- `npc.c/.h`: static npcs only (no motion, no removal). Chunks 33-35 add hit flashes, a lying pose and removal.
+  (chunk 41 keeps the orb). Chunk 33 adds `item_set_locked(item, on)`: a locked item on the ground cannot be picked up and says so.
+- `missions.c/.h`: the checklist. Chunk 33 adds `mission_flash(id)`: the line flashes red and shakes, for a short time. `audio.c`: chunk 33 adds `sfx_error()`.
+- `npc.c/.h`: static npcs only (no motion, no removal). Chunks 36-38 add hit flashes, a lying pose and removal.
 - `world.c`: `world_death_*` (the death camera: zoom, grey, red on the player), `world_find_far_spot`, `world_house_*`, `world_set_player`.
 - `thought.c`, `brainwin.c`: thoughts and their pictures (`BRAIN_SCENE_GRAVE`, `_HAMMER`, `_HEAVY`, `_ORB` exist and can be reused).
 - `hud.c`: `hud_set_hp`, `hud_set_person`.
@@ -128,39 +137,43 @@ Mark `[x]` when the chunk is pushed.
 ### Alex says no
 - [ ] **29. Alex refuses** — `on_talk_alex` for `lives >= 1` plays `ALEX_REFUSE` (scripted, her own face popup), ends with no free chat (locked) and no question. Then the thoughts: she won't give it, the hammer is with the old body. Brain picture: `BRAIN_SCENE_HEAVY`. Check: the refusal plays once, the thoughts come after it.
 
-### The grave and the hammer
-- [ ] **30. Dig interaction** — engine: `world_enable_grave_dig(i, on_done)` (like `world_enable_shrine`): the interact button shows near that grave and HOLDING it fills a bar like the shrine's; letting go early makes it creep back; when full, `on_done()`. Reuse the hold code. Check: near the grave the button shows; hold = done.
-- [ ] **31. The open plot and the body** — `grave.c`: `grave_open(i)` draws the dug earth and a grey body in the plot (Aonia's look, the lying pose the landing already uses). The stone and portrait stay. Pixel art, grey filter. Screenshot via `tools/preview.c`.
-- [ ] **32. The hammer** — in `story.c` the dig's `on_done` opens the grave, thinks the grave lines, gives `ITEM_HAMMER`, and shows the inventory slot (`BRAIN_SCENE_HAMMER`). Task stays "Get the orb from Alex". Check: pockets hold the hammer after the dig, not before.
+### The grave, the body and the hammer
+- [ ] **30. Pull him out (interaction)** — engine: `world_enable_grave_pull(i, on_done)` (like `world_enable_shrine`): the interact button shows near that grave and HOLDING it fills a bar like the shrine's; letting go early makes it creep back; when full, `on_done()`. Reuse the hold code. Check: near the grave the button shows; hold = done.
+- [ ] **31. The open plot and the body** — `grave.c`: `grave_open(i)` opens the earth plot, and the body (Aonia's look, the lying pose the landing already uses, greyed with `gfx_set_filter`) is **drawn sliding out of the plot feet first** over about 1.5 s, then lying on the grass beside it. `grave_close(i)` plays it backwards. The stone and portrait stay. Pixel art. Screenshot via `tools/preview.c`. `story.c`: when the pull is done, the grave opens and the task **"Bury Aonia"** (`VESSEL_NAME`) coins in.
+- [ ] **32. Search him** — the interact button next to the body shows a **magnifying glass** (a new 12x12 icon in `item.c`'s style, used by the button): a tap searches (about 1 s), the hammer **falls onto the ground** next to him (`item_place(ITEM_HAMMER, ...)`) with a glint and a thought ("He still has it. The hammer."). The search happens once. Check: no hammer before the search, hammer on the ground after.
+- [ ] **33. Respect the dead** — `item_set_locked(ITEM_HAMMER, 1)` while he is unburied: walking over the hammer does not pick it up; instead `mission_flash(task)` (the "Bury Aonia" line turns red and shakes for about 0.6 s), `sfx_error()` (a short low double buzz in `audio.c`), and a thought ("Not like this. He goes back first.") (at most once every few seconds). Check: the hammer is not in the pockets after walking over it; the flash and the sound are counted (`sfx_debug_errors()`).
+- [ ] **34. Bury him** — the interact button next to the body (after the search) becomes a grave/hand icon: HOLD it and he is **dragged back into the plot** (the pull played backwards, `grave_close`). The task "Bury Aonia" completes. `item_set_locked(ITEM_HAMMER, 0)`. Check: hold = buried, the plot is closed, the hammer is free.
+- [ ] **35. The hammer is ours** — walking over the hammer picks it up (inventory slot unfolds as in vessel 1), thought "Rest well. I need this. I'm sorry." (`BRAIN_SCENE_HAMMER`). The task stays "Get the orb from Alex". Check: pockets hold the hammer only after the burial.
 
 ### Beating Alex
-- [ ] **33. The swing** — engine: with the hammer, an npc marked hostile (`npc_set_hostile(id, 1)`) makes the interact button a hammer swing; each tap hits: the npc flashes white and is shoved one pixel unit back, a hit sound, a short cooldown (`world_enable_fight(npc_id, hits, on_down)`). Check: N taps call `on_down` once.
-- [ ] **34. Alex fights back** — Alex is hostile once the hammer is in her house with us. A small pixel health bar over her; she says one `ALEX_HURT[]` line between hits (face popup, tap to go on) and stays on her feet until the last. Check: bar goes down per hit; lines in order.
-- [ ] **35. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. Check: camera target is the npc, controls return afterwards.
+- [ ] **36. The swing** — engine: with the hammer, an npc marked hostile (`npc_set_hostile(id, 1)`) makes the interact button a hammer swing; each tap hits: the npc flashes white and is shoved one pixel unit back, a hit sound, a short cooldown (`world_enable_fight(npc_id, hits, on_down)`). Check: N taps call `on_down` once.
+- [ ] **37. Alex fights back** — Alex is hostile once the hammer is in her house with us. A small pixel health bar over her; she says one `ALEX_HURT[]` line between hits (face popup, tap to go on) and stays on her feet until the last. Check: bar goes down per hit; lines in order.
+- [ ] **38. Alex falls** — `npc_set_lying(id)` (the lying pose) and `world_death_begin_at(npc_id)`: the death camera on her (zoom, grey on the scene, red on her), the peeps, the flatline, the words **"Alex has died."** (`world_death_text`), then the world is free again. Her body stays lying in the house, no grave. Check: camera target is the npc, controls return afterwards.
 
 ### The orb
-- [ ] **36. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); it drops where she fell (`item_place`), walking over it picks it up; the task "Get the orb from Alex" is done and **"Repair the shrine"** coins in; thought: "Nobody saw. Dea will be pleased." Check: orb in pockets, task swap.
+- [ ] **39. Taking the orb** — `ITEM_ORB` (icon + name in `item.c`, a violet-gold glowing ball like `draw_orb_ball` in `brainwin.c`); it drops where she fell (`item_place`), walking over it picks it up; the task "Get the orb from Alex" is done and **"Repair the shrine"** coins in; thought: "Nobody saw. Dea will be pleased." Check: orb in pockets, task swap.
 
 ### The shrine
-- [ ] **37. Repair** — `shrine.c`: `shrine_repair` plays the break backwards (cracks heal, the stump grows, the rubble lifts, the gem lights again) while the interact button is HELD with the hammer. `world_enable_shrine_repair(on_done)`. The first time the hold starts, the thought **"This hammer surely can do everything, huh."** (`BRAIN_SCENE_HAMMER`). Check: progress reaches 100% only by holding; the shrine draws whole afterwards.
+- [ ] **40. Repair** — `shrine.c`: `shrine_repair` plays the break backwards (cracks heal, the stump grows, the rubble lifts, the gem lights again) while the interact button is HELD with the hammer. `world_enable_shrine_repair(on_done)`. The first time the hold starts, the thought **"This hammer surely can do everything, huh."** (`BRAIN_SCENE_HAMMER`). Check: progress reaches 100% only by holding; the shrine draws whole afterwards.
 
 ### Dying and vessel 3
-- [ ] **38. "Die"** — when the repair is done the task **"Die"** coins in. At the mended shrine the interact button shows a heart: holding it drains the HP bar (`hud_set_hp`) to 0, then the existing death cutscene (chunks 12-15 of vessel-2) runs with `lives = 2`; `DEATH_LINES[1]` = "Uh. I died. Again."; Doia's grave is placed at the death tile (`grave_n`). **`story_reset_for_respawn()` keeps `ITEM_ORB`** and empties the rest of the pockets. Check: after the respawn the orb is in the pockets, nothing else.
-- [ ] **39. Vessel 3: Tria** — `VESSEL3` `Person` (a clearly different look from Aonia and Doia) and `VESSEL3_NAME "Tria"`; summoned in the clouds again (`world_summon`), `DEA_NAMING3` ("Fine. You are number three now. Tria.") with the ID card flash and `world_set_player(&VESSEL3)`. Dea stands in her temple. Check on a screenshot that the three look different.
+- [ ] **41. "Die"** — when the repair is done the task **"Die"** coins in. At the mended shrine the interact button shows a heart: holding it drains the HP bar (`hud_set_hp`) to 0, then the existing death cutscene (chunks 12-15 of vessel-2) runs with `lives = 2`; `DEATH_LINES[1]` = "Uh. I died. Again."; Doia's grave is placed at the death tile (`grave_n`). **`story_reset_for_respawn()` keeps `ITEM_ORB`** and empties the rest of the pockets. Check: after the respawn the orb is in the pockets, nothing else.
+- [ ] **42. Vessel 3: Tria** — `VESSEL3` `Person` (a clearly different look from Aonia and Doia) and `VESSEL3_NAME "Tria"`; summoned in the clouds again (`world_summon`), `DEA_NAMING3` ("Fine. You are number three now. Tria.") with the ID card flash and `world_set_player(&VESSEL3)`. Dea stands in her temple. Check on a screenshot that the three look different.
 
 ### The end
-- [ ] **40. Giving the orb** — talking to Dea with `ITEM_ORB` in the pockets plays `DEA_ORB_TAKE`: the orb leaves the pockets, the task completes. Without the orb she nags. Hook `story_vessel3_ready()` (empty stub, like `story_vessel2_ready`).
-- [ ] **41. Wrap-up** — the thoughts that no longer make sense after the new flow are removed or retagged, the brain window keeps what the soul remembers, `groundtest` runs the whole part in one headless pass (orders, refusal, dig, hammer, fight, orb, repair, die, vessel 3, orb to Dea). Update this file's status log.
+- [ ] **43. Giving the orb** — talking to Dea with `ITEM_ORB` in the pockets plays `DEA_ORB_TAKE`: the orb leaves the pockets, the task completes. Without the orb she nags. Hook `story_vessel3_ready()` (empty stub, like `story_vessel2_ready`).
+- [ ] **44. Wrap-up** — the thoughts that no longer make sense after the new flow are removed or retagged, the brain window keeps what the soul remembers, `groundtest` runs the whole part in one headless pass (orders, refusal, dig, hammer, fight, orb, repair, die, vessel 3, orb to Dea). Update this file's status log.
 
 ## Open decisions (defaults so nobody has to wait)
 
-- **How Doia dies at the end:** the repaired shrine drains us on a hold (chunk 38). Alternative: Dea's voice orders it and we simply fall. Default is the shrine.
-- **Does Alex hurt us:** no. She only talks and takes the hits (chunk 34). Fighting back would need npc motion.
+- **How Doia dies at the end:** the repaired shrine drains us on a hold (chunk 41). Alternative: Dea's voice orders it and we simply fall. Default is the shrine.
+- **Does Alex hurt us:** no. She only talks and takes the hits (chunk 37). Fighting back would need npc motion.
 - **No grave for Alex.** Her body stays lying in the house.
 - **Task list stays secret-quiet:** no task says "kill". The only tasks are "Get the orb from Alex", "Repair the shrine", "Die" (and "Give the orb to Dea" if wanted in chunk 40).
-- **Chat lock ends** once the orb is handed over (chunk 40) or when vessel 3 starts, whichever the owner prefers. Default: it ends with the orb handover.
+- **Chat lock ends** once the orb is handed over (chunk 43) or when vessel 3 starts, whichever the owner prefers. Default: it ends with the orb handover.
 - **Dia** says nothing in this part. Repairing her shrine is just a thing the hammer does.
 
 ## Status log
 
 - 2026-10-11: chunk 25 done: this file.
+- 2026-10-11: the grave scene reworked: we pull the old body out by the legs, search him (magnifying-glass button) so the hammer falls to the ground, picking it up too early flashes and shakes the task "Bury Aonia" in red with an error sound, and the body has to be buried again first. Chunks 30-35 replace the old 30-32; the later chunks are renumbered 36-44.
