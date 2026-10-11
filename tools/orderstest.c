@@ -71,6 +71,16 @@ int main(void) {
     CHECK(!dialog_active() && !convo_active(), "her last line did not end");
     CHECK(controls_visible && hole_on, "the controls / hole did not come back after her last line");
 
+    /* chunk 28: the second landing: the task is not there at once (the landing thought comes first), then it coins in once */
+    CHECK(missions_count() == 0 && mission_get_orb < 0, "the orb task exists before the second landing");
+    landed_again();
+    CHECK(vessel2_ready_calls == 1, "story_vessel2_ready did not run once (%d)", vessel2_ready_calls);
+    CHECK(mission_get_orb < 0 && missions_count() == 0, "the task came in with the landing thought, not after it");
+    run(VESSEL2_TASK_DELAY + 0.5f);
+    CHECK(mission_get_orb >= 0 && missions_count() == 1, "\"Get the orb from Alex\" did not coin in after the landing (%d tasks)", missions_count());
+    run(VESSEL2_TASK_DELAY + 0.5f);
+    CHECK(missions_count() == 1, "the task came in twice");
+
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
     convo_open(&ALEX, &ALEX_MIND, 1, locked_end);
     CHECK(!convo_active() && !dialog_active(), "Alex's chat opened while locked");

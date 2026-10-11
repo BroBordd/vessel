@@ -104,6 +104,7 @@ void story_update(float dt) {
 /* ---------- state ---------- */
 static int mission_talk_dea = -1;
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
+static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
@@ -350,7 +351,7 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = -1;
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets */
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
@@ -551,11 +552,18 @@ static void landing_done(void) {
     think("I need to find that orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
 }
 
-/* the end of vessel 2's opening (chunk 24): the landing is done, the Grasslands are put back and the graves stand. EMPTY ON PURPOSE:
- * vessel 2's own mission is planned later and starts here. the player just walks until then. */
+/* the end of vessel 2's opening (chunk 24): the landing is done, the Grasslands are put back and the graves stand. chunk 28: this is
+ * where vessel 2's job starts. the landing thought ("Here we go again.") has its time on screen first, then the task coins in:
+ * "Get the orb from Alex" (Dea's order). Alex does not replay vessel 1's deal: alex_dealt stays set, her talk is chunk 29. */
+#define VESSEL2_TASK_DELAY  3.5f            /* seconds after the landing thought, so the card and the toast do not pile up */
 static int vessel2_ready_calls;                     /* (the tests count them) */
+static void vessel2_task(void) {
+    if (mission_get_orb >= 0 || dying) return;
+    mission_get_orb = task_toast("Get the orb from Alex");
+}
 void story_vessel2_ready(void) {
     vessel2_ready_calls++;
+    story_after(VESSEL2_TASK_DELAY, vessel2_task);
 }
 
 /* the second landing (chunk 20): the Grasslands are exactly as vessel 1 left them. gen_map() makes the same ground every time; what stood
@@ -698,7 +706,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
