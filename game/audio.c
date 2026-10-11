@@ -294,6 +294,41 @@ static void hit_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the pfft (chunk 38.1): noise through a low-pass whose cutoff falls (the pitch sinks), a slow wobble on it so it sounds wet ---------- */
+static int   pfft_on, pfft_pos, n_pfft;
+static float pfft_lp;
+static unsigned pfft_seed = 777u;
+#define PFFT_T     0.17f
+#define PFFT_GAIN  0.5f
+void sfx_pfft(void) {
+    n_pfft++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    pfft_on = 1; pfft_pos = 0; pfft_lp = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_pfft(void) { return n_pfft; }
+static void pfft_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)pfft_pos / (float)OUT_RATE;
+        if (tt >= PFFT_T) { pfft_on = 0; return; }
+        float k = tt / PFFT_T;
+        float env = (1.0f - k) * (1.0f - k * 0.5f);
+        if (tt < 0.006f) env *= tt / 0.006f;                                  /* no click on the way in */
+        pfft_seed = pfft_seed * 1664525u + 1013904223u;
+        float noise = (float)(pfft_seed >> 16) / 32768.0f - 1.0f;
+        float a = 0.55f - 0.47f * k;                                          /* the cutoff falls: the pitch sinks */
+        pfft_lp += a * (noise - pfft_lp);
+        float wet = 0.65f + 0.35f * sinf(6.2831853f * 62.0f * tt);            /* the gurgle */
+        int v = (int)(pfft_lp * 1.6f * wet * env * PFFT_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        pfft_pos++;
+    }
+}
+
 /* ---------- the error buzz (chunk 33): two short low buzzes, "no". a square wave at 110 Hz softened with a sine, its own voice ---------- */
 static int   err_on, err_pos, n_errors;
 static float err_phase;
@@ -701,6 +736,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (mon_on) mon_mix(out, frames);
     if (err_on) err_mix(out, frames);
     if (hit_on) hit_mix(out, frames);
+    if (pfft_on) pfft_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
 }
 

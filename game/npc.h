@@ -28,6 +28,7 @@ void npc_set_lying(int id);
 int  npc_lying(int id);
 void npc_set_headless(int id, int on);
 int  npc_headless(int id);
+void npc_set_shake(int id, int off_x, int off_y);              /* chunk 38.1: the lying body is drawn shaken by this much (px), the sparks' jolt */
 
 /* engine hooks, called by the world */
 void  npc_reset(int pixel_scale, int tile_size);                /* clears all npcs */

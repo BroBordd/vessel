@@ -489,11 +489,13 @@ int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0;
  * the world is free again. no heart (she has no chest to show it on), no grave: her body stays lying in the house. alex_dead remembers it. */
 #define ALEX_BLOOD_T     2.0f           /* the head and the drops need this long to land */
 #define ALEX_TEXT_AT     1.2f           /* after the flatline: the words */
+#define ALEX_SPARK_DELAY 1.0f           /* the first squirt comes this long after the world is free */
 #define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
 static int alex_beeps;
 static void alex_death_end(void) {
     world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
     alex_dead = 1;
+    world_npc_sparks(alex_id, ALEX_SPARK_DELAY);            /* chunk 38.1: from now on her body squirts, for as long as the house is loaded */
 }
 static void alex_death_text(void) {
     world_death_text("Alex has died.");

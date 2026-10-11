@@ -23,6 +23,7 @@ typedef struct {
     int   shove_x, shove_y;         /* the recoil's direction (-1, 0, 1) */
     int   lying, headless;          /* chunk 38 */
     float lying_t;                  /* seconds since she began to fall */
+    int   shake_x, shake_y;         /* chunk 38.1: drawn offset of the lying body, px */
 } Npc;
 
 static Npc n[MAX_NPC];
@@ -78,6 +79,7 @@ void npc_hit(int id, float from_x, float from_y) {
 void npc_set_lying(int id)           { if (id >= 0 && id < count && !n[id].lying) { n[id].lying = 1; n[id].lying_t = 0; } }
 int  npc_lying(int id)               { return id >= 0 && id < count && n[id].lying; }
 void npc_set_headless(int id, int on) { if (id >= 0 && id < count) n[id].headless = on != 0; }
+void npc_set_shake(int id, int ox, int oy) { if (id >= 0 && id < count) { n[id].shake_x = ox; n[id].shake_y = oy; } }
 int  npc_headless(int id)            { return id >= 0 && id < count && n[id].headless; }
 void npc_tick(float dt) {
     for (int i = 0; i < count; i++) {
@@ -104,7 +106,7 @@ void npc_draw(SDL_Renderer *r, int id, int cam_x, int cam_y) {
     if (n[id].headless) char_set_headless(1);
     if (n[id].lying) {                                      /* chunk 38: down on her back, head to the right */
         float f = n[id].lying_t / NPC_FALL_T; if (f > 1) f = 1;
-        char_draw_fall(r, n[id].who, (int)(n[id].tx * tile) - cam_x, (int)(n[id].ty * tile) - cam_y, s, 1.5708f * f * f);
+        char_draw_fall(r, n[id].who, (int)(n[id].tx * tile) - cam_x + n[id].shake_x, (int)(n[id].ty * tile) - cam_y + n[id].shake_y, s, 1.5708f * f * f);
         char_set_headless(0);
         if (n[id].flash > 0) gfx_set_white(0);
         return;

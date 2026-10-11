@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "gore.h"
+#include "audio.h"
 #include <math.h>
 
 #define MAX_DROPS   128
@@ -19,6 +20,15 @@ static unsigned seed = 0x2545F491u;
 /* the head */
 static struct { int on, settled, bounces; const Person *who; float x, y, z, vx, vy, vz; } head;
 
+/* chunk 38.1: the sparks */
+#define MAX_SPARKS     48
+#define SPARKS_N       12       /* squares per burst */
+#define SPARK_SQUEEZE  0.12f    /* the twitch before the pfft */
+#define SPARK_SHAKE_T  0.20f    /* the body shakes this long on a burst */
+typedef struct { float x, y, z, vx, life, max; int size, shade, live; } Spark;
+static Spark sparks[MAX_SPARKS];
+static struct { int on, enabled, bursts; float x, y, z, dx, wait, shake, squeeze; } sp;
+
 static const Uint8 SHADES[4][3] = { { 150, 14, 26 }, { 178, 22, 34 }, { 120, 8, 20 }, { 200, 36, 44 } };
 
 static float rnd(void) { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return (float)(seed & 0xffffu) / 65536.0f; }
@@ -28,6 +38,8 @@ void gore_reset(int pixel_scale, int tile_size) {
     s = pixel_scale; tile = tile_size; n_stains = 0;
     for (int i = 0; i < MAX_DROPS; i++) drops[i].live = 0;
     head.on = head.settled = 0;
+    for (int i = 0; i < MAX_SPARKS; i++) sparks[i].live = 0;
+    sp.on = sp.enabled = sp.bursts = 0; sp.shake = sp.squeeze = 0;
 }
 void gore_set_floor(int (*floor_ok)(int, int)) { floor_cb = floor_ok; }
 
@@ -53,7 +65,48 @@ void gore_head_launch(const Person *who, float x, float y, float height, float d
     head.vx = dir_x * 3.2f * tile; head.vy = dir_y * 3.2f * tile; head.vz = 4.2f * tile;
 }
 
+void gore_sparks_start(float x, float y, float height, float dir_x, float delay) {
+    sp.on = 1; sp.x = x; sp.y = y; sp.z = height; sp.dx = dir_x < 0 ? -1.0f : 1.0f; sp.wait = delay; sp.shake = sp.squeeze = 0;
+}
+void gore_sparks_enable(int on) { sp.enabled = on != 0; }
+int  gore_sparks_running(void)  { return sp.on && sp.enabled; }
+int  gore_spark_bursts(void)    { return sp.bursts; }
+int  gore_sparks_flying(void)   { int c = 0; for (int i = 0; i < MAX_SPARKS; i++) c += sparks[i].live; return c; }
+void gore_spark_shake(int *ox, int *oy) {
+    *ox = *oy = 0;
+    if (!sp.on) return;
+    if (sp.shake > 0)        { *ox = ((int)(sp.shake / 0.035f) & 1 ? -s : s); *oy = ((int)(sp.shake / 0.035f) & 1 ? 0 : -s); }   /* the burst: a jolt, left-right and up */
+    else if (sp.squeeze > 0) { *ox = ((int)(sp.squeeze / 0.05f) & 1 ? -s : 0); }                                              /* the squeeze: a small twitch */
+}
+static void spark_burst(void) {
+    int made = 0;
+    for (int i = 0; i < MAX_SPARKS && made < SPARKS_N; i++) {
+        if (sparks[i].live) continue;
+        float life = 0.25f + rnd() * 0.17f;
+        sparks[i] = (Spark){ sp.x, sp.y, sp.z + (rnd() - 0.5f) * s, sp.dx * (3.5f + rnd() * 5.0f) * tile, life, life, rnd() < 0.25f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1 };
+        made++;
+    }
+    sp.bursts++;
+    sp.shake = SPARK_SHAKE_T; sp.squeeze = 0;
+    sfx_pfft();
+}
+static void sparks_update(float dt) {
+    for (int i = 0; i < MAX_SPARKS; i++) {                                  /* the squares fly straight and shrink at the end */
+        Spark *k = &sparks[i];
+        if (!k->live) continue;
+        k->x += k->vx * dt; k->life -= dt;
+        if (k->life <= 0) k->live = 0;
+    }
+    if (!sp.on || !sp.enabled) { sp.shake = sp.squeeze = 0; return; }
+    if (sp.shake > 0)   { sp.shake -= dt; if (sp.shake < 0) sp.shake = 0; }
+    if (sp.squeeze > 0) { sp.squeeze -= dt; if (sp.squeeze < 0) sp.squeeze = 0; }
+    sp.wait -= dt;
+    if (sp.wait <= SPARK_SQUEEZE && sp.squeeze <= 0 && sp.wait > 0 && sp.shake <= 0) sp.squeeze = sp.wait;   /* the twitch runs up to the pfft */
+    if (sp.wait <= 0) { spark_burst(); sp.wait = 1.0f + rnd() * 0.6f; }
+}
+
 void gore_update(float dt) {
+    sparks_update(dt);
     for (int i = 0; i < MAX_DROPS; i++) {
         Drop *d = &drops[i];
         if (!d->live) continue;
@@ -92,6 +145,11 @@ void gore_draw_air(SDL_Renderer *r, int cx, int cy) {
         if (!drops[i].live) continue;
         sq(r, drops[i].shade, (int)drops[i].x - cx - drops[i].size / 2, (int)(drops[i].y - drops[i].z) - cy - drops[i].size / 2, drops[i].size);
     }
+    for (int i = 0; i < MAX_SPARKS; i++) {
+        if (!sparks[i].live) continue;
+        int sz = sparks[i].life > sparks[i].max * 0.4f ? sparks[i].size : s;
+        sq(r, sparks[i].shade, (int)sparks[i].x - cx - sz / 2, (int)(sparks[i].y - sparks[i].z) - cy - sz / 2, sz);
+    }
     if (head.on) {
         int hx = (int)head.x - cx, hy = (int)head.y - cy;
         float k = head.z / (4.0f * tile); if (k > 1) k = 1;
@@ -107,4 +165,4 @@ int  gore_drops_flying(void) { int c = 0; for (int i = 0; i < MAX_DROPS; i++) c 
 int  gore_head_exists(void)  { return head.on; }
 int  gore_head_settled(void) { return head.on && head.settled; }
 void gore_head_pos(float *x, float *y) { *x = head.x; *y = head.y; }
-int  gore_busy(void)         { return gore_drops_flying() > 0 || (head.on && !head.settled); }
+int  gore_busy(void)         { return gore_drops_flying() > 0 || (head.on && !head.settled); }   /* (the endless sparks do not count) */

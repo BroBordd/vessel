@@ -167,6 +167,7 @@ static int  house_on, house_sx, house_sy;                  /* the doorstep tile 
 static char house_label[24];
 static int  house_room_wanted;      /* world_find_spot_away is looking for a house spot: the hut and its margin must fit in the map */
 static int  indoors;                /* we are in the room */
+static int  spark_npc = -1;         /* chunk 38.1: whose lying body the sparks shake (-1: none) */
 static uint8_t outside_map[MAP_MAX][MAP_MAX];
 static int  out_mw, out_mh;
 #define DOOR_T       0.7f           /* fade out, swap, fade in */
@@ -518,7 +519,7 @@ static void load_map(int which) {
     cur_map = which;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
-    gore_reset(px, tile);
+    gore_reset(px, tile); spark_npc = -1;
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
@@ -839,6 +840,14 @@ void world_npc_behead(int npc_id) {
     gore_burst(x, y, 9.0f * px, dx, dy);
     npc_set_lying(npc_id);
 }
+/* chunk 38.1: the endless idle of her lying body (gore_sparks_start). the body lies head to the right (char_draw_fall): the neck is 2 pixel units
+ * left of her feet's x and 3 up. story.c starts it when the death scene is over (the peeps and the flatline stay quiet). it stops with the map. */
+void world_npc_sparks(int npc_id, float delay) {
+    if (npc_id < 0 || npc_id >= npc_count() || !npc_lying(npc_id)) return;
+    float nx, ny; npc_tile(npc_id, &nx, &ny);
+    spark_npc = npc_id;
+    gore_sparks_start(nx * tile - 2.0f * px, ny * tile, 3.0f * px, 1.0f, delay);
+}
 void world_death_fall(void) { if (death_on && death_fall_t < 0) death_fall_t = 0; }
 void world_death_text(const char *text) {                          /* the words over the cutscene: fade in, then stay */
     snprintf(death_msg, sizeof death_msg, "%s", text ? text : ""); death_msg_t = 0;
@@ -1057,7 +1066,9 @@ void world_update(float dt) {
 
         grave_update(dt);
         npc_tick(dt);
+        gore_sparks_enable(indoors && spark_npc >= 0);                     /* the idle runs while we are in the room */
         gore_update(dt);
+        if (spark_npc >= 0) { int ox, oy; gore_spark_shake(&ox, &oy); npc_set_shake(spark_npc, ox, oy); }
         if (fight_cd > 0) { fight_cd -= dt; if (fight_cd < 0) fight_cd = 0; }
         if (fight_swing > 0) { fight_swing -= dt / FIGHT_SWING_T; if (fight_swing < 0) fight_swing = 0; }
         if (npcs_here()) npc_update(pxp, pyp);

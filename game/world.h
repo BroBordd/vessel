@@ -115,6 +115,7 @@ int  world_death_npc(void);                    /* the npc the cutscene is about,
 /* chunk 38: the one swing's kill: her head comes off and flies away from the player, red pixel squares splash everywhere and stay as stains on the
  * floor, the body falls and lies (npc.h). the stains and the head are the gore module's (gore.h) and only show inside the room. */
 void world_npc_behead(int npc_id);
+void world_npc_sparks(int npc_id, float delay);   /* chunk 38.1: the endless red squirts from the neck of a lying, headless npc (until the map is swapped) */
 
 /* world_fade_to_black(seconds, on_black): everything on screen (HUD too) fades to black; on_black runs on the frame it is
  * fully dark and the screen then stays black until world_init (the story hands over to limbo there, chunk 12). */

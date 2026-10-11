@@ -356,7 +356,7 @@ int main(void) {
         CHECK(!npc_hostile(alex_id) && world_fight_left() == 0, "Alex is hostile while we are not in her house");
         indoors = 1; run(0.3f);
         CHECK(npc_hostile(alex_id) && world_fight_left() == 1 && world_fight_total() == 1, "Alex is not hostile with the hammer in her house (%d, %d hits)", npc_hostile(alex_id), world_fight_left());
-        int h0 = sfx_debug_hits(), mc = missions_count(), tc = brainwin_count();
+        int h0 = sfx_debug_hits(), mc = missions_count(), tc = brainwin_count(), pf0 = sfx_debug_pfft();
         tap(bx, by);
         CHECK(alex_struck && sfx_debug_hits() == h0 + 1 && world_fight_left() == 0, "one tap did not end it (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
         CHECK(npc_flashing(alex_id) && !npc_hostile(alex_id), "she did not flash, or is still hostile after the hit");
@@ -385,10 +385,37 @@ int main(void) {
             CHECK(strcmp(death_msg, "Alex has died.") == 0, "the words are missing (\"%s\")", death_msg);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_text.bmp");                  /* the words (look at it) */
             CHECK(!alex_dead, "alex_dead before the cutscene ended");
+            CHECK(sfx_debug_pfft() == pf0 && gore_spark_bursts() == 0, "the sparks started during the death scene (%d pfft, %d bursts)", sfx_debug_pfft() - pf0, gore_spark_bursts());
             run(ALEX_END_HOLD + 0.5f);
             CHECK(!world_death_active() && world_death_npc() < 0 && alex_dead, "the world is not free after the words (%d)", world_death_active());
             run(2.0f);
             CHECK(zoom < 1.2f, "the camera did not ease out (%.2f)", zoom);
+        }
+        /* chunk 38.1: the sparks. quiet through the whole cutscene, then the endless idle: bursts, a pfft each, the body shakes */
+        {   int p0 = sfx_debug_pfft(), b0 = gore_spark_bursts(), shook = 0, flew = 0, ox, oy;
+            CHECK(gore_sparks_running(), "the sparks are not running after the cutscene");
+            for (float sec = 0; sec < 8.0f; sec += 0.016f) {
+                frame(0.016f);
+                gore_spark_shake(&ox, &oy); if (ox || oy) shook++;
+                if (gore_sparks_flying() > 0) flew++;
+            }
+            int bursts = gore_spark_bursts() - b0, pf = sfx_debug_pfft() - p0;
+            CHECK(bursts >= 4 && bursts <= 9, "the burst counter is off after 8 s (%d)", bursts);
+            CHECK(pf == bursts, "the pfft is not played once per burst (%d pfft, %d bursts)", pf, bursts);
+            CHECK(shook > 0 && flew > 0, "the body never shook / no squares flew (%d, %d)", shook, flew);
+            frame(0.0f); frame(0.0f);
+            {   int t = 0; for (float sec = 0; sec < 3.0f && !gore_sparks_flying(); sec += 0.016f) frame(0.016f);
+                for (int k = 0; k < 3; k++) { frame(0.016f); t++; }
+                frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_sparks.bmp"); }          /* a squirt from the neck (look at it) */
+            CHECK(gore_stain_count() >= 25 && gore_stain_count() < 320, "the sparks changed the stains (%d)", gore_stain_count());
+            CHECK(!gore_busy(), "the endless sparks count as busy");
+            /* nobody in the room: nothing squirts and nothing is heard */
+            indoors = 0; run(0.1f);
+            int b1 = gore_spark_bursts(), p1 = sfx_debug_pfft();
+            run(4.0f);
+            CHECK(gore_spark_bursts() == b1 && sfx_debug_pfft() == p1, "it squirts while we are outside the room");
+            indoors = 1; run(3.0f);
+            CHECK(gore_spark_bursts() > b1, "it did not go on when we came back in");
         }
         alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;
         item_clear(); item_reset(px, tile);
