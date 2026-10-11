@@ -192,8 +192,8 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
 /* getting up after the fall, k 0..1: the classic cartoon "tip upright". the whole body (seen from behind: they landed face-down) is ONE rigid
  * piece pivoting on the feet, so legs and torso always move together:
  *   0.00-0.22  lying on the belly, head to the left; two little struggles (the head lifts, drops, lifts, drops)
- *   0.22-0.62  swings up with a hop, overshoots upright by a hair and settles back (ease-out-back)
- *   0.62-0.85  squashes on landing and springs back (the bounce that sells the weight)
+ *   0.22-0.62  swings up with a hop, overshoots upright by a hair and settles back (ease-out-back), no squash
+ *   0.62-0.85  standing still for a beat
  *   0.85-1.00  turns round on the spot (back, side, front) to face us */
 static float ease01(float k) { if (k < 0) k = 0; if (k > 1) k = 1; return k * k * (3.0f - 2.0f * k); }
 static float ease_out_back(float t) { const float c1 = 1.70158f, c3 = c1 + 1.0f; float u = t - 1.0f; return 1.0f + c3 * u * u * u + c1 * u * u; }
@@ -204,7 +204,7 @@ void char_draw_getup(SDL_Renderer *r, const Person *p, int x, int y, int s, floa
     float a, hop = 0, sq = 1.0f;
     if (k < 0.22f)      a = -Q + 0.14f * fabsf(sinf(2.0f * PI_ * k / 0.22f));
     else if (k < 0.62f) { float t = (k - 0.22f) / 0.40f; a = -Q * (1.0f - ease_out_back(t)); hop = sinf(PI_ * t) * 2.2f; }
-    else                { a = 0; sq = 1.0f - 0.2f * sinf(PI_ * (k - 0.62f) / 0.23f); }
+    else                a = 0;                                                    /* upright: a short beat before turning round */
     float up = 1.0f - fabsf(a) / Q; if (up < 0) up = 0; if (up > 1) up = 1;     /* 0 = flat on the ground, 1 = upright */
     float shx = 6.0f * s * (1.0f - up);                                           /* a lying body is centred over (x, y) */
     float shy = -3.5f * s * (1.0f - up) - hop * s;                                /* resting on the ground line, not through it */
