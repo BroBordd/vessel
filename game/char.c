@@ -220,7 +220,7 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
         }
 }
 
-/* lying face-down after the fall, seen from the side: head to the left, eyes shut, one arm stretched forward beside the head. the whole
+/* lying face-down after the fall, seen from the side: head to the left, eyes shut, the normal sprite (arms at the sides). the whole
  * sprite is turned a quarter round about the feet. feet at (x, y). */
 void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s) {
     const float Q = 1.5708f;
@@ -233,7 +233,7 @@ void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s) {
     for (int j = 0; j < SPR_H; j++)
         for (int i = 0; i < SPR_W; i++) {
             char ch = cell_at(p, FACE_LEFT, i, j);
-            if (ch == '.' || (j == 9 && ch == 's')) continue;                  /* (the hands are drawn as an arm) */
+            if (ch == '.') continue;
             switch (ch) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
@@ -245,16 +245,6 @@ void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s) {
         }
     SDL_SetRenderDrawColor(r, 28, 22, 40, 255);                                 /* the eye, on the side facing the ground: shut */
     for (int ex = 2; ex <= 3; ex++) { float qx, qy; LY_PT(ex - 5 + 0.5f, 5 - SPR_H + 0.5f, qx, qy); LY_SQ(qx, qy); }
-    {   /* the near arm: sleeve, then the hand, stretched forward beside the head */
-        float sx_, sy_; LY_PT(0.0f, -3.4f, sx_, sy_);
-        float hx = -5.0f, hy = -1.2f, dx = hx - sx_, dy = hy - sy_, dist = sqrtf(dx * dx + dy * dy);
-        int steps = (int)(dist * 2.2f); if (steps < 2) steps = 2;
-        for (int q = 0; q <= steps; q++) {
-            float t = (float)q / steps;
-            use(r, t < 0.6f ? p->shirt : p->skin);
-            LY_SQ(sx_ + dx * t, sy_ + dy * t);
-        }
-    }
 #undef LY_PT
 #undef LY_SQ
 }

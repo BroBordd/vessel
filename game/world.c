@@ -119,7 +119,7 @@ static float dawn_t;
 
 #define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  2.5f                /* lying face-down after the impact, eyes shut */
-#define GETUP_T 3.0f                /* standing, flashing three times (0.5 s lighter, 0.5 s back) */
+#define GETUP_T 1.5f                /* standing, flashing three times (0.25 s lighter, 0.25 s back) */
 #define FLASH_PEAK 0.8f             /* how white the flash gets (1 would lose the silhouette) */
 static int   phase;
 static float ph_t, sink_x0, sink_y0;
@@ -1215,8 +1215,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
                     fill(r, sx0 + (int)(gx * tile) - sz / 2, sy0 - px - (int)(h * tile) - sz / 2, sz, sz);
                 }
             }
-        } else {                                                      /* up on their feet: the spawn flash, 3 x (0.5 s lighter, 0.5 s back) */
-            float f = fmodf(ph_t, 1.0f), tri = f < 0.5f ? f / 0.5f : (1.0f - f) / 0.5f;
+        } else {                                                      /* up on their feet: the spawn flash, 3 x (0.25 s lighter, 0.25 s back) */
+            float f = fmodf(ph_t * 2.0f, 1.0f), tri = f < 0.5f ? f / 0.5f : (1.0f - f) / 0.5f;
             char_set_lighten(FLASH_PEAK * tri);
             char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
             char_set_lighten(0);
