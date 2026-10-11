@@ -505,9 +505,18 @@ static void shrine_thought(void) {
 
 /* the hammer's thoughts, every frame: picking it up (what the vessel thinks depends on whether it knows about the shrine yet), and the
  * hint when standing at a switched-on shrine with empty hands */
+static int aonia_buried, hammer_taken;                      /* chunks 34-35: he is buried again; we have taken the hammer (a new landing does not put it back) */
 static void hammer_watch(void) {
     if (dying || dialog_active()) return;
     int knows = mission_pollute >= 0 && !shrine_fouled;
+    if (lives >= 1) {                                       /* chunk 35: vessel 2 and later. the hammer is ours once he is buried (the lock is gone) */
+        if (!hammer_taken && aonia_buried && world_has_item(ITEM_HAMMER)) {
+            hammer_taken = 1;                               /* a new landing does not put it back on the ground */
+            brainwin_drop_tag(THOUGHT_REFUSED);             /* \"I need something heavy\" is answered */
+            think("This can come in handy.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_HAMMER, 1);   /* flat: the soul has no feelings about it */
+        }
+        return;                                             /* (vessel 1's hammer thoughts and the shrine hint are over) */
+    }
     if (!hammer_said && world_has_item(ITEM_HAMMER)) {
         hammer_said = 1;
         brainwin_drop_tag(THOUGHT_HAMMER);                  /* "I need something heavy" is answered */
@@ -562,7 +571,7 @@ static int aonia_searched, hammer_tx, hammer_ty;
 /* chunk 33: respect for the dead. while he lies unburied the hammer is locked: walking into it does not take it. the task "Bury Aonia" flashes red and
  * shakes, an error buzz sounds, and the vessel thinks that he goes back first (once in the brain window, afterwards only the card). chunk 34 unlocks it
  * when he is buried. the engine allows one such try every few seconds (item.h). */
-static int respect_said, aonia_buried, hammer_taken;      /* hammer_taken: chunk 35 sets it when we pick the hammer up */
+static int respect_said;
 static void aonia_buried_done(void) {                       /* chunk 34: he is back in the earth */
     aonia_buried = 1; aonia_out = 0;
     mission_complete(mission_bury);

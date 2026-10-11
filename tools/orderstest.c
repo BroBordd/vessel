@@ -208,8 +208,19 @@ int main(void) {
         CHECK(!item_locked(ITEM_HAMMER), "the hammer is still locked after the burial");
         CHECK(missions_count() == mc0 - 1, "the task Bury Aonia did not complete and fade (%d -> %d)", mc0, missions_count());
         CHECK(!near_bury, "the burial button shows after he was buried");
+        lives = 1;                                                              /* (the real game is in its second life here) */
         pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
         CHECK(item_has(ITEM_HAMMER), "the unlocked hammer was not picked up after the burial");
+        /* chunk 35: the hammer is ours: the flat thought, once, the flag for a new landing, the task stays */
+        {   int tc1 = brainwin_count(), mc1 = missions_count();
+            run(0.3f);
+            CHECK(hammer_taken, "the pickup did not set hammer_taken");
+            CHECK(thought_active(), "no thought when the hammer was picked up");
+            CHECK(brainwin_count() >= tc1, "the hammer thought was not kept in the brain window (%d -> %d)", tc1, brainwin_count());
+            CHECK(mission_get_orb >= 0 && missions_count() == mc1, "the task list changed on the hammer pickup");
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/hammer_ours.bmp");   /* the thought card (look at it) */
+        }
+        lives = 0;
         item_clear(); item_reset(px, tile);                                      /* tidy up for the tests that follow */
     }
 
