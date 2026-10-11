@@ -118,6 +118,9 @@ int  world_dawning(void);                      /* the dawn is running (game.c dr
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);
 
+/* the cloud map: the tile where the goddess stands, up in her temple (far from where we land) */
+void world_temple_spot(int *tile_x, int *tile_y);
+
 /* opens a hole made of clouds in the floor at a tile (it grows open over ~1.5 s). once it is open,
  * standing close shows an arrow on the interact button; pressing it runs on_enter. */
 void world_open_hole(int tile_x, int tile_y, void (*on_enter)(void));

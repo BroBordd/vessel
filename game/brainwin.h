@@ -26,7 +26,7 @@ typedef enum {
     BRAIN_SCENE_COIN,       /* the spinning task coin, with sparkles */
     BRAIN_SCENE_GRAVE,      /* a stone at dusk: moon, drifting fireflies, a flower swaying on the mound */
     BRAIN_SCENE_ALEX,       /* "Maybe she has seen the orb.": Alex on the grass, the orb (and a "?") in her thought bubble */
-    BRAIN_SCENE_ALEXORB,    /* "Alex has the orb...": she holds it up at sunset, the shrine beside her cracking again and again */
+    BRAIN_SCENE_ALEXORB,    /* "Alex has the orb...": the orb floats beside her (a chibi holds nothing) at sunset, the shrine beside her cracking again and again */
     BRAIN_SCENE_SHRINE,     /* "I doubt that ends well.": the shrine under a storm, rain and lightning */
     BRAIN_SCENE_HAMMER,     /* the hammer, big, in front of a slowly spinning sunburst */
     BRAIN_SCENE_HEAVY,      /* "I need something heavy.": a fist bumping the shrine, an anvil in a thought bubble */

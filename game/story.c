@@ -196,7 +196,7 @@ void story_limbo_update(float dt) {
  * dialog in limbo). the brain button stays away until the game starts (story_limbo_opening, game.c): it only comes in with the pause
  * button, when the world is running. after the line limbo ends and the world begins its dawn (world_begin_dawn): the sky brightens, the
  * cloud floor builds in, and then the summoning runs. */
-static const DialogLine LIMBO_WHERE_DLG[] = { { &SOUL, "Where am I?" }, { &SOUL, "What is going to happen to me?" } };
+static const DialogLine LIMBO_WHERE_DLG[] = { { &SOUL, "Where am I? Am I dead?" }, { &SOUL, "What is going to happen to me?" } };
 static int limbo_stay;                      /* dev: stay in limbo for good (VESSEL_LIMBO=1) */
 static int limbo_opening;                   /* the opening of the game is running: no brain button yet */
 
@@ -359,8 +359,7 @@ static void story_reset_for_respawn(void) {
     world_set_player(&VESSEL2);                     /* the new body is summoned already looking like the new character (the ID card stays VAS until the naming) */
     convo_set_player(&VAS);
     world_return_to_clouds();
-    dea_tx = world_player_tile_x();                 /* Dea is already waiting 8 tiles above, looking down at us */
-    dea_ty = world_player_tile_y() - 8;
+    world_temple_spot(&dea_tx, &dea_ty);            /* Dea is already waiting in her temple, far up the clouds, looking down at us */
     dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
     npc_set_facing(dea_id, FACE_DOWN);
     dea_seen = 0;                                   /* walking within sight of her coins in "Talk to Goddess" again */
@@ -532,13 +531,8 @@ static void on_talk_alex(int npc_id) {
     dialog_play(ALEX_DEAL, ALEX_DEAL_COUNT, alex_deal_done);
 }
 
-/* the complaint is over and the stick is back: the first thought, sending the player to look */
-static void grass_thought(void) {
-    think("This place looks really good. I happen to like grass.", "I happen to like grass.", BRAIN_SCENE_GRASS, THOUGHT_GRASS, 1);
-}
 static void landing_done(void) {
     think("I need to find that orb.", NULL, BRAIN_SCENE_ORB, THOUGHT_ORB, 1);
-    story_after(16.0f, grass_thought);                      /* after a little while of walking about */
 }
 
 /* the end of vessel 2's opening (chunk 24): the landing is done, the Grasslands are put back and the graves stand. EMPTY ON PURPOSE:
@@ -656,14 +650,10 @@ static void on_talk_dea(int npc_id) {
 
 /* ---------- scene 1: up in the clouds (vessel 2, chunks 10-11) ----------
  * no welcome window, no toast: after "Where am I?" the world fades in, the summoning runs (world_summon, started by
- * story_start) and intro_done() is what runs when the light ends: the controls come back and Dea stands 8 tiles above,
- * looking down. we have to look around: a few seconds on, the player wonders where this is (cloud_thought); walking
+ * story_start) and intro_done() is what runs when the light ends: the controls come back and Dea waits in her temple, far up the clouds,
+ * looking down. we have to look around: a few seconds on, (nothing: the player looks around); walking
  * within sight of Dea (dea_watch, like alex_watch) coins in the task "Talk to Goddess" and a thought. */
 #define DEA_SIGHT       6.5f                /* tiles: about half a screen, so she is on screen when it fires */
-
-static void cloud_thought(void) {
-    think("Is this where dead people go?", NULL, BRAIN_SCENE_CLOUDS, THOUGHT_CLOUDS, 1);
-}
 
 /* the player has caught sight of Dea: the task and a thought. once only */
 static void dea_spotted(void) {
@@ -680,10 +670,8 @@ static void dea_watch(void) {
 
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
-    story_after(2.5f, cloud_thought);
-    /* Dea stands 8 tiles above where we spawned, looking down at us */
-    dea_tx = world_player_tile_x();
-    dea_ty = world_player_tile_y() - 8;
+    /* Dea stands in her temple at the far end of the clouds, looking down at us */
+    world_temple_spot(&dea_tx, &dea_ty);
     dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
     npc_set_facing(dea_id, FACE_DOWN);
 }

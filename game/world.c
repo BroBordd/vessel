@@ -34,7 +34,8 @@
 #define WALK_TILES_PER_SEC 5.0f
 #define MAX_MARKS 20     /* walking speed at full stick tilt */
 
-enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_HUT, T_WALL, T_FLOOR, T_FURN };
+enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_HUT, T_WALL, T_FLOOR, T_FURN,
+       T_MARBLE, T_STEP, T_PILLAR };       /* the goddess's temple in the clouds: floor, steps, columns (solid) */
 
 static uint8_t map[MAP_MAX][MAP_MAX];
 static int   mw, mh, cur_map;       /* size of the loaded map, and which one it is */
@@ -145,7 +146,7 @@ static float vnoise(float x, float y, uint32_t seed) {
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
     uint8_t v = map[ty][tx];
-    return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN;
+    return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN || v == T_PILLAR;
 }
 
 /* ALEX'S HOUSE (house.h has the art). outside it is a solid prop on the Grasslands: HUT_W x HUT_H tiles of T_HUT, the doorstep tile
@@ -193,19 +194,43 @@ static void gen_map(void) {
         }
 }
 
-/* a round island of cloud floating in the sky. the middle 7 tiles are always solid floor. */
+/* the cloud map (64 x 56): the spawn island in the south, a neck of cloud going north, and the goddess's temple on a bigger island up there.
+ * she stands 25 tiles from where we land, so we have to walk up to her. the temple is open to the sky: a dais of marble, two steps down to
+ * the clouds, and three pairs of columns (2 tiles tall, solid) along the sides. */
+#define CLOUD_W 64
+#define CLOUD_H 56
+#define CLOUD_CX 32                 /* the middle of the spawn island */
+#define CLOUD_CY 38
+#define TEMPLE_CX 32
+#define TEMPLE_CY 19                /* the middle of the temple island */
+#define DEA_TX 32                   /* where the goddess stands */
+#define DEA_TY 13
 static void gen_cloud_map(void) {
-    mw = mh = 32;
-    int cx = mw / 2, cy = mh / 2;
+    mw = CLOUD_W; mh = CLOUD_H;
     for (int y = 0; y < mh; y++)
         for (int x = 0; x < mw; x++) {
-            float n = vnoise(x / 4.0f, y / 4.0f, 21);
-            float r = 9.0f + (n - 0.5f) * 5.0f;
-            float d = sqrtf((float)((x - cx) * (x - cx) + (y - cy) * (y - cy)));
-            map[y][x] = (d < r || d <= 7.5f) ? T_CLOUD : T_SKY;
+            float n = vnoise(x / 4.0f, y / 4.0f, 21), n2 = vnoise(x / 5.0f, y / 5.0f, 33);
+            float d1 = sqrtf((float)((x - CLOUD_CX) * (x - CLOUD_CX) + (y - CLOUD_CY) * (y - CLOUD_CY)));
+            float ex = (x - TEMPLE_CX) * 0.8f, ey = (float)(y - TEMPLE_CY);
+            float d2 = sqrtf(ex * ex + ey * ey);
+            int c1 = d1 < 10.0f + (n - 0.5f) * 6.0f || d1 <= 8.0f;
+            int c2 = d2 < 12.5f + (n2 - 0.5f) * 4.0f || (x >= 25 && x <= 39 && y >= 9 && y <= 22);
+            int neck = x >= 29 && x <= 35 && y >= 24 && y <= 31;
+            map[y][x] = (c1 || c2 || neck) ? T_CLOUD : T_SKY;
             if (x == 0 || y == 0 || x == mw - 1 || y == mh - 1) map[y][x] = T_SKY;
         }
+    /* the temple */
+    for (int y = 11; y <= 18; y++) for (int x = 27; x <= 37; x++) map[y][x] = T_MARBLE;      /* the dais */
+    for (int x = 26; x <= 38; x++) map[19][x] = T_STEP;                                       /* the first step down */
+    for (int x = 28; x <= 36; x++) map[20][x] = T_STEP;                                       /* the second */
+    for (int k = 0; k < 3; k++) {                                                             /* three pairs of columns, each two tiles tall */
+        int ty = 11 + k * 3;
+        map[ty][28] = map[ty + 1][28] = map[ty][36] = map[ty + 1][36] = T_PILLAR;
+    }
 }
+
+/* where the goddess stands (the story puts her there) */
+void world_temple_spot(int *tx, int *ty) { *tx = DEA_TX; *ty = DEA_TY; }
 
 /* ---------- drawing helpers ---------- */
 static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
@@ -285,8 +310,8 @@ static int dawn_sky_alpha(void) {
     return (int)(k * 255.0f);
 }
 static int dawn_cloud_alpha(int tx, int ty) {
-    float dx = tx + 0.5f - mw / 2.0f, dy = ty + 0.5f - mh / 2.0f;
-    float key = sqrtf(dx * dx + dy * dy) / 12.5f;                   /* 0 in the middle .. 1 at the rim of the island */
+    float dx = tx + 0.5f - CLOUD_CX, dy = ty + 0.5f - CLOUD_CY;
+    float key = sqrtf(dx * dx + dy * dy) / 31.0f;                   /* 0 at the spawn .. 1 at the far end of the temple island */
     if (key > 1) key = 1;
     key = key * 0.8f + (float)(hash2(tx, ty, 5) & 255) / 255.0f * 0.2f;   /* a little disorder: the edge of the wave is ragged */
     float a = (dawn_t - DAWN_BUILD_AT - key * DAWN_BUILD_T * 0.65f) / (DAWN_BUILD_T * 0.35f);
@@ -325,10 +350,71 @@ static void draw_cloud_rim(SDL_Renderer *r, int cx, int cy, int tx0, int ty0, in
     col_mul = 255;
 }
 
+/* ---------- the goddess's temple (cloud map) ---------- */
+static int is_temple(int tx, int ty) {
+    if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 0;
+    return map[ty][tx] == T_MARBLE || map[ty][tx] == T_STEP || map[ty][tx] == T_PILLAR;
+}
+static void draw_marble_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
+    uint32_t h = hash2(tx, ty, 123);
+    if ((tx + ty) & 1) col(r, 250, 244, 226, 255); else col(r, 242, 234, 212, 255);
+    fill(r, x, y, tile, tile);
+    col(r, 232, 224, 200, 255);                                         /* a faint vein */
+    fill(r, x + (h & 3) * px, y + ((h >> 3) & 7) * px, (2 + ((h >> 6) & 3)) * px, px);
+    /* a gold sun inlaid round the goddess's feet: two rings (pixel-art, square cells on the tile grid) */
+    float ex = (DEA_TX + 0.5f) * TILE_U, ey = (DEA_TY + 0.5f) * TILE_U;
+    float cdx = (tx + 0.5f) * TILE_U - ex, cdy = (ty + 0.5f) * TILE_U - ey;
+    if (cdx * cdx + cdy * cdy < 24.0f * 24.0f)
+    for (int j = 0; j < TILE_U; j++)
+        for (int i = 0; i < TILE_U; i++) {
+            float dx = tx * TILE_U + i + 0.5f - ex, dy = ty * TILE_U + j + 0.5f - ey;
+            float d = sqrtf(dx * dx + dy * dy);
+            if ((d > 7.2f && d < 8.6f) || (d > 15.2f && d < 16.4f)) { col(r, 228, 192, 92, 255); fill(r, x + i * px, y + j * px, px, px); }
+            else if (d < 3.0f) { col(r, 255, 232, 150, 255); fill(r, x + i * px, y + j * px, px, px); }
+        }
+    col(r, 226, 190, 90, 255);                                          /* a gold edge on the sides that meet the cloud */
+    if (!is_temple(tx - 1, ty)) fill(r, x, y, px, tile);
+    if (!is_temple(tx + 1, ty)) fill(r, x + tile - px, y, px, tile);
+    if (!is_temple(tx, ty - 1)) fill(r, x, y, tile, px);
+    if (((int)(t * 2.0f) + (int)(h >> 9)) % 9 == 0) { col(r, 255, 255, 255, 255); fill(r, x + ((h >> 12) & 7) * px, y + ((h >> 15) & 7) * px, px, px); }   /* a twinkle */
+}
+static void draw_step_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
+    col(r, 244, 238, 218, 255); fill(r, x, y, tile, tile);
+    col(r, 255, 252, 240, 255); fill(r, x, y, tile, px);                /* the lit edge of the tread */
+    col(r, 214, 206, 182, 255); fill(r, x, y + 6 * px, tile, 2 * px);   /* the riser, in shade */
+    col(r, 226, 190, 90, 255);
+    if (!is_temple(tx - 1, ty)) fill(r, x, y, px, tile);
+    if (!is_temple(tx + 1, ty)) fill(r, x + tile - px, y, px, tile);
+}
+static void draw_pillar_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
+    int top = is_temple(tx, ty + 1) && map[ty + 1][tx] == T_PILLAR;     /* the upper half: the capital. the lower half: the base */
+    if ((tx + ty) & 1) col(r, 250, 244, 226, 255); else col(r, 242, 234, 212, 255);
+    fill(r, x, y, tile, tile);                                          /* the marble floor under it */
+    col(r, 0, 0, 0, 36); fill(r, x + 5 * px, y + 5 * px, 3 * px, 3 * px);                        /* a soft shadow to the right */
+    int bob = (int)floorf(sinf(t * 1.1f + tx * 0.8f + ty * 0.6f) * 0.9f + 0.5f);               /* the cloud-stuff of the shaft breathes */
+    col(r, 238, 242, 253, 255); fill(r, x + 2 * px, y, 4 * px, tile);                            /* the shaft */
+    col(r, 255, 255, 255, 255); fill(r, x + 2 * px, y, px, tile);                                /* lit side */
+    col(r, 196, 206, 234, 255); fill(r, x + 5 * px, y, px, tile);                                /* shaded side */
+    col(r, 222, 230, 248, 255); fill(r, x + 3 * px, y + (top ? 3 : 0) * px, px, (top ? 5 : 6) * px);   /* a flute */
+    col(r, 255, 255, 255, 255);                                                                  /* puffs of cloud clinging to the column */
+    fill(r, x + (1 - (bob < 0 ? 1 : 0)) * px, y + (top ? 4 : 2) * px, 2 * px, 2 * px);
+    fill(r, x + (5 + (bob > 0 ? 1 : 0)) * px, y + (top ? 5 : 3) * px, 2 * px, 2 * px);
+    if (top) {                                                          /* the capital: gold slab, a lighter one over it */
+        col(r, 226, 190, 90, 255);  fill(r, x, y, tile, 2 * px);
+        col(r, 255, 232, 150, 255); fill(r, x, y, tile, px);
+        col(r, 190, 150, 60, 255);  fill(r, x + px, y + 2 * px, 6 * px, px);
+    } else {                                                            /* the base: a gold plinth */
+        col(r, 226, 190, 90, 255);  fill(r, x + px, y + 6 * px, 6 * px, px); fill(r, x, y + 7 * px, tile, px);
+    }
+}
+
 static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     uint8_t v = map[ty][tx];
     if (v == T_SKY)   { draw_sky_tile(r, tx, ty, x, y);   return; }
     if (v == T_CLOUD) { draw_cloud_tile(r, tx, ty, x, y); return; }
+    if (v == T_MARBLE) { draw_marble_tile(r, tx, ty, x, y); return; }
+    if (v == T_STEP)   { draw_step_tile(r, tx, ty, x, y);   return; }
+    if (v == T_PILLAR) { draw_pillar_tile(r, tx, ty, x, y); return; }
     if (v == T_FLOOR || v == T_FURN) { house_draw_floor_tile(r, tx, ty, x, y, px); return; }       /* the room: planks (furniture stands on them) */
     if (v == T_WALL) { house_draw_wall_tile(r, tx, ty, mw, x, y, px); return; }
     if (v == T_HUT) v = T_GRASS;                         /* under the hut: plain grass (the hut is a sprite on top) */
@@ -392,7 +478,7 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 
 /* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks */
 static const Rgb MAP_PAL[] = {
-    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 } };
+    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 }, { 250, 240, 208 }, { 232, 224, 200 }, { 226, 190, 90 } };
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
     if (npcs_here())
@@ -410,7 +496,7 @@ static int gather_marks(MiniMark *marks) {
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 11;
+    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 14;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -428,8 +514,8 @@ static void load_map(int which) {
     near_shrine = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
-    pxp = (mw / 2 + 0.5f) * tile;
-    pyp = (mh / 2 + (which == MAP_CLOUD ? 4.9f : 0.9f)) * tile;     /* the cloud spawn sits 4 tiles below the middle */
+    pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
+    pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
     facing = FACE_DOWN;
 }
 
@@ -1138,7 +1224,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             if (dawn_on) {                                            /* the dawn: sky first, brightening; the cloud floor builds in on top of it */
                 col_mul = dawn_sky_alpha();
                 if (col_mul > 0) draw_sky_tile(r, tx, ty, tx * tile - cx, ty * tile - cy);
-                if (map[ty][tx] == T_CLOUD) { col_mul = dawn_cloud_alpha(tx, ty); if (col_mul > 0) draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy); }
+                if (map[ty][tx] == T_CLOUD || map[ty][tx] >= T_MARBLE) { col_mul = dawn_cloud_alpha(tx, ty); if (col_mul > 0) draw_tile(r, tx, ty, tx * tile - cx, ty * tile - cy); }
                 col_mul = 255;
                 continue;
             }
@@ -1319,7 +1405,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 11, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 14, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
