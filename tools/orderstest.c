@@ -838,7 +838,8 @@ int main(void) {
         int oks = SPOT(-24, 0, sx_, sy_), okk = SPOT(24, 0, kx_, ky_), okg1 = SPOT(0, 24, g1x, g1y), okg2 = SPOT(0, -24, g2x, g2y);
         #undef SPOT
         CHECK(okh && oks && okk && okg1 && okg2, "the found test could not place its things (%d %d %d %d %d)", okh, oks, okk, okg1, okg2);
-        world_restore_shrine(sx_, sy_, 0); world_place_item(ITEM_HAMMER, kx_, ky_);
+        world_restore_shrine(sx_, sy_, 0); shrine_enable(NULL); world_place_item(ITEM_HAMMER, kx_, ky_);
+        CHECK(shrine_enabled(), "the found test could not switch the shrine on (the map marks only a usable shrine)");
         int gi1 = world_place_grave(g1x, g1y, &VESSEL), gi2 = world_place_grave(g2x, g2y, &VESSEL2);
         CHECK(gi1 >= 0 && gi2 >= 0 && house_on && shrine_exists() && item_exists(), "the found test's things are not on the map");
         float hxf = house_sx + 0.5f, hyf = house_sy - HUT_H / 2.0f;
@@ -850,10 +851,15 @@ int main(void) {
         GO(cx, cy); run(0.4f);
         CHECK(world_found_count() == 0 && sfx_debug_found() == f0, "something was found before we got close (%d)", world_found_count());
         CHECK(!world_found_house() && !world_found_shrine() && !world_found_hammer() && !world_found_grave(&VESSEL) && !world_found_grave(&VESSEL2), "a found flag is set at the start");
+        /* chunk 59: the map (minimap and map window both read gather_marks) shows a house, shrine, hammer or grave only once it is found */
+        #define MKIND(k_) ({ MiniMark mm_[MAX_MARKS]; int n_ = gather_marks(mm_), c_ = 0; for (int q_ = 0; q_ < n_; q_++) if (mm_[q_].kind == (k_)) c_++; c_; })
+        CHECK(MKIND(5) == 0 && MKIND(2) == 0 && MKIND(4) == 0 && MKIND(3) == 0, "the map shows something nobody has found (house %d, shrine %d, hammer %d, graves %d)", MKIND(5), MKIND(2), MKIND(4), MKIND(3));
         struct { const char *what; float x, y; } th[5] = { { "the house", tx_[0], ty_[0] }, { "the shrine", tx_[1], ty_[1] }, { "the hammer", tx_[2], ty_[2] }, { "Aonia's grave", tx_[3], ty_[3] }, { "Doia's grave", tx_[4], ty_[4] } };
         for (int i = 0; i < 5; i++) {
             pxp = (th[i].x + 3.0f) * tile; pyp = th[i].y * tile; run(0.3f);
             CHECK(world_found_count() == i + 1 && sfx_debug_found() == f0 + i + 1, "%s: found count %d (want %d), chimes %d (want %d)", th[i].what, world_found_count(), i + 1, sfx_debug_found() - f0, i + 1);
+            {   int want_h = i >= 0, want_s = i >= 1, want_k = i >= 2, want_g = i >= 3 ? i - 2 : 0;       /* what the map should show by now */
+                CHECK(MKIND(5) == want_h && MKIND(2) == want_s && MKIND(4) == want_k && MKIND(3) == want_g, "%s: map markers house %d/%d shrine %d/%d hammer %d/%d graves %d/%d", th[i].what, MKIND(5), want_h, MKIND(2), want_s, MKIND(4), want_k, MKIND(3), want_g); }
             if (i == 0) { run(0.6f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/found_toast.bmp"); }     /* the toast (look at it) */
             run(5.0f);                                                  /* the toast goes away before the next one */
         }
