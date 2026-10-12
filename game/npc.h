@@ -25,6 +25,7 @@ void npc_tick(float dt);
 /* chunk 38: she is dead. npc_set_lying: she topples over backwards (0.9 s) and stays down: she cannot be talked to any more (npc_nearby skips her).
  * npc_set_headless: drawn without her head (char_set_headless); the head itself is the gore module's. */
 void npc_set_lying(int id);
+void npc_set_lying_now(int id);                                /* chunk 41: lying already, no topple (a body put back on a map made again) */
 int  npc_lying(int id);
 void npc_set_headless(int id, int on);
 int  npc_headless(int id);

@@ -12,16 +12,18 @@ static int   on, enabled, polluted, in_range, s, tile, tx, ty;
 static float prog, tick;
 static void (*done_cb)(void);
 /* chunk 40: the repair. the break played backwards: the same hold, the cracks heal, the stump grows, the rubble lifts, the gem lights again */
+static int   self_on;                                       /* chunk 41: the mended shrine can be used once more: a TAP with the hammer, on ourselves */
+static void (*self_cb)(void);
 static int   rep_on, rep_started, holding_now;
 static float rprog, rtick;
 static void (*rep_start_cb)(void), (*rep_done_cb)(void);
 
 void shrine_reset(int pixel_scale, int tile_size) {
     on = enabled = polluted = in_range = 0; prog = tick = 0; done_cb = NULL;
-    rep_on = rep_started = holding_now = 0; rprog = rtick = 0; rep_start_cb = rep_done_cb = NULL;
+    rep_on = rep_started = holding_now = 0; rprog = rtick = 0; rep_start_cb = rep_done_cb = NULL; self_on = 0; self_cb = NULL;
     s = pixel_scale; tile = tile_size;
 }
-void shrine_place(int tile_x, int tile_y) { on = 1; tx = tile_x; ty = tile_y; enabled = polluted = in_range = 0; prog = 0; rep_on = rep_started = 0; rprog = 0; }
+void shrine_place(int tile_x, int tile_y) { on = 1; tx = tile_x; ty = tile_y; enabled = polluted = in_range = 0; prog = 0; rep_on = rep_started = 0; rprog = 0; self_on = 0; self_cb = NULL; }
 /* the shrine as it was left by an earlier life (chunk 20): placed, switched off, and fouled for good if it was */
 void shrine_restore(int tile_x, int tile_y, int was_polluted) {
     shrine_place(tile_x, tile_y);
@@ -34,7 +36,10 @@ void shrine_repair_enable(void (*on_start)(void), void (*on_done)(void)) {
     rep_on = 1; rep_started = 0; rprog = rtick = 0; rep_start_cb = on_start; rep_done_cb = on_done;
 }
 int   shrine_repairing(void) { return on && rep_on && polluted; }
-static int usable(void)      { return shrine_enabled() || shrine_repairing(); }
+void shrine_self_enable(void (*on_hit)(void)) { if (!on || polluted) return; self_on = 1; self_cb = on_hit; }
+int  shrine_self(void)       { return on && self_on && !polluted; }
+void shrine_self_fire(void)  { if (!shrine_self()) return; self_on = 0; in_range = 0; void (*cb)(void) = self_cb; self_cb = NULL; if (cb) cb(); }
+static int usable(void)      { return shrine_enabled() || shrine_repairing() || shrine_self(); }
 int   shrine_exists(void)   { return on; }
 int   shrine_enabled(void)  { return on && enabled && !polluted; }
 int   shrine_polluted(void) { return on && polluted; }

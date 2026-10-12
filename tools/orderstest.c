@@ -470,8 +470,41 @@ int main(void) {
             CHECK(!shrine_polluted() && shrine_repaired && !shrine_repairing(), "the full hold did not mend it");
             CHECK(brainwin_count() == r0, "a second thought came with the later holds (%d)", brainwin_count() - r0);
             world_touch(1, bx, by); run(0.5f);
-            CHECK(!near_shrine, "the button is still there for a whole shrine");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_4.bmp");                   /* whole again (look at it) */
+            /* chunk 41: "Die". the task is there and the hammer button is back at the mended shrine: a TAP, not a hold, swings it at our own head. the same end as
+             * Alex's: head off, blood, the body down, then the death scene on us, the stone, limbo, the next life with the orb and nothing else */
+            CHECK(mission_die >= 0, "\"Die\" did not come in when the shrine was mended");
+            CHECK(shrine_self() && near_shrine, "the hammer button is not back at the mended shrine (%d, %d)", shrine_self(), near_shrine);
+            run(1.0f);
+            CHECK(!world_player_beheaded(), "it swung by itself");
+            int h1 = sfx_debug_hits(), l0 = lives, g0 = grave_n, bp0 = sfx_debug_beeps(), fl0 = sfx_debug_flatlines();
+            tap(bx, by);
+            CHECK(sfx_debug_hits() == h1 + 1 && world_player_beheaded(), "the tap did not swing (%d hits, beheaded %d)", sfx_debug_hits() - h1, world_player_beheaded());
+            CHECK(gore_head_exists() && gore_drops_flying() > 0, "no head / no blood in the air after the swing");
+            CHECK(self_done && dying && !shrine_self(), "the swing's state is wrong (%d, %d, %d)", self_done, dying, shrine_self());
+            run(0.3f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_blood.bmp");        /* the splash (look at it) */
+            CHECK(!world_death_active(), "the death scene began before the blood had landed");
+            run(1.9f);
+            CHECK(!gore_busy() && gore_head_settled() && gore_stain_count() >= 25, "the head / the blood did not come to rest (%d stains)", gore_stain_count());
+            CHECK(world_death_active() && world_death_npc() < 0, "the death scene is not on us");
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_lying.bmp");                  /* the body, the stains, the head (look at it) */
+            run(DEATH_SETTLE_T + 0.4f);
+            CHECK(zoom > 2.0f, "the camera did not push in on us (%.2f)", zoom);
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_death.bmp");                  /* grey room, red body (look at it) */
+            run(DEATH_BEEPS * DEATH_BEEP_GAP + 0.3f);
+            CHECK(sfx_debug_beeps() - bp0 == DEATH_BEEPS && sfx_debug_flatlines() - fl0 == 1, "the peeps / the flatline are wrong (%d, %d)", sfx_debug_beeps() - bp0, sfx_debug_flatlines() - fl0);
+            run(ALEX_TEXT_AT + 0.6f);
+            CHECK(strcmp(death_msg, "Doia has died.") == 0, "the words are wrong (\"%s\")", death_msg);
+            run(DEATH_END_HOLD + 0.5f);
+            CHECK(vessel_dead && lives == l0 + 1 && grave_n == g0 + 1, "the life did not end (dead %d, lives %d, graves %d)", vessel_dead, lives, grave_n - g0);
+            CHECK(graves[grave_n - 1].who == &VESSEL2, "the stone is not Doia's");
+            run(DEATH_FADE_T + 0.5f);
+            CHECK(story_limbo_take_enter() == 1 && dialog_active(), "no limbo after the black / the soul does not speak");
+            for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+            for (float sl = 0; sl < DEATH_LIMBO_HOLD + 0.5f; sl += 0.016f) { story_limbo_update(0.016f); frame(0.016f); }   /* (game.c runs the soul's own clock in limbo) */
+            CHECK(death_hold_done >= 1, "the next life was not made ready");
+            CHECK(world_has_item(ITEM_ORB) && !world_has_item(ITEM_HAMMER), "the pockets of the next life are wrong (orb %d, hammer %d)", world_has_item(ITEM_ORB), world_has_item(ITEM_HAMMER));
+            lives = 1; vessel_dead = 0;                                                       /* (the rest of this test goes on as the second life) */
             shrine_reset(px, tile); item_clear(); item_reset(px, tile); world_give_item(ITEM_HAMMER);
         }
         alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;

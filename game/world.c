@@ -169,6 +169,10 @@ static int  house_on, house_sx, house_sy;                  /* the doorstep tile 
 static char house_label[24];
 static int  house_room_wanted;      /* world_find_spot_away is looking for a house spot: the hut and its margin must fit in the map */
 static int  indoors;                /* we are in the room */
+static int  player_beheaded;        /* chunk 41: we hit ourselves: headless, lying, no controls */
+static float player_topple_t = -1;  /* seconds since we began to fall (-1: standing) */
+static void self_hit(void);         /* chunk 41: the tap at the mended shrine (defined with the gore) */
+static int  gore_indoors = 1;       /* the gore (stains, drops, the head) lives in the room or outside: it is only drawn where it was made */
 static int  spark_npc = -1;         /* chunk 38.1: whose lying body the sparks shake (-1: none) */
 static uint8_t outside_map[MAP_MAX][MAP_MAX];
 static int  out_mw, out_mh;
@@ -521,7 +525,7 @@ static void load_map(int which) {
     cur_map = which;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
-    gore_reset(px, tile); spark_npc = -1;
+    gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; gore_indoors = 1;
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
@@ -749,6 +753,7 @@ int  world_shrine_polluted(void) { return shrine_polluted(); }
 void world_shrine_tile(float *tx, float *ty) { shrine_tile(tx, ty); }
 void world_place_shrine(int tile_x, int tile_y) { shrine_place(tile_x, tile_y); }
 void world_enable_shrine(void (*on_done)(void)) { shrine_enable(on_done); }
+void world_enable_shrine_self(void (*on_hit)(void)) { shrine_self_enable(on_hit); }
 void world_enable_shrine_repair(void (*on_start)(void), void (*on_done)(void)) { shrine_repair_enable(on_start, on_done); }
 
 /* the fight (chunk 36) */
@@ -801,6 +806,7 @@ void world_return_to_clouds(void) {
     load_map(MAP_CLOUD);
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; death_npc = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
+    player_beheaded = 0; player_topple_t = -1;
     blackout_t = -1; blackout_cb = NULL;
     dawn_on = 0; col_mul = 255;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
@@ -839,7 +845,7 @@ void world_npc_behead(int npc_id) {
     float x = nx * tile, y = ny * tile, dx = x - pxp, dy = y - pyp, m = sqrtf(dx * dx + dy * dy);
     if (m < 1.0f) { dx = 0; dy = 1; m = 1; }
     dx /= m; dy /= m;
-    gore_set_floor(gore_floor_ok);
+    gore_set_floor(gore_floor_ok); gore_indoors = indoors;
     npc_set_headless(npc_id, 1);
     gore_head_launch(npc_person(npc_id), x, y, 9.0f * px, dx, dy);
     gore_burst(x, y, 9.0f * px, dx, dy);
@@ -853,6 +859,21 @@ void world_npc_sparks(int npc_id, float delay) {
     spark_npc = npc_id;
     gore_sparks_start(nx * tile - 2.0f * px, ny * tile, 3.0f * px, 1.0f, delay);
 }
+/* chunk 41: the swing at ourselves. the head comes off and flies (the same gore as Alex's), blood splashes, the body topples and lies; no more walking.
+ * the gore is made where we stand (outside, at the shrine), so the room's stains are cleared: we do not come back. story.c runs the death scene after it */
+void world_player_behead(void) {
+    if (player_beheaded) return;
+    gore_reset(px, tile); spark_npc = -1; gore_indoors = indoors;
+    gore_set_floor(gore_floor_ok);
+    float dx = 0.8f, dy = 0.6f;
+    gore_head_launch(player_look, pxp, pyp, 9.0f * px, dx, dy);
+    gore_burst(pxp, pyp, 9.0f * px, dx, dy);
+    player_beheaded = 1; player_topple_t = 0;
+    kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = btn_inside = 0;
+    world_set_controls_visible(0);
+}
+int world_player_beheaded(void) { return player_beheaded; }
+static void self_hit(void) { sfx_hit(); fight_swing = 1.0f; shrine_self_fire(); }
 void world_death_fall(void) { if (death_on && death_fall_t < 0) death_fall_t = 0; }
 void world_death_text(const char *text) {                          /* the words over the cutscene: fade in, then stay */
     snprintf(death_msg, sizeof death_msg, "%s", text ? text : ""); death_msg_t = 0;
@@ -923,10 +944,11 @@ void world_touch(int a, int x, int y) {
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury;      /* the shrine and the grave are holds, not taps (world_update) */
+            int fire = a == 1 && btn_inside && can && (!near_shrine || shrine_self()) && !near_grave && !near_bury;      /* the shrine and the grave are holds, not taps (world_update) */
             btn_down = btn_inside = 0;
             if (fire) {
-                if (near_bsearch) bsearch_start();
+                if (near_shrine) self_hit();                         /* chunk 41: (only a self hit gets here: the break and the repair are holds) */
+                else if (near_bsearch) bsearch_start();
                 else if (near_search) grave_search_start();
                 else if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
@@ -1053,7 +1075,7 @@ void world_update(float dt) {
         phase_update(dt);
         near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
     } else {
-        if (dialog_active() || door_t >= 0) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
+        if (dialog_active() || door_t >= 0 || player_beheaded) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (door_t >= 0) {
             door_t += dt;
             if (!door_swapped && door_t >= DOOR_T / 2) { door_swapped = 1; if (indoors) leave_house(); else enter_house(); }
@@ -1075,6 +1097,7 @@ void world_update(float dt) {
         npc_tick(dt);
         gore_sparks_enable(indoors && spark_npc >= 0);                     /* the idle runs while we are in the room */
         gore_update(dt);
+        if (player_topple_t >= 0) player_topple_t += dt;
         if (spark_npc >= 0) { int ox, oy; gore_spark_shake(&ox, &oy); npc_set_shake(spark_npc, ox, oy); }
         if (fight_cd > 0) { fight_cd -= dt; if (fight_cd < 0) fight_cd = 0; }
         if (fight_swing > 0) { fight_swing -= dt / FIGHT_SWING_T; if (fight_swing < 0) fight_swing = 0; }
@@ -1094,13 +1117,16 @@ void world_update(float dt) {
         if (grave_search_update(dt)) btn_down = btn_inside = 0;
         if (bsearch_update(dt)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
+        if (player_beheaded) {                                            /* chunk 41: nothing to press any more */
+            near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = 0; btn_down = btn_inside = 0;
+        }
     }
 
     if (death_on) {
         float k = death_t / DEATH_ZOOM_T; if (k > 1) k = 1;
         k = k * k * (3.0f - 2.0f * k);                            /* eases in and out: a slow, heavy push */
         zoom = 1.0f + (ZOOM_DEATH - 1.0f) * k;
-        zoom_fx = pxp; zoom_fy = pyp - 6.0f * px;                 /* the middle of the sprite (12 units tall) */
+        zoom_fx = pxp; zoom_fy = pyp - (player_topple_t >= 0 ? 3.0f : 6.0f) * px;   /* the middle of the sprite (12 units tall); lying: lower */
         if (death_npc >= 0) { float nx, ny; npc_tile(death_npc, &nx, &ny); zoom_fx = nx * tile; zoom_fy = ny * tile - 3.0f * px; }   /* chunk 38: on her, lying */
     } else if (talk_npc >= 0 && dialog_active() && phase == PH_PLAY) {   /* zoom toward the middle of the two of us */
         float nx, ny; npc_tile(talk_npc, &nx, &ny);
@@ -1419,7 +1445,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
 
     if (cur_map == MAP_CLOUD) draw_cloud_rim(r, cx, cy, tx0, ty0, tx1, ty1);
-    if (indoors) { scene_filter(1); gore_draw_floor(r, cx, cy); scene_filter(0); }          /* chunk 38: the stains on the floor (red even in the grey) */
+    if (gore_indoors == indoors) { scene_filter(1); gore_draw_floor(r, cx, cy); scene_filter(0); }          /* chunk 38: the stains on the floor (red even in the grey) */
 
     int hcx = 0, hcy = 0;
     if (hole_on) {
@@ -1495,6 +1521,11 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
             char_set_lighten(0);
         }
+    } else if (player_topple_t >= 0) {                            /* chunk 41: we hit ourselves: headless, toppling backwards, then lying */
+        float k = player_topple_t / 0.9f; if (k > 1) k = 1;
+        char_set_headless(1);
+        char_draw_fall(r, player_look, sx0, sy0, px, 1.5708f * k * k);
+        char_set_headless(0);
     } else if (death_on && death_fall_t >= 0) {                   /* the vessel topples backwards and stays down */
         float k = death_fall_t / DEATH_FALL_T; if (k > 1) k = 1;
         char_draw_fall(r, player_look, sx0, sy0, px, 1.5708f * k * k);
@@ -1516,7 +1547,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         for (int i = 0; i < grave_count(); i++)
             if (grave_foot_y(i) > pyp) { grave_draw(r, i, cx, cy); scene_filter(0); }
     }
-    if (indoors) { scene_filter(1); gore_draw_air(r, cx, cy); scene_filter(0); }          /* chunk 38: the drops in the air and her head */
+    if (gore_indoors == indoors) { scene_filter(1); gore_draw_air(r, cx, cy); scene_filter(0); }          /* chunk 38: the drops in the air and her head */
     gfx_set_filter(0, 0); gfx_set_gold(0);                        /* never leaks into the HUD */
 }
 

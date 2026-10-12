@@ -110,6 +110,8 @@ static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get th
 static int mission_repair = -1;            /* chunk 39: "Repair the shrine" (coins in the moment the orb is ours) */
 static int orb_taken;                      /* chunk 39: we searched her body and the orb is in the pockets */
 static int shrine_repaired;                /* chunk 40: the shrine is whole again */
+static int mission_die = -1;               /* chunk 41: "Die" (the shrine is mended) */
+static int self_done;                      /* chunk 41: we have swung the hammer at ourselves */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
@@ -342,8 +344,10 @@ static int limbo_enter_req;
  * past the end the last entry is used). the first line is said at once, then the soul waits DEATH_LIMBO_HOLD seconds before the story
  * goes on (chunk 15: the vessel is summoned again). later vessels add their own entries here. */
 static const DialogLine DEATH_LINES_1[] = { { &SOUL, "Uh. I died." } };      /* vessel 1, Aonia: a real popup from the soul, not a thought */
+static const DialogLine DEATH_LINES_2[] = { { &SOUL, "Uh. I died. Again." } };   /* vessel 2, Doia (chunk 41) */
 static const struct { const DialogLine *lines; int n; } DEATH_LINES[] = {
     { DEATH_LINES_1, 1 },
+    { DEATH_LINES_2, 1 },
 };
 #define DEATH_LINES_COUNT ((int)(sizeof DEATH_LINES / sizeof DEATH_LINES[0]))
 #define DEATH_LIMBO_HOLD    1.5f            /* after the popup is tapped away: the soul waits a moment */
@@ -377,9 +381,10 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = -1;
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = -1;
     dying = 0; vessel_dead = 0;
-    world_clear_items();                            /* the new body has empty pockets */
+    world_clear_items();                            /* the new body has empty pockets ... */
+    if (orb_taken) world_give_item(ITEM_ORB);       /* ... except for the orb: the soul keeps what it carries (chunk 41) */
     alex_fight_on = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
@@ -503,9 +508,15 @@ static int alex_beeps;
 static void repair_started(void) {
     think("This hammer surely can do everything, huh.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_REPAIR, 1);
 }
+static void self_hit_cb(void);
+static void shrine_arm_self(void) {
+    if (shrine_repaired && !self_done) world_enable_shrine_self(self_hit_cb);
+}
 static void repair_done(void) {
     shrine_repaired = 1;
     mission_complete(mission_repair);
+    mission_die = task_toast("Die");                        /* chunk 41: the hammer button is back at the mended shrine */
+    shrine_arm_self();
 }
 static void shrine_arm_repair(void) {
     if (orb_taken && !shrine_repaired) world_enable_shrine_repair(repair_started, repair_done);
@@ -538,6 +549,32 @@ static void alex_death_begin(void) { world_death_begin_at(alex_id, alex_death_re
 static void alex_killed(void) {
     world_npc_behead(alex_id);
     story_after(ALEX_BLOOD_T, alex_death_begin);
+}
+
+/* ---------- "Die" (chunk 41) ----------
+ * the shrine is whole and the task "Die" is on the list. next to the mended shrine the button is the hammer again; ONE tap swings it at our own head:
+ * the same end as Alex's (world_player_behead: the head flies, the blood splashes, the body topples). when the blood has landed the death scene runs on
+ * us: the peeps, the flatline (no heart: no chest to show it on), "Doia has died.", then the usual end of a life (story_vessel_died: the stone, the black,
+ * limbo, "Uh. I died. Again.", the next summoning). */
+#define SELF_BLOOD_T 2.0f
+static int self_beeps;
+static void self_death_text(void) {
+    world_death_text(VESSEL2_NAME " has died.");
+    story_after(DEATH_END_HOLD, story_vessel_died);
+}
+static void self_death_flat(void) { sfx_flatline(); story_after(ALEX_TEXT_AT, self_death_text); }
+static void self_death_beep(void) {
+    sfx_beep();
+    if (--self_beeps > 0) story_after(DEATH_BEEP_GAP, self_death_beep);
+    else story_after(DEATH_BEEP_GAP, self_death_flat);
+}
+static void self_death_ready(void) { self_beeps = DEATH_BEEPS; self_death_beep(); }
+static void self_death_begin(void) { world_death_begin(self_death_ready); }
+static void self_hit_cb(void) {
+    self_done = 1; dying = 1;                               /* no more thoughts of our own, no more walking */
+    mission_complete(mission_die);
+    world_player_behead();
+    story_after(SELF_BLOOD_T, self_death_begin);
 }
 
 static void death_text(void) {
@@ -734,9 +771,14 @@ static void landed_again(void) {
         alex_id = npc_add(&ALEX, ax, ay, on_talk_alex);
         alex_fight_on = 0;                                  /* a new map: the fight is switched on again once we stand in her house with the hammer */
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
+        if (alex_dead && alex_id >= 0) {                    /* chunk 41: she is still dead: her body lies there, the squirts go on (the stains are gone with the map) */
+            npc_set_headless(alex_id, 1); npc_set_lying_now(alex_id);
+            world_npc_sparks(alex_id, ALEX_SPARK_DELAY);
+        }
     }
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
     if (green.shrine_there && green.shrine_polluted) shrine_arm_repair();      /* chunk 40: (only once the orb is ours) */
+    if (green.shrine_there && !green.shrine_polluted) shrine_arm_self();       /* chunk 41: a mended shrine that was not used yet */
     for (int i = 0; i < grave_n; i++) {                     /* a stone where each one died: that tile, or the nearest where it fits */
         int gx, gy;
         if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) {
@@ -876,7 +918,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; orb_taken = shrine_repaired = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

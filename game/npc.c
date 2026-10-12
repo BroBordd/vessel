@@ -76,6 +76,7 @@ void npc_hit(int id, float from_x, float from_y) {
     else                       n[id].shove_y = dy < 0 ? -1 : 1;
     n[id].flash = NPC_FLASH_T; n[id].shove = NPC_SHOVE_T;
 }
+void npc_set_lying_now(int id)       { if (id >= 0 && id < count) { n[id].lying = 1; n[id].lying_t = NPC_FALL_T; } }   /* chunk 41: already down (a map made again) */
 void npc_set_lying(int id)           { if (id >= 0 && id < count && !n[id].lying) { n[id].lying = 1; n[id].lying_t = 0; } }
 int  npc_lying(int id)               { return id >= 0 && id < count && n[id].lying; }
 void npc_set_headless(int id, int on) { if (id >= 0 && id < count) n[id].headless = on != 0; }
