@@ -89,7 +89,7 @@ int main(void) {
     run(VESSEL2_TASK_DELAY + 0.5f);
     CHECK(missions_count() == 1, "the task came in twice");
 
-    /* chunk 29: Alex says no, once. no question, no chat; then the two thoughts, in order, the second a little later */
+    /* chunk 29: Alex says no, once. no question, no chat; then one thought (chunk 47: the \"I know where there is one\" thought is gone) */
     lives = 1;
     int agx = (int)(pxp / tile) - 5, agy = (int)(pyp / tile);          /* our first body's stone, as landed_again would have put it (chunk 31) */
     aonia_grave = world_place_grave(agx, agy, &VESSEL);
@@ -104,11 +104,19 @@ int main(void) {
         CHECK(pages >= ALEX_REFUSE_COUNT, "the refusal ran %d pages, want %d", pages, ALEX_REFUSE_COUNT);
         CHECK(brainwin_count() == bc + 1, "the first thought did not come right after the refusal (%d -> %d)", bc, brainwin_count());
         run(5.5f);
-        CHECK(brainwin_count() == bc + 2, "the second thought did not come after the first (%d -> %d)", bc, brainwin_count());
+        CHECK(brainwin_count() == bc + 1, "the refusal left %d thoughts, want exactly one (%d -> %d)", brainwin_count() - bc, bc, brainwin_count());
+        /* chunk 47: walking up to a stone thinks nothing (the grave thought is gone) */
+        {   float sx = pxp, sy = pyp;
+            pxp = (agx + 0.5f) * tile; pyp = (agy + 0.9f + 2.5f) * tile; run(1.0f);
+            CHECK(world_dist_to_grave() < 3.5f, "the player is not next to the stone for the grave check");
+            run(6.0f);
+            CHECK(brainwin_count() == bc + 1, "walking up to a stone added a thought (%d)", brainwin_count() - bc);
+            pxp = sx; pyp = sy; run(0.3f);
+        }
         on_talk_alex(0);
         CHECK(!dialog_active() && !convo_active(), "the refusal played twice (or a chat opened)");
         run(6.0f);
-        CHECK(brainwin_count() == bc + 2, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
+        CHECK(brainwin_count() == bc + 1, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
     }
     lives = 0;
     CHECK(grave_pull_enabled() && grave_pull_index() == aonia_grave, "Alex's no did not switch the grave pull on");
@@ -121,7 +129,7 @@ int main(void) {
         world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.3f);
         CHECK(aonia_out && grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the pull did not open the plot and start the slide");
         CHECK(mission_bury >= 0 && missions_count() == tasks0 + 1, "the task \"Bury Aonia\" did not coin in");
-        CHECK(brainwin_count() >= bc + 1, "the pull thought did not come (%d -> %d)", bc, brainwin_count());   /* (standing at his stone also brings the grave thought of chunk 23) */
+        CHECK(brainwin_count() >= bc + 1, "the pull thought did not come (%d -> %d)", bc, brainwin_count());
         world_touch(1, bx, by);
         {   int gcx = (int)((agx + 0.5f) * tile) - (int)cam_x, gcy = (int)((agy + 0.9f) * tile) - (int)cam_y; (void)gcx; (void)gcy; }
         run(0.7f);

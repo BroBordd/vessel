@@ -87,13 +87,11 @@ void story_after(float seconds, void (*fn)(void)) {
 
 static void alex_watch(void);               /* the proximity triggers, defined with the scenes below */
 static void dea_watch(void);
-static void grave_watch(void);
 static void hammer_watch(void);
 
 void story_update(float dt) {
     alex_watch();
     dea_watch();
-    grave_watch();
     hammer_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
@@ -131,7 +129,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT, THOUGHT_REPAIR };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT, THOUGHT_REPAIR };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -722,17 +720,13 @@ static void alex_chat_end(void) {
 static void alex_deal_done(void) { convo_ask_line(&ALEX, &ALEX_MIND, "Got any questions before you go?", alex_chat_end); }
 
 /* chunk 29: vessel 2 asks for the orb. she says no, once, in her own face popup. we cannot argue (the chat is locked), so the dialog ends
- * with no question and no free chat; only the head answers: she will not give it up, and the one heavy thing we know of is with our own
- * old body. every later talk with her is just the chat lock (the thought "I can't say that"). */
+ * with no question and no free chat; only the head answers: she will not give it up and we need something heavy. every later talk with her is just the chat lock (the thought "I can't say that"). */
 static const DialogLine ALEX_REFUSE[] = {
     { &ALEX, "The orb? It's mine. I found it. No." },
     { &ALEX, "Why do you want it so badly?" },
 };
 #define ALEX_REFUSE_COUNT ((int)(sizeof ALEX_REFUSE / sizeof ALEX_REFUSE[0]))
 static int alex_refused;                            /* she has said no (once only) */
-static void oldbody_thought(void) {
-    think("I know where there is one.", NULL, BRAIN_SCENE_GRAVE, THOUGHT_OLDBODY, 1);
-}
 /* chunk 31: after her no, the stone where our first body lies can be worked: HOLD the button there and we pull him out of the ground by the
  * legs. the plot opens, he slides out feet first, and the task "Bury Aonia" coins in (chunks 32-35 go on from here). aonia_grave is the
  * index of his stone on this map (set when the stones are put back, -1 when there is none); aonia_out is kept for the next landing. */
@@ -779,7 +773,6 @@ static void aonia_pull_on(void) {
 static void alex_refuse_done(void) {
     aonia_pull_on();                                        /* the grave can be worked from now on */
     think("She won't give it up. I need something heavy to change her mind.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_REFUSED, 1);
-    story_after(4.5f, oldbody_thought);                     /* the second thought waits for the first card to fold away */
 }
 
 static void on_talk_alex(int npc_id) {
@@ -855,18 +848,6 @@ static void landed_again(void) {
     }
     think("Here we go again.", NULL, BRAIN_SCENE_AGAIN, THOUGHT_AGAIN, 1);
     story_vessel2_ready();                                  /* the hook for vessel 2's own story (chunk 24) */
-}
-
-/* the grave (chunk 23): the first time we walk up to a stone, the vessel stands at its own grave. it keeps its memories in every body,
- * so this is not a stranger's stone: the thought is what anyone would think there. once only, in every life (grave_seen is reset by
- * story_start). the picture in the brain window is the grave at dusk (BRAIN_SCENE_GRAVE). */
-#define GRAVE_NEAR      3.5f                /* tiles from the stone's feet: close enough to read the name, on screen */
-static int grave_seen;
-static void grave_watch(void) {
-    if (grave_seen || dying || dialog_active() || world_grave_count() == 0) return;
-    if (world_dist_to_grave() >= GRAVE_NEAR) return;
-    grave_seen = 1;
-    think("I am buried here, and I am standing here. The body stays. I walk on.", "The body stays. I walk on.", BRAIN_SCENE_GRAVE, THOUGHT_GRAVE, 1);
 }
 
 /* the player just got back on their feet after the fall */
@@ -985,7 +966,7 @@ void story_start(void) {
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();
-    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
+    vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
