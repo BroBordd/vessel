@@ -400,7 +400,7 @@ static void story_reset_for_respawn(void) {
     world_temple_spot(&dea_tx, &dea_ty);            /* Dea is already waiting in her temple, far up the clouds, looking down at us */
     dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
     npc_set_facing(dea_id, FACE_DOWN);
-    dea_seen = 0;                                   /* walking within sight of her coins in "Talk to Goddess" again */
+    dea_seen = 1;                                   /* chunk 50: she is already in sight, the sighting must not coin the task in a second time (respawn_summoned does it) */
     dea_spoken = 1;
     scold_pending = 0;
 }
@@ -517,6 +517,7 @@ static void dea_naming3(void) {
 }
 static void respawn_summoned(void) {
     world_set_controls_visible(1);                              /* no auto talk: we walk to her and talk to her ourselves */
+    if (mission_talk_dea < 0) mission_talk_dea = task_toast("Talk to Goddess");   /* chunk 50: at once, no "Look around" (vessels 2 and 3) */
     scold_pending = 1;
 }
 

@@ -72,6 +72,14 @@ int main(void) {
     CHECK(mission_look < 0 && missions_count() == 0, "\"Look around\" survived into the next life (%d tasks)", missions_count());
     CHECK(!secret_on, "the secret order is in force before Dea spoke");
     run(0.5f);
+    /* chunk 50: later lives. the task is not there while the summoning runs; when it ends "Talk to Goddess" coins in at once (no "Look around"),
+     * the sighting does not coin it in again, and Dea's scolding ticks it off */
+    CHECK(mission_talk_dea < 0 && mission_look < 0 && missions_count() == 0, "a task exists before the second summoning ends");
+    respawn_summoned();
+    CHECK(mission_talk_dea >= 0 && mission_look < 0 && missions_count() == 1, "\"Talk to Goddess\" did not coin in at once after the second summoning (%d tasks)", missions_count());
+    dea_watch(); dea_spotted();
+    CHECK(missions_count() == 1, "the sighting coined \"Talk to Goddess\" in a second time (%d tasks)", missions_count());
+    scold_pending = 0; world_set_controls_visible(0);       /* (respawn_summoned gave them back; the scolding below starts without them) */
     CHECK(DEA_ORDERS_COUNT >= 2, "Dea's orders are missing (%d lines)", DEA_ORDERS_COUNT);
 
     dea_scold();                                     /* what talking to / seeing Dea does on the second life */
@@ -548,6 +556,9 @@ int main(void) {
             CHECK(dea_id >= 0 && !hole_on, "Dea is not waiting in her temple / a hole is open (%d, %d)", dea_id, hole_on);
             run(10.0f);
             CHECK(scold_pending && !dialog_active(), "the third summoning did not end with Dea waiting to speak (%d)", scold_pending);
+            CHECK(mission_talk_dea >= 0 && mission_look < 0 && missions_count() == 1, "\"Talk to Goddess\" did not coin in at once after the third summoning (%d tasks)", missions_count());
+            dea_watch();
+            CHECK(missions_count() == 1, "the sighting coined \"Talk to Goddess\" in a second time on the third life (%d tasks)", missions_count());
             on_talk_dea(dea_id);
             CHECK(!scold_pending && dialog_active() && !convo_active(), "talking to Dea did not start her line");
             CHECK(hud_person() == &VESSEL3 && world_player() == &VESSEL3, "the naming did not flash the ID card / change the look");
@@ -555,6 +566,8 @@ int main(void) {
             CHECK(naming3_done_n == 0, "the naming ended before the line was read");
             for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
             CHECK(!dialog_active() && naming3_done_n == 1, "the naming did not end after one line (%d)", naming3_done_n);
+            run(4.0f);
+            CHECK(missions_count() == 1 && mission_give >= 0, "\"Talk to Goddess\" was not ticked off by the naming, or the next task is wrong (%d tasks left)", missions_count());
             CHECK(controls_visible && !hole_on, "the controls did not come back / a hole opened after the naming");
             CHECK(convo_locked() && secret_on, "the chat lock / the secret ended with the naming (chunk 43 ends it)");
             CHECK(world_has_item(ITEM_ORB), "the orb left the pockets with the naming");
