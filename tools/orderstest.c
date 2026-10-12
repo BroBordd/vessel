@@ -679,6 +679,21 @@ int main(void) {
         #undef EYEPX
     }
 
+    /* chunk 53: vessel 1 is worried from the moment it is doomed (shrine_done: the wrath, the heart failing, the death scene) until its life ends.
+     * Doia (lives == 1) is not part of it, and the next body is calm again */
+    {   worried_set(0); lives = 1; shrine_done();
+        CHECK(!world_player_worried() && !hud_is_worried(), "a later vessel (lives 1) went worried in the shrine's wrath");
+        story_reset_for_respawn();
+        lives = 0;
+        CHECK(!world_player_worried() && !hud_is_worried(), "worried before vessel 1 is dying");
+        shrine_done();
+        CHECK(world_player_worried() && hud_is_worried(), "vessel 1 is not worried (body %d, card %d) while dying", world_player_worried(), hud_is_worried());
+        run(0.3f);                                                                  /* the body and the card draw worried without trouble */
+        CHECK(world_player_worried() && hud_is_worried(), "the worry went away while dying");
+        lives = 1; story_reset_for_respawn();
+        CHECK(!world_player_worried() && !hud_is_worried(), "the next body is still worried after the respawn");
+    }
+
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
     return fails ? 1 : 0;
 }

@@ -11,6 +11,8 @@
 void hud_init(int w, int h, const Person *who);   /* shows `who` straight away, no announcement */
 void hud_set_person(const Person *who);           /* different name -> flash + ding + toast */
 void hud_set_hp(int hp, int hp_max);
+int  hud_is_worried(void);                       /* (tests) */
+void hud_set_worried(int on);                    /* chunk 53: the face on the ID card is worried (vessel 1 while it dies); hud_reset puts it away */
 void hud_reset(const Person *who, int hp_full);   /* a new life: shows `who` at once (no flash, ding or toast) and fills the bar to hp_full (0 = the start value) */              /* the bar eases down, leaving a pale trail */
 
 /* who the card shows right now (the thinking bar borrows the face) */

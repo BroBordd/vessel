@@ -136,6 +136,8 @@ void world_return_to_clouds(void);
 void world_set_player(const Person *who);
 const Person *world_player(void);
 void world_death_fall(void);                   /* chunk 15.1: the vessel topples over (1.1 s) and stays lying; world_death_player is for the standing pose only */
+int  world_player_worried(void);                /* (tests) */
+void world_set_player_worried(int on);          /* chunk 53: the player's body (every pose) has the worried eyes while on; story.c switches it with the hud card */
 void world_death_text(const char *text);       /* chunk 15: the words over the cutscene ("Aonia has died."), fade in and stay until the cutscene is cancelled */
 
 /* THE SUMMONING (vessel 2, chunk 8, summon.h): a column of golden light drops onto the spot where the player stands, a glowing

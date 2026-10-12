@@ -122,6 +122,7 @@ static int mission_pollute = -1;            /* added by Alex's highlighted line 
 static int alex_dealt;                      /* the scripted deal has been played */
 static int shrine_fouled;                   /* the player has polluted Dia's shrine (chunk 10) */
 static int dying;                           /* Dia's wrath has begun (chunk 11): no more thoughts of the player's own, no more walking */
+static void worried_set(int on) { world_set_player_worried(on); hud_set_worried(on); }   /* chunk 53: the body and the card face (vessel 1 only, while it dies) */
 static int alex_id = -1, alex_seen;         /* her npc id on the ground (-1 = not there), and "the player has spotted her" */
 static int dea_spoken;
 static int dea_id = -1, dea_seen;           /* her npc id in the sky, and "the player has sighted her" (chunk 11) */
@@ -388,6 +389,7 @@ static void story_reset_for_respawn(void) {
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
     mission_talk_dea = mission_look = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = mission_give = -1;
     dying = 0; vessel_dead = 0;
+    worried_set(0);                                 /* chunk 53: the next body is not worried */
     world_clear_items();                            /* the new body has empty pockets ... */
     if (orb_taken && !orb_given) world_give_item(ITEM_ORB);       /* ... except for the orb: the soul keeps what it carries (chunk 41) */
     alex_fight_on = 0;
@@ -664,6 +666,7 @@ static void dia_wrath(void) {
 static void shrine_done(void) {
     shrine_fouled = 1;
     dying = 1;
+    if (lives == 0) worried_set(1);                         /* chunk 53: vessel 1 is worried from here until its life ends (story_reset_for_respawn) */
     jukebox_scene_fade(0.15f);                              /* the music dies the moment it is fouled (map music only: a custom track keeps playing) */
     brainwin_drop_tag(THOUGHT_SHRINE);                      /* "I doubt that ends well" has come true, or is about to */
     brainwin_drop_tag(THOUGHT_HAMMER);
@@ -971,7 +974,7 @@ void story_start(void) {
     brainwin_set_alex(&ALEX);                   /* chunk 51: her thought pictures wear the real Alex's look */
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

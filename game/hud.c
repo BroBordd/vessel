@@ -48,6 +48,9 @@ const Person *hud_person(void) { return who; }
 
 void hud_card_rect(int *x, int *y, int *w, int *h) { *x = card_x; *y = card_y; *w = CW * q; *h = CH * q; }
 
+static int worried;                                    /* chunk 53: the face on the card is worried */
+void hud_set_worried(int on) { worried = on != 0; }
+int  hud_is_worried(void) { return worried; }          /* (tests) */
 void hud_set_hp(int v, int vmax) {
     if (vmax < 1) vmax = 1;
     hp_max = vmax;
@@ -66,6 +69,7 @@ void hud_set_person(const Person *p) {
 
 void hud_reset(const Person *p, int hp_full) {          /* a new life: the card shows `p` at once (no flash, no ding), HP is full */
     if (p) who = p;
+    worried = 0;                                        /* a new life starts calm */
     hp = hp_max = hp_full > 0 ? hp_full : START_HP; hp_shown = (float)hp;
     flash_t = -1;
 }
@@ -106,7 +110,9 @@ static void draw_portrait_window(SDL_Renderer *r, int hot) {
     col(r, 0, 0, 0, 55);                                /* inner edge shadow so the window feels recessed */
     cl(r, 3, 13, 12, 1);
     cl(r, 3, 14, 1, 16);
+    char_set_worried(worried);
     char_draw_portrait(r, who, card_x + 4 * q, card_y + 20 * q, q, 0);
+    char_set_worried(0);
 }
 
 static void draw_hp(SDL_Renderer *r) {

@@ -819,6 +819,9 @@ void world_return_to_clouds(void) {
 
 void world_set_player(const Person *who) { player_look = who ? who : &VESSEL; }
 const Person *world_player(void) { return player_look; }
+static int player_worried;                           /* chunk 53: the player's body wears the worried eyes (vessel 1 while it dies) */
+void world_set_player_worried(int on) { player_worried = on != 0; }
+int  world_player_worried(void) { return player_worried; }          /* (tests) */
 
 void world_fade_to_black(float seconds, void (*on_black)(void)) {
     blackout_t = 0; blackout_dur = seconds > 0.05f ? seconds : 0.05f; blackout_cb = on_black;
@@ -1474,6 +1477,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
     scene_filter(death_npc < 0);                                  /* the player: red, in a grey world (grey when the cutscene is about an npc) */
+    char_set_worried(player_worried);                             /* chunk 53 (off again after the body is drawn) */
     if (summon_active()) {                                        /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
         int rows = summon_player_rows();
         if (rows > 0) {
@@ -1534,6 +1538,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
     }
 
+    char_set_worried(0);
     if (!dawn_on) summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
     scene_filter(0);
     if (npcs_here())
