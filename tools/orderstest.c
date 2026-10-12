@@ -521,6 +521,35 @@ int main(void) {
             CHECK(controls_visible && !hole_on, "the controls did not come back / a hole opened after the naming");
             CHECK(convo_locked() && secret_on, "the chat lock / the secret ended with the naming (chunk 43 ends it)");
             CHECK(world_has_item(ITEM_ORB), "the orb left the pockets with the naming");
+            /* chunk 43: giving the orb. the task is there after the naming; the orb leaves the pockets when Dea answers, the task is done, the order ends (lock and
+             * secret off) and story_vessel3_ready runs once. */
+            CHECK(mission_give >= 0 && missions_count() >= 1, "\"Give the orb to Dea\" did not coin in after the naming");
+            CHECK(vessel3_ready_calls == 0 && !orb_given, "the hand-over happened before we talked to her");
+            { int mc = missions_count();
+              on_talk_dea(dea_id);
+              CHECK(dialog_active() && !convo_active() && world_has_item(ITEM_ORB), "talking to Dea with the orb did not start the hand-over (orb still ours)");
+              run(2.0f); tap(TW / 2, TH * 4 / 5); run(0.5f);
+              CHECK(!world_has_item(ITEM_ORB) && orb_given, "the orb did not leave the pockets when Dea answered");
+              CHECK(vessel3_ready_calls == 0, "the hook ran before the talk ended");
+              for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+              CHECK(!dialog_active() && vessel3_ready_calls == 1, "story_vessel3_ready did not run once (%d)", vessel3_ready_calls);
+              CHECK(!convo_locked() && !secret_on, "the order did not end with the hand-over (locked %d, secret %d)", convo_locked(), secret_on);
+              run(2.0f); CHECK(missions_count() <= mc, "the task list grew after the hand-over"); }
+            { int rc = vessel3_ready_calls;
+              world_give_item(ITEM_ORB);                          /* (a second talk, orb back in the pockets: no second hand-over; relock so it is not a typed chat) */
+              convo_lock("I can't say that. I was told to keep quiet."); convo_lock_reply(&DEA, "You heard me. Go.");
+              on_talk_dea(dea_id);
+              CHECK(vessel3_ready_calls == rc && world_has_item(ITEM_ORB), "a second talk handed the orb over again");
+              for (int i = 0; i < 4 && (dialog_active() || convo_active()); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+              world_take_item(ITEM_ORB); }
+            /* without the orb she nags (a fresh third life state) */
+            { int og = orb_given; orb_given = 0; world_take_item(ITEM_ORB);
+              on_talk_dea(dea_id);
+              CHECK(dialog_active() && !world_has_item(ITEM_ORB), "Dea did not nag without the orb");
+              for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+              CHECK(vessel3_ready_calls == 1 && !orb_given, "the nag handed something over");
+              orb_given = og;
+              convo_lock("I can't say that. I was told to keep quiet."); convo_lock_reply(&DEA, "You heard me. Go."); secret_on = 1; }   /* (the rest of this test goes on as the second life, locked) */
             /* the three looks differ (hair, shirt, skin), on a screenshot too */
             CHECK(memcmp(&VESSEL3.hair, &VESSEL.hair, 3) && memcmp(&VESSEL3.hair, &VESSEL2.hair, 3), "Tria's hair matches another vessel");
             CHECK(memcmp(&VESSEL3.shirt, &VESSEL.shirt, 3) && memcmp(&VESSEL3.shirt, &VESSEL2.shirt, 3), "Tria's shirt matches another vessel");

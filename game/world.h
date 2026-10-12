@@ -96,6 +96,7 @@ void world_enable_body_search(int npc_id, void (*on_done)(void));   /* chunk 39:
 void world_drop_item(int kind, int tile_x, int tile_y);     /* chunk 32: like world_place_item, but it falls there (cannot be picked up until it has landed) */
 int  world_has_item(int kind);
 void world_give_item(int kind);
+void world_take_item(int kind);                /* chunk 43: out of the pockets */
 void world_clear_items(void);
 int  world_shrine_exists(void);                /* the shrine on the current map: is there one, is it polluted, and its feet position in tiles */
 int  world_shrine_polluted(void);

@@ -747,6 +747,7 @@ static void update_door_range(void) {
 void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); }
 int  world_has_item(int kind) { return item_has(kind); }
 void world_give_item(int kind) { item_give(kind); }
+void world_take_item(int kind) { item_take(kind); }
 void world_clear_items(void) { item_clear(); }
 int  world_shrine_exists(void) { return shrine_exists(); }
 int  world_shrine_polluted(void) { return shrine_polluted(); }

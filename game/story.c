@@ -114,6 +114,8 @@ static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get th
 static int mission_repair = -1;            /* chunk 39: "Repair the shrine" (coins in the moment the orb is ours) */
 static int orb_taken;                      /* chunk 39: we searched her body and the orb is in the pockets */
 static int shrine_repaired;                /* chunk 40: the shrine is whole again */
+static int mission_give = -1;              /* chunk 43: "Give the orb to Dea" */
+static int orb_given;                      /* chunk 43: the orb is Dea's now */
 static int mission_die = -1;               /* chunk 41: "Die" (the shrine is mended) */
 static int self_done;                      /* chunk 41: we have swung the hammer at ourselves */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
@@ -385,10 +387,10 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = -1;
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = mission_give = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets ... */
-    if (orb_taken) world_give_item(ITEM_ORB);       /* ... except for the orb: the soul keeps what it carries (chunk 41) */
+    if (orb_taken && !orb_given) world_give_item(ITEM_ORB);       /* ... except for the orb: the soul keeps what it carries (chunk 41) */
     alex_fight_on = 0;
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
@@ -480,6 +482,34 @@ static void naming3_page(int page) {
 static void naming3_done(void) {
     naming3_done_n++;
     world_set_controls_visible(1);
+    if (mission_give < 0 && !orb_given) mission_give = task_toast("Give the orb to Dea");     /* chunk 43 */
+}
+
+/* chunk 43: the end of this part. talking to Dea with the orb in the pockets hands it over: the orb leaves the pockets the moment she answers, the task is
+ * done, and the order is over (the chat lock and the secret end here, the soul may speak again). without the orb she just nags. story_vessel3_ready() is
+ * the hook for whatever comes next. */
+static const DialogLine DEA_ORB_TAKE[] = {
+    { &VESSEL3, "Here. Your orb." },
+    { &DEA, "Finally. And no one knows?" },
+};
+#define DEA_ORB_TAKE_COUNT ((int)(sizeof DEA_ORB_TAKE / sizeof DEA_ORB_TAKE[0]))
+static const DialogLine DEA_ORB_NAG[] = {
+    { &DEA, "Where is my orb? Do not come back without it." },
+};
+static int vessel3_ready_calls;                     /* (the tests count them) */
+void story_vessel3_ready(void) { vessel3_ready_calls++; }
+static void orb_page(int page) {
+    if (page == 1 && !orb_given) { orb_given = 1; world_take_item(ITEM_ORB); }
+}
+static void orb_handed(void) {
+    mission_complete(mission_give);
+    secret_on = 0;
+    convo_unlock();
+    story_vessel3_ready();
+}
+static void dea_orb(void) {
+    dialog_on_page(orb_page);
+    dialog_play(DEA_ORB_TAKE, DEA_ORB_TAKE_COUNT, orb_handed);
 }
 static void dea_naming3(void) {
     mission_complete(mission_talk_dea);
@@ -904,6 +934,11 @@ static void dea_talk_highlight(int page, int span) {
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
     if (scold_pending) { scold_pending = 0; if (lives >= 2) dea_naming3(); else dea_scold(); return; }   /* the second life: the scolding, then the questions; the third: just the naming (chunk 42) */
+    if (lives >= 2 && !orb_given) {                                         /* chunk 43: the third life: the orb is what she wants */
+        if (world_has_item(ITEM_ORB)) dea_orb();
+        else dialog_play(DEA_ORB_NAG, 1, NULL);
+        return;
+    }
     if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
@@ -946,7 +981,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

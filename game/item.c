@@ -79,6 +79,7 @@ int  item_exists(void) { return on; }
 void item_tile(float *x, float *y) { *x = tx + 0.5f; *y = ty + 0.5f; }
 int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind]; }
 void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; have[kind] = 1; new_t = 0; }
+void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT) have[kind] = 0; }
 void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; }
 
 int item_update(float dt, float pxw, float pyw, int allow) {

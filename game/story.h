@@ -15,6 +15,7 @@ extern const Person ALEX;
 /* called by the world when the map appears / every frame */
 void story_start(void);
 void story_vessel2_ready(void);   /* hook, empty for now: runs once the second landing is done and the graves stand (vessel 2's mission starts here) */
+void story_vessel3_ready(void);   /* hook, empty for now: runs once Dea has the orb (chunk 43); whatever comes after this part starts here */
 void story_update(float dt);
 
 /* run fn once, `seconds` from now. handy for scripting: story_after(2.0f, next_scene); */

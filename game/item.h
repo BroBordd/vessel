@@ -38,6 +38,7 @@ int   item_exists(void);                                /* something lies on thi
 void  item_tile(float *tx, float *ty);                  /* where, in tiles (minimap) */
 int   item_has(int kind);
 void  item_give(int kind);                              /* straight into the pockets */
+void  item_take(int kind);                              /* out of the pockets (chunk 43: the orb goes to Dea) */
 void  item_clear(void);                                 /* empty pockets (a new body) */
 /* every frame while playing. player = feet, world px. allow = 0 stops picking up (dialog open). returns the kind picked up on
  * the frame it happens, else -1 */
