@@ -1266,12 +1266,25 @@ static void draw_fall(SDL_Renderer *r) {
 }
 
 /* round button with the face of whoever you are next to (or an arrow down into the hole). tap it. */
+/* chunk 54: the analog stick, readable on anything (white clouds, the night, grass, limbo's black). two tones, so one of them always
+ * contrasts: a dark pixel outline ring round a light ring, a dark half-clear backing disc under the whole stick, and a light knob with a
+ * dark rim. (kcx, kcy) is the knob's centre, `on` = the finger is on it. */
+#define UI_DARK 10, 12, 24
+static void draw_stick(SDL_Renderer *r, int cx, int cy, int rad, int krad, int kcx, int kcy, int on) {
+    col(r, UI_DARK, 120);  pdisc(r, cx, cy, rad + ucell, ucell);                   /* the backing, under the outline too */
+    col(r, UI_DARK, 235);  pring(r, cx, cy, rad + ucell, 1, ucell);                /* the dark outline, just outside the light ring */
+    col(r, 255, 255, 255, 235); pring(r, cx, cy, rad, 1, ucell);                   /* the light ring */
+    col(r, UI_DARK, 235);  pdisc(r, kcx, kcy, krad + ucell, ucell);                /* the knob's dark rim ... */
+    col(r, 255, 255, 255, on ? 255 : 220); pdisc(r, kcx, kcy, krad, ucell);        /* ... round the light knob */
+}
+
 static void draw_interact_button(SDL_Renderer *r) {
     int down = btn_down && btn_inside;
     int rw = (int)(2.5f * ui); if (rw < 2) rw = 2;
     int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));              /* ring breathes to draw the eye */
 
     (void)rw;
+    col(r, UI_DARK, 235); pring(r, bcx, bcy, br + ucell, 1, ucell);   /* chunk 54: a dark outline outside the light ring (the button's body is already dark) */
     if (down) col(r, 70, 80, 130, 240); else col(r, 24, 28, 48, 235);
     pdisc(r, bcx, bcy, br, ucell);
     col(r, 255, 255, 255, down ? 255 : pulse);
@@ -1621,11 +1634,9 @@ void world_draw(SDL_Renderer *r) {
 
 
     if (controls_visible && !dialog_active()) {
-        col(r, 255, 255, 255, 40);  pdisc(r, sx, sy, sr, ucell);
-        col(r, 255, 255, 255, 150); pring(r, sx, sy, sr, 1, ucell);
         float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
-        col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
+        draw_stick(r, sx, sy, sr, kr, kcx, kcy, stick_on);
         if (near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door) draw_interact_button(r);
     }
 

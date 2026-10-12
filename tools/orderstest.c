@@ -694,6 +694,41 @@ int main(void) {
         CHECK(!world_player_worried() && !hud_is_worried(), "the next body is still worried after the respawn");
     }
 
+    /* chunk 54: the stick stays readable on anything. over white, black and grass green: the light ring and the dark outline ring are both
+     * there (the light one bright, the dark one dark), and on every background at least one of the two (and one of the knob and its rim)
+     * is 3:1 or better away from the background. a screenshot of the three, build/stick_bgs.bmp */
+    {   static const Rgb BG[3] = { { 255, 255, 255 }, { 0, 0, 0 }, { 70, 132, 70 } };
+        static const char *BGN[3] = { "white", "black", "grass" };
+        int span = 2 * (sr + 3 * ucell) + ucell, shot_w = span * 3, shot_h = span;
+        SDL_Surface *shot = SDL_CreateRGBSurfaceWithFormat(0, shot_w, shot_h, 32, SDL_PIXELFORMAT_RGBA32);
+        SDL_Renderer *r2 = SDL_CreateSoftwareRenderer(shot);
+        SDL_SetRenderDrawBlendMode(r2, SDL_BLENDMODE_BLEND);
+        #define LUM(c_) ({ float v_[3] = { (c_).r / 255.0f, (c_).g / 255.0f, (c_).b / 255.0f }; for (int i_ = 0; i_ < 3; i_++) v_[i_] = v_[i_] <= 0.03928f ? v_[i_] / 12.92f : powf((v_[i_] + 0.055f) / 1.055f, 2.4f); 0.2126f * v_[0] + 0.7152f * v_[1] + 0.0722f * v_[2]; })
+        #define CR(a_, b_) ({ float la_ = LUM(a_), lb_ = LUM(b_); (la_ > lb_ ? la_ + 0.05f : lb_ + 0.05f) / (la_ > lb_ ? lb_ + 0.05f : la_ + 0.05f); })
+        for (int b = 0; b < 3; b++) {
+            int cx = b * span + span / 2, cy = span / 2;
+            SDL_SetRenderDrawColor(r2, BG[b].r, BG[b].g, BG[b].b, 255);
+            SDL_Rect all = { b * span, 0, span, span }; SDL_RenderFillRect(r2, &all);
+            draw_stick(r2, cx, cy, sr, kr, cx + sr / 2, cy, 1);
+            #define PX(x_, y_) ({ Rgb c_ = { 0, 0, 0 }; Uint8 R_, G_, B_, A_; SDL_GetRGBA(((Uint32 *)shot->pixels)[(y_) * (shot->pitch / 4) + (x_)], shot->format, &R_, &G_, &B_, &A_); c_.r = R_; c_.g = G_; c_.b = B_; c_; })
+            int ry = cy - ucell / 2;                                                       /* the row just above the middle */
+            int mo_d = half_cells((float)(sr + ucell) / ucell, -1), mo_l = half_cells((float)sr / ucell, -1);
+            Rgb dark = PX(cx + mo_d * ucell - ucell / 2, ry), light = PX(cx + mo_l * ucell - ucell / 2, ry);
+            int kx0 = cx + sr / 2, mk = half_cells((float)(kr + ucell) / ucell, -1), mk0 = half_cells((float)kr / ucell, -1);
+            Rgb knob = PX(kx0, ry), rim = PX(kx0 + mk * ucell - ucell / 2, ry);
+            CHECK(LUM(light) > 0.5f, "%s: the light ring is not light (lum %.2f)", BGN[b], LUM(light));
+            CHECK(LUM(dark) < 0.1f, "%s: the dark outline is not dark (lum %.2f)", BGN[b], LUM(dark));
+            CHECK(CR(light, BG[b]) >= 3.0f || CR(dark, BG[b]) >= 3.0f, "%s: neither stick ring is 3:1 away from the background (light %.1f, dark %.1f)", BGN[b], CR(light, BG[b]), CR(dark, BG[b]));
+            CHECK(mk > mk0 && (CR(knob, BG[b]) >= 3.0f || CR(rim, BG[b]) >= 3.0f), "%s: neither the knob nor its rim is 3:1 away (knob %.1f, rim %.1f)", BGN[b], CR(knob, BG[b]), CR(rim, BG[b]));
+            printf("stick on %s: light ring %.1f:1, dark outline %.1f:1, knob %.1f:1, rim %.1f:1\n", BGN[b], CR(light, BG[b]), CR(dark, BG[b]), CR(knob, BG[b]), CR(rim, BG[b]));
+            #undef PX
+        }
+        SDL_SaveBMP(shot, "build/stick_bgs.bmp");
+        #undef LUM
+        #undef CR
+        SDL_DestroyRenderer(r2); SDL_FreeSurface(shot);
+    }
+
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
     return fails ? 1 : 0;
 }
