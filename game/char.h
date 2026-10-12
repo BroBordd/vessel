@@ -54,6 +54,12 @@ void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s);
  * the face popups, the brain card face); a Person wears it permanently with ACC_WORRIED. */
 void char_set_worried(int on);
 
+/* chunk 56: the aiming pose ("Die" at the mended shrine, while the finger holds the hammer button): full body, front view, feet centred on (x, y), with a
+ * ground shadow. the face is turned up to the sky: the left eye is shut (a squint), the right eye is open with its pupil at the top; the right arm is up over
+ * the head holding the hammer, which wobbles a little (t = seconds, drives the wobble). char_debug_aims() counts the draws (tests). */
+void char_draw_aim(SDL_Renderer *r, const Person *p, int x, int y, int s, float t);
+int  char_debug_aims(void);
+
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
  * talking = 1 flaps the mouth. (the eyes blink, each person on their own clock: see eyes_shut in char.c) */
 void char_draw_portrait(SDL_Renderer *r, const Person *p, int x, int y, int s, int talking);

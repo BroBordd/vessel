@@ -612,7 +612,7 @@ static void alex_killed(void) {
 }
 
 /* ---------- "Die" (chunk 41) ----------
- * the shrine is whole and the task "Die" is on the list. next to the mended shrine the button is the hammer again; ONE tap swings it at our own head:
+ * the shrine is whole and the task "Die" is on the list. next to the mended shrine the button is the hammer again; a full HOLD (chunk 56: the player aims at the sky while it fills; chunk 57 throws) swings it at our own head:
  * the same end as Alex's (world_player_behead: the head flies, the blood splashes, the body topples). when the blood has landed the death scene runs on
  * us: the peeps, the flatline (no heart: no chest to show it on), "Doia has died.", then the usual end of a life (story_vessel_died: the stone, the black,
  * limbo, "Uh. I died. Again.", the next summoning). */

@@ -27,8 +27,8 @@ void  shrine_enable(void (*on_done)(void));                /* it can be used now
  * then not polluted any more, nor usable). */
 void  shrine_repair_enable(void (*on_start)(void), void (*on_done)(void));
 int   shrine_repairing(void);                               /* switched on and not done yet */
-/* chunk 41: the MENDED shrine, once more. shrine_self_enable switches it on: the interact button shows the hammer next to it again, but now a TAP swings it at
- * ourselves (not a hold): shrine_self_fire (the world calls it on the tap) runs on_hit once and switches it off. only for a whole shrine. */
+/* chunk 41: the MENDED shrine, once more. shrine_self_enable switches it on: the interact button shows the hammer next to it again, but now a HOLD swings it at
+ * ourselves (chunk 56: SELF_HOLD_T in world.c, the player aims at the sky while it fills, a tap is only a hint): shrine_self_fire (the world calls it when the bar is full) runs on_hit once and switches it off. only for a whole shrine. */
 void  shrine_self_enable(void (*on_hit)(void));
 int   shrine_self(void);
 void  shrine_self_fire(void);

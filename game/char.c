@@ -57,6 +57,7 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 static float g_lighten;
 static int   g_headless, g_shut;                    /* chunk 38: no head; eyes forced shut */
 static int   g_worried;                             /* chunk 52: everything drawn is worried */
+static int   g_aim, n_aims;                         /* chunk 56: the aiming pose is being drawn (eyes look up, one shut) / how many times it was drawn */
 void char_set_headless(int on) { g_headless = on != 0; }
 void char_set_worried(int on) { g_worried = on != 0; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
@@ -133,6 +134,14 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         int shut = g_shut || eyes_shut(p);
         int worry = g_worried || (p->acc & ACC_WORRIED);
         for (int i = 0; i < n; i++) {
+            if (g_aim) {                                                                    /* chunk 56: aiming at the sky. the left eye squints shut, the right one is open, the pupil right at its top */
+                if (i == 0) { setc(r, 28, 22, 40); fill(r, ox + ex[i] * s, oy + 5 * s, 2 * s, s); }
+                else {
+                    setc(r, 236, 238, 246); fill(r, ox + ex[i] * s, oy + 4 * s, 2 * s, 3 * s);          /* the white of the eye ... */
+                    setc(r, 28, 22, 40);    fill(r, ox + ex[i] * s, oy + 4 * s, 2 * s, s);               /* ... and the pupil up at the top */
+                }
+                continue;
+            }
             setc(r, 28, 22, 40);
             if (shut) { fill(r, ox + ex[i] * s, oy + 5 * s, 2 * s, s); continue; }       /* the lid: a thin line where the eye was */
             fill(r, ox + ex[i] * s, oy + 4 * s, 2 * s, 3 * s);
@@ -201,6 +210,33 @@ void char_draw(SDL_Renderer *r, const Person *p, int x, int y,
     SDL_SetRenderDrawColor(r, 0, 0, 0, 80);                    /* shadow */
     fill(r, x - 4 * s, y - s, 8 * s, 2 * s);
     char_draw_air(r, p, x, y, facing, moving, walk, s);
+}
+
+/* chunk 56: the aiming pose. the normal front sprite with the eyes of the pose (g_aim, see draw_sprite), then the right arm raised up the side of the head
+ * (sleeve, hand) and the hammer held over it: a brown handle going up past the top of the head and a grey head, its top end wobbling a cell left and right.
+ * cells are in sprite units from the sprite's top-left; rows above 0 are over the head. */
+int char_debug_aims(void) { return n_aims; }
+void char_draw_aim(SDL_Renderer *r, const Person *p, int x, int y, int s, float t) {
+    int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s;
+    n_aims++;
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 80);                                  /* shadow */
+    fill(r, x - 4 * s, y - s, 8 * s, 2 * s);
+    g_aim = 1;
+    draw_sprite(r, p, FACE_DOWN, ox, oy, s, SPR_H, -1);
+    g_aim = 0;
+    float ph = sinf(t * 13.0f);
+    int wob = ph > 0.35f ? 1 : ph < -0.35f ? -1 : 0;                         /* a small wobble: the top of the hammer sways */
+#define CELL(cx, cy, w_, h_) fill(r, ox + (cx) * s, oy + (cy) * s, (w_) * s, (h_) * s)
+    use(r, p->shirt);                                                        /* the sleeve: over the old hand, then up along the head */
+    CELL(8, 9, 1, 1); CELL(9, 9, 1, 1); CELL(9, 8, 1, 1);
+    use(r, p->skin);  CELL(9, 7, 1, 1);                                      /* the hand */
+    setc(r, 150, 100, 56); CELL(9, 0, 1, 7);                                 /* the handle, from the hand up over the head ... */
+    CELL(9 + wob, -2, 1, 2);                                                 /* ... the top of it swaying */
+    setc(r, 120, 78, 42);  CELL(9, 2, 1, 5);                                 /* a darker grip under the hand */
+    setc(r, 204, 210, 228); CELL(7 + wob, -4, 5, 1);                         /* the hammer's head: a light top ... */
+    setc(r, 142, 148, 174); CELL(7 + wob, -3, 5, 1);                         /* ... and a shaded face */
+    setc(r, 98, 104, 130);  CELL(7 + wob, -3, 1, 1); CELL(11 + wob, -3, 1, 1);
+#undef CELL
 }
 
 /* falling over backwards, pivoting on the feet: a = 0 standing .. pi/2 lying on the back, head to the right. the eyes

@@ -77,6 +77,11 @@ static float fight_cd, fight_swing;                      /* the cooldown between
 #define HAMMER_TAP_T   0.3f
 #define HINT_ANIM_T    0.25f
 static float fight_prog, fight_tick;                     /* the swing's hold, 0..1, and the rising tick's timer */
+/* chunk 56: "Die" is a hold too: SELF_HOLD_T seconds with the finger on the button at the mended shrine. while it is held the player stops, turns to the
+ * camera and aims the hammer at the sky (char_draw_aim); letting go early puts the pose away and the bar drains; a full bar calls the shrine's on_full */
+#define SELF_HOLD_T    2.0f
+static float self_prog, self_tick, aim_t;
+static int self_aiming(void);                            /* the finger is holding the hammer button at the mended shrine (defined after the update's state) */
 static float btn_t;                                      /* how long the finger has been on the button */
 static float hint_t;                                     /* > 0 while the hint's fill is playing (HINT_ANIM_T -> 0) */
 static float hint_curve(void) { return hint_t > 0 ? 0.3f * sinf(3.1415926f * (1.0f - hint_t / HINT_ANIM_T)) : 0.0f; }
@@ -543,7 +548,7 @@ static void load_map(int which) {
     near_shrine = near_grave = near_search = near_bury = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
-    fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = 0;   /* the npc ids are gone with the map */
+    fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = self_prog = self_tick = aim_t = 0;   /* the npc ids are gone with the map */
     pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
     pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
     facing = FACE_DOWN;
@@ -887,7 +892,10 @@ void world_player_behead(void) {
     world_set_controls_visible(0);
 }
 int world_player_beheaded(void) { return player_beheaded; }
-static void self_hit(void) { sfx_hit(); fight_swing = 1.0f; shrine_self_fire(); }
+static void self_hit(void) { sfx_hit(); fight_swing = 1.0f; shrine_self_fire(); }     /* (chunk 56: the full bar's on_full. chunk 57 replaces the swing with the throw) */
+static int self_aiming(void) { return shrine_self() && near_shrine && btn_down && btn_inside && !player_beheaded; }
+int  world_aiming(void) { return self_aiming(); }                                    /* (tests) */
+float world_self_progress(void) { return self_prog; }                                /* (tests) */
 void world_death_fall(void) { if (death_on && death_fall_t < 0) death_fall_t = 0; }
 void world_death_text(const char *text) {                          /* the words over the cutscene: fade in, then stay */
     snprintf(death_msg, sizeof death_msg, "%s", text ? text : ""); death_msg_t = 0;
@@ -948,7 +956,8 @@ void world_touch(int a, int x, int y) {
             if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
             else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
         }
-        if (near_shrine || near_grave || near_search || near_bsearch || near_bury) {                 /* turn to face it before the sabotage / the pull / the search starts */
+        if (near_shrine && shrine_self()) facing = FACE_DOWN;                                          /* chunk 56: "Die": turn to the camera, not to the shrine */
+        else if (near_shrine || near_grave || near_search || near_bsearch || near_bury) {             /* turn to face it before the sabotage / the pull / the search starts */
             float sfx_, sfy_;
             if (near_shrine) shrine_tile(&sfx_, &sfy_);
             else if (near_grave) grave_tile(grave_pull_index(), &sfx_, &sfy_);
@@ -964,13 +973,12 @@ void world_touch(int a, int x, int y) {
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int hammer_hold = fight_ready() || (near_shrine && !shrine_self());                 /* chunk 55: the swing, the break and the repair are holds */
-            int fire = a == 1 && btn_inside && can && (!near_shrine || shrine_self()) && !near_grave && !near_bury && !fight_ready();      /* the shrine, the grave and the swing are holds, not taps (world_update) */
+            int hammer_hold = fight_ready() || near_shrine;                 /* chunk 55: the swing, the break and the repair are holds */
+            int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury && !fight_ready();      /* the shrine, the grave and the swing are holds, not taps (world_update) */
             if (a == 1 && btn_inside && hammer_hold && btn_t < HAMMER_TAP_T) { sfx_hold_hint(); hint_t = HINT_ANIM_T; }   /* a tap: only a hint */
             btn_down = btn_inside = 0;
             if (fire) {
-                if (near_shrine) self_hit();                         /* chunk 41: (only a self hit gets here: the break and the repair are holds) */
-                else if (near_bsearch) bsearch_start();
+                if (near_bsearch) bsearch_start();
                 else if (near_search) grave_search_start();
                 else if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
@@ -1090,7 +1098,7 @@ void world_update(float dt) {
         phase_update(dt);
         near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
     } else {
-        if (dialog_active() || door_t >= 0 || player_beheaded) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
+        if (dialog_active() || door_t >= 0 || player_beheaded || self_aiming()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (door_t >= 0) {
             door_t += dt;
             if (!door_swapped && door_t >= DOOR_T / 2) { door_swapped = 1; if (indoors) leave_house(); else enter_house(); }
@@ -1139,6 +1147,16 @@ void world_update(float dt) {
                 fight_tick = 0;
                 if (fight_prog > 0) { fight_prog -= dt / HAMMER_DECAY_T; if (fight_prog < 0) fight_prog = 0; }
             }
+        }
+        if (self_aiming()) {                                                                  /* chunk 56: "Die": aiming at the sky while the finger holds */
+            aim_t += dt; facing = FACE_DOWN;
+            self_prog += dt / SELF_HOLD_T;
+            self_tick -= dt;
+            if (self_tick <= 0) { self_tick = 0.22f; sfx_blip(0.55f + 0.7f * self_prog); }
+            if (self_prog >= 1.0f) { self_prog = 0; self_tick = 0; aim_t = 0; btn_down = btn_inside = 0; self_hit(); }
+        } else {
+            self_tick = 0; aim_t = 0;
+            if (self_prog > 0) { self_prog -= dt / HAMMER_DECAY_T; if (self_prog < 0) self_prog = 0; }
         }
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
         if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
@@ -1316,7 +1334,8 @@ static void draw_interact_button(SDL_Renderer *r) {
 
     if (near_shrine) {                                           /* a sludge drop. holding fills the button from the bottom with ooze */
         float p = shrine_progress();
-        if (!shrine_self() && hint_curve() > p) p = hint_curve();                     /* chunk 55: a tap shows the hint's little fill */
+        if (hint_curve() > p) p = hint_curve();                                       /* chunk 55: a tap shows the hint's little fill */
+        if (shrine_self() && self_prog > p) p = self_prog;                            /* chunk 56: "Die"'s hold fills it too */
         if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1573,6 +1592,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
             char_set_lighten(0);
         }
+    } else if (self_aiming()) {                                   /* chunk 56: "Die": face up, one eye shut, the hammer raised at the sky */
+        char_draw_aim(r, player_look, sx0, sy0, px, aim_t);
     } else if (player_topple_t >= 0) {                            /* chunk 41: we hit ourselves: headless, toppling backwards, then lying */
         float k = player_topple_t / 0.9f; if (k > 1) k = 1;
         char_set_headless(1);

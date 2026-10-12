@@ -542,15 +542,39 @@ int main(void) {
             CHECK(brainwin_count() == r0, "a second thought came with the later holds (%d)", brainwin_count() - r0);
             world_touch(1, bx, by); run(0.5f);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_4.bmp");                   /* whole again (look at it) */
-            /* chunk 41: "Die". the task is there and the hammer button is back at the mended shrine: a TAP, not a hold, swings it at our own head. the same end as
+            /* chunk 41: "Die". the task is there and the hammer button is back at the mended shrine: a full HOLD (chunk 56) swings it at our own head. the same end as
              * Alex's: head off, blood, the body down, then the death scene on us, the stone, limbo, the next life with the orb and nothing else */
             CHECK(mission_die >= 0, "\"Die\" did not come in when the shrine was mended");
             CHECK(shrine_self() && near_shrine, "the hammer button is not back at the mended shrine (%d, %d)", shrine_self(), near_shrine);
             run(1.0f);
             CHECK(!world_player_beheaded(), "it swung by itself");
             int h1 = sfx_debug_hits(), l0 = lives, g0 = grave_n, bp0 = sfx_debug_beeps(), fl0 = sfx_debug_flatlines();
-            tap(bx, by);
-            CHECK(sfx_debug_hits() == h1 + 1 && world_player_beheaded(), "the tap did not swing (%d hits, beheaded %d)", sfx_debug_hits() - h1, world_player_beheaded());
+            /* chunk 56: the hold is the aim. a tap = the hint only. while the finger holds: the player stops, faces the camera and the pose is drawn (counted),
+             * the bar fills; letting go early puts the pose away, the bar drains and the player walks again. only a full bar swings */
+            {   int hn_ = sfx_debug_hints(); float x0 = pxp, y0 = pyp;
+                tap(bx, by);
+                CHECK(sfx_debug_hints() == hn_ + 1 && !world_player_beheaded() && !self_done && !world_aiming(), "a tap at the mended shrine did not give the hint alone (hints %d)", sfx_debug_hints() - hn_);
+                run(HINT_ANIM_T + 0.1f);
+                int a0 = char_debug_aims(); frame(0.016f);
+                CHECK(char_debug_aims() == a0, "the aiming pose was drawn without a hold");
+                world_touch(0, bx, by); run(1.0f);
+                CHECK(world_aiming() && world_self_progress() > 0.4f && world_self_progress() < 0.6f, "half the hold: not aiming or the wrong fill (%d, %.2f)", world_aiming(), world_self_progress());
+                a0 = char_debug_aims(); frame(0.016f);
+                CHECK(char_debug_aims() == a0 + 1 && facing == FACE_DOWN, "the pose is not drawn once per frame while holding (%d), or the player does not face us", char_debug_aims() - a0);
+                CHECK(fabsf(pxp - x0) < 0.01f && fabsf(pyp - y0) < 0.01f && !moving, "the player moved while aiming");
+                frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/aim_hold.bmp");                    /* the pose in the world, the button half full (look at it) */
+                world_touch(1, bx, by); run(0.1f);
+                a0 = char_debug_aims(); frame(0.016f);
+                CHECK(!world_aiming() && char_debug_aims() == a0 && !world_player_beheaded() && !self_done, "after an early release the pose is still on, or it swung (%d)", world_aiming());
+                run(HAMMER_DECAY_T + 0.2f);
+                CHECK(world_self_progress() == 0.0f, "the bar did not drain after the early release (%.2f)", world_self_progress());
+                world_touch(0, sx, sy + sr * 3 / 4); run(0.6f); world_touch(1, sx, sy + sr * 3 / 4);          /* the stick works again */
+                CHECK(fabsf(pxp - x0) + fabsf(pyp - y0) > 1.0f, "the player cannot walk after an early release");
+                pxp = x0; pyp = y0; facing = FACE_DOWN; run(0.4f);
+                CHECK(shrine_self() && near_shrine && !world_player_beheaded(), "not back at the shrine for the full hold (%d, %d)", shrine_self(), near_shrine);
+            }
+            world_touch(0, bx, by); run(SELF_HOLD_T + 0.2f); world_touch(1, bx, by);
+            CHECK(sfx_debug_hits() == h1 + 1 && world_player_beheaded() && !world_aiming(), "the full hold did not swing once (%d hits, beheaded %d)", sfx_debug_hits() - h1, world_player_beheaded());
             CHECK(gore_head_exists() && gore_drops_flying() > 0, "no head / no blood in the air after the swing");
             CHECK(self_done && dying && !shrine_self(), "the swing's state is wrong (%d, %d, %d)", self_done, dying, shrine_self());
             run(0.3f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_blood.bmp");        /* the splash (look at it) */
@@ -703,6 +727,20 @@ int main(void) {
         char_draw_portrait(rr, &SOUL, 190, 20, 8, 0);
         SDL_SaveBMP(surf, "build/char_worried.bmp");
         #undef EYEPX
+    }
+
+    /* chunk 56: the aiming pose on its own, large, next to the normal front sprite and a later frame (build/char_aim.bmp) */
+    {   SDL_Surface *shot = SDL_CreateRGBSurfaceWithFormat(0, 520, 300, 32, SDL_PIXELFORMAT_RGBA32);
+        SDL_Renderer *r2 = SDL_CreateSoftwareRenderer(shot);
+        SDL_SetRenderDrawBlendMode(r2, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(r2, 126, 188, 246, 255); SDL_RenderClear(r2);
+        int a0 = char_debug_aims();
+        char_draw(r2, &VESSEL2, 90, 280, FACE_DOWN, 0, 0.0f, 16);
+        char_draw_aim(r2, &VESSEL2, 260, 280, 16, 0.0f);
+        char_draw_aim(r2, &VESSEL2, 430, 280, 16, 0.2f);                                           /* a moment later: the hammer has swayed */
+        CHECK(char_debug_aims() == a0 + 2, "char_debug_aims does not count the draws");
+        SDL_SaveBMP(shot, "build/char_aim.bmp");
+        SDL_DestroyRenderer(r2); SDL_FreeSurface(shot);
     }
 
     /* chunk 53: vessel 1 is worried from the moment it is doomed (shrine_done: the wrath, the heart failing, the death scene) until its life ends.
