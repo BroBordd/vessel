@@ -56,7 +56,9 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 /* the "flash" (the spawn blink after the fall): everything the character is drawn with is mixed toward white by this much, 0..1 */
 static float g_lighten;
 static int   g_headless, g_shut;                    /* chunk 38: no head; eyes forced shut */
+static int   g_worried;                             /* chunk 52: everything drawn is worried */
 void char_set_headless(int on) { g_headless = on != 0; }
+void char_set_worried(int on) { g_worried = on != 0; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 static void setc(SDL_Renderer *r, int R, int G, int B) {
     if (g_lighten > 0) { R += (int)((255 - R) * g_lighten); G += (int)((255 - G) * g_lighten); B += (int)((255 - B) * g_lighten); }
@@ -129,13 +131,19 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         if (facing == FACE_DOWN) { ex[n++] = 2; ex[n++] = 6; }
         else                     { ex[n++] = flip ? 2 : 6; }
         int shut = g_shut || eyes_shut(p);
+        int worry = g_worried || (p->acc & ACC_WORRIED);
         for (int i = 0; i < n; i++) {
             setc(r, 28, 22, 40);
             if (shut) { fill(r, ox + ex[i] * s, oy + 5 * s, 2 * s, s); continue; }       /* the lid: a thin line where the eye was */
             fill(r, ox + ex[i] * s, oy + 4 * s, 2 * s, 3 * s);
             setc(r, 255, 255, 255);
             int hx = (facing == FACE_DOWN) ? ex[i] : (flip ? ex[i] + 1 : ex[i]);
-            fill(r, ox + hx * s, oy + 4 * s, s, s);
+            if (worry) {                                                                    /* chunk 52: the lid covers the upper half (row 4 and the top of row 5) of the eye, the glint drops to the lower half */
+                int lid = s + s / 2;
+                use(r, p->skin); fill(r, ox + ex[i] * s, oy + 4 * s, 2 * s, lid);
+                setc(r, 255, 255, 255); fill(r, ox + hx * s, oy + 5 * s + s / 2, s, s / 2 > 0 ? s / 2 : 1);
+            } else
+                fill(r, ox + hx * s, oy + 4 * s, s, s);
         }
     }
 

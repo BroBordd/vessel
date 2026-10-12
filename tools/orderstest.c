@@ -640,6 +640,45 @@ int main(void) {
     convo_open(&ALEX, &ALEX_MIND, 1, NULL);
     CHECK(convo_active(), "the chat does not open after convo_unlock");
 
+    /* chunk 52: the worried face. the same person, normal vs worried: the upper half of each eye is a lid of skin (the glint is gone from
+     * the top row), the soul wears it for good, and char_set_worried(0) puts it away. eyes can be blinking, so a normal draw is retried
+     * until its eyes are open */
+    {   static const Person WP = { "Wp", { 90, 60, 40 }, { 240, 200, 170 }, { 200, 60, 60 }, { 50, 60, 120 }, { 30, 30, 30 }, 0, 0 };
+        const int s = 8, ox = 40, oy = 40;                                  /* portrait top-left; the left eye is columns 2-3, rows 4-6 */
+        SDL_Rect clr = { 0, 0, 200, 200 };
+        #define EYEPX(dx, dy) ({ Uint32 *px_ = (Uint32 *)surf->pixels; px_[(oy + (dy) * s + 1) * (surf->pitch / 4) + ox + (dx) * s + 1]; })
+        Uint32 skin = SDL_MapRGBA(surf->format, WP.skin.r, WP.skin.g, WP.skin.b, 255);
+        int open_seen = 0;
+        for (int k = 0; k < 40 && !open_seen; k++) {
+            SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderFillRect(rr, &clr);
+            char_set_worried(0); char_draw_portrait(rr, &WP, ox, oy, s, 0);
+            if (EYEPX(2, 4) != skin) open_seen = 1; else SDL_Delay(300);
+        }
+        CHECK(open_seen, "normal eyes never showed open (the test cannot compare)");
+        if (open_seen) {
+            CHECK(EYEPX(2, 4) != skin && EYEPX(2, 6) != skin, "a normal eye has a skin lid (top %08x)", EYEPX(2, 4));
+            SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderFillRect(rr, &clr);
+            char_set_worried(1); char_draw_portrait(rr, &WP, ox, oy, s, 0); char_set_worried(0);
+            CHECK(EYEPX(2, 4) == skin && EYEPX(6, 4) == skin, "worried: the upper row of the eyes is not covered by the lid");
+            CHECK(EYEPX(2, 6) != skin && EYEPX(6, 6) != skin, "worried: the lower row of the eyes is covered, the pupil should show");
+            SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderFillRect(rr, &clr);
+            char_draw_portrait(rr, &WP, ox, oy, s, 0);
+            CHECK(EYEPX(2, 6) != skin, "char_set_worried(0) did not put the worried eyes away");
+            if (EYEPX(2, 4) == skin) {}                                      /* (a blink can land here; only the row 6 check is firm) */
+        }
+        CHECK((SOUL.acc & ACC_WORRIED) && (SOUL.acc & ACC_HALO), "the soul is not always worried (or lost its halo)");
+        /* the soul in a face popup: the lid shows without char_set_worried */
+        { Uint32 sk = SDL_MapRGBA(surf->format, SOUL.skin.r, SOUL.skin.g, SOUL.skin.b, 255); int lid = 0;
+          for (int k = 0; k < 3 && !lid; k++) { SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderFillRect(rr, &clr);
+              char_draw_portrait(rr, &SOUL, ox, oy, s, 0); lid = EYEPX(2, 4) == sk; }
+          CHECK(lid, "the soul's portrait has no worried lid"); }
+        SDL_SetRenderDrawColor(rr, 20, 20, 30, 255); SDL_RenderFillRect(rr, &clr);              /* the screenshot: normal | worried | soul */
+        char_draw_portrait(rr, &WP, 10, 20, 8, 0); char_set_worried(1); char_draw_portrait(rr, &WP, 100, 20, 8, 0); char_set_worried(0);
+        char_draw_portrait(rr, &SOUL, 190, 20, 8, 0);
+        SDL_SaveBMP(surf, "build/char_worried.bmp");
+        #undef EYEPX
+    }
+
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
     return fails ? 1 : 0;
 }

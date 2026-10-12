@@ -16,8 +16,8 @@ typedef struct {
 } Person;
 
 /* accessories. shades show on every view that has eyes, the halo floats above the head
- * (full body only; the face popups are too tight for it) */
-enum { ACC_SHADES = 1, ACC_HALO = 2 };
+ * (full body only; the face popups are too tight for it). ACC_WORRIED = the worried eyes (chunk 52), always on for whoever wears it */
+enum { ACC_SHADES = 1, ACC_HALO = 2, ACC_WORRIED = 4 };
 
 /* facing values */
 enum { FACE_DOWN = 0, FACE_UP = 1, FACE_LEFT = 2, FACE_RIGHT = 3 };
@@ -48,6 +48,11 @@ void char_set_lighten(float k);
  * char_draw_head: just the head (front view, eyes shut, red at the neck), centred on (x, y), 10 x 8 sprite pixels. */
 void char_set_headless(int on);
 void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s);
+
+/* chunk 52: the worried face: both eyes half shut (a flat lid of skin over the upper half of each eye, the pupil and the glint stay in
+ * the lower half, the blink still closes them). everything drawn with eyes while it is on is worried (every view: the body, the portrait,
+ * the face popups, the brain card face); a Person wears it permanently with ACC_WORRIED. */
+void char_set_worried(int on);
 
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
  * talking = 1 flaps the mouth. (the eyes blink, each person on their own clock: see eyes_shut in char.c) */
