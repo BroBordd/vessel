@@ -6,7 +6,7 @@
 #include <math.h>
 #include <string.h>
 
-/* 12 x 12 icons. G outline, L light steel, D dark steel, W light wood, w dark wood */
+/* 12 x 12 icons. G outline, L light steel, D dark steel, W light wood, w dark wood, V violet, v dark violet, Y gold, y pale gold glow */
 static const char *HAMMER[ITEM_ICON_CELLS] = {
     "..GGGGGGGG..",
     ".GLLLLLLLLG.",
@@ -20,6 +20,21 @@ static const char *HAMMER[ITEM_ICON_CELLS] = {
     "....GWwG....",
     "....GWwG....",
     ".....GG.....",
+};
+/* the orb (chunk 39): a violet ball with a gold glow in the middle, like draw_orb_ball in brainwin.c */
+static const char *ORB[ITEM_ICON_CELLS] = {
+    "....GGGG....",
+    "..GGvVVvGG..",
+    ".GvVVVVVVvG.",
+    ".GVVYyyYVVG.",
+    "GvVYyyyyYVvG",
+    "GVVYyyyyYVVG",
+    "GVVVYyyYVVVG",
+    "GvVVVYYVVVvG",
+    ".GVVVVVVVVG.",
+    ".GvvVVVVvvG.",
+    "..GGvvvvGG..",
+    "....GGGG....",
 };
 /* the magnifying glass (chunk 32). B glass, b glint on the glass. the rim is light steel (L), not the dark outline, so it reads on the dark button */
 static const char *SEARCH[ITEM_ICON_CELLS] = {
@@ -36,8 +51,8 @@ static const char *SEARCH[ITEM_ICON_CELLS] = {
     "..........LL",
     "............",
 };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER };
-static const char *NAMES[ITEM_COUNT] = { "HAMMER" };
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB };
+static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB" };
 
 const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[kind] : ""; }
 
@@ -95,6 +110,10 @@ static void rgb_of(char c, int *R, int *G, int *B) {
         case 'W': *R = 196; *G = 136; *B = 74;  break;
         case 'B': *R = 150; *G = 200; *B = 236; break;
         case 'b': *R = 244; *G = 250; *B = 255; break;
+        case 'V': *R = 150; *G = 96;  *B = 220; break;
+        case 'v': *R = 88;  *G = 52;  *B = 150; break;
+        case 'Y': *R = 236; *G = 190; *B = 78;  break;
+        case 'y': *R = 255; *G = 238; *B = 170; break;
         default:  *R = 132; *G = 84;  *B = 42;  break;      /* w */
     }
 }

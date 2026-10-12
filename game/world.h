@@ -88,6 +88,7 @@ void world_grave_tile(int i, float *tx, float *ty);       /* feet position in ti
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
 void world_lock_item(int kind, int on, void (*on_blocked)(void));   /* chunk 33: a locked item on the ground is not picked up; on_blocked runs when someone walks into it (at most every 3 s) */
+void world_enable_body_search(int npc_id, void (*on_done)(void));   /* chunk 39: next to that lying npc (indoors) the button shows the magnifying glass; a tap = a 1 s search, then on_done once (bsearch.h) */
 void world_drop_item(int kind, int tile_x, int tile_y);     /* chunk 32: like world_place_item, but it falls there (cannot be picked up until it has landed) */
 int  world_has_item(int kind);
 void world_give_item(int kind);

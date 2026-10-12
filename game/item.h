@@ -13,11 +13,11 @@
 #define ITEM_H
 #include <SDL2/SDL.h>
 
-enum { ITEM_HAMMER, ITEM_COUNT };
+enum { ITEM_HAMMER, ITEM_ORB, ITEM_COUNT };      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
 #define ITEM_ICON_CELLS 12                  /* an icon is 12 x 12 cells */
 #define ITEM_PICK_R     1.0f                /* tiles: this close and it is yours */
 
-const char *item_name(int kind);            /* "HAMMER" (capitals: the pixel font) */
+const char *item_name(int kind);            /* "HAMMER", "ORB" (capitals: the pixel font) */
 
 /* world hooks */
 void  item_reset(int pixel_scale, int tile_size);       /* a new map: whatever lay on the old one is gone (the inventory stays) */

@@ -10,6 +10,7 @@
 #include "mapwin.h"
 #include "grave.h"
 #include "gore.h"
+#include "bsearch.h"
 #include "house.h"
 #include "heart.h"
 #include "summon.h"
@@ -62,6 +63,7 @@ static int   btn_down, btn_inside;
 static int   near_id = -1;          /* npc in talking range, or -1 */
 static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
+static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
 static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and a TAP searches */
 static int   fight_npc = -1, fight_left, fight_total;   /* chunk 36: the hostile npc being fought, the hits she still takes, and how many she took in all */
 static void (*fight_cb)(void);
@@ -523,6 +525,7 @@ static void load_map(int which) {
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
+    bsearch_reset(tile); near_bsearch = 0;
     near_shrine = near_grave = near_search = near_bury = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
@@ -776,6 +779,7 @@ void world_enable_grave_search(int i, void (*on_done)(void)) { grave_search_enab
 void world_grave_body_tile(int i, float *tx, float *ty) { grave_body_tile(i, tx, ty); }
 void world_enable_grave_bury(int i, void (*on_done)(void)) { grave_bury_enable(i, on_done); }
 void world_drop_item(int kind, int tile_x, int tile_y) { item_drop(kind, tile_x, tile_y); }
+void world_enable_body_search(int npc_id, void (*on_done)(void)) { bsearch_enable(npc_id, on_done); }
 void world_lock_item(int kind, int on, void (*on_blocked)(void)) { item_set_locked(kind, on); item_set_blocked_cb(on ? on_blocked : NULL); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
 float world_dist_to_grave(void) {
@@ -899,14 +903,15 @@ void world_touch(int a, int x, int y) {
     }
 
     /* interact button: press on it, release on it = interact */
-    int can = near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bury || near_door;
+    int can = near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door;
     if (a == 0 && can && button_hit(x, y)) {
         btn_down = 1; btn_inside = 1;
-        if (near_shrine || near_grave || near_search || near_bury) {                 /* turn to face it before the sabotage / the pull / the search starts */
+        if (near_shrine || near_grave || near_search || near_bsearch || near_bury) {                 /* turn to face it before the sabotage / the pull / the search starts */
             float sfx_, sfy_;
             if (near_shrine) shrine_tile(&sfx_, &sfy_);
             else if (near_grave) grave_tile(grave_pull_index(), &sfx_, &sfy_);
             else if (near_bury) grave_body_tile(grave_bury_index(), &sfx_, &sfy_);
+            else if (near_bsearch) npc_tile(bsearch_npc(), &sfx_, &sfy_);
             else grave_body_tile(grave_search_index(), &sfx_, &sfy_);
             float fdx = sfx_ * tile - pxp, fdy = sfy_ * tile - pyp;
             if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
@@ -920,7 +925,8 @@ void world_touch(int a, int x, int y) {
             int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury;      /* the shrine and the grave are holds, not taps (world_update) */
             btn_down = btn_inside = 0;
             if (fire) {
-                if (near_search) grave_search_start();
+                if (near_bsearch) bsearch_start();
+                else if (near_search) grave_search_start();
                 else if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
                 else if (fight_ready()) {                            /* chunk 36: a hostile npc and the hammer: a tap is a swing, not a talk */
@@ -1044,7 +1050,7 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bury = 0; near_door = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
     } else {
         if (dialog_active() || door_t >= 0) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (door_t >= 0) {
@@ -1079,11 +1085,13 @@ void world_update(float dt) {
         near_grave = grave_pull_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !indoors);
         near_search = grave_search_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !indoors);
         near_bury = grave_bury_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !near_search && !indoors);
-        near_id = (dialog_active() || near_hole || near_shrine || near_grave || near_search || near_bury || near_door || !npcs_here()) ? -1 : npc_nearby();
-        if (near_id < 0 && !near_hole && !near_shrine && !near_grave && !near_search && !near_bury && !near_door) btn_down = btn_inside = 0;
+        near_bsearch = bsearch_near(pxp, pyp, !dialog_active() && !near_hole && indoors);          /* chunk 39: indoors, next to a body that was switched on */
+        near_id = (dialog_active() || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door || !npcs_here()) ? -1 : npc_nearby();
+        if (near_id < 0 && !near_hole && !near_shrine && !near_grave && !near_search && !near_bsearch && !near_bury && !near_door) btn_down = btn_inside = 0;
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
         if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_search_update(dt)) btn_down = btn_inside = 0;
+        if (bsearch_update(dt)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
     }
 
@@ -1302,9 +1310,9 @@ static void draw_interact_button(SDL_Renderer *r) {
         fill(r, bcx - a, bcy + 2 * a, 2 * a, 2 * a);                         /* ... and the dark pit between them */
         return;
     }
-    if (near_search) {                                           /* a magnifying glass. a tap starts the search: it sweeps over the button while the bar fills */
-        float p = grave_search_progress();
-        int busy = grave_search_active();
+    if (near_search || near_bsearch) {                           /* a magnifying glass. a tap starts the search: it sweeps over the button while the bar fills */
+        float p = near_bsearch ? bsearch_progress() : grave_search_progress();
+        int busy = near_bsearch ? bsearch_active() : grave_search_active();
         if (busy) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1580,7 +1588,7 @@ void world_draw(SDL_Renderer *r) {
         float reach = sr - kr * 0.3f;                                     /* the knob hops from cell to cell */
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         col(r, 255, 255, 255, stick_on ? 220 : 130); pdisc(r, kcx, kcy, kr, ucell);
-        if (near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bury || near_door) draw_interact_button(r);
+        if (near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door) draw_interact_button(r);
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */

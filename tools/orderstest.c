@@ -417,6 +417,28 @@ int main(void) {
             indoors = 1; run(3.0f);
             CHECK(gore_spark_bursts() > b1, "it did not go on when we came back in");
         }
+        /* chunk 39: taking the orb. she is down and the cutscene is over: next to her body the button is the magnifying glass; a tap searches her once and the
+         * orb goes into the pockets, the task is swapped, and nothing else happens (no thought, no dialog) */
+        {   CHECK(bsearch_enabled() && bsearch_npc() == alex_id, "the body search is not switched on after her death");
+            CHECK(!orb_taken && !world_has_item(ITEM_ORB) && mission_repair < 0, "the orb / the next task is there before the search");
+            CHECK(!item_exists(), "an orb lies on the ground (it must not)");
+            pxp = (ntx + 0.5f) * tile; pyp = (nty + 0.9f + 1.0f) * tile; indoors = 1; run(0.3f);
+            CHECK(near_bsearch, "no magnifying glass next to her body");
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_button.bmp");                   /* the glass on the button (look at it) */
+            int tc2 = brainwin_count(), pf = sfx_debug_pfft(); (void)pf;
+            tap(bx, by); run(0.5f);
+            CHECK(bsearch_active() && !world_has_item(ITEM_ORB), "the search did not start with a tap, or finished at once");
+            run(0.7f);
+            CHECK(world_has_item(ITEM_ORB) && orb_taken, "no orb in the pockets after the search");
+            CHECK(mission_repair >= 0, "\"Repair the shrine\" did not come in");
+            CHECK(!dialog_active() && brainwin_count() == tc2, "the search opened a dialog / added a thought (it must be silent)");
+            CHECK(!bsearch_enabled() && !near_bsearch, "she can be searched twice");
+            int n_orb = mission_repair; tap(bx, by); run(0.5f);
+            CHECK(mission_repair == n_orb && world_has_item(ITEM_ORB), "a second tap did something");
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_taken.bmp");                    /* the slot with the orb (look at it) */
+            item_ui_touch(0, TW - 40, 120); item_ui_touch(1, TW - 40, 120); run(0.6f);
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_panel.bmp");                    /* the unfolded pockets: hammer and orb (look at it) */
+        }
         alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;
         item_clear(); item_reset(px, tile);
     }

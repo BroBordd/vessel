@@ -107,6 +107,8 @@ static int mission_talk_dea = -1;
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
 static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (the old body is out of the ground) */
 static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
+static int mission_repair = -1;            /* chunk 39: "Repair the shrine" (coins in the moment the orb is ours) */
+static int orb_taken;                      /* chunk 39: we searched her body and the orb is in the pockets */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
@@ -374,7 +376,7 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = -1;
+    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets */
     alex_fight_on = 0;
@@ -492,9 +494,18 @@ int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0;
 #define ALEX_SPARK_DELAY 1.0f           /* the first squirt comes this long after the world is free */
 #define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
 static int alex_beeps;
+/* chunk 39: her body is searched (the magnifying glass next to it, a tap): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
+ * next goal, "Repair the shrine", comes in SILENTLY: no thought, no dialog, nothing but the normal task toast. */
+static void alex_searched_cb(void) {
+    orb_taken = 1;
+    world_give_item(ITEM_ORB);
+    mission_complete(mission_get_orb);
+    mission_repair = task_toast("Repair the shrine");
+}
 static void alex_death_end(void) {
     world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
     alex_dead = 1;
+    if (!orb_taken) world_enable_body_search(alex_id, alex_searched_cb);   /* chunk 39: she still carries the orb */
     world_npc_sparks(alex_id, ALEX_SPARK_DELAY);            /* chunk 38.1: from now on her body squirts, for as long as the house is loaded */
 }
 static void alex_death_text(void) {
@@ -849,7 +860,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; orb_taken = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
