@@ -78,6 +78,8 @@ int  sfx_debug_errors(void);
 void sfx_pfft(void);                    /* chunk 38.1: a watery pfft: a short burst of low-passed noise, the pitch falling, a little gurgle on it */
 int  sfx_debug_pfft(void);              /* tests: how many times sfx_pfft was called */
 void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
+void sfx_hold_hint(void);               /* chunk 55: a tap on a hammer button (a hold is needed): a short soft rising "bup" */
+int  sfx_debug_hints(void);             /* tests: how many times sfx_hold_hint was called */
 int  sfx_debug_hits(void);              /* tests: how many times sfx_hit was called */            /* tests: how many times sfx_error was called */
 /* piano notes for the music window: the note rings while the key is held (a short release after).
  * midi 60 = middle C. several can sound at once. not part of the music analysis. */

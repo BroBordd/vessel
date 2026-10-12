@@ -268,7 +268,7 @@ static void alex_watch(void) {
 
 /* ---------- one swing (chunk 37) ----------
  * no fight session: once the hammer is ours and we are inside her house, Alex is hostile and ONE swing is the end of her. world_enable_fight(id, 1, ...)
- * turns the interact button into the hammer next to her; the tap calls alex_struck_cb (the flash and the recoil are the engine's). chunk 38 goes on from
+ * turns the interact button into the hammer next to her; the swing (a HOLD on the button since chunk 55, a tap is only a hint) calls alex_struck_cb (the flash and the recoil are the engine's). chunk 38 goes on from
  * there: she falls, the head comes off, the blood. alex_struck remembers it. */
 static int alex_fight_on, alex_struck, alex_dead;
 static void alex_killed(void);                              /* her death: defined with the death scenes below (chunk 38) */

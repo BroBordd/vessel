@@ -294,6 +294,36 @@ static void hit_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the hold hint (chunk 55): a tap on a hammer button. a short, soft, rising "bup" (a sine gliding from 330 to 440 Hz, quiet) ---------- */
+static int   hint_on, hint_pos, n_hints;
+static float hint_phase;
+#define HINT_T     0.11f
+#define HINT_GAIN  0.14f
+void sfx_hold_hint(void) {
+    n_hints++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    hint_on = 1; hint_pos = 0; hint_phase = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_hints(void) { return n_hints; }
+static void hint_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)hint_pos / (float)OUT_RATE;
+        if (tt >= HINT_T) { hint_on = 0; return; }
+        float k = tt / HINT_T;
+        float env = sinf(3.1415926f * k);                                     /* in and out: no click either side */
+        hint_phase += (330.0f + 110.0f * k) / (float)OUT_RATE;
+        if (hint_phase >= 1.0f) hint_phase -= 1.0f;
+        int v = (int)(sinf(6.2831853f * hint_phase) * env * HINT_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        hint_pos++;
+    }
+}
+
 /* ---------- the pfft (chunk 38.1): noise through a low-pass whose cutoff falls (the pitch sinks), a slow wobble on it so it sounds wet ---------- */
 static int   pfft_on, pfft_pos, n_pfft;
 static float pfft_lp;
@@ -736,6 +766,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (mon_on) mon_mix(out, frames);
     if (err_on) err_mix(out, frames);
     if (hit_on) hit_mix(out, frames);
+    if (hint_on) hint_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
 }

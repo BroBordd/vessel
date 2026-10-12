@@ -39,6 +39,7 @@ static int talked_n, down_n;
 static void fight_talk(int id) { (void)id; talked_n++; }
 static void fight_down(void) { down_n++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
+static void hold_swing(int x, int y) { world_touch(0, x, y); run(HAMMER_HOLD_T + 0.15f); world_touch(1, x, y); frame(0.016f); }   /* chunk 55: the hammer is a hold */
 
 int main(void) {
     SDL_setenv("SDL_VIDEODRIVER", "dummy", 1); SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
@@ -353,23 +354,42 @@ int main(void) {
         CHECK(world_fight_left() == 3 && world_fight_total() == 3, "the fight did not start with 3 hits (%d/%d)", world_fight_left(), world_fight_total());
         run(0.3f);
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_button.bmp");      /* the hammer on the button (look at it) */
-        int h0 = sfx_debug_hits();
+        int h0 = sfx_debug_hits(), hn0 = sfx_debug_hints();
+        /* chunk 55: a tap is a hint, not a swing: the soft sound once, the little fill, no hit, no flash, nothing else */
         tap(bx, by);
-        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2, "the first tap did not hit (%d hits, %d left)", sfx_debug_hits() - h0, world_fight_left());
+        CHECK(sfx_debug_hints() == hn0 + 1, "a tap on the swing button gave no hint (%d)", sfx_debug_hints() - hn0);
+        CHECK(sfx_debug_hits() == h0 && world_fight_left() == 3 && !npc_flashing(nid) && talked_n == 1 && !dialog_active(), "a tap swung or talked (%d hits, %d left)", sfx_debug_hits() - h0, world_fight_left());
+        CHECK(hint_t > 0 && hint_curve() >= 0, "the hint's fill is not playing");
+        run(0.05f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_hint.bmp");     /* the little fill on the button (look at it) */
+        run(HINT_ANIM_T + 0.1f);
+        CHECK(hint_t == 0 && fight_prog < 0.05f, "the hint's fill did not drain back (%.2f)", fight_prog);
+        /* a long hold let go early: it drains back, no hit, no hint (it was not a tap) */
+        world_touch(0, bx, by); run(0.6f);
+        CHECK(fight_prog > 0.35f && fight_prog < 0.65f && sfx_debug_hits() == h0, "half a hold: wrong fill (%.2f)", fight_prog);
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_hold.bmp");                  /* the button half full (look at it) */
+        {   Uint8 r1, g1, b1, a1, r2, g2, b2, a2; int lx = bcx - br * 55 / 100;                          /* the button fills from the bottom: gold low, dark high */
+            SDL_GetRGBA(((Uint32 *)surf->pixels)[(bcy + br / 2) * (surf->pitch / 4) + lx], surf->format, &r1, &g1, &b1, &a1);
+            SDL_GetRGBA(((Uint32 *)surf->pixels)[(bcy - br / 2) * (surf->pitch / 4) + lx], surf->format, &r2, &g2, &b2, &a2);
+            CHECK(r1 > 180 && b1 < 120, "the button's lower half is not filled while held (%d,%d,%d)", r1, g1, b1);
+            CHECK(r2 < 120 && b2 > r2, "the button's upper half is filled at half a hold (%d,%d,%d)", r2, g2, b2); }
+        world_touch(1, bx, by); run(HAMMER_DECAY_T + 0.2f);
+        CHECK(fight_prog == 0 && sfx_debug_hits() == h0 && world_fight_left() == 3 && sfx_debug_hints() == hn0 + 1, "an early release hit, kept its fill or gave a hint (fill %.2f, hints %d)", fight_prog, sfx_debug_hints() - hn0);
+        hold_swing(bx, by);
+        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2, "the first hold did not hit (%d hits, %d left)", sfx_debug_hits() - h0, world_fight_left());
         CHECK(talked_n == 1 && !dialog_active(), "a swing also talked");
         CHECK(npc_flashing(nid), "the npc did not flash white");
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_flash.bmp");       /* her, flashing white and shoved back (look at it) */
-        tap(bx, by);                                                       /* straight away: the hammer is still coming up */
-        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2, "a tap inside the cooldown hit again (%d left)", world_fight_left());
+        world_touch(0, bx, by); run(0.25f); world_touch(1, bx, by);       /* straight away: the hammer is still coming up, so holding does not even fill */
+        CHECK(sfx_debug_hits() == h0 + 1 && world_fight_left() == 2 && fight_prog == 0, "a hold inside the cooldown hit again or filled (%d left, fill %.2f)", world_fight_left(), fight_prog);
         run(0.3f); CHECK(!npc_flashing(nid), "the flash did not end");
         run(FIGHT_COOLDOWN);
-        tap(bx, by);
+        hold_swing(bx, by);
         CHECK(sfx_debug_hits() == h0 + 2 && world_fight_left() == 1 && down_n == 0, "the second hit went wrong (%d left, down %d)", world_fight_left(), down_n);
         run(FIGHT_COOLDOWN + 0.1f);
-        tap(bx, by);
+        hold_swing(bx, by);
         CHECK(world_fight_left() == 0 && down_n == 1, "the third hit did not call on_down once (%d)", down_n);
         run(FIGHT_COOLDOWN + 0.1f);
-        tap(bx, by); run(FIGHT_COOLDOWN + 0.1f); tap(bx, by);
+        hold_swing(bx, by); run(FIGHT_COOLDOWN + 0.1f); tap(bx, by);
         CHECK(down_n == 1 && sfx_debug_hits() == h0 + 3, "the fight went on after it was over (down %d, hits %d)", down_n, sfx_debug_hits() - h0);
         CHECK(talked_n >= 2, "after the fight a tap does not talk again (%d)", talked_n);
         /* a hostile npc without the hammer is just talked to */
@@ -402,8 +422,10 @@ int main(void) {
         indoors = 1; run(0.3f);
         CHECK(npc_hostile(alex_id) && world_fight_left() == 1 && world_fight_total() == 1, "Alex is not hostile with the hammer in her house (%d, %d hits)", npc_hostile(alex_id), world_fight_left());
         int h0 = sfx_debug_hits(), mc = missions_count(), tc = brainwin_count(), pf0 = sfx_debug_pfft();
-        tap(bx, by);
-        CHECK(alex_struck && sfx_debug_hits() == h0 + 1 && world_fight_left() == 0, "one tap did not end it (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
+        tap(bx, by);                                                       /* chunk 55: a tap is only the hint: no hit, no alex_struck, she is still there */
+        CHECK(!alex_struck && sfx_debug_hits() == h0 && world_fight_left() == 1 && npc_hostile(alex_id) && !npc_headless(alex_id), "a tap struck Alex (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
+        hold_swing(bx, by);
+        CHECK(alex_struck && sfx_debug_hits() == h0 + 1 && world_fight_left() == 0, "one full hold did not end it (struck %d, hits %d)", alex_struck, sfx_debug_hits() - h0);
         CHECK(npc_flashing(alex_id) && !npc_hostile(alex_id), "she did not flash, or is still hostile after the hit");
         CHECK(!dialog_active() && missions_count() == mc && brainwin_count() == tc, "the hit opened a dialog / changed the tasks / added a thought (chunk 38 does that)");
         /* chunk 38: the head comes off, the blood splashes, she falls */
@@ -500,6 +522,10 @@ int main(void) {
             int tc3 = brainwin_count(), r0 = 0;
             run(1.0f);                                                                        /* a tap / no hold does nothing */
             CHECK(shrine_progress() == 0.0f && shrine_polluted(), "progress moved without a hold");
+            {   int hn_ = sfx_debug_hints();                                                  /* chunk 55: a tap on the shrine's button is the hint too */
+                tap(bx, by);
+                CHECK(sfx_debug_hints() == hn_ + 1 && shrine_polluted() && !shrine_repaired, "a tap on the repair did not give the hint, or mended it (%d)", sfx_debug_hints() - hn_);
+                run(1.0f); CHECK(shrine_progress() < 0.02f, "the tap's progress did not creep back (%.3f)", shrine_progress()); }
             world_touch(0, bx, by); run(0.8f);
             CHECK(shrine_progress() > 0.25f && shrine_progress() < 0.45f && shrine_polluted(), "hold 0.8 s: wrong progress (%.2f)", shrine_progress());
             CHECK(brainwin_count() == tc3 + 1, "the first hold did not think once (%d new)", brainwin_count() - tc3); r0 = brainwin_count();

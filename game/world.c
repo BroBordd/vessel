@@ -70,6 +70,16 @@ static void (*fight_cb)(void);
 static float fight_cd, fight_swing;                      /* the cooldown between hits (s), and the hammer's slam on the button (1 -> 0) */
 #define FIGHT_COOLDOWN 0.45f
 #define FIGHT_SWING_T  0.20f
+/* chunk 55: every use of the hammer is a HOLD on the button. a tap (let go before HAMMER_TAP_T) is only a hint: the button's fill plays for HINT_ANIM_T
+ * and drains, with a soft sound, nothing else happens. letting go of a longer hold early drains back (HAMMER_DECAY_T for a full bar) */
+#define HAMMER_HOLD_T  1.2f         /* Alex's swing: hold this long and it lands */
+#define HAMMER_DECAY_T 0.6f
+#define HAMMER_TAP_T   0.3f
+#define HINT_ANIM_T    0.25f
+static float fight_prog, fight_tick;                     /* the swing's hold, 0..1, and the rising tick's timer */
+static float btn_t;                                      /* how long the finger has been on the button */
+static float hint_t;                                     /* > 0 while the hint's fill is playing (HINT_ANIM_T -> 0) */
+static float hint_curve(void) { return hint_t > 0 ? 0.3f * sinf(3.1415926f * (1.0f - hint_t / HINT_ANIM_T)) : 0.0f; }
 static int   near_shrine;           /* Dia's shrine is in reach and usable: the button shows the sludge drop, and HOLDING it pollutes */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
@@ -533,7 +543,7 @@ static void load_map(int which) {
     near_shrine = near_grave = near_search = near_bury = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
-    fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0;   /* the npc ids are gone with the map */
+    fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = 0;   /* the npc ids are gone with the map */
     pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
     pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
     facing = FACE_DOWN;
@@ -759,7 +769,7 @@ void world_enable_shrine_repair(void (*on_start)(void), void (*on_done)(void)) {
 
 /* the fight (chunk 36) */
 void world_enable_fight(int npc_id, int hits, void (*on_down)(void)) {
-    fight_npc = npc_id; fight_left = fight_total = hits; fight_cb = on_down; fight_cd = fight_swing = 0;
+    fight_npc = npc_id; fight_left = fight_total = hits; fight_cb = on_down; fight_cd = fight_swing = 0; fight_prog = 0;
 }
 int world_fight_left(void)  { return fight_left; }
 int world_fight_total(void) { return fight_total; }
@@ -931,7 +941,13 @@ void world_touch(int a, int x, int y) {
     /* interact button: press on it, release on it = interact */
     int can = near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door;
     if (a == 0 && can && button_hit(x, y)) {
-        btn_down = 1; btn_inside = 1;
+        btn_down = 1; btn_inside = 1; btn_t = 0;
+        if (fight_ready()) {                                                                         /* chunk 55: the swing is a hold: turn to her as it starts */
+            float nx, ny; npc_tile(near_id, &nx, &ny);
+            float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
+            if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
+            else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
+        }
         if (near_shrine || near_grave || near_search || near_bsearch || near_bury) {                 /* turn to face it before the sabotage / the pull / the search starts */
             float sfx_, sfy_;
             if (near_shrine) shrine_tile(&sfx_, &sfy_);
@@ -948,7 +964,9 @@ void world_touch(int a, int x, int y) {
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int fire = a == 1 && btn_inside && can && (!near_shrine || shrine_self()) && !near_grave && !near_bury;      /* the shrine and the grave are holds, not taps (world_update) */
+            int hammer_hold = fight_ready() || (near_shrine && !shrine_self());                 /* chunk 55: the swing, the break and the repair are holds */
+            int fire = a == 1 && btn_inside && can && (!near_shrine || shrine_self()) && !near_grave && !near_bury && !fight_ready();      /* the shrine, the grave and the swing are holds, not taps (world_update) */
+            if (a == 1 && btn_inside && hammer_hold && btn_t < HAMMER_TAP_T) { sfx_hold_hint(); hint_t = HINT_ANIM_T; }   /* a tap: only a hint */
             btn_down = btn_inside = 0;
             if (fire) {
                 if (near_shrine) self_hit();                         /* chunk 41: (only a self hit gets here: the break and the repair are holds) */
@@ -956,13 +974,6 @@ void world_touch(int a, int x, int y) {
                 else if (near_search) grave_search_start();
                 else if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
-                else if (fight_ready()) {                            /* chunk 36: a hostile npc and the hammer: a tap is a swing, not a talk */
-                    float nx, ny; npc_tile(near_id, &nx, &ny);
-                    float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
-                    if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
-                    else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
-                    fight_hit();
-                }
                 else {
                     talk_npc = near_id;
                     float nx, ny; npc_tile(near_id, &nx, &ny);       /* turn to face them before the talk starts */
@@ -1116,6 +1127,19 @@ void world_update(float dt) {
         near_bsearch = bsearch_near(pxp, pyp, !dialog_active() && !near_hole && indoors);          /* chunk 39: indoors, next to a body that was switched on */
         near_id = (dialog_active() || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door || !npcs_here()) ? -1 : npc_nearby();
         if (near_id < 0 && !near_hole && !near_shrine && !near_grave && !near_search && !near_bsearch && !near_bury && !near_door) btn_down = btn_inside = 0;
+        if (btn_down && btn_inside) btn_t += dt;
+        if (hint_t > 0) { hint_t -= dt; if (hint_t < 0) hint_t = 0; }
+        {   int fholding = fight_ready() && fight_cd <= 0 && btn_down && btn_inside;           /* chunk 55: the swing is a hold */
+            if (fholding) {
+                fight_prog += dt / HAMMER_HOLD_T;
+                fight_tick -= dt;
+                if (fight_tick <= 0) { fight_tick = 0.22f; sfx_blip(0.55f + 0.7f * fight_prog); }      /* the same rising tick as the shrine's */
+                if (fight_prog >= 1.0f) { fight_prog = 0; fight_tick = 0; btn_down = btn_inside = 0; fight_hit(); }
+            } else {
+                fight_tick = 0;
+                if (fight_prog > 0) { fight_prog -= dt / HAMMER_DECAY_T; if (fight_prog < 0) fight_prog = 0; }
+            }
+        }
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
         if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_search_update(dt)) btn_down = btn_inside = 0;
@@ -1292,6 +1316,7 @@ static void draw_interact_button(SDL_Renderer *r) {
 
     if (near_shrine) {                                           /* a sludge drop. holding fills the button from the bottom with ooze */
         float p = shrine_progress();
+        if (!shrine_self() && hint_curve() > p) p = hint_curve();                     /* chunk 55: a tap shows the hint's little fill */
         if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1405,6 +1430,15 @@ static void draw_interact_button(SDL_Renderer *r) {
             SDL_Rect clip = { bcx - br, bcy - br, 2 * br, hgt };
             SDL_RenderSetClipRect(r, &clip);
             col(r, 150, 40, 48, 245); pdisc(r, bcx, bcy, br, ucell);          /* the red drains out of the button while it cools */
+            SDL_RenderSetClipRect(r, NULL);
+            col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
+        }
+        float fp = fight_prog > hint_curve() ? fight_prog : hint_curve();             /* chunk 55: the hold fills the button from the bottom (a tap shows the hint's little fill) */
+        if (fp > 0 && fight_cd <= 0) {
+            int hgt = (int)(2 * br * fp);
+            SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
+            SDL_RenderSetClipRect(r, &clip);
+            col(r, 214, 170, 78, 245); pdisc(r, bcx, bcy, br, ucell);
             SDL_RenderSetClipRect(r, NULL);
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }

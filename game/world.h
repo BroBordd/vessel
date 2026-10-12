@@ -76,7 +76,7 @@ void world_grave_body_tile(int i, float *tx, float *ty);
 /* the burial (grave.h, chunk 34): next to a body that lies on the grass the button shows a hand lowering him; HOLDING it drags him back into the plot, then on_done runs once */
 void world_enable_grave_bury(int grave_index, void (*on_done)(void));
 /* the fight (chunk 36): npc_id has been marked hostile (npc.h, npc_set_hostile) and the player carries the hammer: next to her the interact button is
- * a hammer swing instead of the talk face, and each TAP hits (she flashes white and is shoved back, a thump, a short cooldown). after `hits` hits on_down
+ * a hammer swing instead of the talk face, and each full HOLD (HAMMER_HOLD_T, chunk 55: a tap is only a hint) hits (she flashes white and is shoved back, a thump, a short cooldown). after `hits` hits on_down
  * runs once and the fight is over. world_fight_left / world_fight_total: for the health bar (chunk 37). */
 void world_enable_fight(int npc_id, int hits, void (*on_down)(void));
 int  world_fight_left(void);
