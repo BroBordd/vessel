@@ -50,6 +50,7 @@ int main(int argc, char **argv) {
     nowplaying_init(W, H); pausebtn_init(W, H); pausebtn_set_enabled(1);
     hud_init(W, H, &VESSEL); thought_init(W, H); thought_set_enabled(1);
     brainwin_init(W, H);
+    brainwin_set_alex(&VESSEL);                 /* (section 1 only checks that every scene draws; the Alex look is section 2) */
     char name[64];
     SDL_Rect win, mon, autob, closeb;
 
@@ -195,6 +196,34 @@ int main(int argc, char **argv) {
             snprintf(name, sizeof name, "../build/brain_scene_%d.bmp", sc); SDL_SaveBMP(surf, name);
             for (int o = 0; o < sc; o++) CHECK(hash[o] != hash[sc], "scenes %d and %d look identical", o, sc);
             tap(2, 2); run(1.0f);
+        }
+    }
+
+    /* 2. chunk 51: Alex's chibi is the real sprite drawn from the Person we hand over, so its colours always follow it (distinct colours here: nothing is hard coded) */
+    {   static const Person TESTALEX = { "Alex", { 236, 196, 84 }, { 244, 200, 164 }, { 60, 170, 170 }, { 70, 60, 110 }, { 40, 30, 30 }, 1, 0 };
+        const Rgb *want[5] = { &TESTALEX.hair, &TESTALEX.skin, &TESTALEX.shirt, &TESTALEX.pants, &TESTALEX.boots };
+        const char *nm[5] = { "hair", "skin", "shirt", "trousers", "boots" };
+        int scenes[2] = { BRAIN_SCENE_ALEX, BRAIN_SCENE_ALEXORB };
+        for (int pass = 0; pass < 2; pass++) {
+            brainwin_set_alex(pass ? &TESTALEX : NULL);
+            for (int k = 0; k < 2; k++) {
+                brainwin_clear();
+                brainwin_acquire("Alex.", (BrainScene)scenes[k], 1);
+                brainwin_open(); run(2.0f);
+                brainwin_debug_rects(&win, &mon, &autob, &closeb);
+                SDL_SetRenderDrawColor(rr, 126, 188, 246, 255); SDL_RenderClear(rr); brainwin_draw(rr);
+                Uint8 *pix = (Uint8 *)surf->pixels; int cnt[5] = { 0 };
+                for (int y = mon.y; y < mon.y + mon.h; y++) for (int x = mon.x; x < mon.x + mon.w; x++) {
+                    Uint8 *c = pix + y * surf->pitch + x * 4;
+                    for (int q = 0; q < 5; q++) if (c[0] == want[q]->r && c[1] == want[q]->g && c[2] == want[q]->b) cnt[q]++;
+                }
+                for (int q = 0; q < 5; q++) {
+                    if (pass) CHECK(cnt[q] > 20, "scene %d: Alex's %s is not the Person's colour (%d px)", scenes[k], nm[q], cnt[q]);
+                    else      CHECK(cnt[q] == 0, "scene %d: Alex was drawn without a look (%s %d px)", scenes[k], nm[q], cnt[q]);
+                }
+                if (pass) { snprintf(name, sizeof name, "../build/brain_alex_%d.bmp", k); SDL_SaveBMP(surf, name); }
+                tap(2, 2); run(1.0f);
+            }
         }
     }
 

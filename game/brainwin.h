@@ -18,6 +18,7 @@
 #ifndef BRAINWIN_H
 #define BRAINWIN_H
 #include <SDL2/SDL.h>
+#include "char.h"
 
 typedef enum {
     BRAIN_SCENE_ORB,        /* a bobbing "?" and a vague item that keeps changing shape */
@@ -41,6 +42,7 @@ int  brainwin_add(const char *text, BrainScene scene);  /* appends a thought (ta
 /* appends a thought that belongs to `tag` (any non-zero int the story picks). if the window is open
  * on AUTO it jumps to the new thought. no sound here: the story plays the ding. */
 int  brainwin_acquire(const char *text, BrainScene scene, int tag);
+void brainwin_set_alex(const Person *p);                /* her look for the two Alex pictures: the real `Person` (story.c), so the chibi cannot drift from her */
 void brainwin_clear(void);                              /* forgets everything (a new game) */
 int  brainwin_drop_tag(int tag);                        /* silently forgets every thought with this tag. returns how many went */
 int  brainwin_count(void);

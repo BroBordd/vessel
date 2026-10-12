@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "brainwin.h"
+#include "char.h"
 #include "font.h"
 #include "hud.h"
 #include "thought.h"
@@ -446,22 +447,16 @@ static void ground(SDL_Renderer *r, int y0, int R, int G, int B, float t) {     
             px(r, gx, gy, 1, 1, rr, gg, bb);
         }
 }
-/* Alex as a CHIBI: a big head (11 wide), a tiny body, big dark eyes with a white glint, a blush. no hands: a chibi holds nothing, so nothing
- * is ever drawn in her reach. the same colours as her in-game look (hair 236,196,84, teal shirt, plum trousers). 11 x 16. t blinks her eyes */
+/* ALEX, drawn by the same code as the real one (char.c), from the same `Person` (story.c hands us &ALEX through brainwin_set_alex), so her
+ * hair, skin, shirt, trousers, boots, eyes and blinking can never drift from how she looks in the world. 1 sprite pixel = 1 monitor cell:
+ * 10 wide x 12 tall (already a chibi: big head, tiny body). gx,gy = her top-left cell, her feet stand on row gy + 12. the orb scenes keep her
+ * hands out of it: the orb floats by itself. t is unused (the blink is char.c's own) */
+static const Person *alex_look;
+void brainwin_set_alex(const Person *p) { alex_look = p; }
 static void draw_alex(SDL_Renderer *r, int gx, int gy, float t) {
-    static const char *A[16] = {
-        "...HHHHH...", "..HHHHHHH..", ".HHHHHHHHH.", ".HHHHHHHHH.", ".HHSSSSSHH.", ".HSSSSSSSH.",
-        ".HSEwSEwSH.", ".HSEESEESH.", ".HSEESEESH.", ".HKSSSSSKH.", "..HSSSSSH..", "...SSSSS...",
-        "..TTTTTTT..", "...TTTTT...", "...PP.PP...", "...BB.BB...",
-    };
-    static const Pal PA[] = { { 'H', 236, 196, 84 }, { 'S', 244, 200, 164 }, { 'T', 60, 170, 170 }, { 'P', 70, 60, 110 }, { 'B', 40, 30, 30 },
-                              { 'E', 40, 30, 30 }, { 'w', 255, 255, 255 }, { 'K', 244, 150, 150 } };
-    pxa(r, gx - 1, gy + 16, 13, 1, 0, 0, 0, 60);                                    /* shadow */
-    spr(r, gx, gy, A, 16, PA, 8);
-    if (fmodf(t, 3.7f) < 0.12f) {                                                   /* a blink: the eyes shut to a line */
-        px(r, gx + 3, gy + 6, 2, 2, 244, 200, 164); px(r, gx + 6, gy + 6, 2, 2, 244, 200, 164);
-        px(r, gx + 3, gy + 8, 2, 1, 40, 30, 30);    px(r, gx + 6, gy + 8, 2, 1, 40, 30, 30);
-    }
+    (void)t;
+    if (!alex_look) return;
+    char_draw(r, alex_look, ox + (gx + 5) * s, oy + (gy + 12) * s, FACE_DOWN, 0, 0, s);
 }
 /* the orb: a violet-gold ball with a glint and a pulsing glow, cx,cy = its centre, rad about 3 */
 static void draw_orb_ball(SDL_Renderer *r, int cx, int cy, int rad, float t) {
@@ -528,7 +523,7 @@ static void scene_alex(SDL_Renderer *r, float t) {
     int step = ((int)(t * 1.4f) & 1) ? 0 : 0;
     int bob = (sinf(t * 2.4f) > 0.6f) ? 1 : 0;                                       /* she shifts her weight now and then */
     (void)step;
-    draw_alex(r, 10, 4 + bob, t);
+    draw_alex(r, 10, 8 + bob, t);
     /* her thought bubble: three trail dots, then the bubble with the orb / a question mark */
     px(r, 25, 9, 1, 1, 255, 255, 255); px(r, 27, 7, 2, 2, 255, 255, 255);
     for (int dy = -5; dy <= 5; dy++)
@@ -557,13 +552,13 @@ static void scene_alexorb(SDL_Renderer *r, float t) {
     int oy2 = (int)floorf(sinf(t * 3.0f) * 0.8f + 0.5f);
     for (int i = 0; i < 6; i++) {                                                    /* rays out of the orb */
         float a = t * 0.7f + i * 1.0472f;
-        for (int k = 5; k < 8; k++) pxa(r, 21 + (int)floorf(cosf(a) * k + 0.5f), 5 + oy2 + (int)floorf(sinf(a) * k + 0.5f), 1, 1, 255, 240, 190, 235 - (k - 5) * 70);
+        for (int k = 5; k < 8; k++) pxa(r, 21 + (int)floorf(cosf(a) * k + 0.5f), 10 + oy2 + (int)floorf(sinf(a) * k + 0.5f), 1, 1, 255, 240, 190, 235 - (k - 5) * 70);
     }
-    draw_alex(r, 6, 5, t);                                                           /* chibi: she cannot hold it, so it floats by itself */
-    draw_orb_ball(r, 21, 5 + oy2, 3, t);
+    draw_alex(r, 6, 9, t);                                                           /* she cannot hold it, so it floats by itself beside her head */
+    draw_orb_ball(r, 21, 10 + oy2, 3, t);
     for (int k = 0; k < 6; k++) {                                                    /* a dotted line from the orb to the shrine: "all I need" */
         int on = (((int)(t * 4.0f)) + k) % 6 < 3;
-        if (on) px(r, 25 + k * 2, 7 + k / 2 + oy2 / 2, 1, 1, 255, 236, 170);
+        if (on) px(r, 25 + k * 2, 12 + k / 2 + oy2 / 2, 1, 1, 255, 236, 170);
     }
     if (boom) { SDL_SetRenderDrawColor(r, 255, 255, 255, 120); fillr(r, ox, oy, GW * s, GH * s); }
 }
