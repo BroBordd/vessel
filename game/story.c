@@ -719,11 +719,14 @@ static void alex_chat_end(void) {
 
 static void alex_deal_done(void) { convo_ask_line(&ALEX, &ALEX_MIND, "Got any questions before you go?", alex_chat_end); }
 
-/* chunk 29: vessel 2 asks for the orb. she says no, once, in her own face popup. we cannot argue (the chat is locked), so the dialog ends
- * with no question and no free chat; only the head answers: she will not give it up and we need something heavy. every later talk with her is just the chat lock (the thought "I can't say that"). */
+/* chunk 29: vessel 2 goes to Alex for the orb. she says no, once, in her own face popup. we cannot argue (the chat is locked), so the dialog ends
+ * with no question and no free chat; only the head answers: she will not give it up and we need something heavy. every later talk with her is just the chat lock (the thought "I can't say that").
+ * chunk 48: we never say a word to her, so she talks to someone who stands there silent: she sees us eyeing the orb, notices the silence,
+ * gets annoyed and says no. no question we are meant to answer (the one "?" is a rhetorical remark about the silence). */
 static const DialogLine ALEX_REFUSE[] = {
-    { &ALEX, "The orb? It's mine. I found it. No." },
-    { &ALEX, "Why do you want it so badly?" },
+    { &ALEX, "I see you looking at my orb. It's mine. I found it." },
+    { &ALEX, "You just stand there and stare. Not a word?" },
+    { &ALEX, "Fine. Then no. Go away." },
 };
 #define ALEX_REFUSE_COUNT ((int)(sizeof ALEX_REFUSE / sizeof ALEX_REFUSE[0]))
 static int alex_refused;                            /* she has said no (once only) */

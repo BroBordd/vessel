@@ -102,6 +102,18 @@ int main(void) {
         for (int i = 0; i < ALEX_REFUSE_COUNT + 2 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); pages++; }
         CHECK(!dialog_active() && !convo_active(), "the refusal left a dialog or a chat open (no question, no chat)");
         CHECK(pages >= ALEX_REFUSE_COUNT, "the refusal ran %d pages, want %d", pages, ALEX_REFUSE_COUNT);
+        /* chunk 48: she talks to someone who is silent: no question for us to answer (one rhetorical remark about the silence at most,
+         * never the first or the last line), and she never asks why we want it */
+        {   int q = 0;
+            for (int i = 0; i < ALEX_REFUSE_COUNT; i++) {
+                const char *t = ALEX_REFUSE[i].text;
+                for (const char *c = t; *c; c++) if (*c == '?') q++;
+                CHECK(ALEX_REFUSE[i].who == &ALEX, "refusal line %d is not Alex's", i);
+                CHECK(!strstr(t, "Why do you") && !strstr(t, "why do you"), "refusal line %d asks us why", i);
+                if (i == 0 || i == ALEX_REFUSE_COUNT - 1) CHECK(!strchr(t, '?'), "refusal line %d (first or last) holds a question", i);
+            }
+            CHECK(q <= 1, "the refusal asks %d questions, one rhetorical remark at most", q);
+        }
         CHECK(brainwin_count() == bc + 1, "the first thought did not come right after the refusal (%d -> %d)", bc, brainwin_count());
         run(5.5f);
         CHECK(brainwin_count() == bc + 1, "the refusal left %d thoughts, want exactly one (%d -> %d)", brainwin_count() - bc, bc, brainwin_count());
