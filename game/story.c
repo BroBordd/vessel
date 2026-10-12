@@ -131,7 +131,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT, THOUGHT_REPAIR };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_PULL, THOUGHT_REPAIR };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -719,7 +719,7 @@ static void alex_deal_highlight(int page, int span) {
 
 /* the free chat after the scripted part is over: the head catches up with what just happened */
 static void alex_chat_end(void) {
-    think("Alex has the orb. All I need is a broken shrine.", "Alex has the orb. I need a broken shrine.", BRAIN_SCENE_ALEXORB, THOUGHT_ORB, 1);
+    think("Alex has the orb. I need to break the shrine.", "I need to break the shrine.", BRAIN_SCENE_ALEXORB, THOUGHT_ORB, 1);
     story_after(10.0f, shrine_thought);
 }
 
@@ -745,9 +745,8 @@ static int aonia_grave = -1, aonia_out;
  * locks it until he is buried again. */
 static int aonia_searched, hammer_tx, hammer_ty;
 /* chunk 33: respect for the dead. while he lies unburied the hammer is locked: walking into it does not take it. the task "Bury Aonia" flashes red and
- * shakes, an error buzz sounds, and the vessel thinks that he goes back first (once in the brain window, afterwards only the card). chunk 34 unlocks it
- * when he is buried. the engine allows one such try every few seconds (item.h). */
-static int respect_said;
+ * shakes and an error buzz sounds (chunk 62: the vessel no longer thinks anything about it). chunk 34 unlocks it when he is buried. the engine allows one
+ * such try every few seconds (item.h). */
 static void aonia_buried_done(void) {                       /* chunk 34: he is back in the earth */
     aonia_buried = 1; aonia_out = 0;
     mission_complete(mission_bury);
@@ -756,8 +755,6 @@ static void aonia_buried_done(void) {                       /* chunk 34: he is b
 static void hammer_blocked(void) {
     mission_flash(mission_bury);
     sfx_error();
-    if (!respect_said) { respect_said = 1; think("Not like this. He goes back first.", NULL, BRAIN_SCENE_GRAVE, THOUGHT_RESPECT, 0); }
-    else if (!dying) thought_say("Not like this. He goes back first.", 0);
 }
 static void hammer_lock(void) { world_lock_item(ITEM_HAMMER, 1, hammer_blocked); }
 static void aonia_searched_done(void) {
@@ -767,7 +764,6 @@ static void aonia_searched_done(void) {
     world_drop_item(ITEM_HAMMER, hammer_tx, hammer_ty);
     hammer_lock();
     world_enable_grave_bury(aonia_grave, aonia_buried_done);        /* he can be put back as soon as he has been searched */
-    think("He still has it. The hammer.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_SEARCH, 1);
 }
 static void aonia_pulled(void) {
     aonia_out = 1;
@@ -975,7 +971,7 @@ void story_start(void) {
     brainwin_set_alex(&ALEX);                   /* chunk 51: her thought pictures wear the real Alex's look */
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
     hammer_hinted = hammer_said = 0; world_clear_items(); world_found_reset();   /* chunk 58: nothing found yet */
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

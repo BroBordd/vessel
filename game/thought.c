@@ -95,6 +95,7 @@ void thought_set_wrath_person(const Person *p) { wrath_who = p; }
 void thought_set_voice(const Person *p) { voice = p; }
 const Person *thought_voice(void) { return voice ? voice : hud_person(); }
 int thought_active(void) { return active; }
+const char *thought_debug_text(void) { return active ? cur.text : ""; }
 int thought_is_wrath(void) { return active && cur.wrath; }
 
 /* ---------- text wrapping ---------- */

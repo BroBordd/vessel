@@ -41,6 +41,7 @@ const Person *thought_voice(void);          /* the face in use right now: the vo
 void thought_set_wrath_person(const Person *p);   /* whose face her card wears, tinted red (story.c passes the goddess). NULL = her red eye */
 int  thought_is_wrath(void);                /* her card is up right now */
 
+const char *thought_debug_text(void);         /* (tests) the words on the card now, "" when none */
 int  thought_active(void);                  /* a thought is on screen (or waiting for room) */
 
 /* where the brain button / card is right now (screen px) */

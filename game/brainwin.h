@@ -56,6 +56,7 @@ void brainwin_update(float dt);
 void brainwin_draw(SDL_Renderer *r);
 
 /* test hooks */
+const char *brainwin_debug_text(int i);                 /* (tests) the words of thought i */
 int  brainwin_debug_current(void);                      /* index of the thought on the monitor */
 int  brainwin_debug_auto(void);                         /* 1 = looping, 0 = pinned */
 void brainwin_debug_rects(SDL_Rect *win, SDL_Rect *mon, SDL_Rect *auto_btn, SDL_Rect *close_btn);

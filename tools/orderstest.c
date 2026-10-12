@@ -209,23 +209,23 @@ int main(void) {
         float hx_, hy_; item_tile(&hx_, &hy_);
         CHECK(fabsf(hx_ - sbx) < 1.5f && hy_ > sby && hy_ < sby + 2.0f, "the hammer is not on the grass next to him (%.2f,%.2f vs %.2f,%.2f)", hx_, hy_, sbx, sby);
         CHECK(!item_has(ITEM_HAMMER), "the hammer was in the pockets while it fell");
-        CHECK(brainwin_count() == sbc + 1, "the search thought did not come (%d -> %d)", sbc, brainwin_count());
+        CHECK(brainwin_count() == sbc, "the search still thinks something (%d -> %d)", sbc, brainwin_count());
         pxp = (sbx + 3.0f) * tile; run(0.8f);                                    /* (the fall is over; step off so nothing picks it up) */
         CHECK(!item_dropping() && item_exists(), "the hammer did not land");
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/search_hammer.bmp");   /* the hammer on the grass beside him (look at it) */
         CHECK(!near_search, "the magnifying glass shows after the search was done");
         world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
-        CHECK(brainwin_count() == sbc + 1, "searching again added a thought");
+        CHECK(brainwin_count() == sbc, "searching again added a thought");
 
         /* chunk 33: respect the dead. he is unburied, so the hammer is locked: walking onto it does not take it; the task flashes red, the error
-         * buzz sounds and the vessel thinks (once in the window); one try every 3 s at most */
+         * buzz sounds and and the vessel thinks nothing (chunk 62); one try every 3 s at most */
         CHECK(item_locked(ITEM_HAMMER), "the hammer is not locked while he lies unburied");
-        int e0 = sfx_debug_errors(), b0 = item_blocked_count(), tc0 = brainwin_count();
+        int e0 = sfx_debug_errors(), b0 = item_blocked_count(), tc0 = brainwin_count(), ta0 = thought_active();
         pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
         CHECK(!item_has(ITEM_HAMMER) && item_exists(), "walking onto the locked hammer took it");
         CHECK(sfx_debug_errors() == e0 + 1 && item_blocked_count() == b0 + 1, "the error buzz / the turned-away try were not counted (%d, %d)", sfx_debug_errors() - e0, item_blocked_count() - b0);
         CHECK(mission_flashing(mission_bury), "the task Bury Aonia does not flash");
-        CHECK(brainwin_count() == tc0 + 1, "the 'not like this' thought did not come once (%d -> %d)", tc0, brainwin_count());
+        CHECK(brainwin_count() == tc0 && (ta0 || !thought_active()), "walking into the locked hammer thinks something (%d -> %d thoughts, card %d)", tc0, brainwin_count(), thought_active());
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/respect_flash.bmp");           /* the red, shaking line (look at it) */
         run(0.8f);
         CHECK(!mission_flashing(mission_bury), "the flash did not end after %.1f s", MISSION_FLASH_T);
@@ -233,7 +233,7 @@ int main(void) {
         CHECK(sfx_debug_errors() == e0 + 1, "a second buzz came within 3 s (%d)", sfx_debug_errors() - e0);
         run(1.6f);                                                                  /* past 3 s: again, but the window keeps one thought */
         CHECK(sfx_debug_errors() == e0 + 2 && mission_flashing(mission_bury), "no second buzz / flash after 3 s (%d)", sfx_debug_errors() - e0);
-        CHECK(brainwin_count() == tc0 + 1 && !item_has(ITEM_HAMMER), "the thought was added twice, or the hammer was taken");
+        CHECK(brainwin_count() == tc0 && !item_has(ITEM_HAMMER), "a thought came after the second try, or the hammer was taken");
         pxp = (sbx + 3.0f) * tile; run(0.3f);
 
         /* chunk 34: bury him. after the search the button next to the body is a hand lowering him; HOLDING it drags him back into the plot, the task
@@ -902,6 +902,16 @@ int main(void) {
         world_found_reset();                                            /* a new game */
         CHECK(world_found_count() == 0 && !world_found_temple() && !world_found_house() && !world_found_grave(&VESSEL), "a new game did not clear the found flags");
         #undef GO
+    }
+
+    /* chunk 62: the orb thought after the talk, word for word: the window has "Alex has the orb. I need to break the shrine." and the card says only
+     * "I need to break the shrine.". the search and the locked hammer think nothing any more (checked
+     * above, where they used to) */
+    {   int bc = brainwin_count();
+        alex_chat_end();
+        CHECK(brainwin_count() == bc + 1, "the orb thought did not join the window (%d -> %d)", bc, brainwin_count());
+        CHECK(strcmp(brainwin_debug_text(bc), "Alex has the orb. I need to break the shrine.") == 0, "the orb thought says \"%s\"", brainwin_debug_text(bc));
+        CHECK(strcmp(thought_debug_text(), "I need to break the shrine.") == 0, "the orb card says \"%s\"", thought_debug_text());
     }
 
     /* chunk 60: every kind of map icon is its own picture (not empty, no two alike), and the broken shrine is grey where the whole one has its violet gem */

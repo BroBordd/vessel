@@ -171,6 +171,7 @@ int brainwin_drop_tag(int tag) {
 }
 void brainwin_clear(void) { nth = 0; cur = 0; tm = 0; typed = 0; layout(); }
 int brainwin_count(void) { return nth; }
+const char *brainwin_debug_text(int i) { return i >= 0 && i < nth ? th[i].text : ""; }
 int brainwin_debug_current(void) { return cur; }
 int brainwin_debug_auto(void) { return auto_on; }
 void brainwin_debug_rects(SDL_Rect *w, SDL_Rect *m, SDL_Rect *a, SDL_Rect *c) { *w = win; *m = scr_r; *a = auto_r; *c = close_r; }
@@ -538,7 +539,7 @@ static void scene_alex(SDL_Renderer *r, float t) {
     } else draw_orb_ball(r, 31, 4, 2, t);
 }
 
-/* 7. "Alex has the orb. All I need is a broken shrine." the orb floats beside Alex (chibi: no hands); the shrine beside her is cracking, again and again */
+/* 7. "Alex has the orb. I need to break the shrine." the orb floats beside Alex (chibi: no hands); the shrine beside her is cracking, again and again */
 static void scene_alexorb(SDL_Renderer *r, float t) {
     gradient(r, 54, 34, 92, 246, 156, 118);
     for (int i = 0; i < 10; i++) {
