@@ -51,6 +51,7 @@
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
 #define VESSEL2_NAME "Doia"         /* vessel two: Dea plays on the word two */
+#define VESSEL3_NAME "Tria"         /* vessel three: Dea plays on the word three (chunk 42) */
 #define VESSEL_LATIN "Vas"          /* what Dea calls us before the naming. "Vas" is Latin for vessel */
 
 /* ---------- characters ---------- */
@@ -61,6 +62,9 @@ const Person SOUL = { "Soul", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 
 const Person VESSEL = { VESSEL_NAME,  { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 /* vessel two, Doia: long silver hair, green shirt, grey trousers, a little browner skin: clearly not Aonia (same body and proportions) */
 const Person VESSEL2 = { VESSEL2_NAME, { 206, 210, 228 }, { 226, 172, 132 }, { 70, 160, 96 }, { 78, 78, 92 }, { 40, 30, 30 }, 1, 0 };
+/* vessel three, Tria: short copper-orange hair, purple shirt, dark trousers, deeper brown skin: clearly neither Aonia (brown hair, red shirt) nor Doia
+ * (long silver hair, green shirt), nor Alex (long gold hair) */
+const Person VESSEL3 = { VESSEL3_NAME, { 214, 108, 40 }, { 150, 100, 72 }, { 126, 84, 190 }, { 40, 44, 56 }, { 60, 40, 30 }, 0, 0 };
 const Person VAS    = { VESSEL_LATIN, { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 const Person ALEX   = { "Alex",       { 236, 196, 84 }, { 244, 200, 164 }, { 60, 170, 170 }, { 70, 60, 110 }, { 40, 30, 30 }, 1, 0 };
 /* "dea" is Latin for goddess. white shades, a halo, all in white and gold */
@@ -389,7 +393,7 @@ static void story_reset_for_respawn(void) {
     alex_id = -1;                                   /* off the map with the Grasslands (alex_dealt, alex_seen, shrine_fouled stay) */
     hud_reset(&VAS, 0);                             /* the ID card is plain VAS again, HP full */
     brainwin_clear();                               /* the new vessel starts with an empty head: none of vessel 1's thoughts */
-    world_set_player(&VESSEL2);                     /* the new body is summoned already looking like the new character (the ID card stays VAS until the naming) */
+    world_set_player(lives >= 2 ? &VESSEL3 : &VESSEL2);   /* the new body is summoned already looking like the new character (the ID card stays VAS until the naming) */
     convo_set_player(&VAS);
     world_return_to_clouds();
     world_temple_spot(&dea_tx, &dea_ty);            /* Dea is already waiting in her temple, far up the clouds, looking down at us */
@@ -457,6 +461,30 @@ static void dea_scold(void) {
     mission_complete(mission_talk_dea);
     dialog_on_page(scold_page);
     dialog_play(DEA_SCOLD, DEA_SCOLD_COUNT, orders_given);
+}
+/* chunk 42: vessel 3. Doia died at the shrine (chunk 41); the soul is summoned in the clouds again, now wearing the third body, and Dea names it in
+ * one line (no scolding, no new questions: the chat lock of chunk 27 stands, the orb is in our pockets). the moment her line begins the ID card flashes
+ * (coin ding, "YOU ARE NOW TRIA"), our face in every dialog and thought is Tria's and the player's body is already hers. no hole opens: there is nowhere to fall
+ * to. chunk 43 takes it from here (giving the orb). */
+static const DialogLine DEA_NAMING3[] = {
+    { &DEA, "Fine. You are number three now. " VESSEL3_NAME "." },
+};
+#define DEA_NAMING3_COUNT ((int)(sizeof DEA_NAMING3 / sizeof DEA_NAMING3[0]))
+static int naming3_done_n;                          /* (the tests count them) */
+static void naming3_page(int page) {
+    (void)page;
+    hud_set_person(&VESSEL3);
+    convo_set_player(&VESSEL3);
+    world_set_player(&VESSEL3);
+}
+static void naming3_done(void) {
+    naming3_done_n++;
+    world_set_controls_visible(1);
+}
+static void dea_naming3(void) {
+    mission_complete(mission_talk_dea);
+    dialog_on_page(naming3_page);
+    dialog_play(DEA_NAMING3, DEA_NAMING3_COUNT, naming3_done);
 }
 static void respawn_summoned(void) {
     world_set_controls_visible(1);                              /* no auto talk: we walk to her and talk to her ourselves */
@@ -875,7 +903,7 @@ static void dea_talk_highlight(int page, int span) {
 
 static void on_talk_dea(int npc_id) {
     (void)npc_id;
-    if (scold_pending) { scold_pending = 0; dea_scold(); return; }          /* the second life: the scolding, then the questions */
+    if (scold_pending) { scold_pending = 0; if (lives >= 2) dea_naming3(); else dea_scold(); return; }   /* the second life: the scolding, then the questions; the third: just the naming (chunk 42) */
     if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
     mission_complete(mission_talk_dea);
@@ -921,7 +949,7 @@ void story_start(void) {
     mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
-    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();
+    dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0; grave_seen = 0;
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;

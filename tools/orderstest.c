@@ -504,6 +504,35 @@ int main(void) {
             for (float sl = 0; sl < DEATH_LIMBO_HOLD + 0.5f; sl += 0.016f) { story_limbo_update(0.016f); frame(0.016f); }   /* (game.c runs the soul's own clock in limbo) */
             CHECK(death_hold_done >= 1, "the next life was not made ready");
             CHECK(world_has_item(ITEM_ORB) && !world_has_item(ITEM_HAMMER), "the pockets of the next life are wrong (orb %d, hammer %d)", world_has_item(ITEM_ORB), world_has_item(ITEM_HAMMER));
+            /* chunk 42: vessel 3. the summoning in the clouds brings us back already looking like Tria, the ID card is still plain VAS until Dea names us; her one
+             * line flashes the card (the moment it begins), nothing else is asked, the chat lock stands and the orb is still ours. no hole, nowhere to fall to */
+            CHECK(lives == 2 && world_player() == &VESSEL3, "the third body is not Tria's look (lives %d)", lives);
+            CHECK(hud_person() != &VESSEL3, "the ID card said Tria before the naming");
+            CHECK(dea_id >= 0 && !hole_on, "Dea is not waiting in her temple / a hole is open (%d, %d)", dea_id, hole_on);
+            run(10.0f);
+            CHECK(scold_pending && !dialog_active(), "the third summoning did not end with Dea waiting to speak (%d)", scold_pending);
+            on_talk_dea(dea_id);
+            CHECK(!scold_pending && dialog_active() && !convo_active(), "talking to Dea did not start her line");
+            CHECK(hud_person() == &VESSEL3 && world_player() == &VESSEL3, "the naming did not flash the ID card / change the look");
+            CHECK(strstr(DEA_NAMING3[0].text, "number three") && strstr(DEA_NAMING3[0].text, VESSEL3_NAME), "Dea's line does not name number three");
+            CHECK(naming3_done_n == 0, "the naming ended before the line was read");
+            for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
+            CHECK(!dialog_active() && naming3_done_n == 1, "the naming did not end after one line (%d)", naming3_done_n);
+            CHECK(controls_visible && !hole_on, "the controls did not come back / a hole opened after the naming");
+            CHECK(convo_locked() && secret_on, "the chat lock / the secret ended with the naming (chunk 43 ends it)");
+            CHECK(world_has_item(ITEM_ORB), "the orb left the pockets with the naming");
+            /* the three looks differ (hair, shirt, skin), on a screenshot too */
+            CHECK(memcmp(&VESSEL3.hair, &VESSEL.hair, 3) && memcmp(&VESSEL3.hair, &VESSEL2.hair, 3), "Tria's hair matches another vessel");
+            CHECK(memcmp(&VESSEL3.shirt, &VESSEL.shirt, 3) && memcmp(&VESSEL3.shirt, &VESSEL2.shirt, 3), "Tria's shirt matches another vessel");
+            CHECK(memcmp(&VESSEL3.skin, &VESSEL.skin, 3) && memcmp(&VESSEL3.skin, &VESSEL2.skin, 3), "Tria's skin matches another vessel");
+            CHECK(strcmp(VESSEL3.name, "Tria") == 0, "vessel 3 is not called Tria");
+            SDL_SetRenderDrawColor(rr, 70, 90, 120, 255); SDL_RenderClear(rr);
+            { const Person *three[3] = { &VESSEL, &VESSEL2, &VESSEL3 };
+              for (int k = 0; k < 3; k++) {
+                  char_draw(rr, three[k], 90 + k * 180, 330, FACE_DOWN, 0, 0.0f, 8);
+                  char_draw_portrait(rr, three[k], 40 + k * 180, 420, 8, 0);
+              } }
+            SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/three_looks.bmp");                          /* Aonia, Doia, Tria (look at it) */
             lives = 1; vessel_dead = 0;                                                       /* (the rest of this test goes on as the second life) */
             shrine_reset(px, tile); item_clear(); item_reset(px, tile); world_give_item(ITEM_HAMMER);
         }

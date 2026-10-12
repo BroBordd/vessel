@@ -6,6 +6,7 @@
 
 extern const Person VESSEL;         /* the player, once Dea has named them */
 extern const Person VESSEL2;        /* vessel two, Doia: long silver hair, green shirt (chunks 17-18) */
+extern const Person VESSEL3;        /* vessel three, Tria: short copper hair, purple shirt (chunk 42) */
 extern const Person SOUL;           /* the soul in limbo: pale and ghostly. its face is the brain card's voice there (thought_set_voice) */
 extern const Person VAS;            /* the player before the naming: same look, just "Vas" */
 extern const Person DEA;            /* the goddess in the clouds */
