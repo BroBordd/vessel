@@ -18,6 +18,9 @@ int  task_toast(const char *task);
  * coin ding as the task toast, so the two never overlap. */
 void toast_notice(const char *head, const char *body);
 
+/* chunk 58: "You found {name}." the same panel and queue, but its own bright chime (sfx_found) instead of the coin ding, when it appears. `name` is copied. */
+void toast_found(const char *name);
+
 /* engine hooks, called by the world */
 void toast_init(int w, int h);              /* also clears anything pending */
 void toast_update(float dt);

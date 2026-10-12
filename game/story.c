@@ -976,7 +976,7 @@ void story_start(void) {
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
     mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
-    hammer_hinted = hammer_said = 0; world_clear_items();
+    hammer_hinted = hammer_said = 0; world_clear_items(); world_found_reset();   /* chunk 58: nothing found yet */
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();
     vessel_dead = 0; lives = 0; limbo_enter_req = 0; death_hold_done = 0; grave_n = 0;

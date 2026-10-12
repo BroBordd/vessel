@@ -901,6 +901,43 @@ void world_player_behead(void) {
     world_set_controls_visible(0);
 }
 int world_player_beheaded(void) { return player_beheaded; }
+/* chunk 58: FINDING THINGS. every place and thing the map can show has a found flag, false at the start of a game. it turns true when the player gets within
+ * FOUND_SIGHT tiles of it (about on screen, like Dea's sight in story.c), outdoors, while nothing else is going on (no talk, no cutscene, no death): the
+ * discovery chime (sfx_found) and the toast \"You found {name}\" play once. the flags are kept here, not with the map, so a death and a new landing keep them
+ * (graves are told apart by whose they are: story.c puts them back with the same Person); only world_found_reset (a new game) clears them. chunk 59 lets the
+ * map draw only what is found. */
+#define FOUND_SIGHT 6.0f
+enum { FOUND_HOUSE, FOUND_SHRINE, FOUND_HAMMER, FOUND_TEMPLE, FOUND_N };
+static int found_flag[FOUND_N], found_total, found_graves_n;
+static const Person *found_graves[GRAVE_MAX];
+static float tiles_to(float tx, float ty) { float dx = tx - pxp / tile, dy = ty - pyp / tile; return sqrtf(dx * dx + dy * dy); }
+static void found_now(int *flag, const char *name) { *flag = 1; found_total++; toast_found(name); }
+static void found_update(void) {
+    if (indoors) return;
+    float x, y;
+    if (cur_map == MAP_CLOUD) {
+        if (!found_flag[FOUND_TEMPLE] && tiles_to(DEA_TX + 0.5f, DEA_TY + 0.5f) < FOUND_SIGHT) found_now(&found_flag[FOUND_TEMPLE], "the temple");
+        return;
+    }
+    if (house_on && !found_flag[FOUND_HOUSE] && tiles_to(house_sx + 0.5f, house_sy - HUT_H / 2.0f) < FOUND_SIGHT) found_now(&found_flag[FOUND_HOUSE], "Alex's house");
+    if (shrine_exists() && !found_flag[FOUND_SHRINE]) { shrine_tile(&x, &y); if (tiles_to(x, y) < FOUND_SIGHT) found_now(&found_flag[FOUND_SHRINE], "the shrine"); }
+    if (item_exists() && !found_flag[FOUND_HAMMER]) { item_tile(&x, &y); if (tiles_to(x, y) < FOUND_SIGHT) found_now(&found_flag[FOUND_HAMMER], "a hammer"); }
+    for (int i = 0; i < grave_count(); i++) {
+        const Person *who = grave_person(i); int known = 0;
+        for (int k = 0; k < found_graves_n; k++) if (found_graves[k] == who) known = 1;
+        if (known) continue;
+        grave_tile(i, &x, &y);
+        if (tiles_to(x, y) < FOUND_SIGHT && found_graves_n < GRAVE_MAX) { found_graves[found_graves_n++] = who; found_total++; toast_found("a grave"); }
+    }
+}
+void world_found_reset(void) { memset(found_flag, 0, sizeof found_flag); found_total = found_graves_n = 0; }
+int  world_found_count(void) { return found_total; }                                  /* (tests) how many things have been found */
+int  world_found_house(void) { return found_flag[FOUND_HOUSE]; }
+int  world_found_shrine(void) { return found_flag[FOUND_SHRINE]; }
+int  world_found_hammer(void) { return found_flag[FOUND_HAMMER]; }
+int  world_found_temple(void) { return found_flag[FOUND_TEMPLE]; }
+int  world_found_grave(const Person *who) { for (int k = 0; k < found_graves_n; k++) if (found_graves[k] == who) return 1; return 0; }
+
 /* chunk 57: the whole body goes. the controls are already hidden (self_hit). a big burst of red squares from the body, which is gone: nothing lies on the floor, no
  * head. the stains are made where we stand, so the room's old ones are cleared (we do not come back). story.c runs the death scene after it */
 void world_player_explode(void) {
@@ -1128,6 +1165,7 @@ void world_update(float dt) {
         near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
     } else {
         if (dialog_active() || door_t >= 0 || player_beheaded || throw_t >= 0 || self_aiming()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
+        if (!death_on && !dialog_active() && door_t < 0 && !player_beheaded && throw_t < 0) found_update();      /* chunk 58 */
         if (door_t >= 0) {
             door_t += dt;
             if (!door_swapped && door_t >= DOOR_T / 2) { door_swapped = 1; if (indoors) leave_house(); else enter_house(); }

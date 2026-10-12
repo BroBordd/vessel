@@ -13,7 +13,7 @@
 #define MAX_PENDING 4
 
 #define MAX_BODY    48
-typedef struct { const char *head; char body[MAX_BODY]; } Toast;      /* head must be a string literal; body is copied */
+typedef struct { const char *head; char body[MAX_BODY]; int found; } Toast;      /* head must be a string literal; body is copied */
 
 static int   W, H, q;
 static float u;
@@ -31,11 +31,11 @@ void toast_init(int w, int h) {
 
 static void show(const Toast *t) {
     cur = *t; showing = 1; cur_t = 0;
-    sfx_coin();
+    if (t->found) sfx_found(); else sfx_coin();      /* chunk 58: a discovery has its own chime, no coin */
 }
 
-static void enqueue(const char *head, const char *body) {
-    Toast t; t.head = head;
+static void enqueue(const char *head, const char *body, int found) {
+    Toast t; t.head = head; t.found = found;
     snprintf(t.body, sizeof t.body, "%s", body);
     if (!showing) show(&t);
     else if (npend < MAX_PENDING) pending[npend++] = t;
@@ -44,11 +44,12 @@ static void enqueue(const char *head, const char *body) {
 int task_toast(const char *task) {
     int id = mission_add(task);
     if (id < 0) return -1;
-    enqueue("NEW TASK ADDED", task);
+    enqueue("NEW TASK ADDED", task, 0);
     return id;
 }
 
-void toast_notice(const char *head, const char *body) { enqueue(head, body); }
+void toast_notice(const char *head, const char *body) { enqueue(head, body, 0); }
+void toast_found(const char *name) { enqueue("You found", name, 1); }
 
 void toast_update(float dt) {
     if (!showing) return;

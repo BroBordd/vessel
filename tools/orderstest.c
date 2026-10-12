@@ -824,6 +824,59 @@ int main(void) {
         SDL_DestroyRenderer(r2); SDL_FreeSurface(shot);
     }
 
+    /* chunk 58: finding things. five things on the grass (Alex's house, the shrine, a hammer, two graves) and the temple in the clouds are not found at the start;
+     * getting within sight finds each one: its flag, one discovery chime (sfx_found, never the coin) and one toast; not again when we leave and come back; the
+     * flags survive a new map (a landing after a death) and are cleared only by a new game (world_found_reset) */
+    {   load_map(MAP_GREEN); phase = PH_PLAY; ph_t = 0; death_on = 0; player_beheaded = 0; throw_t = -1; indoors = 0; door_t = -1;
+        dialog_init(TW, TH);                                             /* (a talk from the chain above is still open: start clean) */
+        CHECK(!dialog_active(), "the found test could not clear the open dialog");
+        world_found_reset(); toast_init(TW, TH); frame(0.016f);
+        int cx = mw / 2, cy = mh / 2, hx = 0, hy = 0, sx_ = 0, sy_ = 0, kx_ = 0, ky_ = 0, g1x = 0, g1y = 0, g2x = 0, g2y = 0;
+        int okh = world_find_house_spot(10, 60, &hx, &hy) && world_place_house(hx, hy, "Alex");
+        int far_ = 14;                                                  /* every thing is at least this far from the others */
+        #define SPOT(ox, oy, ax, ay) (world_find_prop_spot_near(cx + (ox), cy + (oy), &ax, &ay))
+        int oks = SPOT(-24, 0, sx_, sy_), okk = SPOT(24, 0, kx_, ky_), okg1 = SPOT(0, 24, g1x, g1y), okg2 = SPOT(0, -24, g2x, g2y);
+        #undef SPOT
+        CHECK(okh && oks && okk && okg1 && okg2, "the found test could not place its things (%d %d %d %d %d)", okh, oks, okk, okg1, okg2);
+        world_restore_shrine(sx_, sy_, 0); world_place_item(ITEM_HAMMER, kx_, ky_);
+        int gi1 = world_place_grave(g1x, g1y, &VESSEL), gi2 = world_place_grave(g2x, g2y, &VESSEL2);
+        CHECK(gi1 >= 0 && gi2 >= 0 && house_on && shrine_exists() && item_exists(), "the found test's things are not on the map");
+        float hxf = house_sx + 0.5f, hyf = house_sy - HUT_H / 2.0f;
+        float tx_[5] = { hxf, sx_ + 0.5f, kx_ + 0.5f, g1x + 0.5f, g2x + 0.5f }, ty_[5] = { hyf, sy_ + 0.5f, ky_ + 0.5f, g1y + 0.5f, g2y + 0.5f };
+        for (int a = 0; a < 5; a++) for (int b = a + 1; b < 5; b++)
+            CHECK(hypotf(tx_[a] - tx_[b], ty_[a] - ty_[b]) > far_ - 3.0f, "found test setup: things %d and %d are only %.1f tiles apart", a, b, hypotf(tx_[a] - tx_[b], ty_[a] - ty_[b]));
+        #define GO(x_, y_) do { pxp = ((x_) + 0.5f) * tile; pyp = ((y_) + 0.5f) * tile; } while (0)
+        int f0 = sfx_debug_found(), c0 = sfx_debug_coins();
+        GO(cx, cy); run(0.4f);
+        CHECK(world_found_count() == 0 && sfx_debug_found() == f0, "something was found before we got close (%d)", world_found_count());
+        CHECK(!world_found_house() && !world_found_shrine() && !world_found_hammer() && !world_found_grave(&VESSEL) && !world_found_grave(&VESSEL2), "a found flag is set at the start");
+        struct { const char *what; float x, y; } th[5] = { { "the house", tx_[0], ty_[0] }, { "the shrine", tx_[1], ty_[1] }, { "the hammer", tx_[2], ty_[2] }, { "Aonia's grave", tx_[3], ty_[3] }, { "Doia's grave", tx_[4], ty_[4] } };
+        for (int i = 0; i < 5; i++) {
+            pxp = (th[i].x + 3.0f) * tile; pyp = th[i].y * tile; run(0.3f);
+            CHECK(world_found_count() == i + 1 && sfx_debug_found() == f0 + i + 1, "%s: found count %d (want %d), chimes %d (want %d)", th[i].what, world_found_count(), i + 1, sfx_debug_found() - f0, i + 1);
+            if (i == 0) { run(0.6f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/found_toast.bmp"); }     /* the toast (look at it) */
+            run(5.0f);                                                  /* the toast goes away before the next one */
+        }
+        CHECK(world_found_house() && world_found_shrine() && world_found_hammer() && world_found_grave(&VESSEL) && world_found_grave(&VESSEL2), "a found flag is missing");
+        CHECK(sfx_debug_coins() == c0, "the coin ding played for a discovery (%d)", sfx_debug_coins() - c0);
+        for (int i = 0; i < 5; i++) { GO(cx, cy); run(0.2f); pxp = (th[i].x + 3.0f) * tile; pyp = th[i].y * tile; run(0.3f); }     /* away and back */
+        CHECK(world_found_count() == 5 && sfx_debug_found() == f0 + 5, "something was found a second time (%d, %d chimes)", world_found_count(), sfx_debug_found() - f0 - 5);
+        load_map(MAP_GREEN); phase = PH_PLAY; run(0.2f);                 /* a new map: a landing after a death. the things are not there, but what was found stays found */
+        CHECK(world_found_count() == 5 && world_found_house() && world_found_shrine() && world_found_hammer() && world_found_grave(&VESSEL2), "the found flags did not survive a new map");
+        world_restore_shrine(sx_, sy_, 0); GO(sx_, sy_); run(0.4f);
+        CHECK(world_found_count() == 5 && sfx_debug_found() == f0 + 5, "the shrine was found again after the map was made again");
+        /* the temple in the clouds */
+        load_map(MAP_CLOUD); phase = PH_PLAY; ph_t = 0; indoors = 0; GO(CLOUD_CX, 50); run(0.3f);
+        CHECK(!world_found_temple() && world_found_count() == 5, "the temple was found from afar");
+        int ttx, tty; world_temple_spot(&ttx, &tty); pxp = (ttx + 0.5f + 3.0f) * tile; pyp = (tty + 0.5f) * tile; run(0.3f);
+        CHECK(world_found_temple() && world_found_count() == 6 && sfx_debug_found() == f0 + 6, "the temple was not found when we came close (%d, %d chimes)", world_found_count(), sfx_debug_found() - f0 - 5);
+        run(5.0f); GO(CLOUD_CX, 50); run(0.2f); pxp = (ttx + 0.5f + 3.0f) * tile; pyp = (tty + 0.5f) * tile; run(0.3f);
+        CHECK(world_found_count() == 6 && sfx_debug_found() == f0 + 6, "the temple was found twice");
+        world_found_reset();                                            /* a new game */
+        CHECK(world_found_count() == 0 && !world_found_temple() && !world_found_house() && !world_found_grave(&VESSEL), "a new game did not clear the found flags");
+        #undef GO
+    }
+
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
     return fails ? 1 : 0;
 }

@@ -59,6 +59,13 @@ float world_self_progress(void);                  /* chunk 56: the "Die" hold, 0
 void world_enable_shrine_self(void (*on_hit)(void));    /* chunk 41: at the MENDED shrine the button is the hammer again; a full HOLD (chunk 56, aiming at the sky) swings it at ourselves (shrine.h): on_hit runs once */
 void world_player_behead(void);                          /* chunk 41: our head comes off (flies, blood, the body topples and lies, no more walking) */
 int  world_player_beheaded(void);
+void world_found_reset(void);                               /* chunk 58: a new game: nothing has been found (a death does not call this) */
+int  world_found_count(void);                               /* (tests) things found so far */
+int  world_found_house(void);                               /* (tests) found flags */
+int  world_found_shrine(void);
+int  world_found_hammer(void);
+int  world_found_temple(void);
+int  world_found_grave(const Person *who);                  /* (tests) graves are told apart by whose they are */
 void world_player_explode(void);                            /* chunk 57: the whole body goes (a burst of red squares, nothing is left of it; no walking). story.c calls it when the hammer lands */
 int  world_throwing(void);                                  /* chunk 57: (tests) the hammer is thrown and has not landed yet */
 float world_throw_time(void);                               /* (tests) seconds since the throw, -1 when none */

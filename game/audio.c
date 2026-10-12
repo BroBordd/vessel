@@ -131,17 +131,32 @@ static int mus_read(Sint16 *out, int frames) {
  * volume, so a ding is always heard at the same loudness whatever the music is set to. */
 static int   sfx_on, sfx_pos;                  /* guarded by the device lock (the callback holds it) */
 static float sfx_phase;
-static int   sfx_mode;                         /* 0 = the coin ding, 1 = the calm thought chime (same voice) */
+static int   sfx_mode;                         /* 0 = the coin ding, 1 = the calm thought chime, 2 = the discovery chime (same voice) */
+static int   n_found;
 #define COIN_NOTE1_T 0.085f                    /* the short first note, seconds */
 #define COIN_END_T   0.75f                     /* total length */
 
 /* the classic two-note coin: a quick B5, then E6 ringing out */
+static int n_coins;
+int sfx_debug_coins(void) { return n_coins; }
 void sfx_coin(void) {
+    n_coins++;
     if (!dev) return;
     SDL_LockAudioDevice(dev);
     sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f; sfx_mode = 0;
     SDL_UnlockAudioDevice(dev);
 }
+
+/* chunk 58: "You found ...": a bright two-note bell, a rising fifth (C6 then G6) with a little shine on top and a long ring. a pure bell, no square pulse, so it
+ * is nothing like the coin's chiptune ding */
+void sfx_found(void) {
+    n_found++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    sfx_on = 1; sfx_pos = 0; sfx_phase = 0.0f; sfx_mode = 2;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_found(void) { return n_found; }
 
 /* a thought arriving: calm, soft and low: two gentle sines (G4 then D5) with a slow attack and a long fade, nothing like the coin */
 void sfx_thought(void) {
@@ -191,6 +206,23 @@ static void blip_mix(Sint16 *out, int frames) {
 static void sfx_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)sfx_pos / (float)OUT_RATE;
+        if (sfx_mode == 2) {                                       /* the discovery chime */
+            if (tt >= 1.0f) { sfx_on = 0; return; }
+            int second = tt >= 0.11f;
+            float f = second ? 1567.98f : 1046.50f, t0 = second ? 0.11f : 0.0f;
+            float env = expf(-(tt - t0) * (second ? 4.2f : 9.0f));
+            float a = (tt - t0) / 0.004f; if (a < 1.0f) env *= a;     /* no click on the way in */
+            sfx_phase += f / (float)OUT_RATE;
+            if (sfx_phase >= 1.0f) sfx_phase -= 1.0f;
+            float sh = sinf(6.2831853f * sfx_phase) + 0.35f * sinf(2.0f * 6.2831853f * sfx_phase);   /* the note and a bit of its octave */
+            int v = (int)(sh * env * 0.12f * 32767.0f);
+            for (int c = 0; c < 2; c++) {
+                int o = out[i * 2 + c] + v;
+                out[i * 2 + c] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+            }
+            sfx_pos++;
+            continue;
+        }
         if (sfx_mode == 1) {                                       /* the thought chime */
             if (tt >= 1.1f) { sfx_on = 0; return; }
             float f = tt < 0.16f ? 392.0f : 587.33f, t0 = tt < 0.16f ? 0.0f : 0.16f;
