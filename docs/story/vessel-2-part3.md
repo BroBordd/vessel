@@ -1,0 +1,107 @@
+# Vessel 2, part 3 — Changes after the first playtest of part 2
+
+> **Handoff file.** If you are an LLM picking this up mid-work: read this whole file, then skim
+> `vessel-2-part2.md` (its code map and status log are still true; part 2 ends at chunk 44 and this file
+> continues the numbering at 45). Find the first unchecked chunk in [Chunk checklist](#chunk-checklist),
+> implement ONLY that chunk, commit, tick its box in this file **in the same commit**, push, then go to the
+> next one. Do not skip ahead, do not batch chunks. The owner tests every push on their phone
+> (`git pull` + `scripts/run.sh`), so every chunk must leave the game building and playable.
+>
+> **Part 2 chunk 44 (wrap-up) is still open on purpose.** Part 3 changes some of the thoughts and flows that
+> chunk 44 would tidy, so it is done after the last chunk of this file (see chunk 61).
+
+This file is a list of changes the owner asked for after playing part 2 through to Tria and the orb. Nothing
+here adds story; it changes how what exists looks, sounds and is played.
+
+## Workflow rules
+
+Same as part 2:
+
+- One chunk = one commit = one push. Commit message: `chunk N: <short title>` + a paragraph of what changed.
+- Tick the chunk's checkbox below in the same commit that implements it, and add a line to the status log.
+- `game/story.c` stays the single place where story text and scripted events live. Engine pieces get their
+  own `game/*.c` + `.h` pair with the GPL header.
+- Match the existing code style (C, SDL2, short explanatory comments).
+- Strings shown to the player must be proper English (the drafts below are rough on purpose; polish them).
+- Never commit tokens or secrets.
+- Everything that draws goes through the renderer calls the game already uses (`GFX_REDIRECT`): **no
+  `SDL_BLENDMODE_MOD`/`ADD`**, use `gfx_set_filter` or alpha instead. Pixel art only: square cells, `pdisc`
+  for circles, no smooth curves.
+- Sanity check: `cc -O1 -DGFX_REDIRECT -include game/gfx.h game/*.c $(sdl2-config --cflags --libs) -lm` must
+  build and `tools/orderstest.c` (build line in its header) must pass. `tools/groundtest.c` is **stale** (see
+  the part 2 status log) and is not a gate. Add a headless check to `orderstest` for every behaviour you add.
+  `tools/preview.c` renders screenshots without a phone.
+- The game is open source and meant to be **semi horror**. Dark is fine. Keep it in the game's own style:
+  stylised pixel art, the heart monitor, grey filters. No graphic detail beyond what Aonia's death already
+  shows, except Alex's death and Doia's own end (chunk 57 replaces the head swing with an explosion): the
+  detached head, the blood splash, the endless red spark idle and the explosion are drawn as stylised pixel
+  squares only, never anatomy.
+
+## What the owner asked for (the source of every chunk)
+
+1. Alex's chibi in the thought art must look the same as the real Alex.
+2. Map: instead of text and dots, the dot itself becomes a mini picture of whatever is there.
+3. Map: nothing shows on the map (no icon) until we have explored it. Exploring plays a sound saying
+   "you found {}".
+4. Hammer use is always a long tap. A single tap plays a filling animation (with a sound) for only a tiny
+   time, so the player learns it is meant to be held.
+5. Hammer use for "Die": a long tap plays an animation where we look up with one eye closed, aiming the hammer
+   at the sky. When the bar is full the hammer is thrown up, control stops and the controls hide, the hammer
+   comes down on our head and the whole body explodes (not just the head).
+6. Alex, vessel 2 conversation: fix how she talks, because we never talk to her at all.
+7. The walking analog must always be readable, whatever is under it.
+8. A worried expression (eyes half closed) for vessel 1 dying and for the soul.
+9. Cloud land, the very first time: the first task is "Look around"; it changes to "Talk to Goddess" when we
+   see her.
+10. Cloud land, second vessel and later: the task is "Talk to Goddess" at once when we are summoned.
+11. Word typing speed doubled; long tapping does nothing to it any more. The sound stays the same.
+12. Remove the thought "I know where there is one." and the philosophical grave thought.
+
+## Chunk checklist
+
+Mark `[x]` when the chunk is pushed.
+
+- [x] **45. Part 3 doc** — this file.
+
+### Typing and thoughts
+- [ ] **46. Typing speed** — `dialog.c`: `DIALOG_CPS` 28 -> 56 (twice as fast). Holding / long-tapping the dialog no longer speeds the typing up: remove the hold speed-up (`speed`, around the `typed`/`upto` code) so a hold behaves like nothing. A TAP still skips to the end of the page when typing, and goes to the next page when done (unchanged). The typing sound stays exactly as it is (same tick per letter, same pitch; at double speed it simply ticks twice as often: keep one tick per letter, do not thin it out). Any other typewriter code (`talk.c`, `convo.c` reply typing) that has its own speed: check and double it the same way if it is the same kind of typing. Check: a page of N letters is fully typed after about N/56 s, a held finger does not shorten it, a tap still skips.
+- [ ] **47. Two thoughts go** — `story.c`: delete the thought **"I know where there is one."** (`THOUGHT_OLDBODY`, the second line after Alex's refusal) and the **grave thought** (`grave_watch`, "I am buried here, and I am standing here. The body stays. I walk on.", `THOUGHT_GRAVE`) together with `grave_seen`, `GRAVE_NEAR` and the `grave_watch` call if nothing else uses them. Alex's refusal keeps its first thought ("She won't give it up. I need something heavy to change her mind.") and the rest of the grave chain (the pull's own thought, search, respect, burial, hammer) is untouched. Leave `BRAIN_SCENE_GRAVE` in `brainwin.c` (other thoughts use it). Check: refusing plays one thought and not two; walking up to a stone thinks nothing; nothing else queued or dropped by accident (`THOUGHT_REFUSED` still drops when we take the hammer).
+- [ ] **48. Alex only talks to someone who is silent** — `story.c` `ALEX_REFUSE`: we never say a word to her (the chat is locked and the soul only thinks), but her lines now sound as if she were talking with us. Rewrite them so that she talks to a person who stands there silent: no question we are meant to answer, no "why do you want it so badly?". She notices the silence, gets annoyed, and says no. Draft: "The orb? It's mine. I found it." / "You just stand there and stare. Not a word?" / "Fine. Then no. Go away." (polish). Her face popup, no free chat, no question, same flow as chunk 29. The same silent-person rule applies to every later line she has for vessel 2 (her locked chat is the soul's thought, not her talking). Check: the lines contain no `?` that expects an answer from us (one rhetorical remark about the silence is fine), the flow after them (thought, grave pull) is unchanged.
+
+### Cloud land tasks
+- [ ] **49. First time: "Look around"** — the very first visit to the clouds (vessel 1, `lives == 0`): when the summoning ends (`intro_done`) the first task is **"Look around"** (`task_toast`, the normal coin ding and toast). When we catch sight of Dea (`dea_spotted`, today it coins in "Talk to Goddess") the "Look around" line is completed and **"Talk to Goddess"** coins in right after. Check: task "Look around" exists after the first summoning and before the sighting; on the sighting it is ticked off and "Talk to Goddess" exists; neither comes in twice. Reset both ids on a new game.
+- [ ] **50. Later lives: "Talk to Goddess" at once** — vessel 2 and 3 (`lives >= 1`): when the summoning ends (`respawn_summoned`) the task **"Talk to Goddess"** coins in immediately (no "Look around", no waiting for the sighting; Dea already stands in her temple looking down, `dea_seen` is set so `dea_spotted` does not coin it in a second time). It is completed by the scolding (`dea_scold`, vessel 2) or the naming (`dea_naming3`, vessel 3) as it is today. Check: after the second and the third summoning exactly one "Talk to Goddess" exists, no "Look around", and it is ticked off when Dea speaks.
+
+### Faces
+- [ ] **51. Alex's thinking art matches the real Alex** — `brainwin.c` `draw_alex` (the chibi used by `BRAIN_SCENE_ALEX` and `_ALEXORB`) must wear the same look as the real `ALEX` `Person` in `story.c`: the same hair colour and length (long hair, `{236,196,84}`), skin, shirt (`{60,170,170}`), trousers (`{70,60,110}`) and boots, taken from the same colours (pass the `Person` or share the constants; do not copy numbers by hand where they can drift). Still a chibi (big head, tiny body, glint, blush, no hands). The scenes still read the same. Check with a screenshot (`tools/preview.c` or `brainwintest.c`) of the real Alex next to the chibi: same colours, same hair.
+- [ ] **52. The worried face (engine)** — `char.c`: a worried expression: both eyes **half closed** (the upper half of each eye covered by a lid, the lid a flat line of the hair/skin colour, the lower half still showing the pupil and glint, and the blink still works on top of it). `char_set_worried(int on)` (like `char_set_headless`) for whatever is drawn while it is on, and `ACC_WORRIED` as an accessory flag so a `Person` can wear it permanently. It must show on every view that has eyes (`char_draw`, `char_draw_portrait`, the face popups, the brain card face). Make the **soul** (`SOUL`) always worried (`ACC_WORRIED`): limbo, the death popup, the thought card voice. Pixel art only. Check on a screenshot: normal vs worried portrait of the same person; the soul in a popup is worried.
+- [ ] **53. Worried: vessel 1 dying** — while vessel 1 (Aonia) is dying (the HP drain and the death scene, `dying` with `lives == 0`: from the moment the heart starts to fail until the body is gone) the player's body and the face in the hud/death scene are worried (`char_set_worried`). It ends when the life ends (the next body is not worried; Doia and Tria are not part of this chunk). Check: worried while dying, not before, not after the respawn.
+
+### Controls
+- [ ] **54. The stick is always readable** — `world.c` (the analog stick, fixed bottom-left, drawn with `pdisc`): whatever is under it (white clouds, dark night, grass, the grey death filter, the black of limbo) it must stay clearly visible. Draw it as a two-tone thing: a dark pixel outline ring around a light ring, plus a dark semi-transparent backing disc under the whole stick and a light knob with a dark rim, so one of the two tones always contrasts with the background. No smooth edges (pixel circles). Same idea for the interact button if it is drawn with the same style and has the same problem. Check: a headless test that draws the stick over a white, a black and a grass-green background and counts that both a light and a dark ring pixel stay at least a minimum contrast away from the background; screenshots on the three backgrounds.
+
+### The hammer is a long tap
+- [ ] **55. Hammer buttons are holds (engine + Alex)** — every use of the hammer is a **hold** on the interact button, never a tap: Alex's swing (chunk 37 `world_enable_fight`, today ONE TAP) becomes a hold (`HAMMER_HOLD_T`, about 1.2 s: the hammer on the button fills from the bottom as the bar does for the shrine, a rising tick plays); the shrine's break and repair (already holds) and chunk 57's "Die" use the same code. **A single tap (release before the hold is full) gives a hint**: the fill animation plays for a tiny time only (about 0.25 s, with a short soft sound, `sfx_hold_hint()` in `audio.c`, `sfx_debug_hints()` counts it) and then drains back; nothing else happens (no hit, no hammer swing). Releasing a long hold early drains back as it does today. When the hold is full the action happens once. Alex still dies in one swing and the death scene (chunk 38) is unchanged. Check: tap = a hint, no hit, no `alex_struck`; a full hold = the hit, `alex_struck`, the death starts; the shrine's tap also gives the hint.
+- [ ] **56. Die: looking up, aiming** — the "Die" hold (the hammer button at the mended shrine, `shrine_self`) no longer swings at once: while the finger holds it, the player stops, turns to the camera and **looks up with one eye closed, aiming the hammer at the sky** (new pose in `char.c`: front view, the pupils at the top of the eyes, one eye shut, the hammer held up over the head in the hand with a small wobble; pixel art). The bar fills (`SELF_HOLD_T`, about 2.0 s, the rising tick). Letting go early puts the pose away and the bar drains back. A tap gives chunk 55's hint only. Nothing is thrown yet (chunk 57 does that when the bar is full). Check: during the hold the pose is on (`char` state counted), after an early release it is off and the player can walk again; a full hold calls `on_full` once.
+- [ ] **57. Die: the throw and the explosion** — when chunk 56's bar is full: the controls and the buttons are hidden and the player cannot move; the hammer is **thrown straight up** (it leaves the hand, rises and goes off the top of the screen, the player's eyes follow it up); a short beat (about 0.8 s) of the sky with a shadow growing on the ground under us (so it is clear it is coming back); the hammer **comes down on our head** fast (a thump, `sfx_hit()`); the **whole body explodes**: a big burst of red pixel squares from the body (more than the beheading's burst, `gore.c`), the body and the head are gone (nothing lies on the floor; no topple, no lying body), the squares land as stains that stay (reuse the stain list; the oldest still go first). Pixel squares only, no anatomy. Then the same death scene as today (camera on the spot, peeps, flatline, "Doia has died.", `story_vessel_died`, Doia's stone at the death tile, the orb kept). Replaces `world_player_beheaded` for the "Die" path; Alex still loses only her head (chunk 38). Check: the controls are hidden from the full bar until the death scene; the thrown hammer is counted; no body is drawn after the impact; at least N stains; the rest of the chain (grave, limbo, orb in the pockets, Tria) is unchanged.
+
+### The map
+- [ ] **58. Finding things** — `story.c`/`world.c`: every place and thing the map can show (Alex's house, Dia's shrine, the hammer on the ground, each grave stone, Dea's temple in the clouds, later things) has a **found** flag, false at the start. It becomes true when the player gets within sight of it (the same idea as `alex_watch` / `DEA_SIGHT`: close enough that it is on the screen). Finding it plays a short **discovery sound** (`sfx_found()` in `audio.c`: a bright two-note rising chime, different from the task coin; `sfx_debug_found()` counts it) and shows the words **"You found {name}."** as a small toast (`toast.h`; polish names: "Alex's house", "the shrine", "a hammer", "a grave", "the temple"). Once per thing, per game; the found flags survive a death and are put back with the world (graves found once stay found), and reset on a new game. A hammer taken or a house left behind stays found. Check: not found before getting close, found + one sound + one toast when close, not again when we leave and return, flags survive `landed_again`.
+- [ ] **59. Only what we found is on the map** — `minimap.c` and `mapwin.c` (the minimap and the big map window): nothing is drawn for a thing until its chunk-58 found flag is set (no dot, no icon, no marker, no label). The map ground itself is unchanged. Things that are always there (the player's own YOU marker) stay. The hammer that was picked up leaves the map as today. Check: the map shows no marker before the find and one after; a thing never found never shows.
+- [ ] **60. Pictures instead of dots and text** — the markers on the minimap and the map window are no longer plain dots with text labels: **each dot becomes a tiny pixel-art picture of what it is** (Alex's house: a little hut; the shrine: a small pillar with the gem, cracked while broken, whole when mended, grey when polluted if it is drawn so; the hammer: the hammer icon of `item.c`; a grave: a small stone; Dea's temple: a small gold-white temple; the orb never shows). Drawn from the shared icon code (`item.c` style, 8 x 8 or 12 x 12 cells, one drawing function per kind used by both the minimap and the map window, scaled in whole cells). **All the marker text is removed** (the labels and the legend text on the map window; only the buttons and the YOU marker's own wording that the window already needs may stay). Check: screenshots of the minimap and the map window with all kinds found; no label text in the markers; each kind has its own picture.
+
+### The end of part 3
+- [ ] **61. Wrap-up** — go through every thought, task and line this file touched and make sure they still make sense together (no thought refers to the removed ones, `THOUGHT_OLDBODY`/`THOUGHT_GRAVE` leave no dead code); update `vessel-2-part2.md`'s status log if a behaviour it describes changed (the one tap swing, the head only death, the dots and labels on the map, the typing speed); then do part 2's chunk 44 (wrap-up) as its file describes it, **minus the `groundtest` rewrite** unless the owner asks for it again (`tools/orderstest.c` is the gate). Update this file's status log.
+
+## Open decisions (defaults so nobody has to wait)
+
+- **"Fix how she talks but we never do at all to her" (change 6):** read as: Alex's refusal lines are written as if we answered her, but we never say anything. Default: she talks to a silent person (chunk 48). If the owner meant something else (for example that her typed chat should disappear completely for vessel 2), say so and change chunk 48.
+- **Worried face scope (change 8):** the soul, and vessel 1 while dying. Not Doia, not Tria, not the other npcs, unless the owner asks.
+- **What counts as "explored" (change 3):** coming within sight of the thing (on screen), not walking on it. One sound and one toast per thing, ever.
+- **Hold times:** Alex's swing about 1.2 s, "Die" about 2.0 s, the tap hint about 0.25 s. Tune after the owner's playtest.
+- **Alex's death** stays the head-off one-swing death of chunk 38 (only the swing becomes a hold). Only Doia's end becomes the explosion.
+- **Chunk 44 of part 2** (wrap-up) waits for chunk 61 of this file.
+
+## Status log
+
+- 2026-10-12: chunk 45 done: this file. Written from the owner's list after the first playtest of part 2 (chunks 25-43 pushed and checked on the phone: the orders, the grave, the hammer, Alex, the orb, the shrine, "Die", Tria and the hand-over all work; the owner wants the changes above).
