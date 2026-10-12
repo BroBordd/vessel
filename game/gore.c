@@ -59,6 +59,18 @@ void gore_burst(float x, float y, float height, float dir_x, float dir_y) {
     }
 }
 
+void gore_explode(float x, float y, float height) {
+    int made = 0;
+    for (int i = 0; i < MAX_DROPS && made < 120; i++) {
+        if (drops[i].live) continue;
+        float ang = rnd() * 6.2831853f, sp = (0.8f + rnd() * 6.0f) * tile;
+        float big = rnd();
+        drops[i] = (Drop){ x, y, height * (0.4f + rnd() * 1.2f), cosf(ang) * sp, sinf(ang) * sp * 0.8f,
+                           (2.5f + rnd() * 6.0f) * tile, big < 0.12f ? 3 * s : big < 0.5f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1 };
+        made++;
+    }
+}
+
 void gore_head_launch(const Person *who, float x, float y, float height, float dir_x, float dir_y) {
     head.on = 1; head.settled = 0; head.bounces = 0; head.who = who;
     head.x = x; head.y = y; head.z = height;

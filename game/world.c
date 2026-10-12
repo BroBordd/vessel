@@ -81,6 +81,15 @@ static float fight_prog, fight_tick;                     /* the swing's hold, 0.
  * camera and aims the hammer at the sky (char_draw_aim); letting go early puts the pose away and the bar drains; a full bar calls the shrine's on_full */
 #define SELF_HOLD_T    2.0f
 static float self_prog, self_tick, aim_t;
+/* chunk 57: the full bar throws the hammer straight up (THROW_UP_T: it leaves the hand and goes off the top of the screen), a beat of sky with a shadow growing
+ * under us (THROW_SKY_T), then it comes down on our head fast (THROW_FALL_T). throw_t = -1 when nothing is thrown. at the impact the story's on_full runs and
+ * world_player_explode makes the body go (player_gone: nothing is drawn of it any more) */
+#define THROW_UP_T   0.55f
+#define THROW_SKY_T  0.80f
+#define THROW_FALL_T 0.22f
+#define THROW_TOTAL  (THROW_UP_T + THROW_SKY_T + THROW_FALL_T)
+static float throw_t = -1;
+static int player_gone, hammer_draws;
 static int self_aiming(void);                            /* the finger is holding the hammer button at the mended shrine (defined after the update's state) */
 static float btn_t;                                      /* how long the finger has been on the button */
 static float hint_t;                                     /* > 0 while the hint's fill is playing (HINT_ANIM_T -> 0) */
@@ -540,7 +549,7 @@ static void load_map(int which) {
     cur_map = which;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
-    gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; gore_indoors = 1;
+    gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0; gore_indoors = 1;
     shrine_reset(px, tile);
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
@@ -822,7 +831,7 @@ void world_return_to_clouds(void) {
     load_map(MAP_CLOUD);
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; death_npc = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
-    player_beheaded = 0; player_topple_t = -1;
+    player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0;
     blackout_t = -1; blackout_cb = NULL;
     dawn_on = 0; col_mul = 255;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
@@ -892,8 +901,28 @@ void world_player_behead(void) {
     world_set_controls_visible(0);
 }
 int world_player_beheaded(void) { return player_beheaded; }
-static void self_hit(void) { sfx_hit(); fight_swing = 1.0f; shrine_self_fire(); }     /* (chunk 56: the full bar's on_full. chunk 57 replaces the swing with the throw) */
-static int self_aiming(void) { return shrine_self() && near_shrine && btn_down && btn_inside && !player_beheaded; }
+/* chunk 57: the whole body goes. the controls are already hidden (self_hit). a big burst of red squares from the body, which is gone: nothing lies on the floor, no
+ * head. the stains are made where we stand, so the room's old ones are cleared (we do not come back). story.c runs the death scene after it */
+void world_player_explode(void) {
+    if (player_beheaded) return;
+    gore_reset(px, tile); spark_npc = -1; gore_indoors = indoors;
+    gore_set_floor(gore_floor_ok);
+    gore_explode(pxp, pyp, 6.0f * px);
+    player_beheaded = 1; player_gone = 1; player_topple_t = -1; throw_t = -1;
+    kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = btn_inside = 0;
+    world_set_controls_visible(0);
+}
+/* chunk 56/57: the full bar. the hammer is thrown; the story hears about it (shrine_self_fire) only when it lands on our head */
+static void self_hit(void) {
+    throw_t = 0; self_prog = 0; self_tick = 0; aim_t = 0; facing = FACE_DOWN;
+    kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = btn_inside = 0;
+    world_set_controls_visible(0);
+}
+static int self_aiming(void) { return shrine_self() && near_shrine && btn_down && btn_inside && !player_beheaded && throw_t < 0; }
+int  world_throwing(void)   { return throw_t >= 0; }                                  /* (tests) */
+float world_throw_time(void) { return throw_t; }
+int  world_player_gone(void) { return player_gone; }
+int  world_hammer_draws(void) { return hammer_draws; }
 int  world_aiming(void) { return self_aiming(); }                                    /* (tests) */
 float world_self_progress(void) { return self_prog; }                                /* (tests) */
 void world_death_fall(void) { if (death_on && death_fall_t < 0) death_fall_t = 0; }
@@ -1098,7 +1127,7 @@ void world_update(float dt) {
         phase_update(dt);
         near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
     } else {
-        if (dialog_active() || door_t >= 0 || player_beheaded || self_aiming()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
+        if (dialog_active() || door_t >= 0 || player_beheaded || throw_t >= 0 || self_aiming()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (door_t >= 0) {
             door_t += dt;
             if (!door_swapped && door_t >= DOOR_T / 2) { door_swapped = 1; if (indoors) leave_house(); else enter_house(); }
@@ -1158,12 +1187,16 @@ void world_update(float dt) {
             self_tick = 0; aim_t = 0;
             if (self_prog > 0) { self_prog -= dt / HAMMER_DECAY_T; if (self_prog < 0) self_prog = 0; }
         }
+        if (throw_t >= 0) {                                                                   /* chunk 57: the hammer is up in the sky, then it comes back */
+            throw_t += dt;
+            if (throw_t >= THROW_TOTAL) { throw_t = -1; sfx_hit(); fight_swing = 1.0f; shrine_self_fire(); }   /* the thump on our head: the story takes over (world_player_explode) */
+        }
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
         if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_search_update(dt)) btn_down = btn_inside = 0;
         if (bsearch_update(dt)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
-        if (player_beheaded) {                                            /* chunk 41: nothing to press any more */
+        if (player_beheaded || throw_t >= 0) {                            /* chunk 41: nothing to press any more (chunk 57: nor while the hammer is thrown) */
             near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = 0; btn_down = btn_inside = 0;
         }
     }
@@ -1485,6 +1518,18 @@ static void scene_filter(int player) {
     if (player) gfx_set_filter(0, g); else gfx_set_filter(g, 0);
 }
 
+/* chunk 57: the thrown hammer, pixel squares only: 1 wide handle, 5 x 2 head, 11 rows in all. cx = the middle, yt = the top row. up = the head on top (as it was
+ * held), else the head at the bottom (it comes back down head first) */
+static void draw_thrown_hammer(SDL_Renderer *r, int cx, int yt, int up) {
+    int hy = up ? yt : yt + 9 * px, gy = up ? yt + 2 * px : yt;
+    col(r, 150, 100, 56, 255); fill(r, cx, gy, px, 9 * px);                                  /* the handle (cx = its column) ... */
+    col(r, 120, 78, 42, 255);  fill(r, cx, gy + (up ? 4 : 0) * px, px, 5 * px);              /* ... a darker grip on the hand's end */
+    col(r, up ? 204 : 142, up ? 210 : 148, up ? 228 : 174, 255); fill(r, cx - 2 * px, hy, 5 * px, px);          /* the head: light on top, shaded face below */
+    col(r, up ? 142 : 204, up ? 148 : 210, up ? 174 : 228, 255); fill(r, cx - 2 * px, hy + px, 5 * px, px);
+    col(r, 98, 104, 130, 255); fill(r, cx - 2 * px, hy + px, px, px); fill(r, cx + 2 * px, hy + px, px, px);
+    hammer_draws++;
+}
+
 /* everything that lives on the map (tiles, hole, characters) seen from a camera at (camx, camy) */
 static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int cx = (int)camx, cy = (int)camy;
@@ -1591,6 +1636,29 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             char_set_lighten(FLASH_PEAK * tri);
             char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
             char_set_lighten(0);
+        }
+    } else if (player_gone) {                                     /* chunk 57: the body exploded: nothing of it, no shadow, no topple */
+    } else if (throw_t >= 0) {                                    /* chunk 57: the hammer is thrown: the empty hand up, the eyes on it; then the sky, the shadow, the fall */
+        if (throw_t >= THROW_UP_T) {                              /* the shadow under us grows as it comes back (3 rows of squares, under the body) */
+            float k2 = (throw_t - THROW_UP_T) / (THROW_SKY_T + THROW_FALL_T); if (k2 > 1) k2 = 1;
+            int w = 2 + (int)(8.0f * k2);
+            col(r, 0, 0, 0, 50 + (int)(90.0f * k2));
+            fill(r, sx0 - (w * px) / 2, sy0 - px, w * px, px);
+            fill(r, sx0 - ((w - 2) * px) / 2, sy0 - 2 * px, (w - 2) * px, px);
+            fill(r, sx0 - ((w - 2) * px) / 2, sy0, (w - 2) * px, px);
+        }
+        char_set_aim_hammer(0);
+        char_draw_aim(r, player_look, sx0, sy0, px, 0.0f);
+        char_set_aim_hammer(1);
+        if (throw_t < THROW_UP_T) {                               /* up: leaves the hand and goes off the top of the screen */
+            float k = throw_t / THROW_UP_T, e = 1.0f - (1.0f - k) * (1.0f - k);
+            int y0 = sy0 - 16 * px, y1 = -14 * px;
+            draw_thrown_hammer(r, sx0 + 4 * px, y0 + (int)((y1 - y0) * e), 1);
+        } else if (throw_t >= THROW_UP_T + THROW_SKY_T) {         /* down: fast, head first, onto our head */
+            float k = (throw_t - THROW_UP_T - THROW_SKY_T) / THROW_FALL_T; if (k > 1) k = 1;
+            float e = k * k;
+            int y0 = -14 * px, y1 = sy0 - 22 * px;
+            draw_thrown_hammer(r, sx0 + (int)(4.0f * px * (1.0f - e)), y0 + (int)((y1 - y0) * e), 0);
         }
     } else if (self_aiming()) {                                   /* chunk 56: "Die": face up, one eye shut, the hammer raised at the sky */
         char_draw_aim(r, player_look, sx0, sy0, px, aim_t);

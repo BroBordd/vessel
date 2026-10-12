@@ -612,8 +612,9 @@ static void alex_killed(void) {
 }
 
 /* ---------- "Die" (chunk 41) ----------
- * the shrine is whole and the task "Die" is on the list. next to the mended shrine the button is the hammer again; a full HOLD (chunk 56: the player aims at the sky while it fills; chunk 57 throws) swings it at our own head:
- * the same end as Alex's (world_player_behead: the head flies, the blood splashes, the body topples). when the blood has landed the death scene runs on
+ * the shrine is whole and the task "Die" is on the list. next to the mended shrine the button is the hammer again; a full HOLD (chunk 56: the player aims at the sky while it fills) throws it straight up (chunk 57: the controls hide, the
+ * hammer comes back down on our head, and self_hit_cb runs at the impact): the whole body explodes (world_player_explode: red squares, nothing left lying, no head;
+ * Alex still only loses her head). when the blood has landed the death scene runs on
  * us: the peeps, the flatline (no heart: no chest to show it on), "Doia has died.", then the usual end of a life (story_vessel_died: the stone, the black,
  * limbo, "Uh. I died. Again.", the next summoning). */
 #define SELF_BLOOD_T 2.0f
@@ -633,7 +634,7 @@ static void self_death_begin(void) { world_death_begin(self_death_ready); }
 static void self_hit_cb(void) {
     self_done = 1; dying = 1;                               /* no more thoughts of our own, no more walking */
     mission_complete(mission_die);
-    world_player_behead();
+    world_player_explode();                                 /* chunk 57: the hammer has landed on our head: the whole body goes */
     story_after(SELF_BLOOD_T, self_death_begin);
 }
 

@@ -11,6 +11,9 @@
 void gore_reset(int pixel_scale, int tile_size);             /* clears the stains, the drops and the head (a new map) */
 void gore_set_floor(int (*floor_ok)(int tile_x, int tile_y)); /* where a drop may land and the head may roll (NULL: anywhere) */
 void gore_burst(float x, float y, float height, float dir_x, float dir_y);   /* the splash: from a point `height` above (x, y), biased along (dir_x, dir_y) */
+/* chunk 57: the whole body goes. a much bigger burst of red pixel squares (some of them big) from a point `height` above (x, y), out in every direction;
+ * they land as stains like the beheading's (the oldest stains still go first when the list is full). no head, nothing else is made. */
+void gore_explode(float x, float y, float height);
 void gore_head_launch(const Person *who, float x, float y, float height, float dir_x, float dir_y);
 /* chunk 38.1: the idle of the lying body. from the neck (x, y on the ground, `height` px above it) short bursts of small red squares shoot out in a
  * straight line along (dir_x, 0): a squeeze (the body twitches), a pfft (sfx_pfft), a pause, again, until the map is swapped (gore_reset). the first

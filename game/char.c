@@ -216,6 +216,8 @@ void char_draw(SDL_Renderer *r, const Person *p, int x, int y,
  * (sleeve, hand) and the hammer held over it: a brown handle going up past the top of the head and a grey head, its top end wobbling a cell left and right.
  * cells are in sprite units from the sprite's top-left; rows above 0 are over the head. */
 int char_debug_aims(void) { return n_aims; }
+static int g_aim_hammer = 1;                                                 /* chunk 57: 0 = the hand is up and empty (the hammer has been thrown) */
+void char_set_aim_hammer(int on) { g_aim_hammer = on != 0; }
 void char_draw_aim(SDL_Renderer *r, const Person *p, int x, int y, int s, float t) {
     int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s;
     n_aims++;
@@ -230,6 +232,7 @@ void char_draw_aim(SDL_Renderer *r, const Person *p, int x, int y, int s, float 
     use(r, p->shirt);                                                        /* the sleeve: over the old hand, then up along the head */
     CELL(8, 9, 1, 1); CELL(9, 9, 1, 1); CELL(9, 8, 1, 1);
     use(r, p->skin);  CELL(9, 7, 1, 1);                                      /* the hand */
+    if (!g_aim_hammer) return;                                               /* chunk 57: thrown: nothing in the hand */
     setc(r, 150, 100, 56); CELL(9, 0, 1, 7);                                 /* the handle, from the hand up over the head ... */
     CELL(9 + wob, -2, 1, 2);                                                 /* ... the top of it swaying */
     setc(r, 120, 78, 42);  CELL(9, 2, 1, 5);                                 /* a darker grip under the hand */

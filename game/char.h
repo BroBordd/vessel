@@ -59,6 +59,7 @@ void char_set_worried(int on);
  * the head holding the hammer, which wobbles a little (t = seconds, drives the wobble). char_debug_aims() counts the draws (tests). */
 void char_draw_aim(SDL_Renderer *r, const Person *p, int x, int y, int s, float t);
 int  char_debug_aims(void);
+void char_set_aim_hammer(int on);   /* chunk 57: 0 = the pose with an empty raised hand (the hammer was thrown), 1 = with the hammer (the default) */
 
 /* draws head + shoulders, front view, top-left at (x, y). size is 10*s square.
  * talking = 1 flaps the mouth. (the eyes blink, each person on their own clock: see eyes_shut in char.c) */

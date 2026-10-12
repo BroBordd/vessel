@@ -59,6 +59,11 @@ float world_self_progress(void);                  /* chunk 56: the "Die" hold, 0
 void world_enable_shrine_self(void (*on_hit)(void));    /* chunk 41: at the MENDED shrine the button is the hammer again; a full HOLD (chunk 56, aiming at the sky) swings it at ourselves (shrine.h): on_hit runs once */
 void world_player_behead(void);                          /* chunk 41: our head comes off (flies, blood, the body topples and lies, no more walking) */
 int  world_player_beheaded(void);
+void world_player_explode(void);                            /* chunk 57: the whole body goes (a burst of red squares, nothing is left of it; no walking). story.c calls it when the hammer lands */
+int  world_throwing(void);                                  /* chunk 57: (tests) the hammer is thrown and has not landed yet */
+float world_throw_time(void);                               /* (tests) seconds since the throw, -1 when none */
+int  world_player_gone(void);                               /* (tests) the body exploded: nothing of it is drawn */
+int  world_hammer_draws(void);                              /* (tests) how many times the flying hammer was drawn */
 void world_enable_shrine_repair(void (*on_start)(void), void (*on_done)(void));   /* chunk 40: the same hold with the hammer MENDS a broken shrine (shrine.h). on_start: the first time the hold starts; on_done: it is whole again */
 void world_restore_shrine(int tile_x, int tile_y, int polluted);   /* the shrine as an earlier life left it (chunk 20): inert, and fouled for good if polluted */
 

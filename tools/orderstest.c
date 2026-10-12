@@ -573,14 +573,45 @@ int main(void) {
                 pxp = x0; pyp = y0; facing = FACE_DOWN; run(0.4f);
                 CHECK(shrine_self() && near_shrine && !world_player_beheaded(), "not back at the shrine for the full hold (%d, %d)", shrine_self(), near_shrine);
             }
-            world_touch(0, bx, by); run(SELF_HOLD_T + 0.2f); world_touch(1, bx, by);
-            CHECK(sfx_debug_hits() == h1 + 1 && world_player_beheaded() && !world_aiming(), "the full hold did not swing once (%d hits, beheaded %d)", sfx_debug_hits() - h1, world_player_beheaded());
-            CHECK(gore_head_exists() && gore_drops_flying() > 0, "no head / no blood in the air after the swing");
+            /* chunk 57: the full bar throws the hammer straight up. the controls hide and the player cannot move; the hammer leaves the hand and goes off the top, a
+             * beat of sky with the shadow growing, then it comes down on the head (the thump, sfx_hit) and the WHOLE body explodes: no head, no body on the floor, a
+             * bigger burst than the beheading's. only then does the story run (the death scene is the same as before) */
+            #define COUNT_RGB(rgb, outn) do { frame(0.0f); SDL_RenderPresent(rr); int n_ = 0; Uint32 *p_ = (Uint32 *)surf->pixels; \
+                for (int yy_ = surf->h / 5; yy_ < surf->h; yy_++) for (int xx_ = 0; xx_ < surf->w; xx_++) { Uint8 r_, g_, b_, a_; SDL_GetRGBA(p_[yy_ * (surf->pitch / 4) + xx_], surf->format, &r_, &g_, &b_, &a_); \
+                    if (r_ == (rgb).r && g_ == (rgb).g && b_ == (rgb).b) n_++; } (outn) = n_; } while (0)
+            int hd0 = world_hammer_draws(), shirt0;
+            world_touch(0, bx, by); run(SELF_HOLD_T + 0.05f);
+            CHECK(world_throwing() && !world_aiming() && sfx_debug_hits() == h1 && !world_player_gone() && !self_done, "the full bar did not start the throw alone (throwing %d, hits %d, gone %d, done %d)", world_throwing(), sfx_debug_hits() - h1, world_player_gone(), self_done);
+            CHECK(!controls_visible, "the controls are still shown while the hammer is thrown");
+            world_touch(1, bx, by);
+            COUNT_RGB(VESSEL2.shirt, shirt0);
+            CHECK(shirt0 > 20, "no body to see before the impact (%d shirt pixels)", shirt0);
+            {   float x1 = pxp, y1 = pyp;
+                world_touch(0, sx, sy + sr * 3 / 4); run(0.2f); world_touch(1, sx, sy + sr * 3 / 4);
+                CHECK(fabsf(pxp - x1) + fabsf(pyp - y1) < 0.01f, "the player walked while the hammer was thrown"); }
+            hd0 = world_hammer_draws(); frame(0.016f);
+            CHECK(world_hammer_draws() == hd0 + 1 && world_throw_time() < THROW_UP_T, "the hammer is not drawn rising (%d, t %.2f)", world_hammer_draws() - hd0, world_throw_time());
+            SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/throw_up.bmp");                                      /* the hammer leaving the hand (look at it) */
+            while (world_throw_time() < THROW_UP_T + 0.5f) frame(0.016f);
+            hd0 = world_hammer_draws(); frame(0.016f);
+            CHECK(world_hammer_draws() == hd0 && world_throwing() && sfx_debug_hits() == h1, "the sky beat: the hammer is still in view or it landed early (%d)", world_hammer_draws() - hd0);
+            SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/throw_sky.bmp");                                     /* the shadow growing (look at it) */
+            while (world_throw_time() < THROW_TOTAL - 0.06f) frame(0.016f);
+            hd0 = world_hammer_draws(); frame(0.016f);
+            CHECK(world_hammer_draws() == hd0 + 1 && sfx_debug_hits() == h1, "the hammer is not drawn coming down (%d)", world_hammer_draws() - hd0);
+            SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/throw_fall.bmp");                                    /* just before the thump (look at it) */
+            run(0.15f);
+            CHECK(sfx_debug_hits() == h1 + 1 && !world_throwing(), "the thump did not come once at the impact (%d hits)", sfx_debug_hits() - h1);
+            CHECK(world_player_beheaded() && world_player_gone() && !world_aiming(), "the body did not explode (beheaded %d, gone %d)", world_player_beheaded(), world_player_gone());
+            CHECK(!gore_head_exists() && gore_drops_flying() > 60, "a head, or too few red squares in the air after the burst (head %d, %d squares)", gore_head_exists(), gore_drops_flying());
             CHECK(self_done && dying && !shrine_self(), "the swing's state is wrong (%d, %d, %d)", self_done, dying, shrine_self());
-            run(0.3f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_blood.bmp");        /* the splash (look at it) */
+            run(0.3f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_blood.bmp");        /* the burst (look at it) */
+            {   int shirt1, pants1, skin1;
+                COUNT_RGB(VESSEL2.shirt, shirt1); COUNT_RGB(VESSEL2.pants, pants1); COUNT_RGB(VESSEL2.skin, skin1);
+                CHECK(shirt1 == 0 && pants1 == 0 && skin1 == 0, "some of the body is still drawn after the explosion (shirt %d, trousers %d, skin %d)", shirt1, pants1, skin1); }
             CHECK(!world_death_active(), "the death scene began before the blood had landed");
             run(1.9f);
-            CHECK(!gore_busy() && gore_head_settled() && gore_stain_count() >= 25, "the head / the blood did not come to rest (%d stains)", gore_stain_count());
+            CHECK(!gore_busy() && gore_stain_count() >= 70, "the blood did not come to rest (%d stains, want 70+ : more than the beheading's 57)", gore_stain_count());
             CHECK(world_death_active() && world_death_npc() < 0, "the death scene is not on us");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_lying.bmp");                  /* the body, the stains, the head (look at it) */
             run(DEATH_SETTLE_T + 0.4f);
