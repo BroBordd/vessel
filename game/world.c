@@ -523,17 +523,19 @@ static const Rgb MAP_PAL[] = {
     { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 }, { 250, 240, 208 }, { 232, 224, 200 }, { 226, 190, 90 } };
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
+    for (int i = 0; i < MAX_MARKS; i++) marks[i].state = 0;
     if (npcs_here())
-        for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; marks[nm].label = npc_person(i)->name; nm++; }
+        for (int i = 0; i < npc_count() && nm < MAX_MARKS - 1; i++) { npc_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 0; nm++; }
     if (indoors) {                                                          /* the room: just Alex and the way out */
-        marks[nm].tx = HOUSE_IN_DOOR_X + 0.5f; marks[nm].ty = HOUSE_IN_H - 0.5f; marks[nm].kind = 6; marks[nm].label = "Door"; nm++;
+        marks[nm].tx = HOUSE_IN_DOOR_X + 0.5f; marks[nm].ty = HOUSE_IN_H - 0.5f; marks[nm].kind = 6; nm++;
         return nm;
     }
-    if (house_on && world_found_house() && nm < MAX_MARKS - 1) { marks[nm].tx = house_sx + 0.5f; marks[nm].ty = house_sy - HUT_H / 2.0f; marks[nm].kind = 5; marks[nm].label = house_label; nm++; }   /* her house, where she lives */
-    if ((shrine_enabled() || shrine_repairing()) && world_found_shrine() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; marks[nm].label = "Shrine"; nm++; }
-    if (item_exists() && shrine_enabled() && world_found_hammer() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; marks[nm].label = "Hammer"; nm++; }   /* the hammer, once there is a shrine to break */
-    for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { if (!world_found_grave(grave_person(i))) continue; grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; marks[nm].label = "Grave"; nm++; }   /* graves: grey blocks */
-    if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; marks[nm].label = "Hole"; nm++; }
+    if (cur_map == MAP_CLOUD && world_found_temple() && nm < MAX_MARKS - 1) { marks[nm].tx = DEA_TX + 0.5f; marks[nm].ty = DEA_TY + 0.5f; marks[nm].kind = 7; nm++; }   /* chunk 60: the goddess's temple, once found */
+    if (house_on && world_found_house() && nm < MAX_MARKS - 1) { marks[nm].tx = house_sx + 0.5f; marks[nm].ty = house_sy - HUT_H / 2.0f; marks[nm].kind = 5; nm++; }   /* her house, where she lives */
+    if (shrine_exists() && world_found_shrine() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; marks[nm].state = shrine_polluted(); nm++; }   /* any state: whole, or broken (a cracked stump) */
+    if (item_exists() && shrine_enabled() && world_found_hammer() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
+    for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { if (!world_found_grave(grave_person(i))) continue; grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
+    if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
     return nm;
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */

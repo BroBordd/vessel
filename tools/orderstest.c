@@ -15,6 +15,7 @@
 #include "story.c"
 #include "lang.h"
 #include "pausebtn.h"
+#include "mapicon.h"
 
 #define TW 540
 #define TH 1170
@@ -867,6 +868,23 @@ int main(void) {
         CHECK(sfx_debug_coins() == c0, "the coin ding played for a discovery (%d)", sfx_debug_coins() - c0);
         for (int i = 0; i < 5; i++) { GO(cx, cy); run(0.2f); pxp = (th[i].x + 3.0f) * tile; pyp = th[i].y * tile; run(0.3f); }     /* away and back */
         CHECK(world_found_count() == 5 && sfx_debug_found() == f0 + 5, "something was found a second time (%d, %d chimes)", world_found_count(), sfx_debug_found() - f0 - 5);
+        /* chunk 60: pictures instead of dots. all five things are found and on the map: each is a marker of its own kind (a picture, no text: MiniMark has no label any
+         * more), the shrine's marker says whole or broken, and screenshots of the minimap (by the shrine) and of the map window (everything) are saved */
+        GO(cx, cy); run(0.2f);
+        CHECK(MKIND(5) == 1 && MKIND(2) == 1 && MKIND(4) == 1 && MKIND(3) == 2 && MKIND(7) == 0, "all found: markers house %d shrine %d hammer %d graves %d temple %d", MKIND(5), MKIND(2), MKIND(4), MKIND(3), MKIND(7));
+        {   MiniMark mm[MAX_MARKS]; int n = gather_marks(mm), whole = -1;
+            for (int q = 0; q < n; q++) if (mm[q].kind == 2) whole = mm[q].state;
+            CHECK(whole == 0, "a whole shrine is marked broken (state %d)", whole); }
+        int cv_ = controls_visible; world_set_controls_visible(1);       /* the minimap shows and the map window opens only with the controls on */
+        GO(sx_ + 3, sy_); run(0.3f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/map_icons_mini.bmp");
+        mapwin_open(); CHECK(mapwin_active(), "the map window did not open"); mapwin_update(0.016f); frame(0.0f); mapwin_draw(rr); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/map_icons_window.bmp"); mapwin_close();
+        CHECK(mapwin_active() == 0, "the map window did not close again");
+        world_restore_shrine(sx_, sy_, 1); run(0.1f);                   /* the shrine as an earlier life left it: broken */
+        {   MiniMark mm[MAX_MARKS]; int n = gather_marks(mm), broken = -1;
+            for (int q = 0; q < n; q++) if (mm[q].kind == 2) broken = mm[q].state;
+            CHECK(broken == 1, "a broken shrine is not marked broken (state %d)", broken); }
+        world_restore_shrine(sx_, sy_, 0);
+        world_set_controls_visible(cv_);
         load_map(MAP_GREEN); phase = PH_PLAY; run(0.2f);                 /* a new map: a landing after a death. the things are not there, but what was found stays found */
         CHECK(world_found_count() == 5 && world_found_house() && world_found_shrine() && world_found_hammer() && world_found_grave(&VESSEL2), "the found flags did not survive a new map");
         world_restore_shrine(sx_, sy_, 0); GO(sx_, sy_); run(0.4f);
@@ -876,11 +894,43 @@ int main(void) {
         CHECK(!world_found_temple() && world_found_count() == 5, "the temple was found from afar");
         int ttx, tty; world_temple_spot(&ttx, &tty); pxp = (ttx + 0.5f + 3.0f) * tile; pyp = (tty + 0.5f) * tile; run(0.3f);
         CHECK(world_found_temple() && world_found_count() == 6 && sfx_debug_found() == f0 + 6, "the temple was not found when we came close (%d, %d chimes)", world_found_count(), sfx_debug_found() - f0 - 5);
+        CHECK(MKIND(7) == 1 && MKIND(5) == 0 && MKIND(2) == 0 && MKIND(3) == 0, "the temple marker: temple %d (want 1), others %d %d %d", MKIND(7), MKIND(5), MKIND(2), MKIND(3));
+        {   int cv2_ = controls_visible; world_set_controls_visible(1);
+            mapwin_open(); CHECK(mapwin_active(), "the map window did not open"); mapwin_update(0.016f); frame(0.0f); mapwin_draw(rr); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/map_icons_temple.bmp"); mapwin_close(); world_set_controls_visible(cv2_); }
         run(5.0f); GO(CLOUD_CX, 50); run(0.2f); pxp = (ttx + 0.5f + 3.0f) * tile; pyp = (tty + 0.5f) * tile; run(0.3f);
         CHECK(world_found_count() == 6 && sfx_debug_found() == f0 + 6, "the temple was found twice");
         world_found_reset();                                            /* a new game */
         CHECK(world_found_count() == 0 && !world_found_temple() && !world_found_house() && !world_found_grave(&VESSEL), "a new game did not clear the found flags");
         #undef GO
+    }
+
+    /* chunk 60: every kind of map icon is its own picture (not empty, no two alike), and the broken shrine is grey where the whole one has its violet gem */
+    {   enum { IC = 3, SZ = MAPICON_CELLS * IC };
+        SDL_Surface *is = SDL_CreateRGBSurfaceWithFormat(0, SZ, SZ, 32, SDL_PIXELFORMAT_RGBA32);
+        SDL_Renderer *ir = SDL_CreateSoftwareRenderer(is);
+        SDL_SetRenderDrawBlendMode(ir, SDL_BLENDMODE_BLEND);
+        static Uint32 px[MAPICON_COUNT][SZ * SZ]; int lit[MAPICON_COUNT], violet[MAPICON_COUNT];
+        for (int k = 0; k < MAPICON_COUNT; k++) {
+            SDL_SetRenderDrawColor(ir, 0, 0, 0, 0); SDL_RenderClear(ir);
+            mapicon_draw(ir, k, SZ / 2, SZ / 2, IC);
+            memcpy(px[k], is->pixels, sizeof px[k]);
+            lit[k] = violet[k] = 0;
+            for (int i = 0; i < SZ * SZ; i++) {
+                Uint8 R, G, B, A; SDL_GetRGBA(px[k][i], is->format, &R, &G, &B, &A);
+                if (A) lit[k]++;
+                if (A && B > 200 && R > 150 && G < 140) violet[k]++;
+            }
+            CHECK(lit[k] > 40, "map icon %d is nearly empty (%d pixels)", k, lit[k]);
+        }
+        for (int a = 0; a < MAPICON_COUNT; a++) for (int b = a + 1; b < MAPICON_COUNT; b++)
+            CHECK(memcmp(px[a], px[b], sizeof px[a]) != 0, "map icons %d and %d are the same picture", a, b);
+        CHECK(violet[MAPICON_SHRINE] > 0 && violet[MAPICON_SHRINE_BROKEN] == 0, "the whole shrine has %d violet pixels, the broken one %d (want >0 and 0)", violet[MAPICON_SHRINE], violet[MAPICON_SHRINE_BROKEN]);
+        SDL_Surface *sheet = SDL_CreateRGBSurfaceWithFormat(0, SZ * MAPICON_COUNT + 8 * (MAPICON_COUNT + 1), SZ + 16, 32, SDL_PIXELFORMAT_RGBA32);
+        SDL_Renderer *sr_ = SDL_CreateSoftwareRenderer(sheet);
+        SDL_SetRenderDrawColor(sr_, 76, 162, 78, 255); SDL_RenderClear(sr_);
+        for (int k = 0; k < MAPICON_COUNT; k++) mapicon_draw(sr_, k, 8 + k * (SZ + 8) + SZ / 2, 8 + SZ / 2, IC);
+        SDL_RenderPresent(sr_); SDL_SaveBMP(sheet, "build/map_icons.bmp");                     /* every picture on grass (look at it) */
+        SDL_DestroyRenderer(sr_); SDL_FreeSurface(sheet); SDL_DestroyRenderer(ir); SDL_FreeSurface(is);
     }
 
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);

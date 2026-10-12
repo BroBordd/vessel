@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "minimap.h"
+#include "mapicon.h"
 #include <math.h>
 
 #define VIEW 26                     /* tiles across the window */
@@ -60,22 +61,10 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
         if (marks[k].kind == 1) {                           /* the hole: a dark ring with a pale rim */
             SDL_SetRenderDrawColor(r, 235, 242, 255, 255); fill(r, mx - cell, my - cell / 2, 2 * cell + 1, cell + 1);
             SDL_SetRenderDrawColor(r, 20, 40, 120, 255);   fill(r, mx - cell + 1, my - cell / 2 + 1, 2 * cell - 1, cell - 1);
-        } else if (marks[k].kind == 2) {                    /* Dia's shrine: a violet diamond-ish block with a pale core */
-            SDL_SetRenderDrawColor(r, 30, 10, 60, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
-            SDL_SetRenderDrawColor(r, 176, 120, 255, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
-            SDL_SetRenderDrawColor(r, 240, 226, 255, 255); fill(r, mx - 1, my - 1, 3, 3);
-        } else if (marks[k].kind == 4) {                    /* an item lying around (the hammer): a small warm block with a pale core */
-            SDL_SetRenderDrawColor(r, 40, 24, 8, 255);     fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
-            SDL_SetRenderDrawColor(r, 232, 164, 72, 255);  fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
-            SDL_SetRenderDrawColor(r, 255, 244, 214, 255); fill(r, mx - 1, my - 1, 3, 3);
-        } else if (marks[k].kind == 5) {                    /* a house: a red roof block */
-            SDL_SetRenderDrawColor(r, 48, 14, 10, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
-            SDL_SetRenderDrawColor(r, 226, 104, 80, 255);  fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
-            SDL_SetRenderDrawColor(r, 255, 190, 160, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, 2);
-        } else if (marks[k].kind == 3) {                    /* a grave: a grey block with a pale top, like a little headstone */
-            SDL_SetRenderDrawColor(r, 20, 22, 28, 255);    fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
-            SDL_SetRenderDrawColor(r, 150, 154, 164, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);
-            SDL_SetRenderDrawColor(r, 206, 210, 220, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, 2);
+        } else if (marks[k].kind == 2 || marks[k].kind == 3 || marks[k].kind == 4 || marks[k].kind == 5 || marks[k].kind == 7) {     /* a found thing: its own little picture (chunk 60), about 3 tiles wide */
+            int ic = cell * 3 / MAPICON_CELLS; if (ic < 1) ic = 1;
+            int pic = marks[k].kind == 2 ? (marks[k].state ? MAPICON_SHRINE_BROKEN : MAPICON_SHRINE) : marks[k].kind == 3 ? MAPICON_GRAVE : marks[k].kind == 4 ? MAPICON_HAMMER : marks[k].kind == 5 ? MAPICON_HOUSE : MAPICON_TEMPLE;
+            mapicon_draw(r, pic, mx, my, ic);
         } else {                                            /* an npc: gold dot with a dark edge */
             SDL_SetRenderDrawColor(r, 20, 14, 0, 255);     fill(r, mx - cell / 2 - 1, my - cell / 2 - 1, cell + 3, cell + 3);
             SDL_SetRenderDrawColor(r, 255, 214, 110, 255); fill(r, mx - cell / 2, my - cell / 2, cell + 1, cell + 1);

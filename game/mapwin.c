@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "mapwin.h"
 #include "font.h"
+#include "mapicon.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -187,25 +188,22 @@ void mapwin_draw(SDL_Renderer *r) {
     int ms = (int)ppt; int mmin = (int)(4 * u); if (ms < mmin) ms = mmin; if (ms > (int)(14 * u)) ms = (int)(14 * u);
     for (int k = 0; k < mv.nmarks; k++) {
         int mx = view.x + view.w / 2 + (int)((mv.marks[k].tx - ccx) * ppt), my = view.y + view.h / 2 + (int)((mv.marks[k].ty - ccy) * ppt);
-        int kd = mv.marks[k].kind, ER, EG, EB, CR, CG, CB;
+        int kd = mv.marks[k].kind;
+        if (kd == 2 || kd == 3 || kd == 4 || kd == 5 || kd == 7) {                                 /* a found thing: its own picture (chunk 60), whole cells, about 1.5 dots wide */
+            int ic = (int)(ms * 1.5f) / MAPICON_CELLS, icmin = (int)(0.7f * u); if (icmin < 1) icmin = 1; if (ic < icmin) ic = icmin;      /* never smaller than a phone can read */
+            int pic = kd == 2 ? (mv.marks[k].state ? MAPICON_SHRINE_BROKEN : MAPICON_SHRINE) : kd == 3 ? MAPICON_GRAVE : kd == 4 ? MAPICON_HAMMER : kd == 5 ? MAPICON_HOUSE : MAPICON_TEMPLE;
+            mapicon_draw(r, pic, mx, my, ic);
+            continue;
+        }
+        int ER, EG, EB, CR, CG, CB;
         switch (kd) {
             case 1:  ER = 20; EG = 40; EB = 120; CR = 235; CG = 242; CB = 255; break;         /* the hole */
-            case 2:  ER = 30; EG = 10; EB = 60;  CR = 176; CG = 120; CB = 255; break;         /* the shrine */
-            case 3:  ER = 20; EG = 22; EB = 28;  CR = 150; CG = 154; CB = 164; break;         /* a grave */
-            case 4:  ER = 40; EG = 24; EB = 8;   CR = 232; CG = 164; CB = 72;  break;         /* the hammer */
-            case 5:  ER = 48; EG = 14; EB = 10;  CR = 226; CG = 104; CB = 80;  break;         /* a house: a red roof */
             case 6:  ER = 40; EG = 24; EB = 8;   CR = 250; CG = 214; CB = 120; break;         /* a door */
             default: ER = 20; EG = 14; EB = 0;   CR = 255; CG = 214; CB = 110; break;         /* an npc */
         }
         SDL_Rect e = { mx - ms / 2 - 1, my - ms / 2 - 1, ms + 2, ms + 2 }, c = { mx - ms / 2, my - ms / 2, ms, ms };
         SDL_SetRenderDrawColor(r, ER, EG, EB, 255); fill(r, e);
         SDL_SetRenderDrawColor(r, CR, CG, CB, 255); fill(r, c);
-        if (mv.marks[k].label && mv.marks[k].label[0]) {                                           /* what the dot is, next to it */
-            int lc = (int)(2.0f * u); if (lc < 1) lc = 1;
-            int lx = mx + ms / 2 + lc * 2, ly = my - font_height(lc) / 2;
-            SDL_SetRenderDrawColor(r, 0, 0, 0, 255); font_draw(r, mv.marks[k].label, lx + lc, ly + lc, lc);     /* a dark shadow keeps it readable on any ground */
-            SDL_SetRenderDrawColor(r, 255, 255, 255, 255); font_draw(r, mv.marks[k].label, lx, ly, lc);
-        }
     }
     {   int px = view.x + view.w / 2 + (int)((mv.ptx - ccx) * ppt), py = view.y + view.h / 2 + (int)((mv.pty - ccy) * ppt);
         int d = ms + 2, blink = ((int)(tt * 3.0f) & 1);                                           /* the player: blinking, with a nose */

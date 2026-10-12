@@ -3,14 +3,14 @@
  *
  * THE MINIMAP: a little window of the map, top-right under the ID card (thumbs never cover it,
  * the stick and the interact button own the bottom corners). it follows the player and shows
- * nearby npcs (gold dots) and the hole (blue ring). */
+ * nearby npcs (gold dots), the hole (blue ring) and, once found, the little pictures of the house, shrine, hammer, graves and temple. */
 #ifndef MINIMAP_H
 #define MINIMAP_H
 #include <SDL2/SDL.h>
 #include <stdint.h>
 #include "char.h"
 
-typedef struct { float tx, ty; int kind; const char *label; } MiniMark;      /* kind: 0 npc, 1 hole, 2 shrine, 3 grave, 4 item, 5 house, 6 door. label: the text the map window writes next to the dot (NULL = none) */
+typedef struct { float tx, ty; int kind; int state; } MiniMark;      /* kind: 0 npc, 1 hole, 2 shrine, 3 grave, 4 item (the hammer), 5 house, 6 door, 7 temple. state: for the shrine, 1 = broken. kinds 2 to 5 and 7 are drawn as a little picture (mapicon.h), no text anywhere (chunk 60) */
 
 void minimap_init(int w, int h, int right_edge, int top, int width);   /* the box (frame included) is `width` px wide and square, right-aligned to right_edge, starts at top */
 int  minimap_bottom(void);
