@@ -109,6 +109,7 @@ static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (the old bo
 static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
 static int mission_repair = -1;            /* chunk 39: "Repair the shrine" (coins in the moment the orb is ours) */
 static int orb_taken;                      /* chunk 39: we searched her body and the orb is in the pockets */
+static int shrine_repaired;                /* chunk 40: the shrine is whole again */
 static int mission_ask_alex = -1;           /* added when the player first catches sight of Alex */
 static int mission_pollute = -1;            /* added by Alex's highlighted line (chunk 9) */
 static int alex_dealt;                      /* the scripted deal has been played */
@@ -122,7 +123,7 @@ static int dea_tx, dea_ty;                  /* where Dea stands (the hole opens 
 /* ---------- thoughts (the brain window, brainwin.h) ----------
  * nothing is preloaded: the vessel acquires a thought when something happens, and loses it when it stops
  * being true. every thought has a TAG so a whole group can be dropped silently (leaving a map, a task done). */
-enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT };
+enum { THOUGHT_CLOUDS = 1, THOUGHT_ORB, THOUGHT_GRASS, THOUGHT_ALEX, THOUGHT_COIN, THOUGHT_SHRINE, THOUGHT_AGAIN, THOUGHT_GRAVE, THOUGHT_HAMMER, THOUGHT_REFUSED, THOUGHT_OLDBODY, THOUGHT_PULL, THOUGHT_SEARCH, THOUGHT_RESPECT, THOUGHT_REPAIR };
 
 /* `text` goes in the window (up to ~90 letters). `card` is what pops out of the brain button (about 19
  * letters x 3 lines max; NULL = same as text, "" = no card). ding = the coin ding of acquiring something
@@ -496,11 +497,25 @@ int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0;
 static int alex_beeps;
 /* chunk 39: her body is searched (the magnifying glass next to it, a tap): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
  * next goal, "Repair the shrine", comes in SILENTLY: no thought, no dialog, nothing but the normal task toast. */
+/* chunk 40: the repair. with the orb ours, the same hold with the hammer next to the broken shrine mends it (the break played backwards, shrine.c). the first
+ * time the hold starts the vessel thinks the hammer does everything. when it is whole the task "Repair the shrine" is done (chunk 41 adds "Die"). the world
+ * forgets the shrine's switch with the map, so a new landing arms it again (landed_again). */
+static void repair_started(void) {
+    think("This hammer surely can do everything, huh.", NULL, BRAIN_SCENE_HAMMER, THOUGHT_REPAIR, 1);
+}
+static void repair_done(void) {
+    shrine_repaired = 1;
+    mission_complete(mission_repair);
+}
+static void shrine_arm_repair(void) {
+    if (orb_taken && !shrine_repaired) world_enable_shrine_repair(repair_started, repair_done);
+}
 static void alex_searched_cb(void) {
     orb_taken = 1;
     world_give_item(ITEM_ORB);
     mission_complete(mission_get_orb);
     mission_repair = task_toast("Repair the shrine");
+    shrine_arm_repair();                                    /* chunk 40: the hold mends the shrine from now on */
 }
 static void alex_death_end(void) {
     world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
@@ -721,6 +736,7 @@ static void landed_again(void) {
         if (alex_id >= 0) npc_set_facing(alex_id, FACE_DOWN);
     }
     if (green.shrine_there) world_restore_shrine(green.shrine_tx, green.shrine_ty, green.shrine_polluted);
+    if (green.shrine_there && green.shrine_polluted) shrine_arm_repair();      /* chunk 40: (only once the orb is ours) */
     for (int i = 0; i < grave_n; i++) {                     /* a stone where each one died: that tile, or the nearest where it fits */
         int gx, gy;
         if (world_find_prop_spot_near(graves[i].tx, graves[i].ty, &gx, &gy)) {
@@ -860,7 +876,7 @@ void story_start(void) {
     brainwin_clear();                           /* a new game starts with an empty head */
     mission_talk_dea = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; orb_taken = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; orb_taken = shrine_repaired = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; convo_unlock();

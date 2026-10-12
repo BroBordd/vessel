@@ -54,6 +54,7 @@ int  world_indoors(void);
  * pollutes it, and on_done runs once it is done. the shrine goes away when a new map loads. */
 void world_place_shrine(int tile_x, int tile_y);
 void world_enable_shrine(void (*on_done)(void));
+void world_enable_shrine_repair(void (*on_start)(void), void (*on_done)(void));   /* chunk 40: the same hold with the hammer MENDS a broken shrine (shrine.h). on_start: the first time the hold starts; on_done: it is whole again */
 void world_restore_shrine(int tile_x, int tile_y, int polluted);   /* the shrine as an earlier life left it (chunk 20): inert, and fouled for good if polluted */
 
 /* GRAVES (grave.h, vessel 2 chunk 21): a stone with the dead vessel's framed, greyed portrait on it. world_place_grave puts one on the

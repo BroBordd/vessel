@@ -21,6 +21,12 @@ void  shrine_reset(int pixel_scale, int tile_size);         /* a new map: the sh
 void  shrine_place(int tile_x, int tile_y);                 /* it stands there, but cannot be used yet */
 void  shrine_restore(int tile_x, int tile_y, int was_polluted);   /* placed again as an earlier life left it: switched off, polluted for good if it was (chunk 20) */
 void  shrine_enable(void (*on_done)(void));                /* it can be used now. on_done runs once, when it turns polluted */
+/* chunk 40: the REPAIR, the break played backwards. only a broken shrine can be mended. shrine_repair_enable switches it on: the same hold as the break (with the
+ * hammer): the cracks heal, the stump grows, the rubble lifts into it, the gem lights again; shrine_progress() is the repair's progress while it is on. letting
+ * go early makes it creep back. on_start (may be NULL) runs once, the first time the hold starts; on_done runs once when the shrine is whole again (and it is
+ * then not polluted any more, nor usable). */
+void  shrine_repair_enable(void (*on_start)(void), void (*on_done)(void));
+int   shrine_repairing(void);                               /* switched on and not done yet */
 int   shrine_exists(void);
 int   shrine_enabled(void);                                 /* usable (placed, switched on, not polluted yet) */
 int   shrine_polluted(void);

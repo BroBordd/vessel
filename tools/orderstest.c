@@ -439,6 +439,41 @@ int main(void) {
             item_ui_touch(0, TW - 40, 120); item_ui_touch(1, TW - 40, 120); run(0.6f);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_panel.bmp");                    /* the unfolded pockets: hammer and orb (look at it) */
         }
+        /* chunk 40: the repair. the shrine is broken (as vessel 1 left it), we hold the hammer and have the orb: the hold mends it, only the hold: letting go makes
+         * it creep back. the first hold thinks once. whole afterwards, the task is done, no second thought */
+        {   CHECK(world_has_item(ITEM_HAMMER), "the hammer is not in the pockets for the repair test");
+            int sx_ = ntx + 2, sy_ = nty;
+            indoors = 0; world_restore_shrine(sx_, sy_, 1);
+            pxp = (sx_ + 0.5f) * tile; pyp = (sy_ + 0.9f + 1.0f) * tile; run(0.3f);
+            CHECK(shrine_polluted() && !shrine_repairing(), "the shrine is not broken / is armed before the repair was switched on");
+            frame(0.0f); world_touch(0, bx, by); world_touch(1, bx, by); run(0.5f);
+            CHECK(!near_shrine, "the repair button shows before the repair is switched on");
+            shrine_arm_repair();
+            run(0.3f);
+            CHECK(shrine_repairing() && near_shrine, "the button is not there with the hammer next to the broken shrine (%d, %d)", shrine_repairing(), near_shrine);
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_0.bmp");                   /* broken, before the hold (look at it) */
+            int tc3 = brainwin_count(), r0 = 0;
+            run(1.0f);                                                                        /* a tap / no hold does nothing */
+            CHECK(shrine_progress() == 0.0f && shrine_polluted(), "progress moved without a hold");
+            world_touch(0, bx, by); run(0.8f);
+            CHECK(shrine_progress() > 0.25f && shrine_progress() < 0.45f && shrine_polluted(), "hold 0.8 s: wrong progress (%.2f)", shrine_progress());
+            CHECK(brainwin_count() == tc3 + 1, "the first hold did not think once (%d new)", brainwin_count() - tc3); r0 = brainwin_count();
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_1.bmp");                   /* the stump has grown (look at it) */
+            run(0.5f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_2.bmp");        /* the pillar, no gem yet (look at it) */
+            world_touch(1, bx, by);                                                           /* let go early: it creeps back, it does not mend */
+            float pr = shrine_progress(); run(1.5f);
+            CHECK(shrine_progress() < pr && shrine_progress() > 0 && shrine_polluted() && !shrine_repaired, "letting go: it did not creep back (%.2f -> %.2f)", pr, shrine_progress());
+            world_touch(0, bx, by); run(2.0f);
+            CHECK(shrine_polluted() && !shrine_repaired, "it mended before a full hold (%.2f)", shrine_progress());
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_3.bmp");                   /* nearly there, the gem is coming (look at it) */
+            run(1.5f);
+            CHECK(!shrine_polluted() && shrine_repaired && !shrine_repairing(), "the full hold did not mend it");
+            CHECK(brainwin_count() == r0, "a second thought came with the later holds (%d)", brainwin_count() - r0);
+            world_touch(1, bx, by); run(0.5f);
+            CHECK(!near_shrine, "the button is still there for a whole shrine");
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/repair_4.bmp");                   /* whole again (look at it) */
+            shrine_reset(px, tile); item_clear(); item_reset(px, tile); world_give_item(ITEM_HAMMER);
+        }
         alex_id = -1; alex_struck = alex_fight_on = 0; hammer_taken = 0; aonia_buried = was_buried; indoors = 0; lives = 0;
         item_clear(); item_reset(px, tile);
     }
