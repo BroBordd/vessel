@@ -65,19 +65,21 @@ int main(void) {
     for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
     printf("  chat ended: %d, dialog active: %d\n", ended, dialog_active()); if (ended != 1 || dialog_active()) fails++;
 
-    printf("4) a finger on the screen types twice as fast\n");
+    printf("4) typing is twice as fast as it was (56 cps) and a finger on the screen changes nothing (chunk 46)\n");
     {
         static char longtxt[300]; memset(longtxt, 'a', sizeof longtxt - 1);
-        for (int i = 4; i < (int)sizeof longtxt - 1; i += 5) longtxt[i] = ' ';        /* 299 letters: ~10.7 s at 28 cps, ~5.3 s at 2x */
+        for (int i = 4; i < (int)sizeof longtxt - 1; i += 5) longtxt[i] = ' ';        /* 299 letters: ~5.3 s at 56 cps (it was ~10.7 s at 28) */
         static DialogLine one[1]; one[0] = (DialogLine){ &DEA, longtxt, REPLY_NONE };
-        dialog_play(one, 1, NULL); settle(6.0f); tap_page();
-        printf("  no finger, 6 s: page still typing (dialog active %d)\n", dialog_active()); if (!dialog_active()) fails++;
-        settle(8.0f); tap_page();                                                      /* now it is done: this ends it */
+        dialog_play(one, 1, NULL); settle(3.0f); tap_page();
+        printf("  no finger, 3 s: page still typing (dialog active %d)\n", dialog_active()); if (!dialog_active()) fails++;
+        settle(3.0f); tap_page();                                                      /* 6 s: done, so this ends it (twice the old speed) */
+        printf("  no finger, 6 s: page was done and ended (dialog active %d)\n", dialog_active()); if (dialog_active()) fails++;
         dialog_play(one, 1, NULL);
         dialog_touch(0, 10, 10);                                                       /* finger down and held */
-        settle(6.0f);
+        settle(3.0f);
         dialog_touch(1, 10, 10);                                                       /* lifted: only advances if typing was done */
-        printf("  finger held, 6 s: page was done and ended (dialog active %d)\n", dialog_active()); if (dialog_active()) fails++;
+        printf("  finger held, 3 s: page still typing, a hold does not speed it up (dialog active %d)\n", dialog_active()); if (!dialog_active()) fails++;
+        settle(3.0f); tap_page();
     }
 
     printf("%s\n", fails ? "FAILED" : "all conversation flows ok");

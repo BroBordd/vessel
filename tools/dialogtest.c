@@ -51,14 +51,14 @@ int main(void) {
     static const DialogLine ONE[] = { { &DEA, "I dropped my {orb} in the Grasslands. Bring it back." } };
     reset(); dialog_on_highlight(hook); dialog_play(ONE, 1, NULL);
     int before = -1;
-    for (; now < 0.45f; ) step(0.016f);
+    for (; now < 0.22f; ) step(0.016f);
     before = green_pixels();
     CHECK(before == 0, "green pixels before the span is typed: %d", before);
     for (; now < 1.5f; ) step(0.016f);
     int after = green_pixels();
     printf("  fired %d time(s) at %.3fs, green pixels after %d\n", fired, fired_at[0], after);
     CHECK(fired == 1, "expected 1 callback, got %d", fired);
-    CHECK(fired_at[0] > 0.55f && fired_at[0] < 0.62f, "fired at %.3fs, expected ~0.57s (16 letters at 28/s)", fired_at[0]);
+    CHECK(fired_at[0] > 0.27f && fired_at[0] < 0.31f, "fired at %.3fs, expected ~0.29s (16 letters at 56/s)", fired_at[0]);
     CHECK(fired_page[0] == 0 && fired_span[0] == 0, "page/span = %d/%d", fired_page[0], fired_span[0]);
     CHECK(after > 100, "no green text drawn");
     shot("build/dialog_one.bmp");
