@@ -106,6 +106,7 @@ void story_update(float dt) {
 
 /* ---------- state ---------- */
 static int mission_talk_dea = -1;
+static int mission_look = -1;               /* chunk 49: "Look around", the very first task (vessel 1 only): ticked off when Dea is sighted */
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
 static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (the old body is out of the ground) */
 static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
@@ -385,7 +386,7 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = mission_give = -1;
+    mission_talk_dea = mission_look = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = mission_give = -1;
     dying = 0; vessel_dead = 0;
     world_clear_items();                            /* the new body has empty pockets ... */
     if (orb_taken && !orb_given) world_give_item(ITEM_ORB);       /* ... except for the orb: the soul keeps what it carries (chunk 41) */
@@ -925,6 +926,7 @@ static void on_talk_dea(int npc_id) {
     }
     if (dea_spoken) { convo_open(&DEA, &DEA_MIND, 1, NULL); return; }       /* free chat. she nags about the hole */
     dea_spoken = 1;
+    mission_complete(mission_look);
     mission_complete(mission_talk_dea);
     dialog_on_page(dea_talk_page);
     dialog_on_highlight(dea_talk_highlight);
@@ -942,6 +944,7 @@ static void on_talk_dea(int npc_id) {
 static void dea_spotted(void) {
     if (dea_seen) return;
     dea_seen = 1;
+    mission_complete(mission_look);                 /* chunk 49: "Look around" is done, "Talk to Goddess" coins in right after */
     mission_talk_dea = task_toast("Talk to Goddess");
 }
 
@@ -953,6 +956,7 @@ static void dea_watch(void) {
 
 static void intro_done(void) {
     world_set_controls_visible(1);              /* stick and interact button become usable */
+    if (mission_look < 0 && !dea_seen) mission_look = task_toast("Look around");      /* chunk 49: the very first summoning only (story_start) */
     /* Dea stands in her temple at the far end of the clouds, looking down at us */
     world_temple_spot(&dea_tx, &dea_ty);
     dea_id = npc_add(&DEA, dea_tx, dea_ty, on_talk_dea);
@@ -963,7 +967,7 @@ static void intro_done(void) {
 void story_start(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     brainwin_clear();                           /* a new game starts with an empty head */
-    mission_talk_dea = -1;
+    mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
     mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = respect_said = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0;
     hammer_hinted = hammer_said = 0; world_clear_items();

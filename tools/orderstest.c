@@ -52,7 +52,24 @@ int main(void) {
 
     story_start();                                   /* a new game: the flag is off */
     CHECK(!secret_on, "the secret order is in force on a new game");
+
+    /* chunk 49: the very first visit. when the summoning ends the first task is "Look around"; sighting Dea ticks it off and "Talk to Goddess"
+     * coins in right after; neither comes in twice */
+    CHECK(mission_look < 0 && mission_talk_dea < 0 && missions_count() == 0, "a task exists before the first summoning ends");
+    intro_done();
+    CHECK(mission_look >= 0 && mission_talk_dea < 0 && missions_count() == 1, "\"Look around\" did not coin in when the summoning ended (%d tasks)", missions_count());
+    intro_done();
+    CHECK(missions_count() == 1, "\"Look around\" came in twice");
+    run(1.0f);
+    CHECK(mission_talk_dea < 0, "\"Talk to Goddess\" came in before Dea was sighted");
+    dea_spotted();
+    CHECK(mission_talk_dea >= 0 && mission_talk_dea != mission_look && missions_count() == 2, "\"Talk to Goddess\" did not coin in on the sighting (%d tasks)", missions_count());
+    dea_spotted();
+    CHECK(missions_count() == 2, "\"Talk to Goddess\" came in twice");
+    run(4.0f);                                       /* the ticked line fades away: only \"Talk to Goddess\" is left */
+    CHECK(missions_count() == 1, "\"Look around\" was not completed on the sighting (%d tasks left)", missions_count());
     story_reset_for_respawn();                       /* the next life: Dea waits in her temple, we are plain VAS */
+    CHECK(mission_look < 0 && missions_count() == 0, "\"Look around\" survived into the next life (%d tasks)", missions_count());
     CHECK(!secret_on, "the secret order is in force before Dea spoke");
     run(0.5f);
     CHECK(DEA_ORDERS_COUNT >= 2, "Dea's orders are missing (%d lines)", DEA_ORDERS_COUNT);
