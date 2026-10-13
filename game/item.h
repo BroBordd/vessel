@@ -6,8 +6,9 @@
  *  - story.c puts an item on the map (world_place_item). chunk 68: nothing is picked up by walking any more: within ITEM_REACH_R tiles the HAND
  *    button shows (world.c) and a TAP on it takes the item (item_grab): it leaves the map and goes into the inventory. one item lies on a map at a
  *    time (the hammer is the only one so far). not solid.
- *  - the inventory is a little slot row right under the minimap, one slot per item owned (nothing shows while it is empty).
- *    tap it and it unfolds into a panel with every item drawn big and its name; tap again and it folds back.
+ *  - the inventory (chunk 70) is one small bag button right under the minimap with a badge counting what is in the pockets (nothing shows while they are
+ *    empty). a tap and a panel eases out under it: framed square slots, the newest in gold, the name of the slot you touched last. it folds back by itself
+ *    after a few seconds, on a tap outside or on the bag. a new pick-up flies from the ground to the bag, then the badge ticks and the slot flashes.
  *  - item_draw_icon draws the 12x12 picture of an item anywhere: the slot, the panel, the interact button.
  *  - everything here is engine: no story text. the inventory survives map changes; story.c empties it with a new life. */
 #ifndef ITEM_H
@@ -53,11 +54,22 @@ void  item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell);
 /* chunk 68: an open hand (12 x 12) on the hand button. not an item. */
 void  item_draw_hand_icon(SDL_Renderer *r, int x, int y, int cell);
 
+/* chunk 70: the bag (12 x 12) on the collapsed inventory button. not an item. */
+void  item_draw_bag_icon(SDL_Renderer *r, int x, int y, int cell);
+
 /* the inventory widget. the box is `width` px wide (the minimap's width) and right-aligned to right_edge, starts at top */
 void  item_ui_init(int w, int h, int right_edge, int top, int width);
 int   item_ui_touch(int action, int x, int y);          /* Android MotionEvent action. 1 = this touch is the inventory's (do not pass it on) */
 void  item_ui_draw(SDL_Renderer *r, float t);
-int   item_ui_open(void);                               /* (tests) the panel is unfolded */
-int   item_ui_hit(int x, int y);                        /* (tests) is (x, y) on the slots / the panel */
+int   item_ui_open(void);                               /* (tests) the panel is open (asked open: it may still be easing out) */
+int   item_ui_hit(int x, int y);                        /* (tests) is (x, y) on the bag / the panel */
+float item_ui_progress(void);                           /* (tests) how far the panel is out: 0 closed .. 1 fully out (it eases both ways) */
+int   item_ui_selected(void);                           /* (tests) the kind whose name shows under the grid (-1 none) */
+int   item_ui_flying(void);                             /* (tests) a picked-up icon is on its way to the bag */
+int   item_ui_shown(void);                              /* (tests) the number on the badge (what is in the pockets, not counting what still flies) */
+int   item_ui_slot_x(int kind);                         /* (tests) the centre of that kind's slot in the open panel (-1 if not owned) */
+int   item_ui_slot_y(int kind);
+int   item_ui_bag_x(void);                              /* (tests) the centre of the bag button */
+int   item_ui_bag_y(void);
 
 #endif

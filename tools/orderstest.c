@@ -40,6 +40,7 @@ static void locked_end(void) { locked_ended++; }
 static int talked_n, down_n;
 static void fight_talk(int id) { (void)id; talked_n++; }
 static void fight_down(void) { down_n++; }
+static void inv_run(float sec) { for (float s_ = 0; s_ < sec; s_ += 0.016f) item_update(0.016f); }          /* chunk 70: real frame steps (the ease needs them) */
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
 static int say(const char *text) {                  /* chunk 63: open the TALK keyboard like the player does and send a line */
     run(2.5f);
@@ -606,7 +607,7 @@ int main(void) {
             CHECK(mission_repair == n_orb && world_has_item(ITEM_ORB), "a second tap did something");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_taken.bmp");                    /* the slot with the orb (look at it) */
             item_ui_touch(0, TW - 40, 120); item_ui_touch(1, TW - 40, 120); run(0.6f);
-            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_panel.bmp");                    /* the unfolded pockets: hammer and orb (look at it) */
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_panel.bmp");                    /* the open panel: hammer and orb (look at it) */
         }
         /* chunk 40: the repair. the shrine is broken (as vessel 1 left it), we hold the hammer and have the orb: the hold mends it, only the hold: letting go makes
          * it creep back. the first hold thinks once. whole afterwards, the task is done, no second thought */
@@ -1079,6 +1080,74 @@ int main(void) {
         item_draw_ground(rr, (int)(5.5f * tile) - 200, (int)(5.5f * tile) - 200, 0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/item_ground.bmp");   /* on grass (look at it) */
         CHECK(item_in_reach((5.5f + 1.0f) * tile, 5.5f * tile) && !item_in_reach((5.5f + 1.5f) * tile, 5.5f * tile), "the reach changed");
         item_reset(px, tile);
+    }
+
+    /* chunk 70: a pretty inventory. the pockets are driven straight through item.c (no world), drawn on grass. closed by default and invisible while empty; the
+     * bag shows once something is owned; a tap opens the panel with the ease (0.25 s), a tap on the bag, a tap outside or 4 s without a touch close it; a touch
+     * on the panel keeps it open and a slot names itself; a pick-up flies to the bag, the badge counts it on arrival and the new slot flashes */
+    {   item_clear(); item_reset(px, tile);
+        int bx = item_ui_bag_x(), by = item_ui_bag_y();
+        #define GRASS() do { SDL_SetRenderDrawColor(rr, 76, 162, 78, 255); SDL_RenderClear(rr); } while (0)
+        GRASS(); unsigned h0 = region_hash(bx - 60, by - 40, 120, 400); item_ui_draw(rr, 0.0f);
+        CHECK(region_hash(bx - 60, by - 40, 120, 400) == h0 && !item_ui_hit(bx, by) && !item_ui_open(), "the inventory shows (or hits) while the pockets are empty");
+        CHECK(item_ui_touch(0, bx, by) == 0 && item_ui_touch(1, bx, by) == 0, "an empty inventory ate a touch");
+        item_give(ITEM_HAMMER);
+        CHECK(item_ui_hit(bx, by) && !item_ui_open() && item_ui_progress() == 0.0f && item_ui_shown() == 1, "closed bag: hit %d open %d p %.2f badge %d", item_ui_hit(bx, by), item_ui_open(), item_ui_progress(), item_ui_shown());
+        GRASS(); item_ui_draw(rr, 0.0f);
+        CHECK(region_hash(bx - 60, by - 40, 120, 80) != h0, "the bag is not drawn once the hammer is in the pockets");
+        SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/inv_closed.bmp");                         /* closed, one item: the bag and the badge (look at it) */
+        /* the ease */
+        CHECK(item_ui_touch(0, bx, by) == 1 && item_ui_touch(1, bx, by) == 1 && item_ui_open() && item_ui_progress() == 0.0f, "a tap on the bag did not open it (open %d)", item_ui_open());
+        item_update(0.10f);
+        CHECK(item_ui_progress() > 0.1f && item_ui_progress() < 0.9f, "the panel does not ease out (p %.2f after 0.10 s)", item_ui_progress());
+        item_update(0.20f);
+        CHECK(item_ui_progress() == 1.0f && item_ui_hit(item_ui_slot_x(ITEM_HAMMER), item_ui_slot_y(ITEM_HAMMER)), "the panel is not fully out after 0.30 s (p %.2f)", item_ui_progress());
+        item_give(ITEM_ORB); item_update(0.0f);
+        int sxh = item_ui_slot_x(ITEM_HAMMER), syh = item_ui_slot_y(ITEM_HAMMER), sxo = item_ui_slot_x(ITEM_ORB), syo = item_ui_slot_y(ITEM_ORB);
+        CHECK(sxh > 0 && sxo > sxh && syh == syo, "the two slots are not in one row (%d,%d / %d,%d)", sxh, syh, sxo, syo);
+        GRASS(); item_ui_draw(rr, 0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/inv_open.bmp");     /* open, hammer and orb (look at it) */
+        CHECK(item_ui_selected() == ITEM_HAMMER || item_ui_selected() == ITEM_ORB, "no name shows when it opens");
+        /* a touch on a slot: it stays open, the touch is the inventory's, and that slot's name shows */
+        CHECK(item_ui_touch(0, sxh, syh) == 1 && item_ui_touch(1, sxh, syh) == 1 && item_ui_open() && item_ui_selected() == ITEM_HAMMER, "a tap on the hammer's slot did not name it (selected %d)", item_ui_selected());
+        item_ui_touch(0, sxo, syo); item_ui_touch(1, sxo, syo);
+        CHECK(item_ui_open() && item_ui_selected() == ITEM_ORB, "a tap on the orb's slot did not name it");
+        /* it folds by itself, and a touch on the panel keeps it open */
+        inv_run(3.0f); item_ui_touch(0, sxh, syh); item_ui_touch(1, sxh, syh); inv_run(3.0f);
+        CHECK(item_ui_open(), "it closed although it was touched 3 s ago");
+        inv_run(1.1f);
+        CHECK(!item_ui_open(), "it did not close by itself after 4 s");
+        CHECK(item_ui_progress() > 0.0f && item_ui_progress() < 1.0f, "it does not ease back in (p %.2f)", item_ui_progress());
+        item_update(0.3f); CHECK(item_ui_progress() == 0.0f && !item_ui_hit(sxh, syh), "the panel is still there after it closed");
+        /* a tap outside closes it and goes on to the world; a tap on the bag closes it too */
+        item_ui_touch(0, bx, by); item_ui_touch(1, bx, by); item_update(0.4f);
+        CHECK(item_ui_open() && item_ui_touch(0, 5, TH - 5) == 0 && !item_ui_open(), "a tap outside did not close it (or the inventory ate it)");
+        item_update(0.4f); item_ui_touch(1, 5, TH - 5);
+        item_ui_touch(0, bx, by); item_ui_touch(1, bx, by); item_update(0.4f);
+        item_ui_touch(0, bx, by); item_ui_touch(1, bx, by);
+        CHECK(!item_ui_open(), "a second tap on the bag did not close it");
+        item_update(0.4f);
+        /* a pick-up: the icon flies from the ground to the bag, THEN the badge counts it and the slot flashes */
+        item_clear(); item_reset(px, tile); item_give(ITEM_ORB); item_update(0.0f);
+        item_place(ITEM_HAMMER, 5, 5); GRASS(); item_draw_ground(rr, (int)(5.5f * tile) - 200, (int)(5.5f * tile) - 200, 0.0f);
+        CHECK(item_grab(5.5f * tile, 5.5f * tile) == ITEM_HAMMER && item_ui_flying() && item_ui_shown() == 1, "the pick-up does not fly (flying %d, badge %d)", item_ui_flying(), item_ui_shown());
+        GRASS(); item_ui_draw(rr, 0.0f); item_update(0.20f);
+        GRASS(); unsigned hb = region_hash(bx - 60, by - 40, 120, 80); item_ui_draw(rr, 0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/inv_fly.bmp");   /* the icon on its way (look at it) */
+        CHECK(item_ui_flying() && item_ui_shown() == 1, "it landed too early");
+        item_update(0.25f);
+        CHECK(!item_ui_flying() && item_ui_shown() == 2, "after the flight the badge does not say 2 (flying %d, badge %d)", item_ui_flying(), item_ui_shown());
+        (void)hb;
+        /* the new slot flashes: the same slot looks different a moment apart (blink), and not any more after 1.5 s */
+        item_ui_touch(0, bx, by); item_ui_touch(1, bx, by); item_update(0.4f); item_give(ITEM_HAMMER);        /* (the hammer is new again) */
+        int fx = item_ui_slot_x(ITEM_HAMMER), fy = item_ui_slot_y(ITEM_HAMMER);
+        GRASS(); item_ui_draw(rr, 0.0f); unsigned f0 = region_hash(fx - 30, fy - 30, 60, 60);
+        item_update(0.16f); GRASS(); item_ui_draw(rr, 0.0f); unsigned f1 = region_hash(fx - 30, fy - 30, 60, 60);
+        CHECK(f0 != f1, "the new slot does not flash");
+        item_update(1.6f); GRASS(); item_ui_draw(rr, 0.0f); unsigned f2 = region_hash(fx - 30, fy - 30, 60, 60);
+        item_update(0.16f); GRASS(); item_ui_draw(rr, 0.0f); unsigned f3 = region_hash(fx - 30, fy - 30, 60, 60);
+        CHECK(f2 == f3, "the slot still flashes after 1.5 s");
+        item_clear(); item_reset(px, tile);
+        CHECK(!item_ui_open() && item_ui_progress() == 0.0f && !item_ui_hit(bx, by), "a new body's pockets leave the inventory open or visible");
+        #undef GRASS
     }
 
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
