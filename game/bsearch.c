@@ -32,20 +32,22 @@ int bsearch_near(float pxw, float pyw, int allow) {
     if (!b.in_range) { b.active = 0; b.prog = 0; }                  /* walked away: the search is lost */
     return b.in_range;
 }
-void bsearch_start(void) {
-    if (!b.on || !b.in_range || b.active) return;
-    b.active = 1; b.prog = 0; b.tick = 0; b.n = 0;
-}
-int bsearch_update(float dt) {
-    if (!b.on || !b.active) return 0;
-    b.prog += dt / GRAVE_SEARCH_T;
-    b.tick -= dt;
-    if (b.tick <= 0) { b.tick = 0.17f; sfx_blip((b.n++ & 1) ? 1.5f : 1.25f); }      /* the same soft, quick rustle as the grave search */
-    if (b.prog >= 1.0f) {
-        b.prog = 0; b.on = 0; b.active = 0; b.in_range = 0;
-        sfx_blip(1.9f);
-        if (b.cb) { void (*cb)(void) = b.cb; b.cb = NULL; cb(); }
-        return 1;
+int bsearch_update(float dt, int holding) {
+    if (!b.on) return 0;
+    if (holding && b.in_range) {                            /* chunk 64: a hold, like the grave search */
+        b.active = 1;
+        b.prog += dt / GRAVE_SEARCH_T;
+        b.tick -= dt;
+        if (b.tick <= 0) { b.tick = 0.17f; sfx_blip((b.n++ & 1) ? 1.5f : 1.25f); }      /* the same soft, quick rustle as the grave search */
+        if (b.prog >= 1.0f) {
+            b.prog = 0; b.on = 0; b.active = 0; b.in_range = 0;
+            sfx_blip(1.9f);
+            if (b.cb) { void (*cb)(void) = b.cb; b.cb = NULL; cb(); }
+            return 1;
+        }
+    } else {
+        b.active = 0; b.tick = 0;
+        if (b.prog > 0) { b.prog -= dt / SEARCH_DECAY_T; if (b.prog < 0) b.prog = 0; }
     }
     return 0;
 }

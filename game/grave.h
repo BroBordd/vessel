@@ -54,17 +54,17 @@ int   grave_body_moving(int i);                             /* a slide is under 
 void  grave_body_tile(int i, float *tx, float *ty);         /* where the body lies (feet position, tiles) */
 
 /* THE SEARCH (chunk 32): the story switches it on for a grave (grave_search_enable). once that grave's body lies on the grass (grave_body_out) and the
- * player stands next to it, the interact button shows a magnifying glass. a TAP starts the search; it takes GRAVE_SEARCH_T seconds (walking out of
- * reach cancels it) and then on_done runs, once: the search is over and does not switch itself on again. the story decides what he was carrying. */
-#define GRAVE_SEARCH_T 1.0f
+ * player stands next to it, the interact button shows a magnifying glass. the search is a HOLD (chunk 64): the bar fills while the finger is on the button, GRAVE_SEARCH_T seconds
+ * in all (letting go drains it back, walking out of reach loses it) and then on_done runs, once: the search is over and does not switch itself on again. the story decides what he was carrying. */
+#define GRAVE_SEARCH_T 1.5f
+#define SEARCH_DECAY_T 1.0f         /* seconds for a full search bar to drain back after letting go */
 void  grave_search_enable(int i, void (*on_done)(void));
 int   grave_search_enabled(void);                           /* switched on and not finished */
 int   grave_search_index(void);                             /* which grave (-1: none) */
-int   grave_search_active(void);                            /* a search is under way (the tap has been made) */
+int   grave_search_active(void);                            /* the finger is searching right now (held, in reach) */
 float grave_search_progress(void);                          /* 0..1 while searching */
 int   grave_search_near(float player_x, float player_y, int allow);   /* in reach of the body (hysteresis). allow = 0 forces "no" and cancels a search */
-void  grave_search_start(void);                             /* the tap. nothing unless in reach, and only one search at a time */
-int   grave_search_update(float dt);                        /* every frame while playing. returns 1 on the frame it is done (on_done has run) */
+int   grave_search_update(float dt, int holding);           /* every frame while playing; holding = the finger is on the button in reach. returns 1 on the frame it is done (on_done has run) */
 
 /* THE BURIAL (chunk 34): the pull played backwards. the story switches it on for a grave (grave_bury_enable); once that grave's body lies on the
  * grass (grave_body_out) and the player stands next to it, the interact button shows a hand lowering him into the plot, and HOLDING it fills a bar

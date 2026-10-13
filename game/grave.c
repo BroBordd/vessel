@@ -109,20 +109,22 @@ int   grave_search_near(float pxw, float pyw, int allow) {
     if (!srch.in_range) { srch.active = 0; srch.prog = 0; }          /* walked away: the search is lost */
     return srch.in_range;
 }
-void  grave_search_start(void) {
-    if (!srch.on || !srch.in_range || srch.active) return;
-    srch.active = 1; srch.prog = 0; srch.tick = 0; srch.n = 0;
-}
-int   grave_search_update(float dt) {
-    if (!srch.on || !srch.active) return 0;
-    srch.prog += dt / GRAVE_SEARCH_T;
-    srch.tick -= dt;
-    if (srch.tick <= 0) { srch.tick = 0.17f; sfx_blip((srch.n++ & 1) ? 1.5f : 1.25f); }      /* a soft, quick rustle: hands through his clothes */
-    if (srch.prog >= 1.0f) {
-        srch.prog = 0; srch.on = 0; srch.active = 0; srch.in_range = 0;
-        sfx_blip(1.9f);
-        if (srch.cb) { void (*cb)(void) = srch.cb; srch.cb = NULL; cb(); }
-        return 1;
+int   grave_search_update(float dt, int holding) {
+    if (!srch.on) return 0;
+    if (holding && srch.in_range) {                          /* chunk 64: the search is a hold: it fills only while the finger is on the button */
+        srch.active = 1;
+        srch.prog += dt / GRAVE_SEARCH_T;
+        srch.tick -= dt;
+        if (srch.tick <= 0) { srch.tick = 0.17f; sfx_blip((srch.n++ & 1) ? 1.5f : 1.25f); }      /* a soft, quick rustle: hands through his clothes */
+        if (srch.prog >= 1.0f) {
+            srch.prog = 0; srch.on = 0; srch.active = 0; srch.in_range = 0;
+            sfx_blip(1.9f);
+            if (srch.cb) { void (*cb)(void) = srch.cb; srch.cb = NULL; cb(); }
+            return 1;
+        }
+    } else {                                                 /* let go early: the bar drains back */
+        srch.active = 0; srch.tick = 0;
+        if (srch.prog > 0) { srch.prog -= dt / SEARCH_DECAY_T; if (srch.prog < 0) srch.prog = 0; }
     }
     return 0;
 }

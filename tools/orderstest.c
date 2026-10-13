@@ -42,7 +42,7 @@ static void fight_talk(int id) { (void)id; talked_n++; }
 static void fight_down(void) { down_n++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
 static int say(const char *text) {                  /* chunk 63: open the TALK keyboard like the player does and send a line */
-    run(6.0f);
+    run(2.5f);
     for (int y = TH - 30; y > TH - 120 && !talk_active(); y -= 4) for (int x = TW - 30; x > TW - 120 && !talk_active(); x -= 4) tap(x, y);
     if (!talk_active()) return 0;
     talk_debug_type(text); run(0.3f); talk_debug_send();
@@ -138,16 +138,16 @@ int main(void) {
         CHECK(convo_active() && dialog_active(), "Alex's typed chat did not open although the order stands (chunk 63)");
         CHECK(strstr(thought_debug_text(), "can't say") == NULL, "a \"can't say that\" thought appeared");
         CHECK(say("hello"), "could not type to Alex");
-        run(6.0f);
+        run(2.5f);
         CHECK(convo_active() && !alex_refused, "an ordinary line made her refuse (or ended the chat)");
         CHECK(brainwin_count() == bc, "an ordinary line started the flow");
         CHECK(say("give me the orb"), "could not ask Alex for the orb");
-        run(6.0f);
+        run(2.5f);
         CHECK(alex_refused && alex_no_n == 1 && !alex_flow, "the first refusal did not set alex_refused once (refused %d, no %d, flow %d)", alex_refused, alex_no_n, alex_flow);
         CHECK(convo_active(), "the chat ended right at her no (the player may still talk)");
         CHECK(!grave_pull_enabled() && brainwin_count() == bc, "the flow started before the chat ended");
         CHECK(say("bye"), "could not say bye");
-        for (int i = 0; i < 6 && (dialog_active() || convo_active()); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
+        for (int i = 0; i < 6 && (dialog_active() || convo_active()); i++) { run(2.5f); tap(TW / 2, TH * 4 / 5); }
         CHECK(!dialog_active() && !convo_active(), "the chat did not end after bye");
         CHECK(alex_flow && grave_pull_enabled(), "leaving the chat after her no did not start the grave flow");
         CHECK(brainwin_count() == bc + 1, "the thought did not come right after the chat (%d -> %d)", bc, brainwin_count());
@@ -220,13 +220,23 @@ int main(void) {
         float sbx, sby; grave_body_tile(aonia_grave, &sbx, &sby);
         pxp = sbx * tile; pyp = (sby + 1.2f) * tile; run(0.3f);                 /* beside him */
         CHECK(near_search && !near_grave, "the magnifying glass does not show next to the body");
+        /* chunk 64: the search is a hold. a tap does nothing; a hold released early drains back; a full hold searches (1.5 s) */
         world_touch(0, bx, by); world_touch(1, bx, by); run(0.4f);              /* one tap */
-        CHECK(grave_search_active(), "a tap did not start the search");
-        CHECK(grave_search_progress() > 0.2f && grave_search_progress() < 0.7f, "0.4 s of a 1 s search is at %.2f", grave_search_progress());
+        CHECK(!grave_search_active() && grave_search_progress() == 0 && !aonia_searched, "a tap searched (active %d, prog %.2f)", grave_search_active(), grave_search_progress());
+        world_touch(0, bx, by); run(0.6f);                                       /* a hold, let go at 0.6 s */
+        CHECK(grave_search_active() && grave_search_progress() > 0.25f && grave_search_progress() < 0.6f, "0.6 s of a 1.5 s hold is at %.2f", grave_search_progress());
+        world_touch(1, bx, by); run(0.3f);
+        { float pd = grave_search_progress();
+          CHECK(!grave_search_active() && pd > 0 && pd < 0.35f, "an early release did not drain the bar (%.2f)", pd); }
+        run(1.2f);
+        CHECK(grave_search_progress() == 0 && !aonia_searched && !item_exists(), "the drained bar did not reach nothing / the search finished by itself");
+        world_touch(0, bx, by); run(0.5f);                                       /* hold again */
+        CHECK(grave_search_active(), "a hold did not start the search");
+        CHECK(grave_search_progress() > 0.2f && grave_search_progress() < 0.5f, "0.5 s of a 1.5 s search is at %.2f", grave_search_progress());
         CHECK(!item_exists() && !aonia_searched, "the hammer came before the search was over");
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/search_button.bmp");   /* the glass sweeping over the button (look at it) */
         int sbc = brainwin_count();
-        run(0.8f);
+        run(1.2f); world_touch(1, bx, by);
         CHECK(aonia_searched && item_exists() && !grave_search_enabled(), "the search did not end with the hammer on the ground");
         CHECK(item_dropping(), "the hammer does not fall (it was placed at once)");
         float hx_, hy_; item_tile(&hx_, &hy_);
@@ -308,14 +318,14 @@ int main(void) {
         float sbx, sby; grave_body_tile(gi, &sbx, &sby);
         pxp = sbx * tile; pyp = (sby + 1.2f) * tile; run(0.3f);
         CHECK(near_search, "the glass does not show next to the second body");
-        world_touch(0, bx, by); world_touch(1, bx, by); run(0.4f);
-        pxp = (sbx + 6.0f) * tile; run(1.5f);                                    /* walks away mid-search */
+        world_touch(0, bx, by); run(0.4f);
+        pxp = (sbx + 6.0f) * tile; run(1.5f); world_touch(1, bx, by);            /* walks away mid-search */
         CHECK(searched_n == 0 && !grave_search_active() && grave_search_enabled(), "walking away did not cancel the search (%d)", searched_n);
         pxp = sbx * tile; run(0.3f);
         CHECK(near_search && grave_search_progress() == 0, "the search did not start over from nothing");
-        world_touch(0, bx, by); world_touch(1, bx, by); run(1.3f);
+        world_touch(0, bx, by); run(GRAVE_SEARCH_T + 0.3f); world_touch(1, bx, by);
         CHECK(searched_n == 1, "a whole search did not call on_done exactly once (%d)", searched_n);
-        world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
+        world_touch(0, bx, by); run(GRAVE_SEARCH_T + 0.5f); world_touch(1, bx, by);
         CHECK(searched_n == 1 && !near_search, "the search ran twice (%d)", searched_n);
         /* a grave whose body is still in the ground cannot be searched */
         int gj = world_place_grave(gx + 4, gy, &VESSEL2);
@@ -517,9 +527,11 @@ int main(void) {
             CHECK(near_bsearch, "no magnifying glass next to her body");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_button.bmp");                   /* the glass on the button (look at it) */
             int tc2 = brainwin_count(), pf = sfx_debug_pfft(); (void)pf;
-            tap(bx, by); run(0.5f);
-            CHECK(bsearch_active() && !world_has_item(ITEM_ORB), "the search did not start with a tap, or finished at once");
-            run(0.7f);
+            tap(bx, by); run(0.5f);                                               /* chunk 64: a tap does nothing, the search is a hold */
+            CHECK(!bsearch_active() && bsearch_progress() == 0 && !world_has_item(ITEM_ORB), "a tap searched her (active %d, prog %.2f)", bsearch_active(), bsearch_progress());
+            world_touch(0, bx, by); run(0.5f);
+            CHECK(bsearch_active() && !world_has_item(ITEM_ORB), "the search did not start with a hold, or finished at once");
+            run(1.2f); world_touch(1, bx, by);
             CHECK(world_has_item(ITEM_ORB) && orb_taken, "no orb in the pockets after the search");
             CHECK(mission_repair >= 0, "\"Repair the shrine\" did not come in");
             CHECK(!dialog_active() && brainwin_count() == tc2, "the search opened a dialog / added a thought (it must be silent)");

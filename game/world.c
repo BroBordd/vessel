@@ -64,7 +64,7 @@ static int   near_id = -1;          /* npc in talking range, or -1 */
 static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
 static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
-static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and a TAP searches */
+static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and HOLDING searches (chunk 64) */
 static int   fight_npc = -1, fight_left, fight_total;   /* chunk 36: the hostile npc being fought, the hits she still takes, and how many she took in all */
 static void (*fight_cb)(void);
 static float fight_cd, fight_swing;                      /* the cooldown between hits (s), and the hammer's slam on the button (1 -> 0) */
@@ -1043,13 +1043,11 @@ void world_touch(int a, int x, int y) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
             int hammer_hold = fight_ready() || near_shrine;                 /* chunk 55: the swing, the break and the repair are holds */
-            int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury && !fight_ready();      /* the shrine, the grave and the swing are holds, not taps (world_update) */
+            int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury && !near_search && !near_bsearch && !fight_ready();      /* chunk 64: every tool use (the shrine, the grave, the searches, the burying, the swing) is a hold, not a tap (world_update) */
             if (a == 1 && btn_inside && hammer_hold && btn_t < HAMMER_TAP_T) { sfx_hold_hint(); hint_t = HINT_ANIM_T; }   /* a tap: only a hint */
             btn_down = btn_inside = 0;
             if (fire) {
-                if (near_bsearch) bsearch_start();
-                else if (near_search) grave_search_start();
-                else if (near_hole) { if (hole_cb) hole_cb(); }
+                if (near_hole) { if (hole_cb) hole_cb(); }
                 else if (near_door) { door_t = 0; door_swapped = 0; stick_on = 0; kx = ky = 0; }
                 else {
                     talk_npc = near_id;
@@ -1234,8 +1232,8 @@ void world_update(float dt) {
         }
         if (shrine_update(dt, near_shrine && btn_down && btn_inside)) btn_down = btn_inside = 0;   /* done: let go of the button */
         if (grave_pull_update(dt, near_grave && btn_down && btn_inside)) btn_down = btn_inside = 0;
-        if (grave_search_update(dt)) btn_down = btn_inside = 0;
-        if (bsearch_update(dt)) btn_down = btn_inside = 0;
+        if (grave_search_update(dt, near_search && btn_down && btn_inside)) btn_down = btn_inside = 0;
+        if (bsearch_update(dt, near_bsearch && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (player_beheaded || throw_t >= 0) {                            /* chunk 41: nothing to press any more (chunk 57: nor while the hammer is thrown) */
             near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = 0; btn_down = btn_inside = 0;
@@ -1472,10 +1470,10 @@ static void draw_interact_button(SDL_Renderer *r) {
         fill(r, bcx - a, bcy + 2 * a, 2 * a, 2 * a);                         /* ... and the dark pit between them */
         return;
     }
-    if (near_search || near_bsearch) {                           /* a magnifying glass. a tap starts the search: it sweeps over the button while the bar fills */
+    if (near_search || near_bsearch) {                           /* a magnifying glass. holding searches: it sweeps over the button while the bar fills */
         float p = near_bsearch ? bsearch_progress() : grave_search_progress();
         int busy = near_bsearch ? bsearch_active() : grave_search_active();
-        if (busy) {
+        if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
             SDL_RenderSetClipRect(r, &clip);
