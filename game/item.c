@@ -151,6 +151,26 @@ static void draw_rows(SDL_Renderer *r, const char *const *rows, int x, int y, in
             SDL_RenderFillRect(r, &q);
         }
 }
+/* chunk 69: the same picture at HALF the size with square cells: every 2 x 2 block of the 12 x 12 icon becomes one cell (the commonest colour in the block; a
+ * block with nothing in it stays empty), so it is 6 x 6 cells at the same cell size, centred where the big one was */
+static void draw_rows_half(SDL_Renderer *r, const char *const *rows, int x, int y, int cell, int lying) {
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    for (int j = 0; j < ITEM_ICON_CELLS / 2; j++)
+        for (int i = 0; i < ITEM_ICON_CELLS / 2; i++) {
+            char c4[4] = { rows[2 * j][2 * i], rows[2 * j][2 * i + 1], rows[2 * j + 1][2 * i], rows[2 * j + 1][2 * i + 1] };
+            char best = '.'; int bestn = 0;
+            for (int a = 0; a < 4; a++) {
+                if (c4[a] == '.') continue;
+                int n = 0; for (int b = 0; b < 4; b++) if (c4[b] == c4[a]) n++;
+                if (n > bestn) { bestn = n; best = c4[a]; }
+            }
+            if (best == '.') continue;
+            int R, G, B; rgb_of(best, &R, &G, &B);
+            SDL_SetRenderDrawColor(r, R, G, B, 255);
+            SDL_Rect q = { x + (lying ? j : i) * cell, y + (lying ? i : j) * cell, cell, cell };
+            SDL_RenderFillRect(r, &q);
+        }
+}
 static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lying) { draw_rows(r, ICONS[kind], x, y, cell, lying); }
 void item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell) {
     if (kind < 0 || kind >= ITEM_COUNT || cell < 1) return;
@@ -174,8 +194,8 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     else if (drop_t < ITEM_DROP_T + DROP_BOUNCE_T) { lift = (int)(3.0f * sinf((drop_t - ITEM_DROP_T) / DROP_BOUNCE_T * 3.14159f) + 0.5f); bob = 0; }
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 70);
-    SDL_Rect sh = { x - 7 * s, y + 3 * s, 14 * s, 2 * s }; SDL_RenderFillRect(r, &sh);      /* ground shadow */
-    draw_icon(r, on_kind, x - 6 * s, y - 6 * s + bob * s - lift * s, s, 1);
+    SDL_Rect sh = { x - 7 * s / 2, y + 3 * s / 2, 7 * s, s }; SDL_RenderFillRect(r, &sh);   /* ground shadow (chunk 69: half) */
+    draw_rows_half(r, ICONS[on_kind], x - 3 * s, y - 3 * s + bob * s - lift * s, s, 1);     /* chunk 69: half the size, centred on the tile */
     if (drop_t >= ITEM_DROP_T && drop_t < ITEM_DROP_T + 0.5f) {                             /* landed: a burst of glints */
         float k = (drop_t - ITEM_DROP_T) / 0.5f; int a = (int)(255 * (1.0f - k)), d = (int)(3 + 9 * k);
         SDL_SetRenderDrawColor(r, 255, 255, 255, a);

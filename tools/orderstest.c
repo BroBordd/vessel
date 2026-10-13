@@ -53,6 +53,15 @@ static unsigned region_hash(int x, int y, int w, int h) {        /* chunk 66: a 
     for (int j = y; j < y + h; j++) for (int i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < TW && j < TH) v = (v ^ px[j * pitch + i]) * 16777619u;
     return v;
 }
+/* chunk 69: the box of everything drawn in a part of the picture that is not black (w, h in px; 0 when empty) */
+static void lit_box(int x0, int y0, int x1, int y1, int *w, int *h) {
+    int minx = 1 << 30, miny = 1 << 30, maxx = -1, maxy = -1; const Uint32 *px_ = (const Uint32 *)surf->pixels; int pitch = surf->pitch / 4;
+    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) {
+        Uint32 v = px_[y * pitch + x];
+        if ((int)(v & 255) + (int)((v >> 8) & 255) + (int)((v >> 16) & 255) > 40) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
+    }
+    *w = maxx < 0 ? 0 : maxx - minx + 1; *h = maxy < 0 ? 0 : maxy - miny + 1;
+}
 static int hint_ref = -1;
 /* chunk 65: freeze the hint at its peak and count how far the fill rises on the left of the button (the icon is not there): every tool must show the same */
 static void hint_check(const char *tool) {
@@ -1053,6 +1062,23 @@ int main(void) {
             if (st == 3) CHECK(mission_search < 0 && mission_bury < 0 && n == base, "buried: want neither task (search %d, bury %d, %d tasks vs %d)", mission_search, mission_bury, n, base);
         }
         aonia_out = aonia_searched = aonia_buried = 0; grave_n = 0; lives = 0;
+    }
+
+    /* chunk 69: an item lying on the ground is half the size. the old one lay on its side at 12 x 12 cells: its box (w, h) was the big icon's (h, w) turned; now
+     * both sides are half of that (+- one cell: the picture is cut into 2 x 2 blocks). the shadow is half too (black on black here, it is in the screenshot) */
+    {   int ow, oh, gw, gh;
+        item_reset(px, tile); item_place(ITEM_HAMMER, 5, 5);
+        SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr);
+        item_draw_icon(rr, ITEM_HAMMER, 200, 200, px); lit_box(100, 100, 340, 340, &ow, &oh);        /* the big picture, upright */
+        SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr);
+        item_draw_ground(rr, (int)(5.5f * tile) - 200, (int)(5.5f * tile) - 200, 0.0f); lit_box(100, 100, 340, 340, &gw, &gh);
+        CHECK(ow > 0 && gw > 0, "could not measure the hammers (%d, %d)", ow, gw);
+        CHECK(abs(gw - oh / 2) <= px && abs(gh - ow / 2) <= px, "the lying hammer is %d x %d px, half of the old %d x %d (turned) is %d x %d", gw, gh, oh, ow, oh / 2, ow / 2);
+        CHECK(gw * 2 <= oh + 2 * px && gh * 2 <= ow + 2 * px && gw * 2 + 2 * px >= oh && gh * 2 + 2 * px >= ow, "the lying hammer is not half the size");
+        SDL_SetRenderDrawColor(rr, 76, 162, 78, 255); SDL_RenderClear(rr);
+        item_draw_ground(rr, (int)(5.5f * tile) - 200, (int)(5.5f * tile) - 200, 0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/item_ground.bmp");   /* on grass (look at it) */
+        CHECK(item_in_reach((5.5f + 1.0f) * tile, 5.5f * tile) && !item_in_reach((5.5f + 1.5f) * tile, 5.5f * tile), "the reach changed");
+        item_reset(px, tile);
     }
 
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
