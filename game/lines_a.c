@@ -11,9 +11,9 @@
 
 const Line LINES_A[] = {
     /* ---- p.pet: what the npc calls the player ---- */
-    {"p.pet", WARM, ALLS, "dear"}, {"p.pet", WARM, ALLS, "friend"}, {"p.pet", WARM, ALLS, "{player}"},
+    {"p.pet", WARM, PLAIN | DIVINE, "dear"}, {"p.pet", WARM, PLAIN | DIVINE, "friend"}, {"p.pet", WARM, ALLS, "{player}"},
     {"p.pet", WARM, DIVINE, "little one"}, {"p.pet", WARM, DIVINE, "dear vessel"}, {"p.pet", WARM, DIVINE, "brave one"},
-    {"p.pet", WARM, STREET, "buddy"}, {"p.pet", WARM, STREET, "pal"}, {"p.pet", WARM, STREET, "my friend"},
+    {"p.pet", WARM, STREET, "stranger"}, {"p.pet", WARM, STREET, "traveler"},
     {"p.pet", NEUT, ALLS, "{player}"}, {"p.pet", NEUT, ALLS, "traveler"}, {"p.pet", NEUT, ALLS, "stranger"},
     {"p.pet", NEUT, DIVINE, "vessel"}, {"p.pet", NEUT, DIVINE, "{player}"}, {"p.pet", NEUT, DIVINE, "small one"},
     {"p.pet", NEUT, STREET, "newbie"}, {"p.pet", NEUT, STREET, "friend"}, {"p.pet", NEUT, STREET, "{player}"},
@@ -79,8 +79,8 @@ const Line LINES_A[] = {
     {"open.again", NEUT, DIVINE, "Now go, {player}. The hole is waiting."}, {"open.again", COLD, DIVINE, "Still here, {pet}? The hole is waiting. Unlike me."},
     {"open.again", COLD, DIVINE, "Why are you not gone yet? The hole is waiting."}, {"open.again", HOST, DIVINE, "The hole is open and you are still talking. Pathetic."},
     {"open.again", WARM, DIVINE, "Ah, you linger. Fine. One more word, {pet}."},
-    {"open.again", NEUT, STREET, "Keep your head down, {player}. I will find you when it is time."}, {"open.again", WARM, STREET, "Hey again! Keep your head down out there."},
-    {"open.again", COLD, STREET, "Still here? Keep your head down already."},
+    {"open.again", NEUT, STREET, "Back again? What do you need?"}, {"open.again", WARM, STREET, "Hey, back again. What do you need?"},
+    {"open.again", COLD, STREET, "Still here? What do you need now?"},
 
     /* ---- ask.questions: the npc asks if there is anything to ask ---- */
     {"ask.questions", WARM, ALLS, "Before you go, do you have any questions?"}, {"ask.questions", WARM, ALLS, "Anything you want to ask me first, {pet}?"},
@@ -106,8 +106,8 @@ const Line LINES_A[] = {
     {"end.noquestions", HOST, ALLS, "Good. Now go before I change my mind."}, {"end.noquestions", HOST, ALLS, "Finally. Go. Now."},
     {"end.noquestions", COLD, DIVINE, "Good. Questions are for those who matter. Now go."}, {"end.noquestions", NEUT, DIVINE, "Wise. Now go, {player}."},
     {"end.noquestions", HOST, DIVINE, "Of course not. Now go, worm."}, {"end.noquestions", WARM, DIVINE, "Good. Trust yourself, little one. Now go."},
-    {"end.noquestions", WARM, STREET, "Cool. Keep your head down, {pet}."}, {"end.noquestions", NEUT, STREET, "Alright. Keep your head down. I will find you when it is time."},
-    {"end.noquestions", COLD, STREET, "Good. Scram. Keep your head down."},
+    {"end.noquestions", WARM, STREET, "Cool. Take care, {pet}."}, {"end.noquestions", NEUT, STREET, "Alright. Then we are done here."},
+    {"end.noquestions", COLD, STREET, "Good. Scram."},
 
     /* ---- end.silence: the player chose to say nothing ---- */
     {"end.silence", WARM, ALLS, "Quiet today, {pet}? That is fine."}, {"end.silence", WARM, ALLS, "No words needed. Take care."},

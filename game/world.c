@@ -201,6 +201,7 @@ static int  indoors;                /* we are in the room */
 static int  player_beheaded;        /* chunk 41: we hit ourselves: headless, lying, no controls */
 static float player_topple_t = -1;  /* seconds since we began to fall (-1: standing) */
 static void self_hit(void);         /* chunk 41: the tap at the mended shrine (defined with the gore) */
+static int  item_house;             /* the item on the ground lies inside the house (not on the grass): it is only drawn and reachable where it lies */
 static int  gore_indoors = 1;       /* the gore (stains, drops, the head) lives in the room or outside: it is only drawn where it was made */
 static int  spark_npc = -1;         /* chunk 38.1: whose lying body the sparks shake (-1: none) */
 static uint8_t outside_map[MAP_MAX][MAP_MAX];
@@ -538,7 +539,7 @@ static int gather_marks(MiniMark *marks) {
     if (cur_map == MAP_CLOUD && world_found_temple() && nm < MAX_MARKS - 1) { marks[nm].tx = DEA_TX + 0.5f; marks[nm].ty = DEA_TY + 0.5f; marks[nm].kind = 7; nm++; }   /* chunk 60: the goddess's temple, once found */
     if (house_on && world_found_house() && nm < MAX_MARKS - 1) { marks[nm].tx = house_sx + 0.5f; marks[nm].ty = house_sy - HUT_H / 2.0f; marks[nm].kind = 5; nm++; }   /* her house, where she lives */
     if (shrine_exists() && world_found_shrine() && nm < MAX_MARKS - 1) { shrine_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 2; marks[nm].state = shrine_polluted(); nm++; }   /* any state: whole, or broken (a cracked stump) */
-    if (item_exists() && shrine_enabled() && world_found_hammer() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
+    if (item_exists() && !item_house && shrine_enabled() && world_found_hammer() && nm < MAX_MARKS - 1) { item_tile(&marks[nm].tx, &marks[nm].ty); marks[nm].kind = 4; nm++; }   /* the hammer, once there is a shrine to break */
     for (int i = 0; i < grave_count() && nm < MAX_MARKS - 1; i++) { if (!world_found_grave(grave_person(i))) continue; grave_tile(i, &marks[nm].tx, &marks[nm].ty); marks[nm].kind = 3; nm++; }   /* graves: grey blocks */
     if (hole_on && hole_t >= HOLE_OPEN_T && nm < MAX_MARKS) { marks[nm].tx = hole_tx + 0.5f; marks[nm].ty = hole_ty + 0.5f; marks[nm].kind = 1; nm++; }
     return nm;
@@ -559,7 +560,7 @@ static void load_map(int which) {
     npc_reset(px, tile);
     gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0; gore_indoors = 1;
     shrine_reset(px, tile);
-    item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
+    item_reset(px, tile); item_house = 0;      /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     bsearch_reset(tile); near_bsearch = 0;
     near_shrine = near_grave = near_search = near_bury = 0; near_item = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
@@ -777,7 +778,7 @@ static void update_door_range(void) {
     near_door = door_in_range;
 }
 
-void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); }
+void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); item_house = indoors; }
 int  world_has_item(int kind) { return item_has(kind); }
 void world_give_item(int kind) { item_give(kind); }
 void world_take_item(int kind) { item_take(kind); }
@@ -818,7 +819,7 @@ void world_enable_grave_pull(int i, void (*on_done)(void)) { grave_pull_enable(i
 void world_enable_grave_search(int i, void (*on_done)(void)) { grave_search_enable(i, on_done); }
 void world_grave_body_tile(int i, float *tx, float *ty) { grave_body_tile(i, tx, ty); }
 void world_enable_grave_bury(int i, void (*on_done)(void)) { grave_bury_enable(i, on_done); }
-void world_drop_item(int kind, int tile_x, int tile_y) { item_drop(kind, tile_x, tile_y); }
+void world_drop_item(int kind, int tile_x, int tile_y) { item_drop(kind, tile_x, tile_y); item_house = indoors; }
 void world_enable_body_search(int npc_id, void (*on_done)(void)) { bsearch_enable(npc_id, on_done); }
 void world_lock_item(int kind, int on, void (*on_blocked)(void)) { item_set_locked(kind, on); item_set_blocked_cb(on ? on_blocked : NULL); }
 /* how far the player is (in tiles) from the nearest grave on this map, 1e9 when there is none (chunk 23: the proximity thought) */
@@ -876,6 +877,18 @@ int world_death_npc(void) { return death_npc; }
 int world_death_active(void) { return death_on; }
 
 static int gore_floor_ok(int tx, int ty) { return !solid_tile(tx, ty); }
+/* an item falls to the floor next to an npc (her body is searched): the first free tile around her feet, below her first */
+void world_drop_item_by_npc(int kind, int npc_id) {
+    static const int OFF[][2] = { {0, 1}, {-1, 1}, {1, 1}, {-1, 0}, {0, 2}, {0, -1}, {-1, 2}, {1, 2}, {2, 1} };
+    float nx, ny; npc_tile(npc_id, &nx, &ny);
+    int bx = (int)floorf(nx), by = (int)floorf(ny);
+    for (unsigned i = 0; i < sizeof OFF / sizeof OFF[0]; i++) {
+        int tx = bx + OFF[i][0], ty = by + OFF[i][1];
+        if (tx < 0 || ty < 0 || tx >= mw || ty >= mh || solid_tile(tx, ty)) continue;
+        world_drop_item(kind, tx, ty); return;
+    }
+    world_drop_item(kind, bx, by);
+}
 /* chunk 38: the one swing. the head comes off and flies away from the player, blood splashes everywhere, the body falls */
 void world_npc_behead(int npc_id) {
     float nx, ny; npc_tile(npc_id, &nx, &ny);
@@ -930,7 +943,7 @@ static void found_update(void) {
     }
     if (house_on && !found_flag[FOUND_HOUSE] && tiles_to(house_sx + 0.5f, house_sy - HUT_H / 2.0f) < FOUND_SIGHT) found_now(&found_flag[FOUND_HOUSE], "Alex's house");
     if (shrine_exists() && !found_flag[FOUND_SHRINE]) { shrine_tile(&x, &y); if (tiles_to(x, y) < FOUND_SIGHT) found_now(&found_flag[FOUND_SHRINE], "the shrine"); }
-    if (item_exists() && !found_flag[FOUND_HAMMER]) { item_tile(&x, &y); if (tiles_to(x, y) < FOUND_SIGHT) found_now(&found_flag[FOUND_HAMMER], "a hammer"); }
+    if (item_exists() && !item_house && !found_flag[FOUND_HAMMER]) { item_tile(&x, &y); if (tiles_to(x, y) < FOUND_SIGHT) found_now(&found_flag[FOUND_HAMMER], "a hammer"); }
     for (int i = 0; i < grave_count(); i++) {
         const Person *who = grave_person(i); int known = 0;
         for (int k = 0; k < found_graves_n; k++) if (found_graves[k] == who) known = 1;
@@ -953,7 +966,7 @@ void world_player_explode(void) {
     if (player_beheaded) return;
     gore_reset(px, tile); spark_npc = -1; gore_indoors = indoors;
     gore_set_floor(gore_floor_ok);
-    gore_explode(pxp, pyp, 6.0f * px);
+    gore_explode(pxp, pyp, 6.0f * px, player_look);
     player_beheaded = 1; player_gone = 1; player_topple_t = -1; throw_t = -1;
     kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = btn_inside = 0;
     world_set_controls_visible(0);
@@ -1215,7 +1228,7 @@ void world_update(float dt) {
         update_hole_range();
         update_door_range();
         item_update(dt);
-        near_item = !dialog_active() && !near_hole && !indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (not inside the house); nothing is taken by walking */
+        near_item = !dialog_active() && !near_hole && item_house == indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (on the grass: outside; in the house: inside); nothing is taken by walking */
         if (!near_item) hand_down = hand_inside = 0;
         near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && !indoors && item_has(ITEM_HAMMER));   /* no hammer, no button */
         near_grave = grave_pull_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !indoors);
@@ -1647,10 +1660,11 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
     int hut_foot = house_on && !indoors ? house_sy * tile : 0;
     if (indoors) {                                                /* the room's furniture, by its feet */
+        if (item_house) item_draw_ground(r, cx, cy, t);           /* something lying on the floor: under everyone */
         for (int i = 0; i < house_piece_count(); i++)
             if (house_piece_foot(i) * tile <= pyp) house_piece_draw(r, i, -cx, -cy, px, t);
     } else {
-        item_draw_ground(r, cx, cy, t);                           /* lying on the grass: under everyone */
+        if (!item_house) item_draw_ground(r, cx, cy, t);          /* lying on the grass: under everyone */
         if (hut_foot && hut_foot <= pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t, house_label);
         if (shrine_foot_y() <= pyp) shrine_draw(r, cx, cy, t);
         for (int i = 0; i < grave_count(); i++)

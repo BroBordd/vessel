@@ -546,9 +546,8 @@ int main(void) {
             run(DEATH_SETTLE_T + 0.4f);
             CHECK(zoom > 2.0f, "the camera did not push in on her (%.2f)", zoom);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_death.bmp");                 /* grey room, red body (look at it) */
-            run(DEATH_BEEPS * DEATH_BEEP_GAP + 0.3f);
-            CHECK(sfx_debug_beeps() - b0 == DEATH_BEEPS && sfx_debug_flatlines() - f0 == 1, "the peeps / the flatline are wrong (%d, %d)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
-            run(ALEX_TEXT_AT + 0.6f);
+            run(DEATH_QUICK_TEXT_AT + 0.3f);                              /* hotfix: no monitor here (the beeps are the heart scene's): the words come at once */
+            CHECK(sfx_debug_beeps() == b0 && sfx_debug_flatlines() == f0, "Alex's death played the monitor (%d peeps, %d flatlines)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
             CHECK(strcmp(death_msg, "Alex has died.") == 0, "the words are missing (\"%s\")", death_msg);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_text.bmp");                  /* the words (look at it) */
             CHECK(!alex_dead, "alex_dead before the cutscene ended");
@@ -599,7 +598,13 @@ int main(void) {
             world_touch(0, bx, by); run(0.5f);
             CHECK(bsearch_active() && !world_has_item(ITEM_ORB), "the search did not start with a hold, or finished at once");
             run(1.2f); world_touch(1, bx, by);
-            CHECK(world_has_item(ITEM_ORB) && orb_taken, "no orb in the pockets after the search");
+            CHECK(!world_has_item(ITEM_ORB) && !orb_taken && item_exists() && orb_dropped, "the search put the orb in the pockets (it must drop on the floor)");
+            CHECK(mission_repair < 0, "\"Repair the shrine\" came in before the orb was picked up");
+            run(ITEM_DROP_T + 0.4f);                                                 /* it lands */
+            {   float ix, iy; item_tile(&ix, &iy); pxp = ix * tile; pyp = (iy + 0.4f) * tile; indoors = 1; run(0.3f);
+                CHECK(near_item, "the hand button does not show next to the dropped orb (indoors)");
+                tap(hbx, hby); run(0.3f); }
+            CHECK(world_has_item(ITEM_ORB) && orb_taken && !item_exists(), "no orb in the pockets after the hand");
             CHECK(mission_repair >= 0, "\"Repair the shrine\" did not come in");
             CHECK(!dialog_active() && brainwin_count() == tc2, "the search opened a dialog / added a thought (it must be silent)");
             CHECK(!bsearch_enabled() && !near_bsearch, "she can be searched twice");
@@ -711,20 +716,20 @@ int main(void) {
             CHECK(!gore_head_exists() && gore_drops_flying() > 60, "a head, or too few red squares in the air after the burst (head %d, %d squares)", gore_head_exists(), gore_drops_flying());
             CHECK(self_done && dying && !shrine_self(), "the swing's state is wrong (%d, %d, %d)", self_done, dying, shrine_self());
             run(0.3f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_blood.bmp");        /* the burst (look at it) */
-            {   int shirt1, pants1, skin1;
-                COUNT_RGB(VESSEL2.shirt, shirt1); COUNT_RGB(VESSEL2.pants, pants1); COUNT_RGB(VESSEL2.skin, skin1);
-                CHECK(shirt1 == 0 && pants1 == 0 && skin1 == 0, "some of the body is still drawn after the explosion (shirt %d, trousers %d, skin %d)", shirt1, pants1, skin1); }
+            /* hotfix: the flesh now flies and stays in the body's own colours, so counting those colours no longer tells whether the standing body is still drawn:
+             * the body is gone (world_player_gone, checked above) and the chunks are what is left */
+            CHECK(gore_flesh_count() + gore_drops_flying() > 20, "no flesh in the air or on the floor after the explosion");
             CHECK(!world_death_active(), "the death scene began before the blood had landed");
             run(1.9f);
+            CHECK(gore_flesh_count() >= 20, "the body's flesh did not stay scattered on the floor (%d chunks)", gore_flesh_count());
             CHECK(!gore_busy() && gore_stain_count() >= 70, "the blood did not come to rest (%d stains, want 70+ : more than the beheading's 57)", gore_stain_count());
             CHECK(world_death_active() && world_death_npc() < 0, "the death scene is not on us");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_lying.bmp");                  /* the body, the stains, the head (look at it) */
             run(DEATH_SETTLE_T + 0.4f);
             CHECK(zoom > 2.0f, "the camera did not push in on us (%.2f)", zoom);
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/self_death.bmp");                  /* grey room, red body (look at it) */
-            run(DEATH_BEEPS * DEATH_BEEP_GAP + 0.3f);
-            CHECK(sfx_debug_beeps() - bp0 == DEATH_BEEPS && sfx_debug_flatlines() - fl0 == 1, "the peeps / the flatline are wrong (%d, %d)", sfx_debug_beeps() - bp0, sfx_debug_flatlines() - fl0);
-            run(ALEX_TEXT_AT + 0.6f);
+            run(DEATH_QUICK_TEXT_AT + 0.3f);                              /* hotfix: no monitor here either: the words come at once */
+            CHECK(sfx_debug_beeps() == bp0 && sfx_debug_flatlines() == fl0, "the sacrifice played the monitor (%d peeps, %d flatlines)", sfx_debug_beeps() - bp0, sfx_debug_flatlines() - fl0);
             CHECK(strcmp(death_msg, "Doia has died.") == 0, "the words are wrong (\"%s\")", death_msg);
             run(DEATH_END_HOLD + 0.5f);
             CHECK(vessel_dead && lives == l0 + 1 && grave_n == g0 + 1, "the life did not end (dead %d, lives %d, graves %d)", vessel_dead, lives, grave_n - g0);

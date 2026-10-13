@@ -158,6 +158,12 @@ void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void
     say_key(again ? "open.again" : "open", REPLY_OPTIONAL, NULL);
 }
 
+void convo_open_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void)) {
+    if (locked_chat(who, on_end)) return;
+    begin(who, mind, ST_FREE, on_end);
+    speak(line, REPLY_OPTIONAL, NULL);
+}
+
 void convo_ask_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void)) {
     if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_QUESTIONS, on_end);

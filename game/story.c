@@ -90,11 +90,13 @@ void story_after(float seconds, void (*fn)(void)) {
 static void alex_watch(void);               /* the proximity triggers, defined with the scenes below */
 static void dea_watch(void);
 static void hammer_watch(void);
+static void orb_watch(void);
 
 void story_update(float dt) {
     alex_watch();
     dea_watch();
     hammer_watch();
+    orb_watch();
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -337,6 +339,7 @@ static const DialogLine DEA_WRATH[] = { { &DEA, "You don't deserve to live." } }
 #define DEATH_BEEP_GAP      0.85f           /* ... this far apart (the first one is at once) ... */
 #define DEATH_FLAT_AT       (DEATH_BEEPS * DEATH_BEEP_GAP)   /* ... and where the fourth would be, the flatline starts and the heart bursts */
 #define DEATH_FALL_AT       1.0f            /* after the flatline and the burst: a beat of stillness, then the vessel topples */
+#define DEATH_QUICK_TEXT_AT 0.35f           /* Alex's death and the hammer sacrifice have no monitor: the words fade in this long after the scene is ready */
 #define DEATH_TEXT_AT       1.5f            /* after the fall began (it lasts 1.1 s): the words fade in */
 #define DEATH_END_HOLD      4.5f            /* the words stay this long, then the mission is over: story_vessel_died() */
 
@@ -563,7 +566,6 @@ int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0;
 #define ALEX_TEXT_AT     1.2f           /* after the flatline: the words */
 #define ALEX_SPARK_DELAY 1.0f           /* the first squirt comes this long after the world is free */
 #define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
-static int alex_beeps;
 /* chunk 39: her body is searched (the magnifying glass next to it, a hold): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
  * next goal, "Repair the shrine", comes in SILENTLY: no thought, no dialog, nothing but the normal task toast. */
 /* chunk 40: the repair. with the orb ours, the same hold with the hammer next to the broken shrine mends it (the break played backwards, shrine.c). the first
@@ -585,30 +587,31 @@ static void repair_done(void) {
 static void shrine_arm_repair(void) {
     if (orb_taken && !shrine_repaired) world_enable_shrine_repair(repair_started, repair_done);
 }
-static void alex_searched_cb(void) {
+static int orb_dropped;                                     /* her body was searched: the orb lies on the floor next to her until we take it with the hand button */
+static void orb_picked(void) {
     orb_taken = 1;
-    world_give_item(ITEM_ORB);
     mission_complete(mission_get_orb);
     mission_repair = task_toast("Repair the shrine");
     shrine_arm_repair();                                    /* chunk 40: the hold mends the shrine from now on */
 }
+static void orb_watch(void) {
+    if (orb_dropped && !orb_taken && world_has_item(ITEM_ORB)) orb_picked();
+}
+static void alex_searched_cb(void) {
+    orb_dropped = 1;
+    world_drop_item_by_npc(ITEM_ORB, alex_id);              /* the search shakes it loose: it falls next to her */
+}
 static void alex_death_end(void) {
     world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
     alex_dead = 1;
-    if (!orb_taken) world_enable_body_search(alex_id, alex_searched_cb);   /* chunk 39: she still carries the orb */
+    if (!orb_taken && !orb_dropped) world_enable_body_search(alex_id, alex_searched_cb);   /* chunk 39: she still carries the orb */
     world_npc_sparks(alex_id, ALEX_SPARK_DELAY);            /* chunk 38.1: from now on her body squirts, for as long as the house is loaded */
 }
 static void alex_death_text(void) {
     world_death_text("Alex has died.");
     story_after(ALEX_END_HOLD, alex_death_end);
 }
-static void alex_death_flat(void) { sfx_flatline(); story_after(ALEX_TEXT_AT, alex_death_text); }
-static void alex_death_beep(void) {
-    sfx_beep();
-    if (--alex_beeps > 0) story_after(DEATH_BEEP_GAP, alex_death_beep);
-    else story_after(DEATH_BEEP_GAP, alex_death_flat);
-}
-static void alex_death_ready(void) { alex_beeps = DEATH_BEEPS; alex_death_beep(); }
+static void alex_death_ready(void) { story_after(DEATH_QUICK_TEXT_AT, alex_death_text); }     /* the monitor's peeps and flatline belong to the heart scene only: the words come at once */
 static void alex_death_begin(void) { world_death_begin_at(alex_id, alex_death_ready); }
 static void alex_killed(void) {
     world_npc_behead(alex_id);
@@ -622,21 +625,15 @@ static void alex_killed(void) {
  * us: the peeps, the flatline (no heart: no chest to show it on), "Doia has died.", then the usual end of a life (story_vessel_died: the stone, the black,
  * limbo, "Uh. I died. Again.", the next summoning). */
 #define SELF_BLOOD_T 2.0f
-static int self_beeps;
 static void self_death_text(void) {
     world_death_text(VESSEL2_NAME " has died.");
     story_after(DEATH_END_HOLD, story_vessel_died);
 }
-static void self_death_flat(void) { sfx_flatline(); story_after(ALEX_TEXT_AT, self_death_text); }
-static void self_death_beep(void) {
-    sfx_beep();
-    if (--self_beeps > 0) story_after(DEATH_BEEP_GAP, self_death_beep);
-    else story_after(DEATH_BEEP_GAP, self_death_flat);
-}
-static void self_death_ready(void) { self_beeps = DEATH_BEEPS; self_death_beep(); }
+static void self_death_ready(void) { story_after(DEATH_QUICK_TEXT_AT, self_death_text); }     /* no peeps, no flatline (the heart scene's): the words come at once */
 static void self_death_begin(void) { world_death_begin(self_death_ready); }
 static void self_hit_cb(void) {
     self_done = 1; dying = 1;                               /* no more thoughts of our own, no more walking */
+    jukebox_scene_fade(0.05f);                              /* the music is cut the moment the hammer lands (map music only: a custom track keeps playing) */
     mission_complete(mission_die);
     world_player_explode();                                 /* chunk 57: the hammer has landed on our head: the whole body goes */
     story_after(SELF_BLOOD_T, self_death_begin);
@@ -814,7 +811,8 @@ static void on_talk_alex(int npc_id) {
     (void)npc_id;
     if (lives >= 1) {                                       /* vessel 2 and later: her normal chat; asking for the orb gets a no */
         convo_watch(alex_orb_ask, "Give me the orb");
-        convo_open(&ALEX, &ALEX_MIND, alex_no_n > 0, alex_v2_end);
+        if (alex_no_n > 0) convo_open(&ALEX, &ALEX_MIND, 1, alex_v2_end);
+        else               convo_open_line(&ALEX, &ALEX_MIND, "What do you need?", alex_v2_end);     /* she does not know us: a plain question first */
         return;
     }
     if (alex_dealt) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }     /* free chat. she nags about the shrine */
@@ -1000,7 +998,7 @@ void story_start(void) {
     brainwin_set_alex(&ALEX);                   /* chunk 51: her thought pictures wear the real Alex's look */
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_search = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = alex_flow = alex_no_n = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_search = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = orb_dropped = shrine_repaired = self_done = 0; alex_refused = alex_flow = alex_no_n = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
     hammer_hinted = hammer_said = 0; world_clear_items(); world_found_reset();   /* chunk 58: nothing found yet */
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

@@ -4,15 +4,21 @@
 #include "audio.h"
 #include <math.h>
 
-#define MAX_DROPS   128
+#define MAX_DROPS   200
 #define MAX_STAINS  320
 #define GRAVITY     16.0f       /* tiles per second squared */
 
-typedef struct { float x, y, z, vx, vy, vz; int size, shade, live; } Drop;
+typedef struct { float x, y, z, vx, vy, vz; int size, shade, live, flesh; } Drop;      /* flesh: 0 = blood, else 1..5 = a chunk of skin, shirt, trousers, hair, boots */
 typedef struct { int x, y, size, shade; } Stain;
 
 static Drop  drops[MAX_DROPS];
 static Stain stains[MAX_STAINS];
+#define MAX_FLESH 48
+typedef struct { int x, y, size, kind; } Flesh;           /* a chunk of the body that landed: it never goes (only gore_reset, a new map, clears them) */
+static Flesh flesh[MAX_FLESH];
+static int   n_flesh;
+static const Person *flesh_who;
+static float flesh_ox, flesh_oy;                          /* where the body burst: a chunk that lands in a wall falls back towards it */
 static int   n_stains, s = 3, tile = 48;
 static int (*floor_cb)(int, int);
 static unsigned seed = 0x2545F491u;
@@ -35,7 +41,7 @@ static float rnd(void) { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed <<
 static int   floor_at(float x, float y) { return !floor_cb || floor_cb((int)floorf(x / tile), (int)floorf(y / tile)); }
 
 void gore_reset(int pixel_scale, int tile_size) {
-    s = pixel_scale; tile = tile_size; n_stains = 0;
+    s = pixel_scale; tile = tile_size; n_stains = 0; n_flesh = 0;
     for (int i = 0; i < MAX_DROPS; i++) drops[i].live = 0;
     head.on = head.settled = 0;
     for (int i = 0; i < MAX_SPARKS; i++) sparks[i].live = 0;
@@ -54,20 +60,29 @@ void gore_burst(float x, float y, float height, float dir_x, float dir_y) {
         if (drops[i].live) continue;
         float ang = rnd() * 6.2831853f, sp = (0.8f + rnd() * 4.2f) * tile;
         drops[i] = (Drop){ x, y, height, cosf(ang) * sp + dir_x * 1.6f * tile, sinf(ang) * sp * 0.8f + dir_y * 1.6f * tile,
-                           (2.0f + rnd() * 4.0f) * tile, rnd() < 0.3f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1 };
+                           (2.0f + rnd() * 4.0f) * tile, rnd() < 0.3f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1, 0 };
         made++;
     }
 }
 
-void gore_explode(float x, float y, float height) {
+void gore_explode(float x, float y, float height, const Person *who) {
     int made = 0;
     for (int i = 0; i < MAX_DROPS && made < 120; i++) {
         if (drops[i].live) continue;
         float ang = rnd() * 6.2831853f, sp = (0.8f + rnd() * 6.0f) * tile;
         float big = rnd();
         drops[i] = (Drop){ x, y, height * (0.4f + rnd() * 1.2f), cosf(ang) * sp, sinf(ang) * sp * 0.8f,
-                           (2.5f + rnd() * 6.0f) * tile, big < 0.12f ? 3 * s : big < 0.5f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1 };
+                           (2.5f + rnd() * 6.0f) * tile, big < 0.12f ? 3 * s : big < 0.5f ? 2 * s : s, (int)(rnd() * 4.0f) & 3, 1, 0 };
         made++;
+    }
+    flesh_who = who; flesh_ox = x; flesh_oy = y;                   /* the body itself: chunks flung far and wide */
+    for (int k = 0, i = 0; k < 30 && who; k++) {
+        while (i < MAX_DROPS && drops[i].live) i++;
+        if (i >= MAX_DROPS) break;
+        float ang = rnd() * 6.2831853f, sp = (1.5f + rnd() * 6.5f) * tile, big = rnd();
+        drops[i] = (Drop){ x, y, height * (0.4f + rnd() * 1.2f), cosf(ang) * sp, sinf(ang) * sp * 0.8f,
+                           (3.0f + rnd() * 6.0f) * tile, big < 0.25f ? 4 * s : big < 0.65f ? 3 * s : 2 * s, 0, 1, 1 + k % 5 };
+        i++;
     }
 }
 
@@ -125,6 +140,12 @@ void gore_update(float dt) {
         d->x += d->vx * dt; d->y += d->vy * dt; d->z += d->vz * dt; d->vz -= GRAVITY * tile * dt;
         if (d->z > 0) continue;
         d->live = 0;                                               /* landed */
+        if (d->flesh) {                                            /* a chunk of the body: it stays (back towards the burst if it hit a wall) */
+            for (int k = 0; k < 8 && !floor_at(d->x, d->y); k++) { d->x = (d->x + flesh_ox) * 0.5f; d->y = (d->y + flesh_oy) * 0.5f; }
+            if (n_flesh < MAX_FLESH) flesh[n_flesh++] = (Flesh){ (int)d->x, (int)d->y, d->size, d->flesh };
+            add_stain(d->x, d->y, d->size, 0);                     /* and the blood it leaves under it */
+            continue;
+        }
         if (!floor_at(d->x, d->y)) continue;                       /* on a wall or a chair: gone */
         add_stain(d->x, d->y, d->size, d->shade);
         if (rnd() < 0.3f) add_stain(d->x + (rnd() < 0.5f ? -s : s), d->y + (rnd() < 0.5f ? -s : s), s, d->shade);   /* a little splash round it */
@@ -142,6 +163,20 @@ void gore_update(float dt) {
     }
 }
 
+static Rgb flesh_rgb(int kind) {
+    const Person *p = flesh_who;
+    if (!p) return (Rgb){ 150, 14, 26 };
+    switch (kind) { case 1: return p->skin; case 2: return p->shirt; case 3: return p->pants; case 4: return p->hair; default: return p->boots; }
+}
+/* a chunk: its own colour with a dark red cut edge (a raw pixel at the corner when it is small) */
+static void flesh_sq(SDL_Renderer *r, int kind, int x, int y, int size) {
+    Rgb c = flesh_rgb(kind);
+    SDL_SetRenderDrawColor(r, SHADES[2][0], SHADES[2][1], SHADES[2][2], 255);
+    SDL_Rect o = { x, y, size, size }; SDL_RenderFillRect(r, &o);
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
+    if (size >= 3 * s) { SDL_Rect i = { x + s, y + s, size - 2 * s, size - 2 * s }; SDL_RenderFillRect(r, &i); }
+    else               { SDL_Rect i = { x, y, size - s, size - s }; SDL_RenderFillRect(r, &i); }
+}
 static void sq(SDL_Renderer *r, int shade, int x, int y, int size) {
     SDL_SetRenderDrawColor(r, SHADES[shade][0], SHADES[shade][1], SHADES[shade][2], 255);
     SDL_Rect q = { x, y, size, size };
@@ -150,11 +185,13 @@ static void sq(SDL_Renderer *r, int shade, int x, int y, int size) {
 
 void gore_draw_floor(SDL_Renderer *r, int cx, int cy) {
     for (int i = 0; i < n_stains; i++) sq(r, stains[i].shade, stains[i].x - cx - stains[i].size / 2, stains[i].y - cy - stains[i].size / 2, stains[i].size);
+    for (int i = 0; i < n_flesh; i++) flesh_sq(r, flesh[i].kind, flesh[i].x - cx - flesh[i].size / 2, flesh[i].y - cy - flesh[i].size / 2, flesh[i].size);   /* the body's chunks, over the blood */
 }
 
 void gore_draw_air(SDL_Renderer *r, int cx, int cy) {
     for (int i = 0; i < MAX_DROPS; i++) {
         if (!drops[i].live) continue;
+        if (drops[i].flesh) { flesh_sq(r, drops[i].flesh, (int)drops[i].x - cx - drops[i].size / 2, (int)(drops[i].y - drops[i].z) - cy - drops[i].size / 2, drops[i].size); continue; }
         sq(r, drops[i].shade, (int)drops[i].x - cx - drops[i].size / 2, (int)(drops[i].y - drops[i].z) - cy - drops[i].size / 2, drops[i].size);
     }
     for (int i = 0; i < MAX_SPARKS; i++) {
@@ -173,6 +210,7 @@ void gore_draw_air(SDL_Renderer *r, int cx, int cy) {
 }
 
 int  gore_stain_count(void)  { return n_stains; }
+int  gore_flesh_count(void)  { return n_flesh; }
 int  gore_drops_flying(void) { int c = 0; for (int i = 0; i < MAX_DROPS; i++) c += drops[i].live; return c; }
 int  gore_head_exists(void)  { return head.on; }
 int  gore_head_settled(void) { return head.on && head.settled; }
