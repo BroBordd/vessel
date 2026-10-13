@@ -53,6 +53,8 @@ void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s);
  * the lower half, the blink still closes them). everything drawn with eyes while it is on is worried (every view: the body, the portrait,
  * the face popups, the brain card face); a Person wears it permanently with ACC_WORRIED. */
 void char_set_worried(int on);
+/* chunk 66: an old photo never blinks: while this is on, everything drawn has its eyes open (the grave portraits turn it on around their draw and off again) */
+void char_set_photo(int on);
 
 /* chunk 56: the aiming pose ("Die" at the mended shrine, while the finger holds the hammer button): full body, front view, feet centred on (x, y), with a
  * ground shadow. the face is turned up to the sky: the left eye is shut (a squint), the right eye is open with its pupil at the top; the right arm is up over

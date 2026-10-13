@@ -211,7 +211,9 @@ void grave_draw(SDL_Renderer *r, int i, int cam_x, int cam_y) {
     col(r, 46, 36, 30, 255);    SDL_RenderFillRect(r, &frame);
     gfx_set_filter(GREY_PHOTO, 0);
     col(r, 214, 208, 192, 255); { SDL_Rect card = { px_, py_, pw, ph }; SDL_RenderFillRect(r, &card); }
+    char_set_photo(1);                                                                 /* chunk 66: an old photo never blinks */
     char_draw_portrait(r, g[i].who, px_, py_, photo_scale(), 0);
+    char_set_photo(0);
     gfx_set_filter(0, 0);                                                              /* (world.c puts its own filter back) */
     col(r, 92, 96, 106, 255);   box(r, x, y, -3, -8, 6, 1); box(r, x, y, -2, -6, 4, 1); /* two engraved lines: a name nobody can read */
 

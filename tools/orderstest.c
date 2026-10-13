@@ -48,6 +48,11 @@ static int say(const char *text) {                  /* chunk 63: open the TALK k
     talk_debug_type(text); run(0.3f); talk_debug_send();
     return 1;
 }
+static unsigned region_hash(int x, int y, int w, int h) {        /* chunk 66: a checksum of a part of the picture */
+    unsigned v = 2166136261u; const Uint32 *px = (const Uint32 *)surf->pixels; int pitch = surf->pitch / 4;
+    for (int j = y; j < y + h; j++) for (int i = x; i < x + w; i++) if (i >= 0 && j >= 0 && i < TW && j < TH) v = (v ^ px[j * pitch + i]) * 16777619u;
+    return v;
+}
 static int hint_ref = -1;
 /* chunk 65: freeze the hint at its peak and count how far the fill rises on the left of the button (the icon is not there): every tool must show the same */
 static void hint_check(const char *tool) {
@@ -203,6 +208,28 @@ int main(void) {
         pxp = (agx + 0.5f) * tile; pyp = (agy + 0.9f + 1.2f) * tile; run(0.3f);
         CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot was open before the pull");
         hint_check("grave pull");
+        /* chunk 66: the photo on a stone never blinks. the blink clock is the real clock (a blink every ~4 s), so look for 9 s: the stone's portrait must be the
+         * same pixels every time, and a normal portrait must change at least once (a blink) */
+        {   int qx, qy, qw, qh; grave_portrait_rect(aonia_grave, (int)cam_x, (int)cam_y, &qx, &qy, &qw, &qh);
+            unsigned first = 0; int same = 1, differs = 0;
+            CHECK(qw > 0 && qx >= 0 && qy >= 0 && qx + qw <= TW && qy + qh <= TH, "the photo is not on the screen for the blink check");
+            for (int k = 0; k < 225; k++) {
+                frame(0.0f); SDL_RenderPresent(rr);
+                unsigned h = region_hash(qx, qy, qw, qh);
+                if (k == 0) first = h; else if (h != first) same = 0;
+                SDL_Delay(40);
+            }
+            CHECK(same, "the photo on the stone changed over 9 s (it blinked)");
+            unsigned f2 = 0;
+            for (int k = 0; k < 225; k++) {
+                SDL_SetRenderDrawColor(rr, 0, 0, 0, 255); SDL_RenderClear(rr);
+                char_draw_portrait(rr, &ALEX, 20, 20, 8, 0); SDL_RenderPresent(rr);
+                unsigned h = region_hash(20, 20, 80, 80);
+                if (k == 0) f2 = h; else if (h != f2) differs = 1;
+                SDL_Delay(40);
+            }
+            CHECK(differs, "a normal portrait did not blink in 9 s");
+        }
         world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.3f);
         CHECK(aonia_out && grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the pull did not open the plot and start the slide");
         CHECK(mission_bury >= 0 && missions_count() == tasks0 + 1, "the task \"Bury Aonia\" did not coin in");

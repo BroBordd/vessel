@@ -56,10 +56,12 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 /* the "flash" (the spawn blink after the fall): everything the character is drawn with is mixed toward white by this much, 0..1 */
 static float g_lighten;
 static int   g_headless, g_shut;                    /* chunk 38: no head; eyes forced shut */
+static int   g_photo;                              /* chunk 66: a photo: the eyes never shut */
 static int   g_worried;                             /* chunk 52: everything drawn is worried */
 static int   g_aim, n_aims;                         /* chunk 56: the aiming pose is being drawn (eyes look up, one shut) / how many times it was drawn */
 void char_set_headless(int on) { g_headless = on != 0; }
 void char_set_worried(int on) { g_worried = on != 0; }
+void char_set_photo(int on) { g_photo = on != 0; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 static void setc(SDL_Renderer *r, int R, int G, int B) {
     if (g_lighten > 0) { R += (int)((255 - R) * g_lighten); G += (int)((255 - G) * g_lighten); B += (int)((255 - B) * g_lighten); }
@@ -131,7 +133,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         int ex[2], n = 0;
         if (facing == FACE_DOWN) { ex[n++] = 2; ex[n++] = 6; }
         else                     { ex[n++] = flip ? 2 : 6; }
-        int shut = g_shut || eyes_shut(p);
+        int shut = !g_photo && (g_shut || eyes_shut(p));
         int worry = g_worried || (p->acc & ACC_WORRIED);
         for (int i = 0; i < n; i++) {
             if (g_aim) {                                                                    /* chunk 56: aiming at the sky. the left eye squints shut, the right one is open, the pupil right at its top */
