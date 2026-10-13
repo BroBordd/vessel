@@ -16,6 +16,7 @@
 #include "lang.h"
 #include "pausebtn.h"
 #include "mapicon.h"
+#include "talk.h"
 
 #define TW 540
 #define TH 1170
@@ -40,6 +41,13 @@ static int talked_n, down_n;
 static void fight_talk(int id) { (void)id; talked_n++; }
 static void fight_down(void) { down_n++; }
 static void tap(int x, int y) { world_touch(0, x, y); frame(0.016f); world_touch(1, x, y); frame(0.016f); }
+static int say(const char *text) {                  /* chunk 63: open the TALK keyboard like the player does and send a line */
+    run(6.0f);
+    for (int y = TH - 30; y > TH - 120 && !talk_active(); y -= 4) for (int x = TW - 30; x > TW - 120 && !talk_active(); x -= 4) tap(x, y);
+    if (!talk_active()) return 0;
+    talk_debug_type(text); run(0.3f); talk_debug_send();
+    return 1;
+}
 static void hold_swing(int x, int y) { world_touch(0, x, y); run(HAMMER_HOLD_T + 0.15f); world_touch(1, x, y); frame(0.016f); }   /* chunk 55: the hammer is a hold */
 
 int main(void) {
@@ -123,27 +131,31 @@ int main(void) {
     CHECK(aonia_grave >= 0, "could not place Aonia's grave");
     CHECK(!grave_pull_enabled(), "the grave pull was on before Alex said no");
     {   int bc = brainwin_count();
+        /* chunk 63: vessel 2 talks to Alex like vessel 1: the order locks Dea, not her. her typed chat opens, she greets us, normal words get
+         * normal replies, and asking for the orb gets her no (once the first no sets alex_refused; the head and the grave start when the chat ends) */
+        CHECK(convo_locked() && !alex_refused && !alex_flow, "the lock / refusal state is wrong before the talk");
         on_talk_alex(0);
-        CHECK(dialog_active() && !convo_active(), "Alex's refusal did not start as a plain dialog");
-        int pages = 0;
-        for (int i = 0; i < ALEX_REFUSE_COUNT + 2 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); pages++; }
-        CHECK(!dialog_active() && !convo_active(), "the refusal left a dialog or a chat open (no question, no chat)");
-        CHECK(pages >= ALEX_REFUSE_COUNT, "the refusal ran %d pages, want %d", pages, ALEX_REFUSE_COUNT);
-        /* chunk 48: she talks to someone who is silent: no question for us to answer (one rhetorical remark about the silence at most,
-         * never the first or the last line), and she never asks why we want it */
-        {   int q = 0;
-            for (int i = 0; i < ALEX_REFUSE_COUNT; i++) {
-                const char *t = ALEX_REFUSE[i].text;
-                for (const char *c = t; *c; c++) if (*c == '?') q++;
-                CHECK(ALEX_REFUSE[i].who == &ALEX, "refusal line %d is not Alex's", i);
-                CHECK(!strstr(t, "Why do you") && !strstr(t, "why do you"), "refusal line %d asks us why", i);
-                if (i == 0 || i == ALEX_REFUSE_COUNT - 1) CHECK(!strchr(t, '?'), "refusal line %d (first or last) holds a question", i);
-            }
-            CHECK(q <= 1, "the refusal asks %d questions, one rhetorical remark at most", q);
-        }
-        CHECK(brainwin_count() == bc + 1, "the first thought did not come right after the refusal (%d -> %d)", bc, brainwin_count());
+        CHECK(convo_active() && dialog_active(), "Alex's typed chat did not open although the order stands (chunk 63)");
+        CHECK(strstr(thought_debug_text(), "can't say") == NULL, "a \"can't say that\" thought appeared");
+        CHECK(say("hello"), "could not type to Alex");
+        run(6.0f);
+        CHECK(convo_active() && !alex_refused, "an ordinary line made her refuse (or ended the chat)");
+        CHECK(brainwin_count() == bc, "an ordinary line started the flow");
+        CHECK(say("give me the orb"), "could not ask Alex for the orb");
+        run(6.0f);
+        CHECK(alex_refused && alex_no_n == 1 && !alex_flow, "the first refusal did not set alex_refused once (refused %d, no %d, flow %d)", alex_refused, alex_no_n, alex_flow);
+        CHECK(convo_active(), "the chat ended right at her no (the player may still talk)");
+        CHECK(!grave_pull_enabled() && brainwin_count() == bc, "the flow started before the chat ended");
+        CHECK(say("bye"), "could not say bye");
+        for (int i = 0; i < 6 && (dialog_active() || convo_active()); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
+        CHECK(!dialog_active() && !convo_active(), "the chat did not end after bye");
+        CHECK(alex_flow && grave_pull_enabled(), "leaving the chat after her no did not start the grave flow");
+        CHECK(brainwin_count() == bc + 1, "the thought did not come right after the chat (%d -> %d)", bc, brainwin_count());
         run(5.5f);
-        CHECK(brainwin_count() == bc + 1, "the refusal left %d thoughts, want exactly one (%d -> %d)", brainwin_count() - bc, bc, brainwin_count());
+        CHECK(brainwin_count() == bc + 1, "the refusal left %d thoughts, want exactly one", brainwin_count() - bc);
+        /* the words that count as asking for the orb */
+        CHECK(asks_for_orb("Give me the orb") && asks_for_orb("ORB?") && asks_for_orb("can I have the orbs"), "asks_for_orb missed an orb");
+        CHECK(!asks_for_orb("absorb") && !asks_for_orb("hello") && !asks_for_orb("who are you?"), "asks_for_orb fired on other words");
         /* chunk 47: walking up to a stone thinks nothing (the grave thought is gone) */
         {   float sx = pxp, sy = pyp;
             pxp = (agx + 0.5f) * tile; pyp = (agy + 0.9f + 2.5f) * tile; run(1.0f);
@@ -152,10 +164,21 @@ int main(void) {
             CHECK(brainwin_count() == bc + 1, "walking up to a stone added a thought (%d)", brainwin_count() - bc);
             pxp = sx; pyp = sy; run(0.3f);
         }
+        /* a second talk: her normal chat again, asking again gets a no, but the flow does not run twice */
         on_talk_alex(0);
-        CHECK(!dialog_active() && !convo_active(), "the refusal played twice (or a chat opened)");
+        CHECK(convo_active(), "the second talk with Alex did not open a chat");
+        CHECK(say("please give me the orb"), "could not ask again");
         run(6.0f);
-        CHECK(brainwin_count() == bc + 1, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
+        CHECK(alex_no_n == 2 && alex_flow, "the second ask was not answered with a no (no %d)", alex_no_n);
+        CHECK(say("bye"), "could not say bye the second time");
+        for (int i = 0; i < 6 && (dialog_active() || convo_active()); i++) { run(6.0f); tap(TW / 2, TH * 4 / 5); }
+        run(6.0f);
+        CHECK(!convo_active() && brainwin_count() == bc + 1, "talking to her again added thoughts to the brain (%d)", brainwin_count() - bc);
+        /* Dea stays locked */
+        CHECK(convo_locked(), "the lock went away with Alex's chat");
+        convo_open(&DEA, &DEA_MIND, 1, NULL);
+        CHECK(!convo_active() && dialog_active(), "Dea's chat is no longer locked");
+        for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
     }
     lives = 0;
     CHECK(grave_pull_enabled() && grave_pull_index() == aonia_grave, "Alex's no did not switch the grave pull on");
@@ -669,7 +692,7 @@ int main(void) {
               run(2.0f); CHECK(missions_count() <= mc, "the task list grew after the hand-over"); }
             { int rc = vessel3_ready_calls;
               world_give_item(ITEM_ORB);                          /* (a second talk, orb back in the pockets: no second hand-over; relock so it is not a typed chat) */
-              convo_lock("I can't say that. I was told to keep quiet."); convo_lock_reply(&DEA, "You heard me. Go.");
+              convo_lock(""); convo_lock_reply(&DEA, "You heard me. Go."); convo_lock_allow(&ALEX);
               on_talk_dea(dea_id);
               CHECK(vessel3_ready_calls == rc && world_has_item(ITEM_ORB), "a second talk handed the orb over again");
               for (int i = 0; i < 4 && (dialog_active() || convo_active()); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
@@ -681,7 +704,7 @@ int main(void) {
               for (int i = 0; i < 4 && dialog_active(); i++) { run(2.0f); tap(TW / 2, TH * 4 / 5); }
               CHECK(vessel3_ready_calls == 1 && !orb_given, "the nag handed something over");
               orb_given = og;
-              convo_lock("I can't say that. I was told to keep quiet."); convo_lock_reply(&DEA, "You heard me. Go."); secret_on = 1; }   /* (the rest of this test goes on as the second life, locked) */
+              convo_lock(""); convo_lock_reply(&DEA, "You heard me. Go."); convo_lock_allow(&ALEX); secret_on = 1; }   /* (the rest of this test goes on as the second life, locked) */
             /* the three looks differ (hair, shirt, skin), on a screenshot too */
             CHECK(memcmp(&VESSEL3.hair, &VESSEL.hair, 3) && memcmp(&VESSEL3.hair, &VESSEL2.hair, 3), "Tria's hair matches another vessel");
             CHECK(memcmp(&VESSEL3.shirt, &VESSEL.shirt, 3) && memcmp(&VESSEL3.shirt, &VESSEL2.shirt, 3), "Tria's shirt matches another vessel");
@@ -702,11 +725,11 @@ int main(void) {
     }
 
     /* talking to anyone while locked: no chat window, the vessel thinks; Dea answers with her own line; on_end still runs */
-    convo_open(&ALEX, &ALEX_MIND, 1, locked_end);
-    CHECK(!convo_active() && !dialog_active(), "Alex's chat opened while locked");
-    CHECK(thought_active(), "no thought about the order when talking to Alex");
+    convo_open(&VESSEL3, &ALEX_MIND, 1, locked_end);
+    CHECK(!convo_active() && !dialog_active(), "a stranger's chat opened while locked");
+    CHECK(strstr(thought_debug_text(), "can't say") == NULL, "the \"can't say that\" thought still exists (chunk 63)");
     CHECK(locked_ended == 1, "on_end of a locked chat did not run (%d)", locked_ended);
-    convo_ask_questions(&ALEX, &ALEX_MIND, locked_end);
+    convo_ask_questions(&VESSEL3, &ALEX_MIND, locked_end);
     CHECK(!convo_active() && locked_ended == 2, "convo_ask_questions opened a chat while locked");
     convo_open(&DEA, &DEA_MIND, 1, locked_end);
     CHECK(!convo_active() && dialog_active() && locked_ended == 2, "Dea did not answer with her own line (popup, no chat)");

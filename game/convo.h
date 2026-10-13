@@ -30,7 +30,13 @@ int  convo_active(void);
  * me. Go." Scripted dialogs (dialog_play) are not affected. convo_unlock() also forgets the replies. */
 void convo_lock(const char *thought);
 void convo_lock_reply(const Person *who, const char *line);
+void convo_lock_allow(const Person *who);                   /* chunk 63: this one person can still be talked to while locked (Alex); the lock stays for everyone else */
 void convo_unlock(void);
 int  convo_locked(void);
+
+/* A WATCH ON ONE CHAT (chunk 63): set before convo_open. every free line the player types in that chat goes to fn(text, reply, cap) first; if
+ * it returns 1 the npc answers with exactly the text it wrote into reply (the chat goes on, the mood is not touched), otherwise the normal
+ * language answer runs. `suggest` (may be NULL) is put first among the keyboard's suggestions. the watch is forgotten when the chat ends. */
+void convo_watch(int (*fn)(const char *text, char *reply, int cap), const char *suggest);
 
 #endif

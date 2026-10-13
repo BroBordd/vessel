@@ -47,6 +47,8 @@
 #include "convo.h"
 #include "lang.h"
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 #include <math.h>
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
@@ -456,8 +458,9 @@ static void scold_page(int page) {
 }
 static void orders_given(void) {                    /* the scolding is over: the orders (chunk 26), then her questions (chunk 19) */
     secret_on = 1;
-    convo_lock("I can't say that. I was told to keep quiet.");      /* chunk 27: no typed chat with anyone while the order stands */
+    convo_lock("");                                         /* chunk 27: no typed chat with Dea while the order stands (chunk 63: no thought about it, and Alex is let through) */
     convo_lock_reply(&DEA, "You heard me. Go.");
+    convo_lock_allow(&ALEX);                                /* chunk 63: vessel 2 talks to Alex like vessel 1 did */
     dialog_play(DEA_ORDERS, DEA_ORDERS_COUNT, scold_done);
 }
 static void dea_scold(void) {
@@ -725,17 +728,19 @@ static void alex_chat_end(void) {
 
 static void alex_deal_done(void) { convo_ask_line(&ALEX, &ALEX_MIND, "Got any questions before you go?", alex_chat_end); }
 
-/* chunk 29: vessel 2 goes to Alex for the orb. she says no, once, in her own face popup. we cannot argue (the chat is locked), so the dialog ends
- * with no question and no free chat; only the head answers: she will not give it up and we need something heavy. every later talk with her is just the chat lock (the thought "I can't say that").
- * chunk 48: we never say a word to her, so she talks to someone who stands there silent: she sees us eyeing the orb, notices the silence,
- * gets annoyed and says no. no question we are meant to answer (the one "?" is a rhetorical remark about the silence). */
-static const DialogLine ALEX_REFUSE[] = {
-    { &ALEX, "I see you looking at my orb. It's mine. I found it." },
-    { &ALEX, "You just stand there and stare. Not a word?" },
-    { &ALEX, "Fine. Then no. Go away." },
+/* chunk 29, rewritten in chunk 63: vessel 2 goes to Alex for the orb and talks to her like vessel 1 did: her normal typed chat (the secret order
+ * of chunk 27 only locks Dea). she greets us in her own words; when we ask for the orb in ours (the watch below sees "orb" and friends) she
+ * says no, it is hers. the first no sets alex_refused; the head answers when the chat ends (alex_v2_end): she will not give it up and we need
+ * something heavy. anything else we type gets her normal replies. her no is scripted, so no mood or context can turn it into a yes. */
+static const char *const ALEX_NO[] = {
+    "It's mine. I found it. No.",
+    "No. I said it's mine.",
+    "You can ask all day. The orb stays with me.",
 };
-#define ALEX_REFUSE_COUNT ((int)(sizeof ALEX_REFUSE / sizeof ALEX_REFUSE[0]))
-static int alex_refused;                            /* she has said no (once only) */
+#define ALEX_NO_COUNT ((int)(sizeof ALEX_NO / sizeof ALEX_NO[0]))
+static int alex_no_n;                               /* how many times she has said no */
+static int alex_refused;                            /* she has said no (set at the first no) */
+static int alex_flow;                               /* the head and the grave flow after her no have started (once only) */
 /* chunk 31: after her no, the stone where our first body lies can be worked: HOLD the button there and we pull him out of the ground by the
  * legs. the plot opens, he slides out feet first, and the task "Bury Aonia" coins in (chunks 32-35 go on from here). aonia_grave is the
  * index of his stone on this map (set when the stones are put back, -1 when there is none); aonia_out is kept for the next landing. */
@@ -780,12 +785,33 @@ static void alex_refuse_done(void) {
     think("She won't give it up. I need something heavy to change her mind.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_REFUSED, 1);
 }
 
+/* does the player's line ask for the orb? (a word that starts with orb, sphere, ball or glow; "absorb" does not count) */
+static int asks_for_orb(const char *t) {
+    static const char *const W[] = { "orb", "sphere", "ball", "glow" };
+    for (const char *p = t; *p; p++) {
+        if (p != t && isalpha((unsigned char)p[-1])) continue;
+        for (int i = 0; i < 4; i++) if (strncasecmp(p, W[i], strlen(W[i])) == 0) return 1;
+    }
+    return 0;
+}
+static int alex_orb_ask(const char *text, char *reply, int cap) {
+    if (!asks_for_orb(text)) return 0;
+    snprintf(reply, (size_t)cap, "%s", ALEX_NO[alex_no_n < ALEX_NO_COUNT ? alex_no_n : ALEX_NO_COUNT - 1]);
+    alex_no_n++;
+    alex_refused = 1;
+    return 1;
+}
+static void alex_v2_end(void) {                         /* the chat is over: if she said no, the head catches up (once) */
+    if (!alex_refused || alex_flow) return;
+    alex_flow = 1;
+    alex_refuse_done();
+}
+
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
-    if (lives >= 1) {                                       /* vessel 2 and later: the orb is hers and she says no */
-        if (alex_refused) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }   /* locked: the vessel only thinks */
-        alex_refused = 1;
-        dialog_play(ALEX_REFUSE, ALEX_REFUSE_COUNT, alex_refuse_done);
+    if (lives >= 1) {                                       /* vessel 2 and later: her normal chat; asking for the orb gets a no */
+        convo_watch(alex_orb_ask, "Give me the orb");
+        convo_open(&ALEX, &ALEX_MIND, alex_no_n > 0, alex_v2_end);
         return;
     }
     if (alex_dealt) { convo_open(&ALEX, &ALEX_MIND, 1, NULL); return; }     /* free chat. she nags about the shrine */
@@ -971,7 +997,7 @@ void story_start(void) {
     brainwin_set_alex(&ALEX);                   /* chunk 51: her thought pictures wear the real Alex's look */
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = alex_flow = alex_no_n = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
     hammer_hinted = hammer_said = 0; world_clear_items(); world_found_reset();   /* chunk 58: nothing found yet */
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

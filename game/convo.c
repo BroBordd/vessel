@@ -29,9 +29,13 @@ static const char *const SUG_FREE[3][5]  = {
     { "Tell me a joke", "You are nice", "Will I die?", "What is the hole?", "Bye" },
 };
 
+static struct { int (*fn)(const char *, char *, int); const char *suggest; } W;     /* chunk 63: the watch on this chat */
+void convo_watch(int (*fn)(const char *, char *, int), const char *suggest) { W.fn = fn; W.suggest = suggest; }
+
 static void finish(void) {
     void (*cb)(void) = C.on_end;
     C.on_end = NULL; C.running = 0;
+    W.fn = NULL; W.suggest = NULL;
     if (cb) cb();
 }
 
@@ -49,7 +53,11 @@ static void speak(const char *line, int reply, const char *echo) {
         dialog_on_reply(on_reply);
         if (C.stage == ST_QUESTIONS) dialog_suggest(SUG_QUESTIONS, 2);
         else if (C.stage == ST_SORRY) dialog_suggest(SUG_SORRY, 2);
-        else dialog_suggest(SUG_FREE[C.turns % 3], 5);
+        else if (W.suggest) {                               /* chunk 63: the story's own suggestion comes first */
+            static const char *sug[6]; sug[0] = W.suggest;
+            for (int i = 0; i < 5; i++) sug[i + 1] = SUG_FREE[C.turns % 3][i];
+            dialog_suggest(sug, 6);
+        } else dialog_suggest(SUG_FREE[C.turns % 3], 5);
     } else { dialog_on_reply(NULL); dialog_suggest(NULL, 0); }
     dialog_play(pair, n, finish);
 }
@@ -67,6 +75,10 @@ static void on_reply(int page, const char *text) {
     (void)page;
     Heard h; memset(&h, 0, sizeof h);
     if (!text) text = "Bye";                                /* the BYE button: the player says goodbye, and the npc answers that */
+    else if (W.fn && C.stage != ST_SORRY) {                 /* chunk 63: the story may answer this line itself (Alex and the orb) */
+        char own[480];
+        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; speak(own, REPLY_OPTIONAL, text); return; }
+    }
     lang_parse(text, &h);
     Persona *ps = C.mind;
 
@@ -113,9 +125,10 @@ const Person *convo_player(void) { return C.player; }
 int  convo_active(void) { return C.running; }
 
 /* the chat lock (chunk 27) */
-static struct { int on; char thought[120]; const Person *reply_who; char reply[120]; DialogLine line[1]; } L;
+static struct { int on; char thought[120]; const Person *reply_who, *allow; char reply[120]; DialogLine line[1]; } L;
 void convo_lock(const char *thought) { L.on = 1; snprintf(L.thought, sizeof L.thought, "%s", thought ? thought : ""); }
 void convo_lock_reply(const Person *who, const char *line) { L.reply_who = who; snprintf(L.reply, sizeof L.reply, "%s", line ? line : ""); }
+void convo_lock_allow(const Person *who) { L.allow = who; }
 void convo_unlock(void) { memset(&L, 0, sizeof L); }
 int  convo_locked(void) { return L.on; }
 
@@ -123,6 +136,7 @@ int  convo_locked(void) { return L.on; }
  * it cannot speak. either way the story goes on (on_end). returns 1 when the call was swallowed */
 static int locked_chat(const Person *who, void (*on_end)(void)) {
     if (!L.on) return 0;
+    if (who && who == L.allow) return 0;                    /* chunk 63: this one can still be talked to */
     if (who && who == L.reply_who && *L.reply) {
         L.line[0].who = who; L.line[0].text = L.reply; L.line[0].reply = REPLY_NONE;
         dialog_play(L.line, 1, on_end);
