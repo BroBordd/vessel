@@ -64,6 +64,9 @@ static int   near_id = -1;          /* npc in talking range, or -1 */
 static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
 static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
+static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
+static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
+static int   hbx, hby, hbr;               /* the hand button: centre and radius */
 static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and HOLDING searches (chunk 64) */
 static int   fight_npc = -1, fight_left, fight_total;   /* chunk 36: the hostile npc being fought, the hits she still takes, and how many she took in all */
 static void (*fight_cb)(void);
@@ -559,7 +562,7 @@ static void load_map(int which) {
     item_reset(px, tile);                       /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     bsearch_reset(tile); near_bsearch = 0;
-    near_shrine = near_grave = near_search = near_bury = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
+    near_shrine = near_grave = near_search = near_bury = 0; near_item = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = self_prog = self_tick = aim_t = 0;   /* the npc ids are gone with the map */
@@ -591,6 +594,7 @@ void world_init(int w, int h) {
     sx = margin + sr; sy = H - margin - sr;
     br = (int)(44 * u);
     bcx = W - margin - br; bcy = H - margin - br;
+    hbr = br * 3 / 4; hbx = bcx - br - hbr - (int)(10 * u); hby = bcy + br - hbr;                      /* chunk 68: the hand, on the interact button's left, resting on the same line */
 
     dialog_init(w, h);
     missions_init(w, h);
@@ -1002,6 +1006,11 @@ static int button_hit(int x, int y) {
     return sqrtf(dx * dx + dy * dy) <= br * 1.3f;                /* generous hit area */
 }
 
+static int hand_hit(int x, int y) {
+    float dx = (float)(x - hbx), dy = (float)(y - hby);
+    return sqrtf(dx * dx + dy * dy) <= hbr * 1.3f;
+}
+
 void world_touch(int a, int x, int y) {
     if (dialog_active()) {                              /* dialogs eat all touches */
         dialog_touch(a, x, y);
@@ -1014,6 +1023,14 @@ void world_touch(int a, int x, int y) {
     if (mm_down) {
         if (a == 1) { mm_down = 0; if (minimap_hit(x, y)) { stick_on = 0; kx = ky = 0; btn_down = btn_inside = 0; mapwin_open(); } }
         else if (a == 3) mm_down = 0;
+        return;
+    }
+
+    /* chunk 68: the hand button: press on it, release on it = take what lies in reach (a pick-up is a tap, not a tool use) */
+    if (a == 0 && near_item && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; return; }
+    if (hand_down) {
+        if (a == 2) hand_inside = hand_hit(x, y);
+        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && near_item; hand_down = hand_inside = 0; if (fire) item_grab(pxp, pyp); }
         return;
     }
 
@@ -1165,7 +1182,7 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0; near_item = hand_down = hand_inside = 0;
     } else {
         if (dialog_active() || door_t >= 0 || player_beheaded || throw_t >= 0 || self_aiming()) { kx = ky = 0; stick_on = 0; }   /* frozen while talking or going through a door */
         if (!death_on && !dialog_active() && door_t < 0 && !player_beheaded && throw_t < 0) found_update();      /* chunk 58 */
@@ -1197,7 +1214,9 @@ void world_update(float dt) {
         if (npcs_here()) npc_update(pxp, pyp);
         update_hole_range();
         update_door_range();
-        item_update(dt, pxp, pyp, !dialog_active() && !near_hole && !indoors);   /* walking over the hammer picks it up (not from inside the house) */
+        item_update(dt);
+        near_item = !dialog_active() && !near_hole && !indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (not inside the house); nothing is taken by walking */
+        if (!near_item) hand_down = hand_inside = 0;
         near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && !indoors && item_has(ITEM_HAMMER));   /* no hammer, no button */
         near_grave = grave_pull_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !indoors);
         near_search = grave_search_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !indoors);
@@ -1238,7 +1257,7 @@ void world_update(float dt) {
         if (bsearch_update(dt, near_bsearch && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (player_beheaded || throw_t >= 0) {                            /* chunk 41: nothing to press any more (chunk 57: nor while the hammer is thrown) */
-            near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = 0; btn_down = btn_inside = 0;
+            near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = 0; btn_down = btn_inside = 0; near_item = hand_down = hand_inside = 0;
         }
     }
 
@@ -1392,6 +1411,20 @@ static void draw_stick(SDL_Renderer *r, int cx, int cy, int rad, int krad, int k
     col(r, 255, 255, 255, 235); pring(r, cx, cy, rad, 1, ucell);                   /* the light ring */
     col(r, UI_DARK, 235);  pdisc(r, kcx, kcy, krad + ucell, ucell);                /* the knob's dark rim ... */
     col(r, 255, 255, 255, on ? 255 : 220); pdisc(r, kcx, kcy, krad, ucell);        /* ... round the light knob */
+}
+
+static void draw_hand_button(SDL_Renderer *r) {                  /* chunk 68: the same two-tone edge as the interact button, a little smaller; an open hand */
+    int down = hand_down && hand_inside;
+    int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));
+    col(r, UI_DARK, 235); pring(r, hbx, hby, hbr + ucell, 1, ucell);
+    if (down) col(r, 70, 80, 130, 240); else col(r, 24, 28, 48, 235);
+    pdisc(r, hbx, hby, hbr, ucell);
+    col(r, 255, 255, 255, down ? 255 : pulse);
+    pring(r, hbx, hby, hbr, 1, ucell);
+    int a = hbr / 7; if (a < 2) a = 2;
+    int bob = down ? a : (int)(sinf(t * 3.0f) * a * 0.4f);
+    int side = ITEM_ICON_CELLS * a;
+    item_draw_hand_icon(r, hbx - side / 2, hby - side / 2 + bob, a);
 }
 
 static void draw_interact_button(SDL_Renderer *r) {
@@ -1802,6 +1835,7 @@ void world_draw(SDL_Renderer *r) {
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         draw_stick(r, sx, sy, sr, kr, kcx, kcy, stick_on);
         if (near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door) draw_interact_button(r);
+        if (near_item) draw_hand_button(r);                                              /* chunk 68: the hand, when something lies in reach */
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */

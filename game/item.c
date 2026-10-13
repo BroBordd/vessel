@@ -51,6 +51,20 @@ static const char *SEARCH[ITEM_ICON_CELLS] = {
     "..........LL",
     "............",
 };
+static const char *HAND[ITEM_ICON_CELLS] = {
+    "...G.G.G....",
+    "..GSGSGSG.G.",
+    "..GSGSGSGSG.",
+    "..GSGSGSGSG.",
+    ".GGSSSSSSSG.",
+    "GSSSSSSSSSG.",
+    "GSSSSSSSSSG.",
+    ".GSSSSSSSSG.",
+    "..GSSSSSSG..",
+    "..GSSSSSsG..",
+    "...GSSSssG..",
+    "....GGGGG...",
+};
 static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB };
 static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB" };
 
@@ -65,13 +79,12 @@ static float drop_t = 99.0f;                /* seconds since the item on the map
 #define DROP_HEIGHT   14                    /* units it falls from */
 
 static int locked[ITEM_COUNT], n_blocked;
-static float block_cd;                      /* seconds until the next turned-away try may speak */
 static void (*blocked_cb)(void);
 void item_set_locked(int kind, int lk) { if (kind >= 0 && kind < ITEM_COUNT) locked[kind] = lk ? 1 : 0; }
 int  item_locked(int kind) { return kind >= 0 && kind < ITEM_COUNT && locked[kind]; }
 void item_set_blocked_cb(void (*cb)(void)) { blocked_cb = cb; }
 int  item_blocked_count(void) { return n_blocked; }
-void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; memset(locked, 0, sizeof locked); blocked_cb = NULL; block_cd = 0; }
+void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; memset(locked, 0, sizeof locked); blocked_cb = NULL; }
 void item_place(int kind, int tile_x, int tile_y) { if (kind < 0 || kind >= ITEM_COUNT) return; on = 1; on_kind = kind; tx = tile_x; ty = tile_y; drop_t = 99.0f; }
 void item_drop(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); if (on) drop_t = 0; }
 int  item_dropping(void) { return on && drop_t < ITEM_DROP_T; }
@@ -82,20 +95,24 @@ void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; have[kind
 void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT) have[kind] = 0; }
 void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; }
 
-int item_update(float dt, float pxw, float pyw, int allow) {
+void item_update(float dt) {
     if (new_t < 99.0f) new_t += dt;
-    if (block_cd > 0) block_cd -= dt;
     if (on && drop_t < 99.0f) {                                 /* chunk 32: a dropped item falls first, and thunks when it lands */
         float before = drop_t; drop_t += dt;
         if (before < ITEM_DROP_T && drop_t >= ITEM_DROP_T) sfx_blip(0.42f);
         if (drop_t > ITEM_DROP_T + DROP_BOUNCE_T + 1.0f) drop_t = 99.0f;
     }
-    if (!on || !allow || item_dropping()) return -1;
+}
+int item_in_reach(float pxw, float pyw) {
+    if (!on || item_dropping()) return 0;
     float dx = pxw - (tx + 0.5f) * tile, dy = pyw - (ty + 0.5f) * tile;
-    if (sqrtf(dx * dx + dy * dy) / tile >= ITEM_PICK_R) return -1;
+    return sqrtf(dx * dx + dy * dy) / tile < ITEM_REACH_R;
+}
+int item_grab(float pxw, float pyw) {                           /* chunk 68: the tap on the hand */
+    if (!item_in_reach(pxw, pyw)) return -1;
     int k = on_kind;
-    if (locked[k]) {                                            /* chunk 33: it stays where it is */
-        if (block_cd <= 0) { block_cd = ITEM_BLOCK_GAP; n_blocked++; if (blocked_cb) blocked_cb(); }
+    if (locked[k]) {                                            /* chunk 33: it stays where it is, every press says so */
+        n_blocked++; if (blocked_cb) blocked_cb();
         return -1;
     }
     on = 0; item_give(k);
@@ -113,6 +130,8 @@ static void rgb_of(char c, int *R, int *G, int *B) {
         case 'b': *R = 244; *G = 250; *B = 255; break;
         case 'V': *R = 150; *G = 96;  *B = 220; break;
         case 'v': *R = 88;  *G = 52;  *B = 150; break;
+        case 'S': *R = 236; *G = 190; *B = 150; break;
+        case 's': *R = 200; *G = 140; *B = 104; break;
         case 'Y': *R = 236; *G = 190; *B = 78;  break;
         case 'y': *R = 255; *G = 238; *B = 170; break;
         default:  *R = 132; *G = 84;  *B = 42;  break;      /* w */
@@ -136,6 +155,10 @@ static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lyi
 void item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell) {
     if (kind < 0 || kind >= ITEM_COUNT || cell < 1) return;
     draw_icon(r, kind, x, y, cell, 0);
+}
+void item_draw_hand_icon(SDL_Renderer *r, int x, int y, int cell) {
+    if (cell < 1) return;
+    draw_rows(r, HAND, x, y, cell, 0);
 }
 void item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell) {
     if (cell < 1) return;

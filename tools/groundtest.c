@@ -246,7 +246,9 @@ int main(void) {
             put_player(hx - 3.0f, hy); run(0.3f);
             CHECK(!world_has_item(ITEM_HAMMER), "the hammer was picked up from 3 tiles away");
             put_player(hx, hy); run(0.4f);
-            CHECK(world_has_item(ITEM_HAMMER) && !item_exists(), "walking onto the hammer did not pick it up");
+            CHECK(!world_has_item(ITEM_HAMMER) && item_exists() && near_item, "walking onto the hammer took it, or the hand button does not show (chunk 68)");
+            tap(hbx, hby); run(0.2f);                                       /* chunk 68: only the hand takes it */
+            CHECK(world_has_item(ITEM_HAMMER) && !item_exists(), "the hand did not pick the hammer up");
             CHECK(hammer_said, "no thought on picking the hammer up");
             shot("build/ground_hammer_slot.bmp");
             int ix = TW - 30, iy = 0;                                   /* the slot hangs under the minimap: find it */

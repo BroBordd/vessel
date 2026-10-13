@@ -296,24 +296,30 @@ int main(void) {
         world_touch(0, bx, by); world_touch(1, bx, by); run(1.5f);
         CHECK(brainwin_count() == sbc, "searching again added a thought");
 
-        /* chunk 33: respect the dead. he is unburied, so the hammer is locked: walking onto it does not take it; the task flashes red, the error
-         * buzz sounds and and the vessel thinks nothing (chunk 62); one try every 3 s at most */
+        /* chunk 33 + 68: respect the dead. he is unburied, so the hammer is locked. walking onto it does nothing at all (the hand button shows); pressing the hand
+         * does not take it: the task flashes red and shakes, the error buzz sounds, the vessel thinks nothing (chunk 62); every press says so */
         CHECK(item_locked(ITEM_HAMMER), "the hammer is not locked while he lies unburied");
         int e0 = sfx_debug_errors(), b0 = item_blocked_count(), tc0 = brainwin_count(), ta0 = thought_active();
-        pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
+        pxp = hx_ * tile; pyp = hy_ * tile; run(0.3f);
+        CHECK(near_item, "the hand button does not show with the hammer in reach");
         CHECK(!item_has(ITEM_HAMMER) && item_exists(), "walking onto the locked hammer took it");
-        CHECK(sfx_debug_errors() == e0 + 1 && item_blocked_count() == b0 + 1, "the error buzz / the turned-away try were not counted (%d, %d)", sfx_debug_errors() - e0, item_blocked_count() - b0);
+        CHECK(sfx_debug_errors() == e0 && item_blocked_count() == b0 && !mission_flashing(mission_bury), "walking onto the locked hammer buzzed or flashed (%d, %d)", sfx_debug_errors() - e0, item_blocked_count() - b0);
+        run(3.5f);
+        CHECK(sfx_debug_errors() == e0 && !mission_flashing(mission_bury), "the lock buzzed / flashed by itself while we stood there");
+        frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/hand_button.bmp");             /* the hand button next to the interact button (look at it) */
+        tap(hbx, hby);
+        CHECK(!item_has(ITEM_HAMMER) && item_exists(), "the hand took the locked hammer");
+        CHECK(sfx_debug_errors() == e0 + 1 && item_blocked_count() == b0 + 1, "the error buzz / the turned-away press were not counted (%d, %d)", sfx_debug_errors() - e0, item_blocked_count() - b0);
         CHECK(mission_flashing(mission_bury), "the task Bury Aonia does not flash");
-        CHECK(brainwin_count() == tc0 && (ta0 || !thought_active()), "walking into the locked hammer thinks something (%d -> %d thoughts, card %d)", tc0, brainwin_count(), thought_active());
+        CHECK(brainwin_count() == tc0 && (ta0 || !thought_active()), "pressing the hand at the locked hammer thinks something (%d -> %d thoughts, card %d)", tc0, brainwin_count(), thought_active());
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/respect_flash.bmp");           /* the red, shaking line (look at it) */
         run(0.8f);
         CHECK(!mission_flashing(mission_bury), "the flash did not end after %.1f s", MISSION_FLASH_T);
-        run(1.0f);                                                                  /* still standing on it, 1.8 s in: too soon for another */
-        CHECK(sfx_debug_errors() == e0 + 1, "a second buzz came within 3 s (%d)", sfx_debug_errors() - e0);
-        run(1.6f);                                                                  /* past 3 s: again, but the window keeps one thought */
-        CHECK(sfx_debug_errors() == e0 + 2 && mission_flashing(mission_bury), "no second buzz / flash after 3 s (%d)", sfx_debug_errors() - e0);
-        CHECK(brainwin_count() == tc0 && !item_has(ITEM_HAMMER), "a thought came after the second try, or the hammer was taken");
+        tap(hbx, hby);                                                              /* every press answers, there is no waiting time */
+        CHECK(sfx_debug_errors() == e0 + 2 && mission_flashing(mission_bury), "no second buzz / flash on the second press (%d)", sfx_debug_errors() - e0);
+        CHECK(brainwin_count() == tc0 && !item_has(ITEM_HAMMER), "a thought came after the second press, or the hammer was taken");
         pxp = (sbx + 3.0f) * tile; run(0.3f);
+        CHECK(!near_item, "the hand button shows with nothing in reach");
 
         /* chunk 34: bury him. after the search the button next to the body is a hand lowering him; HOLDING it drags him back into the plot, the task
          * completes and the hammer is free. a short hold only fills the bar a little and it creeps back */
@@ -339,8 +345,10 @@ int main(void) {
         CHECK(missions_count() == mc0 - 1, "the task Bury Aonia did not complete and fade (%d -> %d)", mc0, missions_count());
         CHECK(!near_bury, "the burial button shows after he was buried");
         lives = 1;                                                              /* (the real game is in its second life here) */
-        pxp = hx_ * tile; pyp = hy_ * tile; frame(0.016f);
-        CHECK(item_has(ITEM_HAMMER), "the unlocked hammer was not picked up after the burial");
+        pxp = hx_ * tile; pyp = hy_ * tile; run(0.5f);
+        CHECK(!item_has(ITEM_HAMMER) && near_item, "walking onto the unlocked hammer took it, or the hand does not show");   /* chunk 68: only the hand takes it */
+        tap(hbx, hby);
+        CHECK(item_has(ITEM_HAMMER) && !item_exists(), "the hand did not take the unlocked hammer after the burial");
         /* chunk 35: the hammer is ours: the flat thought, once, the flag for a new landing, the task stays */
         {   int tc1 = brainwin_count(), mc1 = missions_count();
             run(0.3f);
