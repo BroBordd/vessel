@@ -83,8 +83,8 @@ int  world_place_grave(int tile_x, int tile_y, const Person *dead);
 int  world_find_prop_spot_near(int want_tx, int want_ty, int *out_tx, int *out_ty);
 /* the pull (grave.h, chunk 30): the interact button shows a grip next to grave i and HOLDING it fills a bar; when it is full on_done runs once */
 void world_enable_grave_pull(int grave_index, void (*on_done)(void));
-/* the search (grave.h, chunk 32): once body i lies on the grass and the player is next to it, the interact button shows a magnifying glass; a TAP
- * searches (1 s) and on_done runs once. world_grave_body_tile: where the body lies (feet, tiles). */
+/* the search (grave.h, chunk 32): once body i lies on the grass and the player is next to it, the interact button shows a magnifying glass; a HOLD
+ * (chunk 64, GRAVE_SEARCH_T, a tap is only a hint) searches and on_done runs once. world_grave_body_tile: where the body lies (feet, tiles). */
 void world_enable_grave_search(int grave_index, void (*on_done)(void));
 void world_grave_body_tile(int i, float *tx, float *ty);
 /* the burial (grave.h, chunk 34): next to a body that lies on the grass the button shows a hand lowering him; HOLDING it drags him back into the plot, then on_done runs once */
@@ -101,12 +101,12 @@ void world_grave_set_open(int grave_index, int open, int instant);   /* instant:
 int  world_grave_count(void);
 float world_dist_to_grave(void);                          /* tiles from the player to the nearest grave on this map (1e9: none) */
 void world_grave_tile(int i, float *tx, float *ty);       /* feet position in tiles */
-/* ITEMS (item.h): world_place_item lays one on the current map (walking over it picks it up; the map forgets it when a new one loads),
+/* ITEMS (item.h): world_place_item lays one on the current map (the hand button takes it, chunk 68, walking over it does nothing; the map forgets it when a new one loads),
  * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
 void world_lock_item(int kind, int on, void (*on_blocked)(void));   /* chunk 33: a locked item on the ground is not picked up; on_blocked runs when someone walks into it (at most every 3 s) */
-void world_enable_body_search(int npc_id, void (*on_done)(void));   /* chunk 39: next to that lying npc (indoors) the button shows the magnifying glass; a tap = a 1 s search, then on_done once (bsearch.h) */
+void world_enable_body_search(int npc_id, void (*on_done)(void));   /* chunk 39: next to that lying npc (indoors) the button shows the magnifying glass; a HOLD (chunk 64, a tap is only a hint) searches, then on_done once (bsearch.h) */
 void world_drop_item(int kind, int tile_x, int tile_y);     /* chunk 32: like world_place_item, but it falls there (cannot be picked up until it has landed) */
 int  world_has_item(int kind);
 void world_give_item(int kind);

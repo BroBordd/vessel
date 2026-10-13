@@ -564,7 +564,7 @@ int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0;
 #define ALEX_SPARK_DELAY 1.0f           /* the first squirt comes this long after the world is free */
 #define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
 static int alex_beeps;
-/* chunk 39: her body is searched (the magnifying glass next to it, a tap): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
+/* chunk 39: her body is searched (the magnifying glass next to it, a hold): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
  * next goal, "Repair the shrine", comes in SILENTLY: no thought, no dialog, nothing but the normal task toast. */
 /* chunk 40: the repair. with the orb ours, the same hold with the hammer next to the broken shrine mends it (the break played backwards, shrine.c). the first
  * time the hold starts the vessel thinks the hammer does everything. when it is whole the task "Repair the shrine" is done (chunk 41 adds "Die"). the world
@@ -746,7 +746,7 @@ static int alex_flow;                               /* the head and the grave fl
  * legs. the plot opens, he slides out feet first, and the task "Bury Aonia" coins in (chunks 32-35 go on from here). aonia_grave is the
  * index of his stone on this map (set when the stones are put back, -1 when there is none); aonia_out is kept for the next landing. */
 static int aonia_grave = -1, aonia_out;
-/* chunk 32: once he lies on the grass, a tap on the magnifying-glass button searches him: the hammer falls out of his hand onto the ground next to
+/* chunk 32: once he lies on the grass, a hold on the magnifying-glass button (chunk 64) searches him: the hammer falls out of his hand onto the ground next to
  * him (a glint, a thunk) and the vessel remembers it. once only. hammer_tx / hammer_ty is where it fell (a new landing puts it back there). chunk 33
  * locks it until he is buried again. */
 static int aonia_searched, hammer_tx, hammer_ty;
