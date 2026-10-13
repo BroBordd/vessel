@@ -76,6 +76,7 @@ static float fight_cd, fight_swing;                      /* the cooldown between
 #define HAMMER_DECAY_T 0.6f
 #define HAMMER_TAP_T   0.3f
 #define HINT_ANIM_T    0.25f
+#define HINT_FILL      0.25f        /* chunk 65: how far a tap fills the button at the peak of the hint (a quarter of it): the same for EVERY tool */
 static float fight_prog, fight_tick;                     /* the swing's hold, 0..1, and the rising tick's timer */
 /* chunk 56: "Die" is a hold too: SELF_HOLD_T seconds with the finger on the button at the mended shrine. while it is held the player stops, turns to the
  * camera and aims the hammer at the sky (char_draw_aim); letting go early puts the pose away and the bar drains; a full bar calls the shrine's on_full */
@@ -93,7 +94,8 @@ static int player_gone, hammer_draws;
 static int self_aiming(void);                            /* the finger is holding the hammer button at the mended shrine (defined after the update's state) */
 static float btn_t;                                      /* how long the finger has been on the button */
 static float hint_t;                                     /* > 0 while the hint's fill is playing (HINT_ANIM_T -> 0) */
-static float hint_curve(void) { return hint_t > 0 ? 0.3f * sinf(3.1415926f * (1.0f - hint_t / HINT_ANIM_T)) : 0.0f; }
+static float hint_curve(void) { return hint_t > 0 ? HINT_FILL * sinf(3.1415926f * (1.0f - hint_t / HINT_ANIM_T)) : 0.0f; }
+static float hint_fill(float prog) { float h = hint_curve(); return prog > h ? prog : h; }   /* chunk 65: what every tool draws: its own progress, or the hint if that is more */
 static int   near_shrine;           /* Dia's shrine is in reach and usable: the button shows the sludge drop, and HOLDING it pollutes */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
@@ -1042,7 +1044,7 @@ void world_touch(int a, int x, int y) {
     if (btn_down) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
-            int hammer_hold = fight_ready() || near_shrine;                 /* chunk 55: the swing, the break and the repair are holds */
+            int hammer_hold = fight_ready() || near_shrine || near_grave || near_bury || near_search || near_bsearch;     /* chunk 55 + 65: every tool is a hold: the swing, the break and the repair, "Die", the pull, the searches, the burying */
             int fire = a == 1 && btn_inside && can && !near_shrine && !near_grave && !near_bury && !near_search && !near_bsearch && !fight_ready();      /* chunk 64: every tool use (the shrine, the grave, the searches, the burying, the swing) is a hold, not a tap (world_update) */
             if (a == 1 && btn_inside && hammer_hold && btn_t < HAMMER_TAP_T) { sfx_hold_hint(); hint_t = HINT_ANIM_T; }   /* a tap: only a hint */
             btn_down = btn_inside = 0;
@@ -1406,8 +1408,8 @@ static void draw_interact_button(SDL_Renderer *r) {
 
     if (near_shrine) {                                           /* a sludge drop. holding fills the button from the bottom with ooze */
         float p = shrine_progress();
-        if (hint_curve() > p) p = hint_curve();                                       /* chunk 55: a tap shows the hint's little fill */
         if (shrine_self() && self_prog > p) p = self_prog;                            /* chunk 56: "Die"'s hold fills it too */
+        p = hint_fill(p);                                                             /* chunk 55 + 65: a tap shows the hint's little fill */
         if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1423,7 +1425,7 @@ static void draw_interact_button(SDL_Renderer *r) {
         return;
     }
     if (near_grave) {                                            /* a grip pulling up out of a mound. holding fills the button from the bottom with earth */
-        float p = grave_pull_progress();
+        float pr = grave_pull_progress(), p = hint_fill(pr);                 /* chunk 65: a tap shows the same little fill as for every tool */
         if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1433,7 +1435,7 @@ static void draw_interact_button(SDL_Renderer *r) {
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }
         int a = br / 8; if (a < 2) a = 2;
-        int tug = (int)(sinf(t * (p > 0 ? 14.0f : 4.0f)) * a * (p > 0 ? 0.7f : 0.3f));   /* it tugs while held, idles gently otherwise */
+        int tug = (int)(sinf(t * (pr > 0 ? 14.0f : 4.0f)) * a * (pr > 0 ? 0.7f : 0.3f));   /* it tugs while held, idles gently otherwise */
         col(r, 255, 255, 255, 255);
         fill(r, bcx - a, bcy - 5 * a + tug, 2 * a, a);                       /* the arrow up: tip ... */
         fill(r, bcx - 2 * a, bcy - 4 * a + tug, 4 * a, a);
@@ -1447,7 +1449,7 @@ static void draw_interact_button(SDL_Renderer *r) {
         return;
     }
     if (near_bury) {                                             /* a down arrow over an open pit: holding fills the button from the bottom with earth, filling the hole */
-        float p = grave_bury_progress();
+        float pr = grave_bury_progress(), p = hint_fill(pr);
         if (p > 0) {
             int hgt = (int)(2 * br * p);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };
@@ -1457,7 +1459,7 @@ static void draw_interact_button(SDL_Renderer *r) {
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }
         int a = br / 8; if (a < 2) a = 2;
-        int lower = (int)(sinf(t * (p > 0 ? 14.0f : 4.0f)) * a * (p > 0 ? 0.7f : 0.3f));   /* it bobs down while held, idles gently otherwise */
+        int lower = (int)(sinf(t * (pr > 0 ? 14.0f : 4.0f)) * a * (pr > 0 ? 0.7f : 0.3f));   /* it bobs down while held, idles gently otherwise */
         col(r, 255, 255, 255, 255);
         fill(r, bcx - a, bcy - 5 * a + lower, 2 * a, 3 * a);                 /* the arrow down: shaft ... */
         fill(r, bcx - 3 * a, bcy - 2 * a + lower, 6 * a, a);                 /* ... head ... */
@@ -1471,7 +1473,7 @@ static void draw_interact_button(SDL_Renderer *r) {
         return;
     }
     if (near_search || near_bsearch) {                           /* a magnifying glass. holding searches: it sweeps over the button while the bar fills */
-        float p = near_bsearch ? bsearch_progress() : grave_search_progress();
+        float p = hint_fill(near_bsearch ? bsearch_progress() : grave_search_progress());
         int busy = near_bsearch ? bsearch_active() : grave_search_active();
         if (p > 0) {
             int hgt = (int)(2 * br * p);
@@ -1524,7 +1526,7 @@ static void draw_interact_button(SDL_Renderer *r) {
             SDL_RenderSetClipRect(r, NULL);
             col(r, 255, 255, 255, 255); pring(r, bcx, bcy, br, 1, ucell);
         }
-        float fp = fight_prog > hint_curve() ? fight_prog : hint_curve();             /* chunk 55: the hold fills the button from the bottom (a tap shows the hint's little fill) */
+        float fp = hint_fill(fight_prog);             /* chunk 55: the hold fills the button from the bottom (a tap shows the hint's little fill) */
         if (fp > 0 && fight_cd <= 0) {
             int hgt = (int)(2 * br * fp);
             SDL_Rect clip = { bcx - br, bcy + br - hgt, 2 * br, hgt };

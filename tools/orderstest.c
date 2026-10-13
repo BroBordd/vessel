@@ -48,6 +48,20 @@ static int say(const char *text) {                  /* chunk 63: open the TALK k
     talk_debug_type(text); run(0.3f); talk_debug_send();
     return 1;
 }
+static int hint_ref = -1;
+/* chunk 65: freeze the hint at its peak and count how far the fill rises on the left of the button (the icon is not there): every tool must show the same */
+static void hint_check(const char *tool) {
+    hint_t = HINT_ANIM_T * 0.5f; frame(0.0f); SDL_RenderPresent(rr);
+    int x = bcx - (int)(0.75f * br), half = (int)(0.66f * br) - 2, n = 0;
+    const Uint32 *px = (const Uint32 *)surf->pixels; int pitch = surf->pitch / 4;
+    for (int y = bcy - half; y <= bcy + half; y++) {
+        Uint32 v = px[y * pitch + x]; int r_ = v & 255, g_ = (v >> 8) & 255, b_ = (v >> 16) & 255;
+        if (abs(r_ - 24) + abs(g_ - 28) + abs(b_ - 48) > 60) n++;
+    }
+    if (hint_ref < 0) hint_ref = n;
+    CHECK(n >= 2 && abs(n - hint_ref) <= 1, "the hint's fill on the %s button is %d px high, the first tool's was %d", tool, n, hint_ref);
+    hint_t = 0;
+}
 static void hold_swing(int x, int y) { world_touch(0, x, y); run(HAMMER_HOLD_T + 0.15f); world_touch(1, x, y); frame(0.016f); }   /* chunk 55: the hammer is a hold */
 
 int main(void) {
@@ -188,6 +202,7 @@ int main(void) {
         int tasks0 = missions_count(), bc = brainwin_count();
         pxp = (agx + 0.5f) * tile; pyp = (agy + 0.9f + 1.2f) * tile; run(0.3f);
         CHECK(!grave_is_open(aonia_grave) && !grave_body_out(aonia_grave), "the plot was open before the pull");
+        hint_check("grave pull");
         world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.3f);
         CHECK(aonia_out && grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the pull did not open the plot and start the slide");
         CHECK(mission_bury >= 0 && missions_count() == tasks0 + 1, "the task \"Bury Aonia\" did not coin in");
@@ -220,8 +235,11 @@ int main(void) {
         float sbx, sby; grave_body_tile(aonia_grave, &sbx, &sby);
         pxp = sbx * tile; pyp = (sby + 1.2f) * tile; run(0.3f);                 /* beside him */
         CHECK(near_search && !near_grave, "the magnifying glass does not show next to the body");
+        hint_check("grave search");
         /* chunk 64: the search is a hold. a tap does nothing; a hold released early drains back; a full hold searches (1.5 s) */
+        int hn_s = sfx_debug_hints();
         world_touch(0, bx, by); world_touch(1, bx, by); run(0.4f);              /* one tap */
+        CHECK(sfx_debug_hints() == hn_s + 1, "a tap on the search button gave no hint, or more than one (%d)", sfx_debug_hints() - hn_s);   /* chunk 65 */
         CHECK(!grave_search_active() && grave_search_progress() == 0 && !aonia_searched, "a tap searched (active %d, prog %.2f)", grave_search_active(), grave_search_progress());
         world_touch(0, bx, by); run(0.6f);                                       /* a hold, let go at 0.6 s */
         CHECK(grave_search_active() && grave_search_progress() > 0.25f && grave_search_progress() < 0.6f, "0.6 s of a 1.5 s hold is at %.2f", grave_search_progress());
@@ -275,6 +293,7 @@ int main(void) {
         int mc0 = missions_count();
         pxp = sbx * tile; pyp = (sby - 1.0f) * tile; run(0.3f);
         CHECK(near_bury && !near_search && !near_grave, "the burial button does not show next to the body after the search");
+        hint_check("burying");
         world_touch(0, bx, by); run(0.8f); world_touch(1, bx, by); run(0.1f);
         CHECK(grave_bury_progress() > 0.1f && grave_bury_progress() < 0.5f && grave_bury_enabled() && grave_body_out(aonia_grave), "a short hold did something wrong (%.2f)", grave_bury_progress());
         CHECK(item_locked(ITEM_HAMMER) && !aonia_buried, "a short hold buried him");
@@ -394,6 +413,7 @@ int main(void) {
         CHECK(sfx_debug_hints() == hn0 + 1, "a tap on the swing button gave no hint (%d)", sfx_debug_hints() - hn0);
         CHECK(sfx_debug_hits() == h0 && world_fight_left() == 3 && !npc_flashing(nid) && talked_n == 1 && !dialog_active(), "a tap swung or talked (%d hits, %d left)", sfx_debug_hits() - h0, world_fight_left());
         CHECK(hint_t > 0 && hint_curve() >= 0, "the hint's fill is not playing");
+        hint_check("hammer swing");
         run(0.05f); frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/swing_hint.bmp");     /* the little fill on the button (look at it) */
         run(HINT_ANIM_T + 0.1f);
         CHECK(hint_t == 0 && fight_prog < 0.05f, "the hint's fill did not drain back (%.2f)", fight_prog);
@@ -525,6 +545,7 @@ int main(void) {
             CHECK(!item_exists(), "an orb lies on the ground (it must not)");
             pxp = (ntx + 0.5f) * tile; pyp = (nty + 0.9f + 1.0f) * tile; indoors = 1; run(0.3f);
             CHECK(near_bsearch, "no magnifying glass next to her body");
+            hint_check("body search");
             frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_button.bmp");                   /* the glass on the button (look at it) */
             int tc2 = brainwin_count(), pf = sfx_debug_pfft(); (void)pf;
             tap(bx, by); run(0.5f);                                               /* chunk 64: a tap does nothing, the search is a hold */
@@ -561,6 +582,7 @@ int main(void) {
             {   int hn_ = sfx_debug_hints();                                                  /* chunk 55: a tap on the shrine's button is the hint too */
                 tap(bx, by);
                 CHECK(sfx_debug_hints() == hn_ + 1 && shrine_polluted() && !shrine_repaired, "a tap on the repair did not give the hint, or mended it (%d)", sfx_debug_hints() - hn_);
+                hint_check("shrine repair");
                 run(1.0f); CHECK(shrine_progress() < 0.02f, "the tap's progress did not creep back (%.3f)", shrine_progress()); }
             world_touch(0, bx, by); run(0.8f);
             CHECK(shrine_progress() > 0.25f && shrine_progress() < 0.45f && shrine_polluted(), "hold 0.8 s: wrong progress (%.2f)", shrine_progress());
@@ -590,6 +612,7 @@ int main(void) {
             {   int hn_ = sfx_debug_hints(); float x0 = pxp, y0 = pyp;
                 tap(bx, by);
                 CHECK(sfx_debug_hints() == hn_ + 1 && !world_player_beheaded() && !self_done && !world_aiming(), "a tap at the mended shrine did not give the hint alone (hints %d)", sfx_debug_hints() - hn_);
+                hint_check("Die");
                 run(HINT_ANIM_T + 0.1f);
                 int a0 = char_debug_aims(); frame(0.016f);
                 CHECK(char_debug_aims() == a0, "the aiming pose was drawn without a hold");
