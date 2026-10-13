@@ -110,7 +110,8 @@ void story_update(float dt) {
 static int mission_talk_dea = -1;
 static int mission_look = -1;               /* chunk 49: "Look around", the very first task (vessel 1 only): ticked off when Dea is sighted */
 static int mission_find_orb = -1;           /* added by Dea's highlighted orb line (chunk 5) */
-static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (the old body is out of the ground) */
+static int mission_search = -1;            /* chunk 67: "Search Aonia" (the old body is out of the ground; ticked when his things were searched) */
+static int mission_bury = -1;              /* chunk 31: "Bury Aonia" (chunk 67: it comes in when the search is done) */
 static int mission_get_orb = -1;           /* vessel 2's job (chunk 28): "Get the orb from Alex" */
 static int mission_repair = -1;            /* chunk 39: "Repair the shrine" (coins in the moment the orb is ours) */
 static int orb_taken;                      /* chunk 39: we searched her body and the orb is in the pockets */
@@ -389,7 +390,7 @@ static int scold_pending;                           /* the second summoning is o
 static void story_reset_for_respawn(void) {
     for (int i = 0; i < MAX_TIMERS; i++) timers[i].fn = NULL;
     missions_clear();                               /* (the brain window is NOT cleared: the soul remembers everything)  */
-    mission_talk_dea = mission_look = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_bury = mission_repair = mission_die = mission_give = -1;
+    mission_talk_dea = mission_look = mission_find_orb = mission_ask_alex = mission_pollute = mission_get_orb = mission_search = mission_bury = mission_repair = mission_die = mission_give = -1;
     dying = 0; vessel_dead = 0;
     worried_set(0);                                 /* chunk 53: the next body is not worried */
     world_clear_items();                            /* the new body has empty pockets ... */
@@ -765,6 +766,8 @@ static void hammer_lock(void) { world_lock_item(ITEM_HAMMER, 1, hammer_blocked);
 static void aonia_searched_done(void) {
     float bx, by; world_grave_body_tile(aonia_grave, &bx, &by);
     aonia_searched = 1;
+    mission_complete(mission_search);                       /* chunk 67: the search is ticked off, then it is time to put him back */
+    mission_bury = task_toast("Bury " VESSEL_NAME);
     hammer_tx = (int)floorf(bx); hammer_ty = (int)floorf(by) + 2;                 /* on the grass, just below him (clear of his body) */
     world_drop_item(ITEM_HAMMER, hammer_tx, hammer_ty);
     hammer_lock();
@@ -775,7 +778,7 @@ static void aonia_pulled(void) {
     world_grave_open(aonia_grave, 1);
     world_enable_grave_search(aonia_grave, aonia_searched_done);                  /* he can be searched as soon as he lies out on the grass */
     think("I'm pulling my own body out of the ground.", "I'm pulling my own body out.", BRAIN_SCENE_GRAVE, THOUGHT_PULL, 1);
-    mission_bury = task_toast("Bury " VESSEL_NAME);
+    mission_search = task_toast("Search " VESSEL_NAME);        /* chunk 67: first his things, then the burial */
 }
 static void aonia_pull_on(void) {
     if (aonia_grave >= 0 && !aonia_out) world_enable_grave_pull(aonia_grave, aonia_pulled);
@@ -869,8 +872,8 @@ static void landed_again(void) {
                 aonia_grave = gi;
                 if (aonia_out) {                                                  /* (he is already out: the plot is open again after a new landing) */
                     world_grave_set_open(gi, 1, 1);
-                    if (!aonia_searched) world_enable_grave_search(gi, aonia_searched_done);
-                    else { world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty); hammer_lock(); world_enable_grave_bury(gi, aonia_buried_done); }   /* (chunk 35: not once we have taken it) */
+                    if (!aonia_searched) { world_enable_grave_search(gi, aonia_searched_done); mission_search = mission_add("Search " VESSEL_NAME); }       /* chunk 67: the task for this state (quietly) */
+                    else { mission_bury = mission_add("Bury " VESSEL_NAME); world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty); hammer_lock(); world_enable_grave_bury(gi, aonia_buried_done); }   /* (chunk 35: not once we have taken it) */
                 } else if (aonia_buried) {
                     if (!hammer_taken) world_place_item(ITEM_HAMMER, hammer_tx, hammer_ty);      /* buried, but the hammer was left (chunk 35 sets it taken) */
                 } else if (alex_refused) aonia_pull_on();
@@ -997,7 +1000,7 @@ void story_start(void) {
     brainwin_set_alex(&ALEX);                   /* chunk 51: her thought pictures wear the real Alex's look */
     mission_talk_dea = -1; mission_look = -1;
     mission_find_orb = -1;
-    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = alex_flow = alex_no_n = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
+    mission_ask_alex = -1; mission_pollute = -1; mission_get_orb = -1; mission_search = -1; mission_bury = -1; mission_repair = -1; mission_die = -1; mission_give = -1; orb_given = vessel3_ready_calls = 0; orb_taken = shrine_repaired = self_done = 0; alex_refused = alex_flow = alex_no_n = 0; aonia_out = aonia_searched = aonia_buried = hammer_taken = 0; alex_fight_on = alex_struck = alex_dead = 0; aonia_grave = -1; alex_dealt = 0; shrine_fouled = 0; dying = 0; worried_set(0);
     hammer_hinted = hammer_said = 0; world_clear_items(); world_found_reset();   /* chunk 58: nothing found yet */
     alex_id = -1; alex_seen = 0;
     dea_spoken = 0; dea_id = -1; dea_seen = 0; scold_pending = 0; secret_on = 0; naming3_done_n = 0; convo_unlock();

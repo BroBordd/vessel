@@ -232,7 +232,7 @@ int main(void) {
         }
         world_touch(0, bx, by); run(GRAVE_PULL_HOLD_T + 0.3f);
         CHECK(aonia_out && grave_is_open(aonia_grave) && grave_body_moving(aonia_grave), "the pull did not open the plot and start the slide");
-        CHECK(mission_bury >= 0 && missions_count() == tasks0 + 1, "the task \"Bury Aonia\" did not coin in");
+        CHECK(mission_search >= 0 && mission_bury < 0 && missions_count() == tasks0 + 1, "the pull did not coin in \"Search Aonia\" alone (search %d, bury %d, tasks %d -> %d)", mission_search, mission_bury, tasks0, missions_count());   /* chunk 67: the burial comes after the search */
         CHECK(brainwin_count() >= bc + 1, "the pull thought did not come (%d -> %d)", bc, brainwin_count());
         world_touch(1, bx, by);
         {   int gcx = (int)((agx + 0.5f) * tile) - (int)cam_x, gcy = (int)((agy + 0.9f) * tile) - (int)cam_y; (void)gcx; (void)gcy; }
@@ -280,8 +280,9 @@ int main(void) {
         CHECK(grave_search_progress() > 0.2f && grave_search_progress() < 0.5f, "0.5 s of a 1.5 s search is at %.2f", grave_search_progress());
         CHECK(!item_exists() && !aonia_searched, "the hammer came before the search was over");
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/search_button.bmp");   /* the glass sweeping over the button (look at it) */
-        int sbc = brainwin_count();
+        int sbc = brainwin_count(), mcs0 = missions_count();
         run(1.2f); world_touch(1, bx, by);
+        CHECK(mission_bury >= 0 && missions_count() == mcs0 + 1, "the search did not coin in \"Bury Aonia\" exactly once (tasks %d -> %d)", mcs0, missions_count());   /* chunk 67 (the ticked search is still on the list while it fades) */
         CHECK(aonia_searched && item_exists() && !grave_search_enabled(), "the search did not end with the hammer on the ground");
         CHECK(item_dropping(), "the hammer does not fall (it was placed at once)");
         float hx_, hy_; item_tile(&hx_, &hy_);
@@ -1026,6 +1027,24 @@ int main(void) {
         for (int k = 0; k < MAPICON_COUNT; k++) mapicon_draw(sr_, k, 8 + k * (SZ + 8) + SZ / 2, 8 + SZ / 2, IC);
         SDL_RenderPresent(sr_); SDL_SaveBMP(sheet, "build/map_icons.bmp");                     /* every picture on grass (look at it) */
         SDL_DestroyRenderer(sr_); SDL_FreeSurface(sheet); SDL_DestroyRenderer(ir); SDL_FreeSurface(is);
+    }
+
+    /* chunk 67: a new landing puts back the task that fits the state: he is out and not searched -> "Search Aonia"; searched -> "Bury Aonia"; buried -> neither;
+     * one each, none doubled (the task count is compared with a landing where nothing was pulled) */
+    {   int base = 0;
+        for (int st = 0; st < 4; st++) {                     /* 0: nothing pulled, 1: out, 2: searched, 3: buried */
+            lives = 1; story_reset_for_respawn(); lives = 1;
+            load_map(MAP_GREEN); phase = PH_PLAY;
+            grave_n = 1; graves[0].tx = 20; graves[0].ty = 20; graves[0].who = &VESSEL;
+            aonia_out = st == 1 || st == 2; aonia_searched = st == 2; aonia_buried = st == 3; hammer_taken = 0;
+            landed_again();
+            int n = missions_count();
+            if (st == 0) { base = n; CHECK(mission_search < 0 && mission_bury < 0, "a landing before the pull has a search / bury task"); }
+            if (st == 1) CHECK(mission_search >= 0 && mission_bury < 0 && n == base + 1, "out, not searched: want exactly \"Search Aonia\" (search %d, bury %d, %d tasks vs %d)", mission_search, mission_bury, n, base);
+            if (st == 2) CHECK(mission_search < 0 && mission_bury >= 0 && n == base + 1, "searched: want exactly \"Bury Aonia\" (search %d, bury %d, %d tasks vs %d)", mission_search, mission_bury, n, base);
+            if (st == 3) CHECK(mission_search < 0 && mission_bury < 0 && n == base, "buried: want neither task (search %d, bury %d, %d tasks vs %d)", mission_search, mission_bury, n, base);
+        }
+        aonia_out = aonia_searched = aonia_buried = 0; grave_n = 0; lives = 0;
     }
 
     printf(fails ? "orderstest: %d FAILED\n" : "orderstest: ok\n", fails);
