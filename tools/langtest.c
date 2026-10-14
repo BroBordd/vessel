@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
  * tests the language engine on a normal computer (no SDL):
- *   cc -O1 -Igame -o build/langtest tools/langtest.c game/lang.c game/lang_pats.c game/lines_*.c && build/langtest
+ *   cc -O1 -Igame -o build/langtest tools/langtest.c game/lang*.c game/lines_*.c && build/langtest
  *   build/langtest "hello who are you"          one sentence, as Dea and as Alex
  *   build/langtest --check                      lints every line of the database */
 #include "lang.h"
