@@ -5,6 +5,7 @@
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
+#include "lang_voice.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,7 +74,7 @@ static const Effect EFFECT[I_COUNT] = {
 
 /* ---------- random ---------- */
 static uint32_t rs = 0x9E3779B9u;
-void lang_seed(unsigned s) { rs = s ? s : 0x9E3779B9u; }
+void lang_seed(unsigned s) { rs = s ? s : 0x9E3779B9u; voice_seed(s); }
 static uint32_t rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs; }
 static int rn(int n) { return n > 0 ? (int)(rnd() % (uint32_t)n) : 0; }
 
@@ -508,6 +509,7 @@ int lang_mood_chain(int t, int *out, int cap) {
 }
 
 /* the mood asked for, else the next one of its order that has something. all moods are tried for the persona's voices first, then for PLAIN, then for any */
+static int g_pass;      /* which pass of pick() found the last line: 0 the persona's own voices, 1 PLAIN, 2 any (chunk 11) */
 static const Line *pick(const Persona *ps, const char *key, int tone) {
     int ord[TONE_COUNT], n = lang_mood_chain(tone, ord, TONE_COUNT);
     int mine = ps->style ? ps->style : PLAIN;
@@ -515,10 +517,21 @@ static const Line *pick(const Persona *ps, const char *key, int tone) {
         if (pass == 1 && mine == PLAIN) continue;                  /* PLAIN already tried */
         for (int k = 0; k < n; k++) {
             const Line *l = pick_exact(ps, key, ord[k], pass);
-            if (l) return l;
+            if (l) { g_pass = pass; return l; }
         }
     }
     return NULL;
+}
+
+/* chunk 11: a persona whose first voice is one of the seven new ones (elder .. poet) gets a PLAIN line (it had none of its own for this key and
+ * mood) rewritten into its voice by code, and a little flavour (25 %) on the lines made for it. the old three voices are never touched, and the
+ * out-of-character self-harm line never is. `pass` is g_pass read right after the pick (formatting picks pool lines and changes it) */
+static void voice_line(const Persona *ps, const char *key, const Line *l, int pass, int tone, char *out, int cap) {
+    if (!voice_is_new(ps->style) || !strcmp(key, "r.selfharm")) return;
+    char tmp[600]; int did = 0, v = voice_first(ps->style);
+    if (pass == 1 && (l->styles & PLAIN)) did = voice_apply(v, tone, out, tmp, (int)sizeof tmp);
+    else if (pass == 0 && rn(100) < 25) did = voice_flavour(v, tone, out, tmp, (int)sizeof tmp);
+    if (did) snprintf(out, (size_t)cap, "%s", tmp);
 }
 
 int lang_mood_resolve(const char *key, int t, int style) {
@@ -554,6 +567,7 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
         if (!strcmp(name, "player")) rep = player_name;
         else if (!strcmp(name, "npc")) rep = ps->name;
         else if (!strcmp(name, "topic")) rep = g_topic[0] ? g_topic : "that";
+        else if (!strcmp(name, "pet") && voice_first(ps->style) == STYLE_MACHINE) rep = "USER";      /* chunk 11 */
         else if (depth < 4) {
             char key[24]; snprintf(key, sizeof key, "p.%s", name);
             const Line *l = pick(ps, key, g_tone);
@@ -568,8 +582,10 @@ int lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int ca
     g_tone = (int)t;
     const Line *l = pick(ps, key, (int)t);
     if (!l) { out[0] = 0; return 0; }
+    int pass = g_pass;
     remember(l);
     fmt(ps, l->text, out, cap, 0);
+    voice_line(ps, key, l, pass, (int)t, out, cap);
     return 1;
 }
 int lang_line(const Persona *ps, const char *key, char *out, int cap) { return lang_line_tone(ps, key, lang_mood_now(ps), out, cap); }
@@ -619,8 +635,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         snprintf(key, sizeof key, "r.%s", INTENT_NAME[in]);
         const Line *l = pick(ps, key, (int)tt);
         if (!l) continue;
+        int pass = g_pass;
         remember(l);
         fmt(ps, l->text, one, (int)sizeof one, 0);
+        voice_line(ps, key, l, pass, (int)tt, one, (int)sizeof one);
         if (a == 1 && (int)strlen(body) + (int)strlen(one) > 150) break;   /* keep it readable on a phone */
         cat(body, (int)sizeof body, one);
         answered++;
@@ -636,7 +654,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         else if (h->words <= 1) key = "r.unknown_short";
         g_tone = (int)tone;
         const Line *l = pick(ps, key, (int)tone);
-        if (l) { remember(l); fmt(ps, l->text, body, (int)sizeof body, 0); }
+        if (l) { int pass = g_pass; remember(l); fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
     }
 
     /* a little colour around the edges: an opener and/or a closer */
