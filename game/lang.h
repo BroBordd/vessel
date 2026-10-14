@@ -40,11 +40,16 @@ typedef enum {
     TONE_MANIC, TONE_SHY, TONE_BORED, TONE_EXCITED,
     TONE_COUNT
 } Tone;
-enum { STYLE_PLAIN = 1, STYLE_DIVINE = 2, STYLE_STREET = 4 };
+/* chunk 10: ten voices. Persona.style may combine them (STYLE_DIVINE | STYLE_FORMAL): a line made for any of them qualifies, and the x3 weight goes to
+ * lines made only for voices the persona has that include its FIRST voice (the lowest bit). a voice with no line for a key and mood answers with
+ * PLAIN lines, then with any. the bits are the masks PLAIN..POET of lang_data.h */
+enum { STYLE_PLAIN = 1, STYLE_DIVINE = 2, STYLE_STREET = 4, STYLE_ELDER = 8, STYLE_CHILD = 16, STYLE_FORMAL = 32, STYLE_BEAST = 64,
+       STYLE_MACHINE = 128, STYLE_GHOST = 256, STYLE_POET = 512, STYLE_ALL = 1023 };
+#define STYLE_COUNT 10
 
 typedef struct {
     const char *name;
-    int style;          /* STYLE_* */
+    int style;          /* STYLE_*, or several or-ed together (the lowest bit is the first voice). 0 counts as PLAIN */
     int mood;           /* -100..100, how they feel about the player right now (changes in a chat) */
     int warmth;         /* 0..100, how kind they are by nature */
     int toxic;          /* 0..100, how much they like looking down on people */

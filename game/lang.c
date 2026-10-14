@@ -426,13 +426,17 @@ static int was_recent(const Line *l, const char *key, int window) {
 static const Line **cand;
 static int *wt, cand_cap;
 
-static const Line *pick_exact(const Persona *ps, const char *key, int tone, int any_style) {
+/* pass 0: the persona's own voices. pass 1: PLAIN lines (a voice with nothing of its own). pass 2: any voice (chunk 10) */
+static int voice_mask(const Persona *ps, int pass) { return pass == 0 ? (ps->style ? ps->style : PLAIN) : pass == 1 ? PLAIN : 0; }
+
+static const Line *pick_exact(const Persona *ps, const char *key, int tone, int pass) {
     int n = 0, sum = 0;
+    int mask = voice_mask(ps, pass), mine = ps->style ? ps->style : PLAIN, first = mine & -mine;
     const Line *const *rows; int nkey = lang_key_rows(key, &rows);     /* chunk 6: only this key's rows, in table order */
     for (int r = 0; r < nkey; r++) {
         const Line *l = rows[r];
         if (!(l->tones & (1u << tone))) continue;
-        if (!any_style && !(l->styles & ps->style)) continue;
+        if (mask && !(l->styles & mask)) continue;
         if (n >= cand_cap) {
             int nc = cand_cap ? cand_cap * 2 : 128;
             const Line **c2 = realloc(cand, (size_t)nc * sizeof *cand);
@@ -443,7 +447,7 @@ static const Line *pick_exact(const Persona *ps, const char *key, int tone, int 
             cand_cap = nc;
         }
         int w = 1;
-        if (!any_style && l->styles != ALLS && (l->styles & ps->style) == l->styles) w = 3;   /* made just for this style */
+        if (pass == 0 && l->styles != ALLS && (l->styles & first) && !(l->styles & ~mine)) w = 3;   /* made just for this persona's voices, first voice included */
         cand[n] = l; wt[n] = w; n++;
     }
     if (!n) return NULL;
@@ -503,25 +507,30 @@ int lang_mood_chain(int t, int *out, int cap) {
     return n;
 }
 
-/* the mood asked for, else the next one of its order that has something */
+/* the mood asked for, else the next one of its order that has something. all moods are tried for the persona's voices first, then for PLAIN, then for any */
 static const Line *pick(const Persona *ps, const char *key, int tone) {
     int ord[TONE_COUNT], n = lang_mood_chain(tone, ord, TONE_COUNT);
-    for (int any = 0; any < 2; any++)
+    int mine = ps->style ? ps->style : PLAIN;
+    for (int pass = 0; pass < 3; pass++) {
+        if (pass == 1 && mine == PLAIN) continue;                  /* PLAIN already tried */
         for (int k = 0; k < n; k++) {
-            const Line *l = pick_exact(ps, key, ord[k], any);
+            const Line *l = pick_exact(ps, key, ord[k], pass);
             if (l) return l;
         }
+    }
     return NULL;
 }
 
 int lang_mood_resolve(const char *key, int t, int style) {
     int ord[TONE_COUNT], n = lang_mood_chain(t, ord, TONE_COUNT);
     const Line *const *rows; int nkey = lang_key_rows(key, &rows);
-    for (int any = 0; any < 2; any++) {
-        if (any && !style) break;                              /* style 0 = any style: one pass is enough */
+    int masks[3] = { style, PLAIN, 0 }, np = style ? 3 : 1;      /* the voices, then PLAIN, then any (style 0 = any: one pass is enough) */
+    if (style) { if (style == PLAIN) np = 2; else masks[0] = style; }
+    for (int pass = 0; pass < np; pass++) {
+        int m = style == PLAIN && pass == 1 ? 0 : masks[pass];
         for (int k = 0; k < n; k++)
             for (int r = 0; r < nkey; r++)
-                if ((rows[r]->tones & (1u << ord[k])) && (!style || any || (rows[r]->styles & style))) return ord[k];
+                if ((rows[r]->tones & (1u << ord[k])) && (!m || (rows[r]->styles & m))) return ord[k];
     }
     return -1;
 }

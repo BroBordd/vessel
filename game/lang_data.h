@@ -32,11 +32,18 @@
 #define RUDE (COLD | HOST | SARC | SMUG | SULK | SUSP)
 #define DARK (AFRA | HOLL | MANI | SOLE | WEAR | WORR | BORE)
 #define ALLT (NICE | RUDE | DARK)
-/* style masks: who can say it. a line made for one style is picked 3x more often by that style */
-#define PLAIN  1
-#define DIVINE 2
-#define STREET 4
-#define ALLS   7
+/* style (voice) masks: who can say it. a line made for one voice is picked 3x more often by that voice. chunk 10: ten voices, ALLS is all ten */
+#define PLAIN   1
+#define DIVINE  2
+#define STREET  4
+#define ELDER   8
+#define CHILD   16
+#define FORMAL  32
+#define BEAST   64
+#define MACHINE 128
+#define GHOST   256
+#define POET    512
+#define ALLS    1023
 
 /* chunk 5: tones is 32 bits (20 moods + room) and styles is 16 bits (10 voices + room). the old rows compile unchanged */
 typedef struct { const char *key; uint32_t tones; uint16_t styles; const char *text; } Line;

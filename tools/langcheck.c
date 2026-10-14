@@ -11,7 +11,8 @@
  *   --tables           (chunk 6) the registry and the indexes against a brute force walk of the tables: every key, every pattern, the word hashes
  *   --bench            (chunk 6) timings: init, 1,000 parses of 200 character lines, 1,000 replies, 10,000 line picks, and the budgets of chunk 159
  *   --moods            (chunk 7) the fallback chain of each of the 20 moods and, per key, which mood's lines answer for each mood (= own lines, a letter = reached through the chain, . = nothing). fails if a chain has no old mood in it or a key with lines is silent for a mood
- *   --all              all of the above. exit code 1 only if --check, --tables or --moods found a problem */
+ *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
+ *   --all              all of the above. exit code 1 only if --check, --tables, --moods or --voices found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
@@ -22,11 +23,11 @@
 #include <string.h>
 
 #define NT 4
-#define NS 3
+#define NS 10
 static const Line *const TAB[4] = { LINES_A, LINES_B, LINES_C, LINES_D };
 static const int *const CNT[4] = { &LINES_A_N, &LINES_B_N, &LINES_C_N, &LINES_D_N };
 static const char *const TONE_N[NT] = { "warm", "neut", "cold", "host" };
-static const char *const STYLE_N[NS] = { "plain", "divine", "street" };
+static const char *const STYLE_N[NS] = { "plain", "divine", "street", "elder", "child", "formal", "beast", "machine", "ghost", "poet" };
 
 /* same order as INTENT_NAME in lang.c (the array has no size, so the assert catches a drift in length) */
 static const char *const INTENT_N[] = {
@@ -119,10 +120,20 @@ static void do_stats(void) {
     }
 }
 
+/* which voices have a row made for them (not just an ALLS row): the old three always, the new ones when their data arrives */
+static int voice_shown[NS];
+static void find_voices(void) {
+    for (int s = 0; s < NS; s++) voice_shown[s] = s < 3;
+    EACH(l) if (l->styles != ALLS) for (int s = 3; s < NS; s++) if (l->styles & (1 << s)) voice_shown[s] = 1;
+}
+
 static void do_coverage(int quota) {
-    printf("coverage: lines per key x tone x style (a row that covers several cells counts in each). quota %d per cell\n", quota);
-    printf("%-18s", "key");
-    for (int s = 0; s < NS; s++) for (int t = 0; t < NT; t++) printf(" %c%c", STYLE_N[s][0], TONE_N[t][0]);
+    find_voices();
+    printf("coverage: lines per key x voice x tone (a row that covers several cells counts in each; a voice with no row of its own is left out). quota %d per cell\n", quota);
+    printf("voices shown:"); for (int s = 0; s < NS; s++) if (voice_shown[s]) printf(" %s", STYLE_N[s]);
+    printf("\nvoices with no row made for them (they answer through PLAIN and ALLS rows):"); { int any = 0; for (int s = 0; s < NS; s++) if (!voice_shown[s]) { printf(" %s", STYLE_N[s]); any = 1; } if (!any) printf(" none"); }
+    printf("\n%-18s", "key");
+    for (int s = 0; s < NS; s++) if (voice_shown[s]) for (int t = 0; t < NT; t++) printf(" %c%c", STYLE_N[s][0], TONE_N[t][0]);
     printf("  under\n");
     qsort(keys, (size_t)nkeys, sizeof *keys, cmpkey);
     int under_total = 0, cells = 0;
@@ -133,7 +144,7 @@ static void do_coverage(int quota) {
             for (int s = 0; s < NS; s++) for (int t = 0; t < NT; t++) if ((l->styles & (1 << s)) && (l->tones & (1 << t))) c[s][t]++;
         int under = 0;
         printf("%-18s", keys[k]);
-        for (int s = 0; s < NS; s++) for (int t = 0; t < NT; t++) { printf(" %2d", c[s][t]); cells++; if (c[s][t] < quota) under++; }
+        for (int s = 0; s < NS; s++) if (voice_shown[s]) for (int t = 0; t < NT; t++) { printf(" %2d", c[s][t]); cells++; if (c[s][t] < quota) under++; }
         printf("  %d\n", under);
         under_total += under;
     }
@@ -345,6 +356,53 @@ static int do_moods(void) {
     return bad;
 }
 
+/* ---- chunk 10: the ten voices ---- */
+static int do_voices(void) {
+    int bad = 0;
+    static const Line T10[] = {
+        { "t10.a", ALLT, PLAIN, "plain a" }, { "t10.a", ALLT, BEAST, "beast a" }, { "t10.a", ALLT, DIVINE, "divine a" }, { "t10.a", ALLT, FORMAL, "formal a" }, { "t10.a", ALLT, GHOST, "ghost a" },
+        { "t10.b", ALLT, PLAIN, "plain b" }, { "t10.b", ALLT, ELDER, "elder b" },
+        { "t10.c", ALLT, POET, "poet c" },
+    };
+    lang_register_lines(T10, 8);
+    char out[80];
+    struct { int style; const char *key; const char *want; const char *what; } C[] = {
+        { STYLE_BEAST,   "t10.a", "beast a",  "a voice with a line of its own" },
+        { STYLE_GHOST,   "t10.a", "ghost a",  "the last voice" },
+        { STYLE_MACHINE, "t10.a", "plain a",  "a voice with nothing of its own falls back to PLAIN" },
+        { STYLE_CHILD,   "t10.b", "plain b",  "PLAIN comes before any other voice" },
+        { STYLE_ELDER,   "t10.b", "elder b",  "a voice with a line of its own beats PLAIN" },
+        { STYLE_POET,    "t10.b", "plain b",  "another voice's line is not taken while PLAIN has one" },
+        { STYLE_PLAIN,   "t10.c", "poet c",   "no PLAIN line: any voice" },
+        { STYLE_MACHINE, "t10.c", "poet c",   "no PLAIN line: any voice (2)" },
+        { 0,             "t10.a", "plain a",  "style 0 counts as PLAIN" },
+    };
+    for (unsigned i = 0; i < sizeof C / sizeof *C; i++) {
+        Persona p = { "V", C[i].style, 0, 50, 0, 8 };
+        int seen_ok = 0;
+        for (int k = 0; k < 20; k++) { if (lang_line_tone(&p, C[i].key, TONE_NEUTRAL, out, sizeof out) && !strcmp(out, C[i].want)) seen_ok++; }
+        if (seen_ok != 20) { printf("BAD VOICE (%s): style %d key %s gave \"%s\", want \"%s\"\n", C[i].what, C[i].style, C[i].key, out, C[i].want); bad++; }
+    }
+    /* several voices at once: lines for either qualify, other voices' lines are not used while one of ours exists */
+    { Persona p = { "V", STYLE_DIVINE | STYLE_FORMAL, 0, 50, 0, 8 }; int div = 0, form = 0, other = 0;
+      for (int k = 0; k < 400; k++) { lang_line_tone(&p, "t10.a", TONE_NEUTRAL, out, sizeof out);
+          if (!strcmp(out, "divine a")) div++; else if (!strcmp(out, "formal a")) form++; else other++; }
+      if (!div || !form || other) { printf("BAD VOICE: DIVINE|FORMAL gave divine %d formal %d other %d\n", div, form, other); bad++; } }
+    /* the resolver (what --moods prints) agrees with the picker on the voice fallback */
+    if (lang_mood_resolve("t10.a", TONE_WARM, MACHINE) != TONE_WARM || lang_mood_resolve("t10.c", TONE_WARM, PLAIN) != TONE_WARM || lang_mood_resolve("t10.nokey", TONE_WARM, BEAST) != -1) { printf("BAD VOICE: resolver\n"); bad++; }
+    lang_tables_reset();
+    /* every reply key answers every voice x the 20 moods of the data that exists today (through PLAIN and any), so a new voice is never speechless */
+    int silent = 0, cells = 0;
+    for (int k = 0; k < lang_key_count(); k++) {
+        int nrows; const char *key = lang_key_name(k, &nrows);
+        if (!nrows || strncmp(key, "r.", 2)) continue;
+        for (int v = 0; v < NS; v++) for (int t = 0; t < TONE_COUNT; t++) { cells++; if (lang_mood_resolve(key, t, 1 << v) < 0) silent++; }
+    }
+    if (silent) { printf("BAD VOICE: %d of %d key x voice x mood cells are silent\n", silent, cells); bad++; }
+    printf("voices: %d voices, %d reply key x voice x mood cells all answered through their fallbacks. %s\n", NS, cells, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -361,9 +419,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--length"))   { do_length(); any = 1; }
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; do_bench(); }
     return rc;
 }

@@ -136,7 +136,7 @@ static int check(void) {
     char key[32], out[400];
     for (int k = 0; KEYS[k]; k++) {
         snprintf(key, sizeof key, "r.%s", KEYS[k]);
-        for (int st = 1; st <= 4; st *= 2) for (int tone = 0; tone < 4; tone++) {
+        for (int st = 1; st <= 512; st *= 2) for (int tone = 0; tone < 4; tone++) {      /* all ten voices (chunk 10) */
             Persona p = { "X", st, 0, 50, 0, 5 };
             if (!lang_line_tone(&p, key, (Tone)tone, out, sizeof out)) { printf("NO LINE for %s style %d tone %d\n", key, st, tone); bad++; }
         }
@@ -144,7 +144,7 @@ static int check(void) {
     static const char *FLOW[] = { "open","open.again","ask.questions","ask.go","end.noquestions","end.silence","end.bored","end.angry",
         "demand.sorry","demand.again","accept.sorry","r.unknown","r.unknown_q","r.unknown_pos","r.unknown_neg","r.unknown_short", NULL };
     for (int k = 0; FLOW[k]; k++)
-        for (int st = 1; st <= 4; st *= 2) for (int tone = 0; tone < 4; tone++) {
+        for (int st = 1; st <= 512; st *= 2) for (int tone = 0; tone < 4; tone++) {
             Persona p = { "X", st, 0, 50, 0, 5 };
             if (!lang_line_tone(&p, FLOW[k], (Tone)tone, out, sizeof out)) { printf("NO LINE for %s style %d tone %d\n", FLOW[k], st, tone); bad++; }
         }
