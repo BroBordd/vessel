@@ -38,6 +38,12 @@ static SDL_Rect pause_r, vol_r, seek_r, loop_r, mode_r[2], stat_r, list_r;
 static int   cb;                                        /* loop checkbox size */
 static int   seek_ok;                                   /* this drag is a tape scrub (else a plain jump when the finger lifts) */
 static float seek_f;                                    /* where the finger is on the progress bar, 0..1 */
+/* the finger lifted off the progress bar: the sound we hear is still the OLD position for the length of the audio pipeline (music_position() is what is
+ * at the speaker), so the bar would flash back to where it was before it catches up. until the heard position has reached the target (or 1.5 s have
+ * passed) the bar is shown at the target and moves on from it by the clock. paused: it stays on the target until the music runs again. */
+static int    seek_hold;
+static double seek_hold_sec, seek_hold_dur;
+static Uint32 seek_hold_t;
 static int   flash_kind;                                /* what the flashing hint says: 0 map-mode track list, 1 loop is the map's */
 static int   ctrl_h, mode_h, rowh, lrows, scroll_max;
 static int   list_scroll, list_down_y, list_scroll0, list_moved, list_row;
@@ -219,7 +225,7 @@ int musicwin_touch(int a, int x, int y) {
         else if (inside(pause_r, x, y)) grab = 4;
         else if (inside(vol_r, x, y)) { grab = 5; set_volume_from_x(x); }
         else if (inside(seek_r, x, y) && music_duration() > 0.0) {
-            grab = 9; seek_f = seek_frac(x);
+            grab = 9; seek_hold = 0; seek_f = seek_frac(x);
             seek_ok = music_scrub_begin((double)seek_f * music_duration()) == 0;
         }
         else if (inside(loop_r, x, y)) grab = 10;
@@ -266,6 +272,11 @@ int musicwin_touch(int a, int x, int y) {
         else if (grab == 9) {                                   /* the finger lifts: play on from where it is */
             double sec = (double)seek_frac(x) * music_duration();
             if (seek_ok) music_scrub_end(sec); else music_seek(sec);
+            double dur = music_duration();
+            if (dur > 0.0) {
+                seek_hold = 1; seek_hold_dur = dur; seek_hold_t = SDL_GetTicks();
+                seek_hold_sec = sec < 0.0 ? 0.0 : sec > dur ? dur : sec;
+            }
         }
         else if (a == 1 && grab == 10 && inside(loop_r, x, y)) {
             if (jukebox_loop_locked()) set_flash(1); else { jukebox_set_loop(!jukebox_loop()); flash = 0; }
@@ -410,12 +421,25 @@ static void fmt_time(char *s, int cap, double sec) {
     snprintf(s, (size_t)cap, "%d:%02d", t / 60, t % 60);
 }
 
+/* where the progress bar is: what is heard, except for the moment after a seek (see seek_hold) */
+static double bar_position(void) {
+    double p = music_position();
+    if (!seek_hold) return p;
+    Uint32 now = SDL_GetTicks();
+    if (fabs(music_duration() - seek_hold_dur) > 0.01) { seek_hold = 0; return p; }      /* another track: not ours any more */
+    if (music_paused()) { seek_hold_t = now; return seek_hold_sec; }                      /* the clock waits with the music */
+    double el = (double)(now - seek_hold_t) / 1000.0, held = seek_hold_sec + el;
+    if (held > seek_hold_dur) held = seek_hold_dur;
+    if (el > 1.5 || fabs(p - held) < 0.25) { seek_hold = 0; return p; }                   /* the sound has arrived (or never will): back to what is heard */
+    return held;
+}
+
 static void draw_seek(SDL_Renderer *r) {
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
     int lh = font_height(c2);
     double dur = music_duration();
     int dragging = grab == 9;
-    float f = dragging ? seek_f : dur > 0.0 ? (float)(music_position() / dur) : 0.0f;
+    float f = dragging ? seek_f : dur > 0.0 ? (float)(bar_position() / dur) : 0.0f;
     f = f < 0 ? 0 : f > 1 ? 1 : f;
     char a[16], b[16];
     fmt_time(a, sizeof a, f * dur); fmt_time(b, sizeof b, dur);
