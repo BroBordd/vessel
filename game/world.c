@@ -65,6 +65,7 @@ static int   near_grave;            /* the grave the story switched on is in rea
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
 static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
+static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
 static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
 static int   hbx, hby, hbr;               /* the hand button: centre and radius */
 static int   near_search;           /* a body that can be searched lies in reach (chunk 32): the button shows a magnifying glass, and HOLDING searches (chunk 64) */
@@ -1025,23 +1026,34 @@ static int hand_hit(int x, int y) {
 }
 
 void world_touch(int a, int x, int y) {
+    if (a == 3) {                                       /* a cancel (paused, the app left): EVERY finger lets go of what it holds */
+        const int ps[4] = { stick_pid, btn_pid, hand_pid, mm_pid };
+        for (int i = 0; i < 4; i++) world_touch_p(ps[i], 3, x, y);
+    }
+    world_touch_p(0, a, x, y);
+}
+
+/* one finger of possibly two (a thumb on the stick and one on the interact button). every control remembers WHICH finger holds it and only
+ * listens to that one; a finger that goes down takes the control it lands on if that is free */
+void world_touch_p(int pid, int a, int x, int y) {
     if (dialog_active()) {                              /* dialogs eat all touches */
+        if (pid) return;
         dialog_touch(a, x, y);
         stick_on = 0; kx = ky = 0; btn_down = 0;
         return;
     }
     if (!controls_visible || phase != PH_PLAY || door_t >= 0) return;
-    if (item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
-    if (a == 0 && minimap_hit(x, y)) { mm_down = 1; return; }          /* the minimap: tap it for the map window */
-    if (mm_down) {
+    if (pid == 0 && item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
+    if (a == 0 && !mm_down && minimap_hit(x, y)) { mm_down = 1; mm_pid = pid; return; }          /* the minimap: tap it for the map window */
+    if (mm_down && pid == mm_pid) {
         if (a == 1) { mm_down = 0; if (minimap_hit(x, y)) { stick_on = 0; kx = ky = 0; btn_down = btn_inside = 0; mapwin_open(); } }
         else if (a == 3) mm_down = 0;
         return;
     }
 
     /* chunk 68: the hand button: press on it, release on it = take what lies in reach (a pick-up is a tap, not a tool use) */
-    if (a == 0 && near_item && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; return; }
-    if (hand_down) {
+    if (a == 0 && !hand_down && near_item && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
+    if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
         if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && near_item; hand_down = hand_inside = 0; if (fire) item_grab(pxp, pyp); }
         return;
@@ -1049,8 +1061,8 @@ void world_touch(int a, int x, int y) {
 
     /* interact button: press on it, release on it = interact */
     int can = near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door;
-    if (a == 0 && can && button_hit(x, y)) {
-        btn_down = 1; btn_inside = 1; btn_t = 0;
+    if (a == 0 && !btn_down && can && button_hit(x, y)) {
+        btn_down = 1; btn_inside = 1; btn_t = 0; btn_pid = pid;
         if (fight_ready()) {                                                                         /* chunk 55: the swing is a hold: turn to her as it starts */
             float nx, ny; npc_tile(near_id, &nx, &ny);
             float fdx = nx * tile - pxp, fdy = ny * tile - pyp;
@@ -1071,7 +1083,7 @@ void world_touch(int a, int x, int y) {
         }
         return;
     }
-    if (btn_down) {
+    if (btn_down && pid == btn_pid) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {
             int hammer_hold = fight_ready() || near_shrine || near_grave || near_bury || near_search || near_bsearch;     /* chunk 55 + 65: every tool is a hold: the swing, the break and the repair, "Die", the pull, the searches, the burying */
@@ -1094,12 +1106,14 @@ void world_touch(int a, int x, int y) {
         return;
     }
 
-    if (a == 0) {
+    if (a == 0 && (!stick_on || pid == stick_pid)) {
         float dx = (float)(x - sx), dy = (float)(y - sy);
         stick_on = sqrtf(dx * dx + dy * dy) <= sr * 1.5f;      /* generous grab zone */
+        stick_pid = pid;
     }
+    if (!stick_on || pid != stick_pid) return;                 /* not the finger on the stick */
     if (a == 1 || a == 3) { stick_on = 0; kx = ky = 0; return; }
-    if ((a == 0 || a == 2) && stick_on) {
+    if (a == 0 || a == 2) {
         float dx = (float)(x - sx) / sr, dy = (float)(y - sy) / sr;
         float m = sqrtf(dx * dx + dy * dy);
         if (m > 1.0f) { dx /= m; dy /= m; }

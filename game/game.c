@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
     }
 
     fcntl(0, F_SETFL, O_NONBLOCK);
-    char acc[1024]; int alen = 0;
+    char acc[4096]; int alen = 0;
     int bg = 0;                                     /* the app is in the background: nothing runs, nothing is drawn, the world is paused for when it comes back */
 
     /* fixed 60fps pacing: sleep only the time left in each frame budget */
@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
     double worst_ms = 0, render_ms = 0;
 
     for (;;) {
-        char buf[256];
+        char buf[1024];                             /* (two fingers + the speaker stamps are more lines per frame than one) */
         ssize_t n = read(0, buf, sizeof buf);
         if (n == 0) break;                          /* app closed our stdin */
         if (n > 0) {
@@ -175,6 +175,9 @@ int main(int argc, char **argv) {
                     audio_hw_stamp(hf, hn);
                 } else if (s[0] == 'v' && sscanf(s, "v %f", &hz) == 1) {           /* the display's refresh rate in Hz: how long a frame takes to reach the glass */
                     audio_set_refresh(hz);
+                } else if (s[0] == 'm' && sscanf(s, "m %d %d %d %d", &pr, &a, &x, &y) == 4) {      /* another finger: id, action, x, y (the primary one is "t") */
+                    if (state == ST_WORLD && (a != 0 || (!mapwin_active() && !musicwin_active() && !brainwin_active() && !pausebtn_paused())))
+                        world_touch_p(pr + 1, a, x, y);                                              /* only the world uses a second finger; a lift always gets through */
                 } else if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
                     if (a == 4 && !handle_back(state)) { printf("back: unhandled\n"); fflush(stdout); }
                 } else if (sscanf(s, "p %d", &a) == 1) {             /* the app went to the background (1) or came back (0) */

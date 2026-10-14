@@ -8,6 +8,7 @@
 void world_init(int w, int h);
 /* a = Android MotionEvent action (0 down, 1 up, 2 move, 3 cancel) */
 void world_touch(int a, int x, int y);
+void world_touch_p(int pid, int a, int x, int y);       /* one finger of several: 0 = the primary, else the app's pointer id + 1 (a thumb on the stick, one on the button) */
 void world_update(float dt);
 void world_draw(SDL_Renderer *r);
 
