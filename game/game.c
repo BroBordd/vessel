@@ -170,7 +170,12 @@ int main(int argc, char **argv) {
             while ((nl = memchr(s, '\n', acc + alen - s))) {
                 *nl = 0;
                 int a, x, y, pr;
-                if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
+                long long hf, hn; float hz;
+                if (s[0] == 'a' && sscanf(s, "a %lld %lld", &hf, &hn) == 2) {      /* the speaker's timestamp: stream frame hf was heard at monotonic ns hn (see audio.h) */
+                    audio_hw_stamp(hf, hn);
+                } else if (s[0] == 'v' && sscanf(s, "v %f", &hz) == 1) {           /* the display's refresh rate in Hz: how long a frame takes to reach the glass */
+                    audio_set_refresh(hz);
+                } else if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
                     if (a == 4 && !handle_back(state)) { printf("back: unhandled\n"); fflush(stdout); }
                 } else if (sscanf(s, "p %d", &a) == 1) {             /* the app went to the background (1) or came back (0) */
                     bg = a != 0;

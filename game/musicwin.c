@@ -317,7 +317,7 @@ void musicwin_update(float dt) {
     float b[BANDS];
     music_spectrum(b);
     for (int i = 0; i < BANDS; i++) {                                           /* same feel as the card */
-        if (b[i] > lvl[i]) lvl[i] += (b[i] - lvl[i]) * (dt * 22.0f > 1 ? 1 : dt * 22.0f);
+        if (b[i] > lvl[i]) lvl[i] = b[i];                                       /* up at once: b is already what the player hears NOW, easing up would only make the bars late */
         else               { lvl[i] -= dt * 1.8f; if (lvl[i] < b[i]) lvl[i] = b[i]; }
         if (lvl[i] >= peak[i]) { peak[i] = lvl[i]; hold[i] = 0.25f; }
         else if (hold[i] > 0)  hold[i] -= dt;
@@ -325,13 +325,13 @@ void musicwin_update(float dt) {
     }
     an_track(music_current_file());                                             /* precomputed notes / drums (.vsd) when the track has them */
     {
-        int audible = music_current_file()[0] && !music_paused() && !(music_scrubbing() && fabsf(music_scrub_rate()) < 0.05f);
-        double hp = music_heard_position();                                     /* what the ear hears: < 0 = the new sound has not arrived yet */
+        int audible = music_current_file()[0] && music_heard_playing();         /* the sound at the speaker is moving: a pause / resume / tape at rest counts when it is HEARD, not when it is asked for */
+        double hp = music_heard_position();                                     /* what the ear hears as this frame reaches the eye: < 0 = the new sound has not arrived yet */
         an_at(audible && hp >= 0.0 ? hp : -1.0);
     }
     float nt[AN_NOTES]; an_notes(nt);
     for (int i = 0; i < AN_NOTES; i++) {
-        if (nt[i] > nv[i]) nv[i] += (nt[i] - nv[i]) * (dt * 30.0f > 1 ? 1 : dt * 30.0f);
+        if (nt[i] > nv[i]) nv[i] = nt[i];                                       /* a note lights the frame it sounds (an ease-in showed it ~40 ms late) */
         else               { nv[i] -= dt * 4.5f; if (nv[i] < nt[i]) nv[i] = nt[i]; }
     }
     float k, s, h; an_drums(&k, &s, &h);
@@ -339,7 +339,7 @@ void musicwin_update(float dt) {
     for (int i = 0; i < 3; i++) { dr[i] -= dt * 5.0f; if (dr[i] < 0) dr[i] = 0; if (hits[i] > dr[i]) dr[i] = hits[i]; }
     float rr[3]; an_registers(&rr[0], &rr[1], &rr[2]);
     for (int i = 0; i < 3; i++) {
-        if (rr[i] > rg[i]) rg[i] += (rr[i] - rg[i]) * (dt * 20.0f > 1 ? 1 : dt * 20.0f);
+        if (rr[i] > rg[i]) rg[i] = rr[i];
         else               { rg[i] -= dt * 2.5f; if (rg[i] < rr[i]) rg[i] = rr[i]; }
     }
 }

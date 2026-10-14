@@ -22,6 +22,7 @@
 
 #include "audio.h"
 #include "analyze.h"
+#include "sync.h"
 
 #define OUT_RATE 44100
 #ifndef F_SETPIPE_SZ
@@ -62,7 +63,9 @@ static char  cur_file[128];
 /* where the decoder is in the track, in SOURCE frames (what mus_read has consumed), and the track length */
 static double play_pos;
 static int    mus_len, mus_enc_len;
-static volatile int wrapped;      /* the track has looped since it started / was last seeked (heard position wraps with it) */
+static volatile int wrapped;      /* the track has looped since it started / was last seeked */
+static unsigned wrap_n;           /* how many times the loop restarted: the sync timeline sees a wrap inside one chunk by this changing */
+static volatile unsigned track_id; /* which track is in the decoder: bumped by music_play under the device lock (the timeline tags every chunk with it) */
 static volatile int scrub_on;     /* the tape scrub is running: the audio thread reads the decoded copy instead of the stream */
 
 /* ---------- reading the stream, resampled when the file is not 44100 Hz ----------
@@ -101,7 +104,7 @@ static int mus_read(Sint16 *out, int frames) {
             if (got > 0) { done += got; play_pos += got; reseeked = 0; continue; }
             if (!mus_loop || reseeked) break;       /* end, or broken stream */
             stb_vorbis_seek_start(mus);
-            play_pos = 0; wrapped = 1;
+            play_pos = 0; wrapped = 1; wrap_n++;
             reseeked = 1;
         }
         return done;
@@ -112,7 +115,7 @@ static int mus_read(Sint16 *out, int frames) {
             Sint16 f[2];
             if (!rs_next(f)) {
                 if (!mus_loop || reseeked) return done;
-                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; play_pos = 0; wrapped = 1; reseeked = 1;
+                stb_vorbis_seek_start(mus); rs_len = rs_idx = 0; play_pos = 0; wrapped = 1; wrap_n++; reseeked = 1;
                 if (!rs_next(f)) return done;
             } else reseeked = 0;
             rs_a[0] = rs_b[0]; rs_a[1] = rs_b[1]; rs_b[0] = f[0]; rs_b[1] = f[1];
@@ -563,14 +566,12 @@ static void voices_mix(Sint16 *out, int frames) {
     }
 }
 
-static float vis_delay(void);
-
-/* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ---------- */
-#define FFT_N 512
-static volatile float spec[MUSIC_BANDS];
-#define SPEC_HIST 128                                   /* ~3 s of 1024-frame chunks, the delay line for the bars */
-static float spec_hist[SPEC_HIST][MUSIC_BANDS];
-static volatile unsigned spec_n;                        /* chunks pushed so far (one per audio callback) */
+/* ---------- spectrum analysis (runs in the audio thread on the samples about to be played) ----------
+ * the spectrum of each chunk is stored in that chunk's record of the sync timeline (sync.h), so the bars can show what is HEARD at
+ * any moment, not what is being mixed now */
+#define FFT_N SYNC_FFT
+_Static_assert(MUSIC_BANDS == SYNC_BANDS, "the timeline keeps MUSIC_BANDS bands");
+static SyncChunk cur_chunk;                             /* the chunk the audio thread is filling in right now */
 static char  title[48];
 static unsigned serial;
 
@@ -597,14 +598,8 @@ static void fft(float *re, float *im) {
 }
 
 /* pcm: stereo S16, `frames` long. uses the last FFT_N frames (about 12 ms). */
-static void spec_push(void) {
-    unsigned n = spec_n;
-    for (int i = 0; i < MUSIC_BANDS; i++) spec_hist[n % SPEC_HIST][i] = spec[i];
-    spec_n = n + 1;
-}
-
 static void spectrum_feed(const Sint16 *pcm, int frames) {
-    if (frames < FFT_N) { for (int i = 0; i < MUSIC_BANDS; i++) spec[i] = 0; spec_push(); return; }
+    if (frames < FFT_N) { for (int i = 0; i < MUSIC_BANDS; i++) cur_chunk.spec[i] = 0; return; }
     float re[FFT_N], im[FFT_N];
     const Sint16 *src = pcm + (frames - FFT_N) * 2;
     for (int i = 0; i < FFT_N; i++) {
@@ -624,20 +619,15 @@ static void spectrum_feed(const Sint16 *pcm, int frames) {
         }
         float db = 20.0f * log10f(peak + 1e-9f);
         float lvl = (db + 58.0f + 0.7f * b) / 58.0f;                                /* tilt: highs are naturally quieter. top = 0 dBFS, so the bars have headroom and follow the volume knob */
-        spec[b] = lvl < 0 ? 0 : lvl > 1 ? 1 : lvl;
+        cur_chunk.spec[b] = lvl < 0 ? 0 : lvl > 1 ? 1 : lvl;
     }
-    spec_push();
 }
 
-/* the bars show what is HEARD: the chunk that was mixed vis_delay() seconds ago, not the one being mixed now */
-void music_spectrum(float *bands) {
-    unsigned n = spec_n;
-    unsigned back = (unsigned)(vis_delay() * (float)OUT_RATE / 1024.0f + 0.5f);
-    if (back > SPEC_HIST - 2) back = SPEC_HIST - 2;
-    if (n == 0 || back >= n) { for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = 0; return; }
-    const float *s = spec_hist[(n - 1 - back) % SPEC_HIST];
-    for (int i = 0; i < MUSIC_BANDS; i++) bands[i] = s[i];
-}
+static double view_frame(void);
+static void trim_load(void);
+
+/* the bars show what is on the speaker at the moment this picture reaches the eye (see view_frame) */
+void music_spectrum(float *bands) { sync_spectrum_at(view_frame(), bands); }
 const char *music_title(void) { return title; }
 unsigned music_serial(void) { return serial; }
 
@@ -754,8 +744,15 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     Sint16 *out = (Sint16 *)stream;
     int frames = len / 4;     /* stereo S16 */
     int done = 0;
+    double t_cb = sync_now();
     if (!t_first) t_first = SDL_GetPerformanceCounter();
+    cur_chunk.f0 = (double)produced_frames;                 /* this chunk's first frame, as an index into everything we ever produce */
     produced_frames += (Uint64)frames;
+    /* where the track is as this chunk starts, for the sync timeline (the music window asks what was in the chunk that is heard NOW) */
+    const int    sc0 = scrub_on, rate0 = mus_rate, had_mus = mus != NULL;
+    const double a0 = sc0 ? sc_pos : play_pos;
+    const double dur0 = had_mus && mus_len > 0 ? (double)mus_len / (double)rate0 : 0.0;
+    const unsigned wrap0 = wrap_n;
 
     int idle = mus_paused && pg <= 0.0f && !scrub_on;     /* paused and fully ramped down: leave the stream alone (a scrub still sounds) */
     if (mus && !idle) {
@@ -787,6 +784,19 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
         if (mus && done < frames && !mus_loop) { stb_vorbis_close(mus); mus = NULL; }
     }
+    {   /* the timeline record of this chunk: which track, where in it, how fast it moved (0 = paused / tape at rest, <0 = tape back) */
+        SyncChunk *c = &cur_chunk;
+        c->n = frames; c->track = had_mus ? track_id : 0; c->dur = dur0;
+        c->wrapped = 0; c->adv = 0.0; c->p0 = 0.0; c->nm = frames;
+        if (had_mus) {
+            double a1 = sc0 ? sc_pos : play_pos;
+            double p0s = a0 / (double)rate0, p1s = a1 / (double)rate0;
+            c->p0 = p0s;
+            if (!sc0 && wrap_n != wrap0 && dur0 > 0.0) { c->wrapped = 1; c->adv = (dur0 - p0s) + p1s; }
+            else c->adv = p1s - p0s;
+            c->nm = sc0 || idle ? frames : (done > 0 ? done : frames);
+        }
+    }
     an_feed(out, done);                               /* drums / notes for the music window: the song only, before master volume */
     if (master != 1.0f)
         for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
@@ -801,6 +811,16 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (hint_on) hint_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
+    sync_push(&cur_chunk);                            /* the chunk is complete: what the screen can look up once it is heard */
+    /* our own estimate of the clock, for apps that do not send the speaker's timestamps: at this moment the speaker is at the frame
+     * (everything produced - the pipeline depth we measure), plus what we can not measure (Android's mixer, the hardware) */
+    {
+        double el = (double)(SDL_GetPerformanceCounter() - t_first) / (double)SDL_GetPerformanceFrequency();
+        double l = (double)produced_frames / OUT_RATE - el;
+        static double est_l = -1.0;
+        if (el >= 2.0 && l >= 0.0 && l < 1.5) est_l = est_l < 0.0 ? l : est_l + (l - est_l) * 0.02;   /* the pipeline has filled up: its depth. (not saturated yet / paused for a long time: keep the last) */
+        sync_stamp(0, (double)produced_frames - (est_l > 0.0 ? est_l : 0.0) * OUT_RATE, t_cb + (double)MUSIC_HW_LATENCY);
+    }
 }
 
 int audio_init(void) {
@@ -821,6 +841,8 @@ int audio_init(void) {
             close(fd);
         }
     }
+    sync_reset();
+    trim_load();
     SDL_PauseAudioDevice(dev, 0);
     return 0;
 }
@@ -878,6 +900,7 @@ int music_play(const char *file, int loop) {
     stb_vorbis *old = mus; unsigned char *oldbuf = mus_buf;
     mus = v; mus_buf = buf; mus_loop = loop;
     mus_len = total > 0 ? total : 0; mus_enc_len = len; play_pos = 0; wrapped = 0; scrub_on = 0;
+    track_id++;
     rs_reset((int)vi.sample_rate);
     fading = 0; fade_vol = 1.0f;
     SDL_UnlockAudioDevice(dev);
@@ -921,19 +944,78 @@ void music_set_loop(int on) {
 /* ---------- position, seeking, scrub (the music window's progress bar) ---------- */
 double music_duration(void) { return mus && mus_len > 0 ? (double)mus_len / (double)mus_rate : 0.0; }
 
-/* seconds between what we mix and what the ear gets: the measured pipeline (game -> FIFO -> AudioTrack) plus the
- * part nobody can measure from here (Android's mixer / the hardware), MUSIC_HW_LATENCY */
-static float vis_delay(void) { return audio_latency() + MUSIC_HW_LATENCY; }
+/* ---------- what is on the speaker, at the moment the picture reaches the eye ----------
+ * the music window (bars, lit notes, drums, the progress bar) must show what is HEARD at the instant its frame is on the glass:
+ *   t_eye   = now + display delay (the game's frame -> the app's next vsync -> the compositor -> the panel) + trim
+ *   frame   = the stream frame at the speaker at t_eye        (sync clock: the AudioTrack's own timestamps, or an estimate)
+ *   what    = the timeline's record of that frame             (position, speed, spectrum)
+ * the display delay is a number of vsyncs, so the app tells us the refresh rate ("v"); the trim is the player's last word. */
+#define MUSIC_DISPLAY_VSYNCS 2.5f      /* the game's frame waits for the app's next vsync (~0.5), is drawn, composited (1), scanned out (1) */
+static volatile float disp_delay = MUSIC_DISPLAY_VSYNCS / 60.0f;
+static volatile float trim_s;
 
-/* where the track is in what the ear hears right now. NOT clamped at 0: negative = the start of a new track is
- * still on its way to the speakers (the music window stays dark until it arrives) */
+void audio_set_refresh(float hz) {
+    if (hz >= 24.0f && hz <= 240.0f) disp_delay = MUSIC_DISPLAY_VSYNCS / hz;
+}
+
+/* "sync_trim_ms" next to the game (a number of milliseconds): + shows the music window EARLIER (use it when the lit notes trail the sound),
+ * - later. read at start and every time the music window opens. */
+static void trim_load(void) {
+    float ms = 0.0f;
+    FILE *f = fopen("sync_trim_ms", "r");
+    if (f) { if (fscanf(f, "%f", &ms) != 1) ms = 0.0f; fclose(f); }
+    if (!(ms > -500.0f)) ms = -500.0f;
+    if (ms > 500.0f) ms = 500.0f;
+    if (ms != trim_s * 1000.0f) { printf("sync: trim %.0f ms\n", ms); fflush(stdout); }
+    trim_s = ms / 1000.0f;
+}
+
+/* the stream frame the player is looking at right now. never steps back for jitter (a drum hit must not fire twice) */
+static double view_frame(void) {
+    static double last_f = -1.0;
+    if (!sync_ready()) return -1.0;
+    double f = sync_frame_at(sync_now() + (double)disp_delay + (double)trim_s);
+    if (f < last_f && last_f - f < 0.05 * OUT_RATE) f = last_f;
+    last_f = f;
+    return f;
+}
+
+/* the speaker's own timestamp, from the app: stream frame `frame` was at the speaker at CLOCK_MONOTONIC `nano` ns */
+void audio_hw_stamp(long long frame, long long nano) {
+    static unsigned bad, good;
+    double t = (double)nano * 1e-9, now = sync_now();
+    if (frame <= 0 || t > now + 0.25 || t < now - 5.0) {          /* nonsense, or another clock: ignore (we stay on the estimate) */
+        if (++bad == 1 || bad % 200 == 0) { printf("sync: hw stamp ignored (frame %lld, %.3f s from now)\n", frame, t - now); fflush(stdout); }
+        return;
+    }
+    sync_stamp(1, (double)frame, t);
+    if (++good == 1 || good % 250 == 0) {
+        double heard = sync_frame_at(now);
+        printf("sync: hw clock, pipeline %.0f ms (estimate said %.0f), display %.0f ms, trim %.0f ms\n",
+               ((double)produced_frames - heard) * 1000.0 / OUT_RATE, (double)(audio_latency() + MUSIC_HW_LATENCY) * 1000.0,
+               (double)disp_delay * 1000.0, (double)trim_s * 1000.0);
+        fflush(stdout);
+    }
+}
+
+/* where the track is in what the player sees now. NOT clamped at 0: negative = the start of a new track is still on its way to the
+ * speakers (the music window stays dark until it arrives). 0 when nothing is playing */
+static int heard_at(double *pos, double *spd) { return sync_position_at(view_frame(), track_id, pos, spd); }
+
 double music_heard_position(void) {
     double d = music_duration();
     if (d <= 0.0) return 0.0;
-    if (scrub_on) return sc_pos / (double)mus_rate > d ? d : sc_pos / (double)mus_rate;
-    double p = play_pos / (double)mus_rate - (double)vis_delay();
-    if (p < 0.0 && wrapped) p += d;              /* the loop restarted in the decoder, the ear is still at the end */
+    double p, v;
+    int st = heard_at(&p, &v);
+    if (st == SYNC_NOT_ARRIVED) return -1.0;
+    if (st != SYNC_OK) return 0.0;
     return p > d ? d : p;
+}
+
+/* the sound at the speaker is moving through the track (playing, or a tape that is turning), not paused / at rest */
+int music_heard_playing(void) {
+    double p, v;
+    return music_duration() > 0.0 && heard_at(&p, &v) == SYNC_OK && fabs(v) > 0.05;
 }
 
 double music_position(void) {
@@ -948,7 +1030,7 @@ void music_seek(double sec) {
     SDL_UnlockAudioDevice(dev);
 }
 
-void music_scrub_prepare(void) { want_cache = 1; if (!cache && !dec_thread) cache_start(); }
+void music_scrub_prepare(void) { trim_load(); want_cache = 1; if (!cache && !dec_thread) cache_start(); }
 void music_scrub_release(void) { want_cache = 0; cache_free(); }
 
 int music_scrub_begin(double sec) {

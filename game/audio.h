@@ -26,14 +26,23 @@ void music_set_loop(int on);
 
 /* ---- where we are in the track, and moving around in it ----
  * music_duration / music_position are in seconds (0 when nothing is playing / the length is unknown).
- * music_position is what is HEARD (it subtracts the output latency); while a scrub is on it is the tape head. */
+ *
+ * MUSIC <-> SCREEN SYNC (game/sync.h has the whole story). everything the music window shows is looked up for the moment its
+ * picture reaches the player's eye: now + the display delay, mapped through the speaker's clock onto what was in the audio then.
+ * the speaker's clock is the AudioTrack's own timestamps, which the app sends (audio_hw_stamp); an app that does not falls back
+ * to an estimate (the measured pipeline depth + MUSIC_HW_LATENCY, the part nobody can measure from here). */
+#define MUSIC_HW_LATENCY 0.15f         /* only the estimate uses it: if the lit notes lead the sound make it bigger, if they trail it make it smaller */
 double music_duration(void);
-double music_position(void);
+double music_position(void);           /* what the player hears, for the progress bar (>= 0) */
 /* same, but not clamped at 0 and the one the music window syncs to: < 0 means a new track's first sound has not
- * reached the speakers yet. MUSIC_HW_LATENCY is the delay we can not measure (Android's mixer / the hardware): if the
- * lit notes still lead the sound make it bigger, if they trail it make it smaller (seconds) */
-#define MUSIC_HW_LATENCY 0.15f
+ * reached the speakers yet */
 double music_heard_position(void);
+int    music_heard_playing(void);      /* the sound at the speaker is moving through the track (not paused, not a tape at rest) */
+/* the app's speaker timestamp: stream frame `frame` (counted from the first frame we ever produced) was at the speaker at
+ * CLOCK_MONOTONIC time `nano` (ns, the same clock as Java's System.nanoTime) */
+void   audio_hw_stamp(long long frame, long long nano);
+/* the app's display refresh rate in Hz (a frame we draw is on the glass ~2.5 refreshes later) */
+void   audio_set_refresh(float hz);
 void   music_seek(double sec);              /* plain jump, no scrub sound (fade-in of ~30 ms) */
 
 /* TAPE SCRUB, for dragging the progress bar. the head chases the finger like a tape deck: it plays backwards when
