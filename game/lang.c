@@ -243,9 +243,58 @@ static Tone tone_from(int score) {
     if (score >= -62) return TONE_COLD;
     return TONE_HOSTILE;
 }
-Tone lang_tone(const Persona *ps) { return tone_from(tone_score(ps) + rn(15) - 7); }
+/* the plain mood: what the old four moods gave, unchanged (the same random draw) */
+static Tone plain_mood(const Persona *ps) { return tone_from(tone_score(ps) + rn(15) - 7); }
+
+Tone lang_mood_now(const Persona *ps) { return ps->hold ? (Tone)ps->held : plain_mood(ps); }
+
+/* ---------- the mood state (chunk 8) ---------- */
+#define OVERRIDE_AT 40          /* a vector value this strong picks a mood. `lean` for that mood makes it 10 sooner */
+#define LEAN_DRIFT 20           /* % per turn that a character with a lean drifts to one of its moods when nothing else moves it */
+#define SULK_DROP 10            /* mood lost in one turn that can make a character with a lean for SULKY sulk */
+
+static int lean_has(const Persona *ps, int t) { return (int)((ps->lean >> t) & 1u); }
+
+/* the strongest push on the mood right now (a Tone), or -1. base = the plain mood without the random part; drop = mood lost this turn */
+static int vector_mood(const Persona *ps, Tone base, int drop) {
+    int best = -1, bests = 0;
+    #define PUSH(mood, excess) do { int m_ = (mood), e_ = (excess) - (OVERRIDE_AT - (lean_has(ps, m_) ? 10 : 0)) + 1; if (e_ > bests) { best = m_; bests = e_; } } while (0)
+    int am = ps->mood < 0 ? -ps->mood : ps->mood;
+    if (ps->fear > 0)   PUSH(ps->fear >= 70 ? TONE_AFRAID : TONE_WORRIED, ps->fear);
+    if (ps->amuse > 0)  PUSH(TONE_PLAYFUL, ps->amuse);
+    if (ps->energy <= -1) PUSH(am < 20 ? TONE_BORED : TONE_WEARY, -ps->energy);
+    if (ps->energy >= 1)  PUSH(ps->energy >= 70 && (ps->fear >= 20 || ps->mood < -25) ? TONE_MANIC : TONE_EXCITED, ps->energy);
+    if (ps->grief > 0)  PUSH(ps->grief >= 70 ? TONE_HOLLOW : TONE_SOLEMN, ps->grief);
+    if (ps->trust < 0 && base != TONE_HOSTILE) PUSH(TONE_SUSPICIOUS, -ps->trust);
+    if (ps->trust > 0 && base == TONE_WARM)    PUSH(TONE_TENDER, ps->trust);
+    if (drop >= SULK_DROP && lean_has(ps, TONE_SULKY)) PUSH(TONE_SULKY, 30 + (drop - SULK_DROP + 1) * 4);     /* the lean makes the bar 30: a bigger drop is a stronger push */
+    #undef PUSH
+    return best;
+}
+
+/* one turn of the mood state: count the sticking mood down, and when none is held pick the next one (the vector, else a drift to a
+ * lean). draws nothing random unless something is picked, so a character with no vector and no lean plays as before */
+static void mood_turn(Persona *ps, int drop) {
+    if (ps->hold && --ps->hold) return;                 /* still sticking */
+    Tone base = tone_from(tone_score(ps));
+    int m = vector_mood(ps, base, drop);
+    if (m < 0 && ps->lean && rn(100) < LEAN_DRIFT) {
+        int ok[TONE_COUNT], n = 0;
+        for (int t = 0; t < TONE_COUNT; t++) {
+            if (!lean_has(ps, t) || t == (int)base) continue;
+            if (base == TONE_WARM && ((1u << t) & RUDE)) continue;        /* a warm character does not drift to a rude mood, nor a hostile one to a nice one */
+            if (base == TONE_HOSTILE && ((1u << t) & NICE)) continue;
+            ok[n++] = t;
+        }
+        if (n) m = ok[rn(n)];
+    }
+    if (m < 0) return;
+    ps->held = (int8_t)m;
+    ps->hold = (uint8_t)(2 + rn(3));                    /* 2 to 4 turns */
+}
 
 void lang_apply(Persona *ps, const Heard *h) {
+    int before = ps->mood;
     for (int i = 0; i < h->n; i++) {
         int in = h->order[i];
         int dm = MOOD[in][0], dc = MOOD[in][1];
@@ -255,6 +304,7 @@ void lang_apply(Persona *ps, const Heard *h) {
     }
     if (ps->mood > 100) ps->mood = 100;
     if (ps->mood < -100) ps->mood = -100;
+    mood_turn(ps, before - ps->mood);
 }
 
 /* ---------- line picking ---------- */
@@ -383,7 +433,7 @@ int lang_mood_resolve(const char *key, int t, int style) {
     return -1;
 }
 
-static int tone_rude(Tone t) { return t == TONE_COLD || t == TONE_HOSTILE; }   /* as the old test tone >= COLD, while only 4 tones exist */
+static int tone_rude(Tone t) { return (int)((RUDE >> t) & 1u); }   /* cold, hostile, sarcastic, smug, sulky, suspicious (was tone >= COLD with 4 tones) */
 
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
 static const char *g_topic = "";
@@ -420,7 +470,7 @@ int lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int ca
     fmt(ps, l->text, out, cap, 0);
     return 1;
 }
-int lang_line(const Persona *ps, const char *key, char *out, int cap) { return lang_line_tone(ps, key, lang_tone(ps), out, cap); }
+int lang_line(const Persona *ps, const char *key, char *out, int cap) { return lang_line_tone(ps, key, lang_mood_now(ps), out, cap); }
 
 /* ---------- answering ---------- */
 static void cat(char *dst, int cap, const char *src) {
@@ -436,7 +486,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
 
     lang_apply(ps, h);
-    Tone tone = lang_tone(ps);
+    Tone tone = lang_mood_now(ps);
 
     /* strong intents first (by rank), weak ones only if nothing else was said */
     int pickd[HEARD_ORDER], np = 0;
@@ -458,7 +508,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     for (int a = 0; a < np; a++) {
         int in = pickd[a];
         Tone tt = tone;
-        if ((in == I_SAD || in == I_SCARED || in == I_CONFUSED || in == I_HELP) && tt == TONE_HOSTILE) tt = TONE_COLD;   /* even toxic gods do not kick a crying player */
+        if (in == I_SAD || in == I_SCARED || in == I_CONFUSED || in == I_HELP) {      /* even toxic gods do not kick a crying player */
+            if (tt == TONE_HOSTILE || tt == TONE_SARCASTIC || tt == TONE_SMUG || tt == TONE_SULKY) tt = TONE_COLD;
+            else if (tt == TONE_BORED) tt = TONE_NEUTRAL;
+        }
         g_tone = (int)tt;
         char key[24], one[200];
         snprintf(key, sizeof key, "r.%s", INTENT_NAME[in]);

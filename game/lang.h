@@ -31,7 +31,7 @@ typedef enum {
     I_COUNT
 } Intent;
 
-/* chunk 7: twenty moods. the first four keep 0-3 (lang_tone still only yields these until chunk 8). a mood with no line for a key
+/* chunk 7: twenty moods. the first four keep 0-3 (until the mood vector moves in chunk 9, only a set vector, a lean or the plain mood gives them). a mood with no line for a key
  * answers through its fallback chain (lang_mood_chain), then the nearest of the old four, then any */
 typedef enum {
     TONE_WARM, TONE_NEUTRAL, TONE_COLD, TONE_HOSTILE,
@@ -49,7 +49,16 @@ typedef struct {
     int warmth;         /* 0..100, how kind they are by nature */
     int toxic;          /* 0..100, how much they like looking down on people */
     int patience;       /* replies before they get bored of a free chat */
+    /* chunk 8: the mood state. every field is trailing and zero is "no push", so { "Dea", STYLE_DIVINE, 0, 30, 65, 8 } still compiles.
+     * the vector says how the character feels right now (-100..100); a strong value overrides the plain warm..hostile mood (lang_mood_now) */
+    int8_t trust, fear, energy, amuse, grief;
+    uint32_t lean;      /* the moods this character drifts to: bits (1u << TONE_x), same bits as the masks in lang_data.h. 0 = none */
+    uint8_t quirk;      /* a small bit field, chunk 13 */
+    /* kept by the engine, leave at 0: a mood that sticks (held) for `hold` more turns */
+    uint8_t hold;
+    int8_t held;
 } Persona;
+#define LEAN(t) (1u << (t))
 
 #define HEARD_MAX 256   /* intents that fit in a Heard (a 256 bit set) */
 #define HEARD_ORDER 24  /* intents remembered in the order they were said */
@@ -91,8 +100,10 @@ int  lang_highlight(const char *text, uint8_t *mask);
 void lang_heard_label(const Heard *h, char *out, int cap);   /* "HEARD: HELLO + WHO ARE YOU" */
 
 /* ---- answering ---- */
-Tone lang_tone(const Persona *ps);               /* how they feel like talking right now (a bit random) */
-void lang_apply(Persona *ps, const Heard *h);    /* moves mood + charisma for what was said */
+/* how they feel like talking right now: one of the 20 moods. a mood picked by the vector or by `lean` sticks for 2-4 turns (ps->hold);
+ * otherwise it is the plain warm / neutral / cold / hostile of mood + charisma + warmth - toxic, a bit random */
+Tone lang_mood_now(const Persona *ps);
+void lang_apply(Persona *ps, const Heard *h);    /* moves mood + charisma for what was said; one call = one turn (the sticking mood counts them) */
 int  lang_reply(Persona *ps, const Heard *h, char *out, int cap);   /* applies, then answers. returns 1 if a real intent was answered */
 int  lang_line(const Persona *ps, const char *key, char *out, int cap);   /* any named line, formatted. 0 if none */
 int  lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap);
