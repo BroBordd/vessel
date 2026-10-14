@@ -114,10 +114,11 @@ int main(int argc, char **argv) {
     for (int i = 0; i < I_COUNT; i++) {
         if (!exp_n[i] && !pred[i]) continue;
         double rc = exp_n[i] ? 100.0 * hit[i] / exp_n[i] : -1, pr = pred[i] ? 100.0 * ok_pred[i] / pred[i] : -1;
+        int gated = !only || (only & M(i));          /* with --only, just those intents are held to the minimum */
         printf("  %-9s recall %5.1f%% (%d/%d)   precision %5.1f%% (%d/%d)%s\n", IN[i], rc, hit[i], exp_n[i], pr, ok_pred[i], pred[i],
-               (minrec >= 0 && exp_n[i] && rc < minrec) ? "   <-- below min" : "");
-        te += exp_n[i]; th += hit[i];
-        if (minrec >= 0 && exp_n[i] && rc < minrec) worst_bad++;
+               (minrec >= 0 && gated && exp_n[i] && rc < minrec) ? "   <-- below min" : "");
+        if (gated) { te += exp_n[i]; th += hit[i]; }
+        if (minrec >= 0 && gated && exp_n[i] && rc < minrec) worst_bad++;
     }
     double overall = te ? 100.0 * th / te : 0;
     printf("\nlines scored %d | overall recall %.1f%% (%d/%d labels) | exact-set %.1f%% | unknown rate %.1f%% (%d lines heard nothing)\n",
