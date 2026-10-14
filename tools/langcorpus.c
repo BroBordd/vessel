@@ -7,6 +7,11 @@
  *   build/langcorpus --min-recall 90 tools/corpus/tuning_*.tsv     exit 1 if overall recall or any intent below 90 %
  *   build/langcorpus --only greet,bye FILE...                      score only lines that have one of these intents (a group gate)
  *   build/langcorpus --misses 100 FILE...                          show more misses
+ *   build/langcorpus --fuzz 5 FILE...                              also mutate every line 5 times per kind (typos, caps, elongation, leet,
+ *                                                                  spaced letters, punctuation, emoji, fillers, glued words, junk, combos)
+ *                                                                  and print how much recall is RETAINED: fuzzed recall / clean recall
+ *   build/langcorpus --fuzz 5 --min-retained 93 FILE...            exit 1 if the overall retained recall is below 93 %
+ *   build/langcorpus --fuzz 5 --fuzz-misses 40 FILE...              show more lost labels (default 15). the seed is fixed (--seed N to change)
  * corpus file: one line per player text:  text <TAB> intent[,intent...]   (# = comment, none = nothing should be understood)
  * recall of intent X = lines labelled X where lang_parse heard X. precision of X = lines where X was heard and labelled.
  * exact = the heard set equals the labelled set (the sentiment words pos/neg are ignored unless labelled). */
@@ -66,11 +71,124 @@ static void names(uint64_t m, char *out, int cap) {
     if (!o) snprintf(out, (size_t)cap, "-");
 }
 
+/* ---------- the fuzzer (chunk 4) ---------- */
+static uint32_t fz = 12345u;
+static uint32_t frnd(void) { fz ^= fz << 13; fz ^= fz >> 17; fz ^= fz << 5; return fz; }
+static int fn(int n) { return n > 0 ? (int)(frnd() % (uint32_t)n) : 0; }
+
+enum { F_SWAP, F_DROP, F_DOUBLE, F_NEIGH, F_CAPS, F_STRETCH, F_LEET, F_SPACED, F_PUNCT, F_EMOJI, F_FILLER, F_GLUED, F_JUNK, F_COMBO, F_COUNT };
+static const char *const FNAME[F_COUNT] = { "typo-swap", "typo-drop", "typo-double", "typo-neighbour", "caps", "stretch", "leet", "spaced",
+                                            "punct", "emoji", "filler", "glued", "junk", "combo(2-3)" };
+
+/* a random word of at least minlen letters: its start and length (returns 0 if none) */
+static int pick_word(const char *t, int minlen, int *st, int *ln) {
+    int cs[64], cl[64], n = 0, i = 0, len = (int)strlen(t);
+    while (i < len && n < 64) {
+        while (i < len && !isalpha((unsigned char)t[i])) i++;
+        int a = i; while (i < len && isalpha((unsigned char)t[i])) i++;
+        if (i - a >= minlen) { cs[n] = a; cl[n] = i - a; n++; }
+    }
+    if (!n) return 0;
+    int k = fn(n); *st = cs[k]; *ln = cl[k]; return 1;
+}
+
+static char neighbour(char c) {
+    static const char *ROW[3] = { "qwertyuiop", "asdfghjkl", "zxcvbnm" };
+    for (int r = 0; r < 3; r++) {
+        const char *p = strchr(ROW[r], c);
+        if (!p) continue;
+        int i = (int)(p - ROW[r]), len = (int)strlen(ROW[r]);
+        char cand[6]; int n = 0;
+        if (i > 0) cand[n++] = ROW[r][i - 1];
+        if (i < len - 1) cand[n++] = ROW[r][i + 1];
+        if (r > 0 && i < (int)strlen(ROW[r - 1])) cand[n++] = ROW[r - 1][i];
+        if (r < 2 && i < (int)strlen(ROW[r + 1])) cand[n++] = ROW[r + 1][i];
+        return cand[fn(n)];
+    }
+    return c;
+}
+
+static void ins(char *t, int cap, int at, const char *s) {
+    int len = (int)strlen(t), sl = (int)strlen(s);
+    if (len + sl >= cap) return;
+    memmove(t + at + sl, t + at, (size_t)(len - at + 1)); memcpy(t + at, s, (size_t)sl);
+}
+
+/* apply one mutation in place. returns 1 if the text changed */
+static int mutate(char *t, int cap, int kind) {
+    char before[512]; snprintf(before, sizeof before, "%s", t);
+    int st, ln, len = (int)strlen(t);
+    switch (kind) {
+    case F_SWAP:   if (pick_word(t, 3, &st, &ln)) { int k = st + fn(ln - 1); char c = t[k]; t[k] = t[k + 1]; t[k + 1] = c; } break;
+    case F_DROP:   if (pick_word(t, 4, &st, &ln)) { int k = st + fn(ln); memmove(t + k, t + k + 1, (size_t)(len - k)); } break;
+    case F_DOUBLE: if (pick_word(t, 3, &st, &ln)) { int k = st + fn(ln); char s2[2] = { t[k], 0 }; ins(t, cap, k, s2); } break;
+    case F_NEIGH:  if (pick_word(t, 3, &st, &ln)) { int k = st + fn(ln); t[k] = neighbour((char)tolower((unsigned char)t[k])); } break;
+    case F_CAPS:   for (int i = 0; i < len; i++) t[i] = (char)toupper((unsigned char)t[i]); break;
+    case F_STRETCH: if (pick_word(t, 2, &st, &ln)) {          /* repeat the last vowel (else the last letter) of a word 3 more times */
+            int k = st + ln - 1; for (int i = st + ln - 1; i >= st; i--) if (strchr("aeiou", tolower((unsigned char)t[i]))) { k = i; break; }
+            char s3[4] = { t[k], t[k], t[k], 0 }; ins(t, cap, k, s3); } break;
+    case F_LEET:   for (int i = 0; i < len; i++) { char c = (char)tolower((unsigned char)t[i]);
+            if (fn(10) < 7) { if (c == 'o') t[i] = '0'; else if (c == 'e') t[i] = '3'; else if (c == 'i') t[i] = '1'; else if (c == 'a') t[i] = '4'; } } break;
+    case F_SPACED: if (pick_word(t, 3, &st, &ln) && ln <= 8) { for (int i = st + ln - 1; i > st; i--) ins(t, cap, i, " "); } break;
+    case F_PUNCT:  { static const char *const P[] = { "!!!", "???", "!?", "...", "!!!!!!", "??" }; ins(t, cap, len, P[fn(6)]); } break;
+    case F_EMOJI:  { static const char *const E[] = { " :)", " :(", " <3", " xD", " \xF0\x9F\x98\x8A", " \xF0\x9F\x98\xAD", " \xF0\x9F\x92\x80" }; ins(t, cap, len, E[fn(7)]); } break;
+    case F_FILLER: { static const char *const Fl[] = { "um ", "uh ", "so ", "well ", "umm ok so ", "like ", "hmm " }; ins(t, cap, 0, Fl[fn(7)]); } break;
+    case F_GLUED:  { int o = 0; for (int i = 0; i < len; i++) if (t[i] != ' ') t[o++] = t[i]; t[o] = 0; } break;
+    case F_JUNK:   { static const char *const L[] = { "  ", " - ", "... ", ">> ", "\" " }, *const R[] = { "  ", " -", " ..", " <<", " \"" };
+                     ins(t, cap, 0, L[fn(5)]); ins(t, cap, (int)strlen(t), R[fn(5)]); } break;
+    }
+    return strcmp(before, t) != 0;
+}
+
+static uint64_t only;
+static int run_fuzz(int per, int nshow, int minret) {
+    long lab[F_COUNT] = {0}, cl[F_COUNT] = {0}, fu[F_COUNT] = {0}, kept[F_COUNT] = {0}; int nvar[F_COUNT] = {0};
+    long ilab[I_COUNT] = {0}, icl[I_COUNT] = {0}, ifu[I_COUNT] = {0};
+    long tl = 0, tc = 0, tf = 0, tk = 0; int shown = 0;
+    printf("\n=== fuzz: %d variants per line per kind, seed fixed ===\n", per);
+    for (int r = 0; r < nrows; r++) {
+        Row *w = &rows[r];
+        if (w->none || !w->exp || (only && !(w->exp & only))) continue;
+        Heard h0; lang_parse(w->text, &h0);
+        for (int k = 0; k < F_COUNT; k++) for (int v = 0; v < per; v++) {
+            char t[512]; strncpy(t, w->text, sizeof t - 1); t[sizeof t - 1] = 0;
+            int changed;
+            if (k == F_COMBO) { changed = 0; int n = 2 + fn(2); for (int j = 0; j < n; j++) { int kk = fn(F_COMBO); if (kk == F_GLUED) kk = F_NEIGH; changed |= mutate(t, 199, kk); } }
+            else changed = mutate(t, 199, k);
+            if (!changed) continue;
+            Heard h; lang_parse(t, &h); nvar[k]++;
+            for (int i = 0; i < I_COUNT; i++) if (w->exp & M(i)) {
+                int c = (h0.mask & M(i)) != 0, f = (h.mask & M(i)) != 0;
+                lab[k]++; cl[k] += c; fu[k] += f; kept[k] += c && f; tk += c && f; tl++; tc += c; tf += f;
+                ilab[i]++; icl[i] += c; ifu[i] += f;
+                if (c && !f && shown < nshow) { printf("  lost %-8s %-40s <- %-30s [%s]\n", IN[i], t, w->text, FNAME[k]); shown++; }
+            }
+        }
+    }
+    printf("\n%-16s %8s %8s %8s %9s %8s\n", "kind", "labels", "clean", "fuzzed", "retained", "kept");
+    for (int k = 0; k < F_COUNT; k++) {
+        if (!lab[k]) continue;
+        printf("%-16s %8ld %7.1f%% %7.1f%% %8.1f%% %7.1f%%\n", FNAME[k], lab[k], 100.0 * cl[k] / lab[k], 100.0 * fu[k] / lab[k],
+               cl[k] ? 100.0 * fu[k] / cl[k] : 0, cl[k] ? 100.0 * kept[k] / cl[k] : 0);
+    }
+    double ret = tc ? 100.0 * tf / tc : 0;
+    printf("%-16s %8ld %7.1f%% %7.1f%% %8.1f%% %7.1f%%   (retained = fuzzed recall / clean recall; kept = labels heard clean that are still heard)\n",
+           "ALL", tl, tl ? 100.0 * tc / tl : 0, tl ? 100.0 * tf / tl : 0, ret, tc ? 100.0 * tk / tc : 0.0);
+    printf("\nper intent (retained = fuzzed hits / clean hits over all mutations):\n");
+    for (int i = 0; i < I_COUNT; i++) if (ilab[i]) printf("  %-9s clean %5.1f%%  fuzzed %5.1f%%  retained %5.1f%%\n", IN[i], 100.0 * icl[i] / ilab[i], 100.0 * ifu[i] / ilab[i], icl[i] ? 100.0 * ifu[i] / icl[i] : 0);
+    if (minret >= 0) { printf("min-retained %d%%: %s\n", minret, ret < minret ? "FAIL" : "PASS"); return ret < minret; }
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    int minrec = -1, nmiss = 30, bad = 0; uint64_t only = 0; const char *files[64]; int nf = 0;
+    int minrec = -1, nmiss = 30, bad = 0, fuzz = 0, fuzzshow = 15, minret = -1; only = 0; const char *files[64]; int nf = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--min-recall") && i + 1 < argc) minrec = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--misses") && i + 1 < argc) nmiss = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--fuzz") && i + 1 < argc) fuzz = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--fuzz-misses") && i + 1 < argc) fuzzshow = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--min-retained") && i + 1 < argc) minret = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--seed") && i + 1 < argc) fz = (uint32_t)atoi(argv[++i]) | 1u;
         else if (!strcmp(argv[i], "--only") && i + 1 < argc) {
             char buf[400]; snprintf(buf, sizeof buf, "%s", argv[++i]);
             for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) { int k = intent_by_name(t); if (k < 0) { fprintf(stderr, "unknown intent %s\n", t); return 2; } only |= M(k); }
@@ -125,6 +243,8 @@ int main(int argc, char **argv) {
            scored, overall, th, te, scored - none_n ? 100.0 * exact / (scored - none_n) : 0, scored ? 100.0 * unknown / scored : 0, unknown);
     if (none_n) printf("none-lines (should be heard as nothing): %d/%d correct\n", none_ok, none_n);
     printf("lines with at least one miss or false hit on a none line: %d\n", missed_rows);
-    if (minrec >= 0) { int fail = overall < minrec || worst_bad; printf("min-recall %d%%: %s\n", minrec, fail ? "FAIL" : "PASS"); return fail ? 1 : 0; }
-    return 0;
+    int rc = 0;
+    if (minrec >= 0) { int fail = overall < minrec || worst_bad; printf("min-recall %d%%: %s\n", minrec, fail ? "FAIL" : "PASS"); rc |= fail; }
+    if (fuzz > 0) rc |= run_fuzz(fuzz, fuzzshow, minret);
+    return rc;
 }
