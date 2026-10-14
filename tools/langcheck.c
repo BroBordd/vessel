@@ -44,6 +44,8 @@ static int key_id(const char *k) {
 }
 static int cmpkey(const void *a, const void *b) { return strcmp(*(const char *const *)a, *(const char *const *)b); }
 
+static int cmp_line_key(const void *a, const void *b) { return strcmp((*(const Line *const *)a)->key, (*(const Line *const *)b)->key); }
+
 static int do_check(void) {
     int bad = 0, total = 0, maxlen = 0;
     EACH(l) {
@@ -60,6 +62,20 @@ static int do_check(void) {
         }
         if (depth) { printf("UNBALANCED { } in [%s] %s\n", l->key, l->text); bad++; }
         if (!l->tones || !l->styles) { printf("EMPTY MASK in [%s] %s\n", l->key, l->text); bad++; }
+    }
+    /* chunk 5: no key may have more than LANG_MAX_KEY_ROWS rows */
+    {
+        const Line **all = malloc((size_t)(total ? total : 1) * sizeof *all);
+        int n = 0;
+        EACH(l) all[n++] = l;
+        qsort(all, (size_t)n, sizeof *all, cmp_line_key);
+        for (int i = 0; i < n;) {
+            int j = i;
+            while (j < n && !strcmp(all[j]->key, all[i]->key)) j++;
+            if (j - i > LANG_MAX_KEY_ROWS) { printf("TOO MANY ROWS: key [%s] has %d rows (max %d)\n", all[i]->key, j - i, LANG_MAX_KEY_ROWS); bad++; }
+            i = j;
+        }
+        free(all);
     }
     printf("check: %d lines, longest %d chars, %d problems\n", total, maxlen, bad);
     return bad;

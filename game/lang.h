@@ -43,13 +43,31 @@ typedef struct {
     int patience;       /* replies before they get bored of a free chat */
 } Persona;
 
+#define HEARD_MAX 256   /* intents that fit in a Heard (a 256 bit set) */
+#define HEARD_ORDER 24  /* intents remembered in the order they were said */
 typedef struct {
-    uint64_t mask;      /* bit per Intent */
-    int order[12], n;   /* intents in the order they were said */
+    union {
+        uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only */
+        uint64_t mask;                /* old name for m[0]: only right for intents below 64, goes away in chunk 12 */
+    };
+    int order[HEARD_ORDER], n;   /* intents in the order they were said */
     int positive, negative;
     int is_question, words;
     char capture[24];   /* "my name is X" -> X */
 } Heard;
+
+static inline int  heard_has(const Heard *h, int i) { return (int)((h->m[i >> 6] >> (i & 63)) & 1u); }
+static inline void heard_set(Heard *h, int i) { h->m[i >> 6] |= 1ull << (i & 63); }
+/* 1 if every intent heard is in allowed[] (a list ended by -1) */
+static inline int  heard_only(const Heard *h, const int *allowed) {
+    for (int i = 0; i < HEARD_MAX; i++) {
+        if (!heard_has(h, i)) continue;
+        int ok = 0;
+        for (const int *a = allowed; *a >= 0; a++) if (*a == i) { ok = 1; break; }
+        if (!ok) return 0;
+    }
+    return 1;
+}
 
 /* ---- setup ---- */
 void lang_seed(unsigned s);

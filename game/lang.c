@@ -92,8 +92,8 @@ static int prefix_len(const char *p);
 static int prefix_len(const char *p) { int n = 0; while (p[n] && p[n] != '*' && p[n] != '$') n++; return n; }
 
 typedef struct { int start, end, intent, prefix; } Span;
-#define MAX_TEXT 200
-#define MAX_SPANS 40
+#define MAX_TEXT 400        /* chunk 5: was 200 */
+#define MAX_SPANS 80        /* chunk 5: was 40 */
 
 static int scan(const char *lc, int len, Span *sp, int maxsp) {
     int n = 0, i = 0;
@@ -179,7 +179,7 @@ void lang_parse(const char *text, Heard *h) {
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
-    if (nsf) { h->mask |= 1ull << I_SELFHARM; h->order[h->n++] = I_SELFHARM; }
+    if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
     for (int k = 0; k < ns; k++) {
         int in = sp[k].intent;
         if (negated(lc, sp[k].start)) in = flip(in);
@@ -191,7 +191,7 @@ void lang_parse(const char *text, Heard *h) {
             int n = b - a; if (n > 22) n = 22;
             if (n > 0) { memcpy(h->capture, text + a, (size_t)n); h->capture[n] = 0; }
         }
-        if (!(h->mask & (1ull << in)) && h->n < 12) { h->mask |= 1ull << in; h->order[h->n++] = in; }
+        if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
     }
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
@@ -258,26 +258,56 @@ void lang_apply(Persona *ps, const Heard *h) {
 /* ---------- line picking ---------- */
 static const Line *const TABLE[4] = { LINES_A, LINES_B, LINES_C, LINES_D };
 static const int *const COUNT[4] = { &LINES_A_N, &LINES_B_N, &LINES_C_N, &LINES_D_N };
-static const Line *recent[24];
+
+/* the no-repeat memory (chunk 5: 24 -> 128 lines). how much of it counts depends on the key: a key with N rows
+ * does not use its last min(N/2, 40) lines again, so a small key is never starved and a big one rarely repeats */
+#define RECENT_MAX 128
+#define WINDOW_MAX 40
+static const Line *recent[RECENT_MAX];
 static int nrecent;
 
-static int was_recent(const Line *l) { for (int i = 0; i < 24; i++) if (recent[i] == l) return 1; return 0; }
-static void remember(const Line *l) { recent[nrecent++ % 24] = l; }
+static void remember(const Line *l) { recent[nrecent++ % RECENT_MAX] = l; }
+
+/* was l one of the last `window` lines used from this key? */
+static int was_recent(const Line *l, const char *key, int window) {
+    int seen = 0, total = nrecent < RECENT_MAX ? nrecent : RECENT_MAX;
+    for (int i = 1; i <= total && seen < window; i++) {
+        const Line *e = recent[(nrecent - i) % RECENT_MAX];
+        if (e == l) return 1;
+        if (!strcmp(e->key, key)) seen++;
+    }
+    return 0;
+}
+
+/* candidate lists grow to the key's real row count (no cap: the lint fails a key over LANG_MAX_KEY_ROWS) */
+static const Line **cand;
+static int *wt, cand_cap;
 
 static const Line *pick_exact(const Persona *ps, const char *key, int tone, int any_style) {
-    const Line *cand[96]; int wt[96]; int n = 0, sum = 0;
+    int n = 0, sum = 0, nkey = 0;
     for (int t = 0; t < 4; t++)
         for (int i = 0; i < *COUNT[t]; i++) {
             const Line *l = &TABLE[t][i];
-            if (!(l->tones & (1 << tone)) || strcmp(l->key, key)) continue;
+            if (strcmp(l->key, key)) continue;
+            nkey++;
+            if (!(l->tones & (1u << tone))) continue;
             if (!any_style && !(l->styles & ps->style)) continue;
-            if (n >= 96) break;
+            if (n >= cand_cap) {
+                int nc = cand_cap ? cand_cap * 2 : 128;
+                const Line **c2 = realloc(cand, (size_t)nc * sizeof *cand);
+                int *w2 = realloc(wt, (size_t)nc * sizeof *wt);
+                if (c2) cand = c2;
+                if (w2) wt = w2;
+                if (!c2 || !w2) break;                 /* out of memory: pick from what we have */
+                cand_cap = nc;
+            }
             int w = 1;
             if (!any_style && l->styles != ALLS && (l->styles & ps->style) == l->styles) w = 3;   /* made just for this style */
-            if (was_recent(l)) w = 0;
-            cand[n] = l; wt[n] = w; sum += w; n++;
+            cand[n] = l; wt[n] = w; n++;
         }
     if (!n) return NULL;
+    int window = nkey / 2 < WINDOW_MAX ? nkey / 2 : WINDOW_MAX;
+    for (int i = 0; i < n; i++) { if (window > 0 && was_recent(cand[i], key, window)) wt[i] = 0; sum += wt[i]; }
     if (sum == 0) { const Line *l = cand[rn(n)]; return l; }   /* only repeats left: allow one */
     int r = rn(sum);
     for (int i = 0; i < n; i++) { r -= wt[i]; if (r < 0) return cand[i]; }
@@ -348,15 +378,15 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0;
     g_topic = h->capture;
     /* a real person might be behind these words: step out of character, whoever is talking */
-    if (h->mask & (1ull << I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
+    if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
 
     lang_apply(ps, h);
     Tone tone = lang_tone(ps);
 
     /* strong intents first (by rank), weak ones only if nothing else was said */
-    int pickd[12], np = 0;
+    int pickd[HEARD_ORDER], np = 0;
     for (int pass = 0; pass < 2 && !np; pass++) {
-        int cand[12], nc = 0;
+        int cand[HEARD_ORDER], nc = 0;
         for (int i = 0; i < h->n; i++) {
             int in = h->order[i];
             if (in == I_POS || in == I_NEG) continue;
@@ -368,7 +398,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     }
 
     if (np == 1 && pickd[0] == I_WHAT && h->words >= 5) np = 0;      /* a long question we have no answer for */
-    char body[400]; body[0] = 0;
+    char body[600]; body[0] = 0;       /* chunk 5: was 400 (cut to a readable length in chunk 42) */
     int answered = 0;
     for (int a = 0; a < np; a++) {
         int in = pickd[a];
@@ -400,7 +430,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     /* a little colour around the edges: an opener and/or a closer */
     int len = (int)strlen(body);
-    char pre[80] = "", post[100] = "", full[480];
+    char pre[80] = "", post[100] = "", full[800];
     g_tone = (int)tone;
     if (len < 110 && rn(100) < (tone >= TONE_COLD ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);

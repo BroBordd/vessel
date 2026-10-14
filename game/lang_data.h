@@ -4,6 +4,7 @@
  * shared shapes for the big tables (lines_*.c and lang_pats.c) */
 #ifndef LANG_DATA_H
 #define LANG_DATA_H
+#include <stdint.h>
 
 /* tone masks: which moods a line fits */
 #define WARM 1
@@ -19,8 +20,12 @@
 #define STREET 4
 #define ALLS   7
 
-typedef struct { const char *key; unsigned char tones, styles; const char *text; } Line;
+/* chunk 5: tones is 32 bits (20 moods + room) and styles is 16 bits (10 voices + room). the old rows compile unchanged */
+typedef struct { const char *key; uint32_t tones; uint16_t styles; const char *text; } Line;
 typedef struct { const char *pat; int intent; } Pat;
+
+/* a key may have at most this many rows (the picker has no cap, the lint fails above it) */
+#define LANG_MAX_KEY_ROWS 4000
 
 extern const Line LINES_A[], LINES_B[], LINES_C[], LINES_D[];
 extern const int  LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N;

@@ -68,8 +68,6 @@ static void say_key(const char *key, int reply, const char *echo) {
     speak(buf, reply, echo);
 }
 
-static int only(const Heard *h, uint64_t allowed) { return (h->mask & ~allowed) == 0; }
-#define M(i) (1ull << (i))
 
 static void on_reply(int page, const char *text) {
     (void)page;
@@ -84,17 +82,17 @@ static void on_reply(int page, const char *text) {
 
     if (C.stage == ST_SORRY) {                              /* the npc demanded an apology: no skipping here */
         lang_apply(ps, &h);
-        if (h.mask & M(I_SORRY)) { ps->mood += 22; if (ps->mood > 100) ps->mood = 100; C.stage = ST_FREE; say_key("accept.sorry", REPLY_OPTIONAL, text); return; }
+        if (heard_has(&h, I_SORRY)) { ps->mood += 22; if (ps->mood > 100) ps->mood = 100; C.stage = ST_FREE; say_key("accept.sorry", REPLY_OPTIONAL, text); return; }
         if (++C.demands >= 3) { say_key("end.angry", REPLY_NONE, text); return; }
         say_key("demand.again", REPLY_REQUIRED, text);
         return;
     }
 
     if (C.stage == ST_QUESTIONS) {
-        uint64_t polite = M(I_NO) | M(I_OK) | M(I_THANKS) | M(I_PLEASE) | M(I_POS) | M(I_ADDRESS);
-        uint64_t yes = M(I_YES) | M(I_OK) | M(I_PLEASE) | M(I_POS) | M(I_ADDRESS) | M(I_HELP);
-        if ((h.mask & M(I_NO)) && only(&h, polite)) { lang_apply(ps, &h); say_key("end.noquestions", REPLY_NONE, text); return; }
-        if ((h.mask & M(I_YES)) && only(&h, yes))   { lang_apply(ps, &h); C.stage = ST_FREE; C.turns = 0; say_key("ask.go", REPLY_OPTIONAL, text); return; }
+        static const int polite[] = { I_NO, I_OK, I_THANKS, I_PLEASE, I_POS, I_ADDRESS, -1 };
+        static const int yes[] = { I_YES, I_OK, I_PLEASE, I_POS, I_ADDRESS, I_HELP, -1 };
+        if (heard_has(&h, I_NO) && heard_only(&h, polite)) { lang_apply(ps, &h); say_key("end.noquestions", REPLY_NONE, text); return; }
+        if (heard_has(&h, I_YES) && heard_only(&h, yes)) { lang_apply(ps, &h); C.stage = ST_FREE; C.turns = 0; say_key("ask.go", REPLY_OPTIONAL, text); return; }
         C.stage = ST_FREE;                                  /* they just asked something: answer it */
     }
 
@@ -102,11 +100,11 @@ static void on_reply(int page, const char *text) {
     lang_reply(ps, &h, reply, sizeof reply);
     C.turns++;
 
-    if (h.mask & M(I_SELFHARM)) { speak(reply, REPLY_OPTIONAL, text); return; }
-    if (h.mask & M(I_BYE)) {                                /* the player is leaving: wave and end */
+    if (heard_has(&h, I_SELFHARM)) { speak(reply, REPLY_OPTIONAL, text); return; }
+    if (heard_has(&h, I_BYE)) {                                /* the player is leaving: wave and end */
         speak(reply, REPLY_NONE, text); return;
     }
-    if ((h.mask & M(I_INSULT)) && ps->mood <= -55) {        /* too far: demand an apology, and the player MUST talk */
+    if (heard_has(&h, I_INSULT) && ps->mood <= -55) {        /* too far: demand an apology, and the player MUST talk */
         char dem[160]; lang_line(ps, "demand.sorry", dem, sizeof dem);
         size_t n = strlen(reply); if (n + strlen(dem) + 2 < sizeof reply) { strcat(reply, " "); strcat(reply, dem); }
         C.stage = ST_SORRY; C.demands = 0;
