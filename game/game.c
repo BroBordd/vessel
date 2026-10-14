@@ -133,6 +133,7 @@ int main(int argc, char **argv) {
 
     lang_seed((unsigned)SDL_GetTicks() * 2654435761u + 12345u);
     menu_init(W, H);
+    menu_set_load_enabled(story_save_exists());     /* LOAD only works with a save (made by the game at every summoning after the first) */
     nowplaying_init(W, H);
     musicwin_init(W, H);
     brainwin_init(W, H);
@@ -149,6 +150,7 @@ int main(int argc, char **argv) {
 
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[4096]; int alen = 0;
+    int want_load = 0;                              /* the menu's fade-out was started by LOAD, not PLAY */
     int bg = 0;                                     /* the app is in the background: nothing runs, nothing is drawn, the world is paused for when it comes back */
 
     /* fixed 60fps pacing: sleep only the time left in each frame budget */
@@ -203,7 +205,13 @@ int main(int argc, char **argv) {
                         MenuAction act = menu_touch(a, x, y);
                         if (act == MENU_PLAY) {
                             printf("menu: play\n"); fflush(stdout);
+                            want_load = 0;
                             menu_fade_out();                    /* the title and buttons fade out, then limbo (below) */
+                        }
+                        if (act == MENU_LOAD) {
+                            printf("menu: load\n"); fflush(stdout);
+                            want_load = 1;
+                            menu_fade_out();                    /* same fade; then limbo goes to the saved life instead of the opening */
                         }
                         if (act == MENU_EXIT) quit_app();
                     } else if (state == ST_WORLD) {
@@ -236,7 +244,8 @@ int main(int argc, char **argv) {
                 state = ST_LIMBO;
                 thought_set_voice(&SOUL);                        /* in limbo the thoughts wear the soul's face */
                 space_draw(r);                                   /* world_init made no frame of its own: keep this one stars only */
-                story_limbo_begin(0);                            /* a beat, "Where am I?", a hold, then the world */
+                if (!(want_load && story_load_begin()))          /* LOAD: the saved life's summoning (story.c) ... */
+                    story_limbo_begin(0);                        /* ... else a beat, "Where am I?", a hold, then the world */
             }
         } else if (state == ST_LIMBO) {
             space_update(dt); space_draw(r);
