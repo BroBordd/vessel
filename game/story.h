@@ -14,6 +14,9 @@ extern const Person ALEX;
 
 /* called by the world when the map appears / every frame */
 void story_start(void);
+int  story_save_exists(void);               /* a usable save file is there (the menu's LOAD button) */
+int  story_load_begin(void);                /* LOAD: put a save back and start its summoning (limbo goes on from there). 0 = no usable save, nothing was touched */
+
 void story_vessel2_ready(void);   /* hook, empty for now: runs once the second landing is done and the graves stand (vessel 2's mission starts here) */
 void story_vessel3_ready(void);   /* hook, empty for now: runs once Dea has the orb (chunk 43); whatever comes after this part starts here */
 void story_update(float dt);

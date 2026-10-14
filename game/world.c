@@ -960,6 +960,18 @@ int  world_found_shrine(void) { return found_flag[FOUND_SHRINE]; }
 int  world_found_hammer(void) { return found_flag[FOUND_HAMMER]; }
 int  world_found_temple(void) { return found_flag[FOUND_TEMPLE]; }
 int  world_found_grave(const Person *who) { for (int k = 0; k < found_graves_n; k++) if (found_graves[k] == who) return 1; return 0; }
+/* the save file (story.c): the found flags in and out. flags[] is house, shrine, hammer, temple (FOUND_*); graves are the Persons whose stone was found */
+void world_found_get(int flags[4], int *total, const Person **graves, int *n) {
+    for (int i = 0; i < FOUND_N; i++) flags[i] = found_flag[i];
+    *total = found_total; *n = found_graves_n;
+    for (int i = 0; i < found_graves_n; i++) graves[i] = found_graves[i];
+}
+void world_found_set(const int flags[4], int total, const Person *const *graves, int n) {
+    world_found_reset();
+    for (int i = 0; i < FOUND_N; i++) found_flag[i] = flags[i] != 0;
+    found_total = total;
+    for (int i = 0; i < n && i < GRAVE_MAX; i++) found_graves[found_graves_n++] = graves[i];
+}
 
 /* chunk 57: the whole body goes. the controls are already hidden (self_hit). a big burst of red squares from the body, which is gone: nothing lies on the floor, no
  * head. the stains are made where we stand, so the room's old ones are cleared (we do not come back). story.c runs the death scene after it */

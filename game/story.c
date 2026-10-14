@@ -50,6 +50,10 @@
 #include <strings.h>
 #include <ctype.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <unistd.h>
 
 #define VESSEL_NAME  "Aonia"        /* vessel one. later: Doia, Tria, Ceathia ... (Dea plays on the word "one") */
 #define VESSEL2_NAME "Doia"         /* vessel two: Dea plays on the word two */
@@ -532,13 +536,19 @@ static void respawn_summoned(void) {
 
 /* the hold after the soul's line is over: the next life is made ready behind the scenes (chunk 14), limbo ends, game.c shows the
  * world (it fades in from black, the cloud music starts again) and the golden summoning runs again (chunks 8-9) */
-static void death_limbo_hold_over(void) {
-    death_hold_done++;
+static int  autosave(void);                                 /* the save file, defined at the end of this file */
+static void next_life_begin(void) {
     story_reset_for_respawn();
     world_summon(respawn_summoned);                         /* (queued: the dawn holds it back until the floor is built) */
     jukebox_scene_fade(LIMBO_MUSIC_FADE);                   /* the Grasslands' music goes as the sky comes, like at the start of the game */
     world_begin_dawn();                                     /* the same transition as the start: the stars brighten into the sky, the cloud floor builds in */
     limbo_end();
+}
+static void death_limbo_hold_over(void) {
+    death_hold_done++;
+    int saved = autosave();                                 /* every summoning after the first: the game is saved here (the state is clean: no dialog, no scene, no timers) */
+    next_life_begin();
+    if (saved) toast_notice("GAME SAVED", "autosave");      /* (after the reset: it clears the toasts) */
 }
 static void death_say_done(void) { limbo_run(NULL, 0, DEATH_LIMBO_HOLD, death_limbo_hold_over); }
 static void death_to_limbo(void) {
@@ -1009,4 +1019,137 @@ void story_start(void) {
     convo_set_player(&VAS);
     world_set_controls_visible(0);
     world_summon(intro_done);                   /* the light, the sparks, the vessel; it starts when limbo hands over to the world (game.c) */
+}
+
+/* ---------- the save file ----------
+ * the game saves by itself at every summoning after the first (death_limbo_hold_over): that is the one moment where nothing is in the
+ * air (no dialog, no cutscene, no timers: only plain variables that stay across lives), so a save is just those variables. there is no
+ * manual save. LOAD (menu) puts them back, then plays a short limbo and goes on exactly like after a death: next_life_begin (the same
+ * code, the same summoning). "save.dat" lives next to the game binary (the game runs in the app's files dir). it is written to a temp file
+ * and renamed, so a crash in the middle never leaves a broken save. whoever adds persistent story state adds it to SaveFile and to
+ * save_fill / save_apply, and bumps SAVE_VERSION when the layout changes (an old file is then ignored). */
+#define SAVE_FILE    "save.dat"
+#define SAVE_MAGIC   0x4C535356u            /* "VSSL" */
+#define SAVE_VERSION 1u
+
+typedef struct {
+    uint32_t magic, version;
+    int32_t lives;
+    int32_t aonia_buried, hammer_taken, aonia_out, aonia_searched, hammer_tx, hammer_ty;
+    int32_t alex_dealt, alex_seen, alex_refused, alex_flow, alex_no_n, alex_struck, alex_dead;
+    int32_t shrine_fouled, orb_taken, orb_dropped, orb_given, shrine_repaired, self_done, secret_on;
+    int32_t hammer_hinted, hammer_said;
+    int32_t dea_mood, alex_mood, charisma;
+    int32_t green[7];                       /* house_tx, house_ty, alex_there, shrine_tx, shrine_ty, shrine_there, shrine_polluted */
+    int32_t grave_n;
+    struct { int32_t tx, ty, who; } graves[GRAVE_MAX];                      /* who: 0 Aonia, 1 Doia, 2 Tria */
+    int32_t found_flag[4], found_total, found_graves_n, found_graves[GRAVE_MAX];
+    uint32_t check;                         /* FNV-1a of everything above */
+} SaveFile;
+
+static const Person *save_person(int i) { return i == 0 ? &VESSEL : i == 1 ? &VESSEL2 : i == 2 ? &VESSEL3 : NULL; }
+static int save_person_idx(const Person *p) { return p == &VESSEL ? 0 : p == &VESSEL2 ? 1 : p == &VESSEL3 ? 2 : -1; }
+static uint32_t save_check(const SaveFile *sf) {
+    const unsigned char *b = (const unsigned char *)sf;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < offsetof(SaveFile, check); i++) { h ^= b[i]; h *= 16777619u; }
+    return h;
+}
+
+static void save_fill(SaveFile *sf) {
+    memset(sf, 0, sizeof *sf);
+    sf->magic = SAVE_MAGIC; sf->version = SAVE_VERSION;
+    sf->lives = lives;
+    sf->aonia_buried = aonia_buried; sf->hammer_taken = hammer_taken; sf->aonia_out = aonia_out; sf->aonia_searched = aonia_searched;
+    sf->hammer_tx = hammer_tx; sf->hammer_ty = hammer_ty;
+    sf->alex_dealt = alex_dealt; sf->alex_seen = alex_seen; sf->alex_refused = alex_refused; sf->alex_flow = alex_flow; sf->alex_no_n = alex_no_n;
+    sf->alex_struck = alex_struck; sf->alex_dead = alex_dead;
+    sf->shrine_fouled = shrine_fouled; sf->orb_taken = orb_taken; sf->orb_dropped = orb_dropped; sf->orb_given = orb_given;
+    sf->shrine_repaired = shrine_repaired; sf->self_done = self_done; sf->secret_on = secret_on;
+    sf->hammer_hinted = hammer_hinted; sf->hammer_said = hammer_said;
+    sf->dea_mood = DEA_MIND.mood; sf->alex_mood = ALEX_MIND.mood; sf->charisma = lang_charisma();
+    sf->green[0] = green.house_tx; sf->green[1] = green.house_ty; sf->green[2] = green.alex_there;
+    sf->green[3] = green.shrine_tx; sf->green[4] = green.shrine_ty; sf->green[5] = green.shrine_there; sf->green[6] = green.shrine_polluted;
+    for (int i = 0; i < grave_n; i++) {
+        int w = save_person_idx(graves[i].who);
+        if (w < 0) continue;
+        sf->graves[sf->grave_n].tx = graves[i].tx; sf->graves[sf->grave_n].ty = graves[i].ty; sf->graves[sf->grave_n].who = w;
+        sf->grave_n++;
+    }
+    const Person *fg[GRAVE_MAX]; int ff[4], ft, fn;
+    world_found_get(ff, &ft, fg, &fn);
+    for (int i = 0; i < 4; i++) sf->found_flag[i] = ff[i];
+    sf->found_total = ft;
+    for (int i = 0; i < fn; i++) { int w = save_person_idx(fg[i]); if (w >= 0) sf->found_graves[sf->found_graves_n++] = w; }
+    sf->check = save_check(sf);
+}
+
+/* the file as it is on disk, checked: 1 = a save this build understands */
+static int save_read(SaveFile *sf) {
+    FILE *f = fopen(SAVE_FILE, "rb");
+    if (!f) return 0;
+    size_t n = fread(sf, 1, sizeof *sf, f);
+    int extra = fgetc(f);
+    fclose(f);
+    if (n != sizeof *sf || extra != EOF) return 0;
+    if (sf->magic != SAVE_MAGIC || sf->version != SAVE_VERSION || sf->check != save_check(sf)) return 0;
+    if (sf->lives < 1 || sf->lives > 9 || sf->grave_n < 0 || sf->grave_n > GRAVE_MAX || sf->found_graves_n < 0 || sf->found_graves_n > GRAVE_MAX) return 0;
+    for (int i = 0; i < sf->grave_n; i++) if (!save_person(sf->graves[i].who)) return 0;
+    for (int i = 0; i < sf->found_graves_n; i++) if (!save_person(sf->found_graves[i])) return 0;
+    return 1;
+}
+
+static int autosave(void) {
+    SaveFile sf;
+    save_fill(&sf);
+    const char *tmp = SAVE_FILE ".tmp";
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return 0;
+    int ok = fwrite(&sf, 1, sizeof sf, f) == sizeof sf && fflush(f) == 0 && fsync(fileno(f)) == 0;
+    ok = fclose(f) == 0 && ok;
+    if (ok) ok = rename(tmp, SAVE_FILE) == 0;
+    else remove(tmp);
+    return ok;
+}
+
+int story_save_exists(void) { SaveFile sf; return save_read(&sf); }
+
+/* the state of a save is put back (the world has just been made by world_init, so story_start has already cleared everything and queued
+ * the opening: next_life_begin cancels that and runs the summoning of the saved life) */
+static void save_apply(const SaveFile *sf) {
+    lives = sf->lives;
+    aonia_buried = sf->aonia_buried; hammer_taken = sf->hammer_taken; aonia_out = sf->aonia_out; aonia_searched = sf->aonia_searched;
+    hammer_tx = sf->hammer_tx; hammer_ty = sf->hammer_ty;
+    alex_dealt = sf->alex_dealt; alex_seen = sf->alex_seen; alex_refused = sf->alex_refused; alex_flow = sf->alex_flow; alex_no_n = sf->alex_no_n;
+    alex_struck = sf->alex_struck; alex_dead = sf->alex_dead;
+    shrine_fouled = sf->shrine_fouled; orb_taken = sf->orb_taken; orb_dropped = sf->orb_dropped; orb_given = sf->orb_given;
+    shrine_repaired = sf->shrine_repaired; self_done = sf->self_done; secret_on = sf->secret_on;
+    hammer_hinted = sf->hammer_hinted; hammer_said = sf->hammer_said;
+    DEA_MIND.mood = sf->dea_mood; ALEX_MIND.mood = sf->alex_mood;
+    lang_add_charisma(sf->charisma - lang_charisma());
+    green.house_tx = sf->green[0]; green.house_ty = sf->green[1]; green.alex_there = sf->green[2];
+    green.shrine_tx = sf->green[3]; green.shrine_ty = sf->green[4]; green.shrine_there = sf->green[5]; green.shrine_polluted = sf->green[6];
+    grave_n = sf->grave_n;
+    for (int i = 0; i < grave_n; i++) { graves[i].tx = sf->graves[i].tx; graves[i].ty = sf->graves[i].ty; graves[i].who = save_person(sf->graves[i].who); }
+    const Person *fg[GRAVE_MAX]; int ff[4];
+    for (int i = 0; i < 4; i++) ff[i] = sf->found_flag[i];
+    for (int i = 0; i < sf->found_graves_n; i++) fg[i] = save_person(sf->found_graves[i]);
+    world_found_set(ff, sf->found_total, fg, sf->found_graves_n);
+    if (secret_on && !orb_given) {                          /* Dea's order is still in force: the chat lock of orders_given (the respawn does not touch it) */
+        convo_lock("");
+        convo_lock_reply(&DEA, "You heard me. Go.");
+        convo_lock_allow(&ALEX);
+    }
+}
+
+static void load_hold_over(void) { next_life_begin(); }
+
+/* LOAD was pressed (game.c, after the menu has faded and world_init has run). 0 = no usable save: the caller starts a new game instead */
+int story_load_begin(void) {
+    SaveFile sf;
+    if (!save_read(&sf)) return 0;
+    save_apply(&sf);
+    limbo_opening = 0;
+    limbo_run(NULL, 0, LIMBO_BEAT, load_hold_over);         /* a beat of stars with the soul's voice, then the summoning: like after a death, without the words */
+    return 1;
 }

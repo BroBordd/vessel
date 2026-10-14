@@ -67,6 +67,8 @@ int  world_found_shrine(void);
 int  world_found_hammer(void);
 int  world_found_temple(void);
 int  world_found_grave(const Person *who);                  /* (tests) graves are told apart by whose they are */
+void world_found_get(int flags[4], int *total, const Person **graves, int *n);                     /* the save file (story.c): house, shrine, hammer, temple, the count, and whose graves were found */
+void world_found_set(const int flags[4], int total, const Person *const *graves, int n);
 void world_player_explode(void);                            /* chunk 57: the whole body goes (a burst of red squares, nothing is left of it; no walking). story.c calls it when the hammer lands */
 int  world_throwing(void);                                  /* chunk 57: (tests) the hammer is thrown and has not landed yet */
 float world_throw_time(void);                               /* (tests) seconds since the throw, -1 when none */
