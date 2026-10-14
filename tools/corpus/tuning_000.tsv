@@ -1,0 +1,385 @@
+# tuning corpus 000 (docs/convo_plan.md, chunk 3). one line = player text <TAB> intents (comma separated, names of lang.c; none = nothing should be understood)
+# written the way players type. tuning set: patterns may be added for its misses. the held-out sets (chunks 151-152) are never used to tune.
+hi	greet
+hello there	greet
+heyyy	greet
+yo whats up	greet
+good morning	greet
+hola	greet
+hii dea	greet
+greetings goddess	greet
+sup	greet
+howdy	greet
+Hello!	greet
+bye	bye
+ok bye then	bye
+gotta go see ya	bye
+goodnight	bye
+cya later	bye
+i have to leave now	bye
+farewell	bye
+bye bye	bye
+yes	yes
+yeah sure	yes
+yep	yes
+of course	yes
+i do have questions	yes
+absolutely	yes
+ya	yes
+yes i do	yes
+no	no
+nope	no
+nah im good	no
+i dont have any questions	no
+not really	no
+no thanks	no
+never	no
+nothing at all	no
+ok	ok
+okay then	ok
+alright	ok
+got it	ok
+i see	ok
+understood	ok
+cool	ok
+fine	ok
+thanks	thanks
+thank you so much	thanks
+thx	thanks
+ty	thanks
+much appreciated	thanks
+cheers mate	thanks
+i owe you one	thanks
+thank you	thanks
+sorry	sorry
+im sorry	sorry
+my bad	sorry
+forgive me	sorry
+i apologize	sorry
+oops sorry	sorry
+my fault	sorry
+i am so sorry	sorry
+how are you	howru
+how r u	howru
+you ok?	howru
+how is your day	howru
+hows it going	howru
+are you alright	howru
+how have you been	howru
+how do you feel	howru
+who are you	whoru
+what is your name	whoru
+whats ur name	whoru
+who is this	whoru
+introduce yourself	whoru
+are you god	whoru
+what are you	whoru
+tell me about yourself	whoru
+where am i	where
+where is this	where
+what is this place	where
+where are we	where
+where is this place exactly	where
+am i in heaven	where
+who am i	whoami
+what am i	whoami
+do you know who i am	whoami
+what is my name	whoami
+who am i supposed to be	whoami
+am i dead	whoami
+what should i do	mission
+what is my mission	mission
+what do i do now	mission
+what is my goal	mission
+what is the task	mission
+what do you want from me	mission
+what now	mission
+what am i supposed to do	mission
+why	why
+why?	why
+but why	why
+why is that	why
+why would you say that	why
+how	how
+how so	how
+how does that work	how
+how do i do that	how
+how is that possible	how
+what	what
+what?	what
+huh what	what
+what is that	what
+what do you mean	what
+what was that	what
+help	help
+help me	help
+i need help	help
+can you help me	help
+please help	help
+i need some help here	help
+could you help	help
+you are stupid	insult
+ur an idiot	insult
+shut up	insult
+you suck	insult
+i hate you	insult
+what a loser	insult
+you are useless	insult
+you are dumb	insult
+you are great	praise
+ur awesome	praise
+you are so smart	praise
+nice job	praise
+you are amazing	praise
+you are beautiful	praise
+well done	praise
+you are the best	praise
+i love you	love
+ily	love
+i like you a lot	love
+i adore you	love
+marry me	love
+you are my favorite	love
+i really love you	love
+i worship you	worship
+praise be	worship
+all hail dea	worship
+my goddess	worship
+i bow to you	worship
+i am your servant	worship
+oh great goddess	worship
+tell me a joke	joke
+say something funny	joke
+got any jokes	joke
+make me laugh	joke
+lol	joke
+haha that was funny	joke
+do you know any jokes	joke
+im scared	scared
+i am afraid	scared
+this is creepy	scared
+im terrified	scared
+i dont want to die	scared
+help im scared	scared
+i am so scared	scared
+im frightened	scared
+i dont understand	confused
+im confused	confused
+what is going on	confused
+this makes no sense	confused
+i dont get it	confused
+wait what	confused
+i am lost	confused
+im so angry	angry
+this is so unfair	angry
+i am furious	angry
+i am mad	angry
+stop it im angry	angry
+this is annoying	angry
+i am pissed	angry
+im sad	sad
+i feel so alone	sad
+i want to cry	sad
+this is depressing	sad
+i miss my body	sad
+i am so sad	sad
+i feel empty	sad
+my name is zed	intro
+call me bob	intro
+im called max	intro
+the name is sam	intro
+people call me ash	intro
+my name is aonia	intro
+you can call me kit	intro
+say that again	repeat
+can you repeat that	repeat
+what did you say	repeat
+pardon	repeat
+come again	repeat
+repeat please	repeat
+i didnt hear you	repeat
+look at the sky	sky
+the sky is pretty	sky
+what are those clouds	sky
+the clouds are beautiful	sky
+is that the sun	sky
+i like the stars	sky
+why is the sky so high	sky
+do you like music	music
+what is that music	music
+i hear a song	music
+the music is nice	music
+play something	music
+who is singing	music
+nice tune	music
+whats in the hole	hole
+what is this hole	hole
+can i jump in the hole	hole
+where does the hole go	hole
+is it safe to jump	hole
+what is below the clouds	hole
+should i jump down	hole
+tell me a secret	secret
+do you have secrets	secret
+what are you hiding	secret
+i know your secret	secret
+are you hiding something	secret
+any hidden things	secret
+whats the secret	secret
+what is life	life
+what is the meaning of life	life
+will i die again	life
+what happens when i die	life
+do i have a soul	life
+what is death	life
+is this the afterlife	life
+wait	wait
+hold on	wait
+one sec	wait
+wait a minute	wait
+just a moment	wait
+hang on	wait
+give me a second	wait
+please	please
+pretty please	please
+please please	please
+could you please	please
+pls	please
+i beg you	please
+oh please	please
+i agree	agree
+you are right	agree
+exactly	agree
+true	agree
+i think so too	agree
+good point	agree
+thats true	agree
+i disagree	disagree
+you are wrong	disagree
+thats not true	disagree
+i dont think so	disagree
+nonsense	disagree
+you are mistaken	disagree
+thats false	disagree
+i dont care	dontcare
+whatever	dontcare
+who cares	dontcare
+doesnt matter	dontcare
+meh	dontcare
+so what	dontcare
+i dont give a damn	dontcare
+tell me now	demand
+answer me	demand
+do it now	demand
+i demand an answer	demand
+hurry up	demand
+i order you to tell me	demand
+give me an answer right now	demand
+you are lying	callout
+liar	callout
+you didnt answer	callout
+you are avoiding the question	callout
+stop dodging	callout
+why are you so rude	callout
+you are being mean	callout
+how old are you	age
+what is your age	age
+are you old	age
+when were you born	age
+how many years have you lived	age
+you look old	age
+are you real	real
+is this real	real
+is this a dream	real
+are you a bot	real
+are you an ai	real
+is this a game	real
+are you alive	real
+dea	address
+hey dea	address
+goddess	address
+alex	address
+hey alex	address
+miss	address
+excuse me dea	address
+madam	address
+i want to kill myself	selfharm
+i want to die	selfharm
+i dont want to live anymore	selfharm
+i am going to hurt myself	selfharm
+kms	selfharm
+i wish i was dead	selfharm
+i want to end it all	selfharm
+where is alex	alex
+who is alex	alex
+do you know alex	alex
+alex has the orb	alex
+is alex a friend	alex
+tell me about alex	alex
+great	pos
+awesome	pos
+wonderful	pos
+nice	pos
+lovely	pos
+this is good	pos
+so good	pos
+terrible	neg
+awful	neg
+horrible	neg
+this is bad	neg
+ugh	neg
+bad	neg
+this is the worst	neg
+banana potato	none
+asdfghjkl	none
+the purple elephant dances	none
+blue cheese is nice	none
+1234	none
+zzzzz	none
+my cat likes boxes	none
+hi dea who are you	greet,whoru
+thanks and bye	thanks,bye
+hello what should i do	greet,mission
+im scared please help me	scared,help,please
+no thanks bye	no,bye
+yes please	yes,please
+sorry i did not mean it	sorry
+thank you goddess	thanks,address
+hey alex how are you	greet,address,howru
+im sorry i was rude please forgive me	sorry,please
+hello who are you and where am i	greet,whoru,where
+ok thanks	ok,thanks
+wait what is going on	wait,confused
+i love you thank you	love,thanks
+you are stupid and i hate you	insult
+what is the secret of the hole	secret,hole
+bye dea thanks for everything	bye,address,thanks
+HELLO	greet
+WHO ARE YOU	whoru
+I LOVE YOU	love
+HELP ME	help
+WHAT IS GOING ON	confused
+helo	greet
+wats ur name	whoru
+thx alot	thanks
+plz help	help,please
+i luv u	love
+wher am i	where
+im sory	sorry
+hwllo	greet
+how r you doin	howru
+whoo are you	whoru
+heyyy there	greet
+nooo	no
+yessss	yes
+thankss	thanks
+byeee	bye
+hiiiii	greet
+what should i doo	mission
+im scaredd	scared
+i dont understnd	confused
+tell me a joek	joke
+do i not have to answer	none
+the weather is nice	none
+pass the salt	none
+lorem ipsum dolor	none
