@@ -12,6 +12,7 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioTimestamp;
 import android.media.AudioTrack;
 import android.opengl.GLSurfaceView;
 import android.os.Build;
@@ -240,6 +241,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     FileInputStream in = new FileInputStream(fifo); // blocks until game opens it
                     byte[] buf = new byte[4096];
                     int n;
+                    // the speaker's own clock: AudioTrack says "frame F was at the speaker at time T" (System.nanoTime clock). the game
+                    // uses it to show the music window for what is HEARD (a guess at the delay is never right). 25 times a second is plenty.
+                    AudioTimestamp ts = new AudioTimestamp();
+                    long lastStampAt = 0, lastStampNs = 0;
                     while (running && (n = in.read(buf)) > 0) {
                         if (paused) {                      // in the background: stop consuming, the game's audio then waits on the pipe
                             at.pause();
@@ -249,6 +254,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                             if (running) at.play();
                         }
                         at.write(buf, 0, n);
+                        long nowNs = System.nanoTime();
+                        if (nowNs - lastStampAt >= 40000000L) {
+                            lastStampAt = nowNs;
+                            try {
+                                if (at.getTimestamp(ts) && ts.framePosition > 0 && ts.nanoTime != lastStampNs) {
+                                    lastStampNs = ts.nanoTime;
+                                    send("a " + ts.framePosition + " " + ts.nanoTime + "\n");
+                                }
+                            } catch (Exception ignored) {}
+                        }
                     }
                     in.close();
                 } catch (Exception e) {

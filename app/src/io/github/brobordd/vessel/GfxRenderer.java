@@ -109,6 +109,9 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
 
     // stats
     private long statT0;
+    private long vsT0;                                           // how fast the screen really takes our frames (the music window looks ahead by that)
+    private int vsCount;
+    private float vsSent;
     private int statFrames, statRecs, statDraws, statDrawsLast, errChecks;
 
     GfxRenderer(MainActivity host) throws Exception {
@@ -193,6 +196,13 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
         pollFrame();
         present();
         long now = System.nanoTime();
+        if (vsT0 == 0) vsT0 = now;
+        vsCount++;
+        if (now - vsT0 >= 1000000000L) {                    // once a second: frames per second the display takes; the game is told when it changes
+            float hz = vsCount * 1e9f / (now - vsT0);
+            if (Math.abs(hz - vsSent) > vsSent * 0.04f) { vsSent = hz; host.send("v " + hz + "\n"); }
+            vsT0 = now; vsCount = 0;
+        }
         if (statT0 == 0) statT0 = now;
         if (now - statT0 >= 2000000000L) {
             if (statFrames > 0)
