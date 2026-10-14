@@ -8,9 +8,13 @@
  *   --coverage [N]     key x tone x style matrix (lines per cell) and every r.* cell under N lines (default 4)
  *   --dupes            exact duplicate lines inside one key
  *   --length           length histogram, lines over 110 (warn) and 150 (fail later, chunk 156)
- *   --all              all of the above. exit code 1 only if --check found a problem */
+ *   --tables           (chunk 6) the registry and the indexes against a brute force walk of the tables: every key, every pattern, the word hashes
+ *   --bench            (chunk 6) timings: init, 1,000 parses of 200 character lines, 1,000 replies, 10,000 line picks, and the budgets of chunk 159
+ *   --all              all of the above. exit code 1 only if --check or --tables found a problem */
 #include "lang.h"
 #include "lang_data.h"
+#include "lang_tables.h"
+#include <time.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -160,6 +164,135 @@ static void do_length(void) {
     printf("\n  over 110: %d (warn)   over 150: %d (fails from chunk 156)\n", over110, over150);
 }
 
+
+/* ---- chunk 6: the registry and the indexes ---- */
+static int tfail;
+#define TCHECK(c, ...) do { if (!(c)) { printf("  TABLES FAIL: " __VA_ARGS__); printf("\n"); tfail++; } } while (0)
+
+static const Line T6_LINES[] = { { "t6.key", ALLT, ALLS, "one" }, { "t6.key", ALLT, ALLS, "two" }, { "r.greet", WARM, PLAIN, "Extra greeting." } };
+static const Pat  T6_PATS[]  = { { "zzqx*", I_GREET }, { "zzqx hello", I_BYE } };
+static const char *const T6_LEX[]   = { "adore|love|4", "adore|praise|2", "moon|topic.moon|5", "meh|dontcare|3", 0 };
+static const char *const T6_VOCAB[] = { "the|1|x", "moon|2210|n", "wraith|9001|n", 0 };
+
+static int do_tables(void) {
+    tfail = 0;
+    lang_tables_reset();
+    /* 1. the key index against the tables: every row reachable under its key, keys strictly sorted, rows of a key in table order */
+    const Line *T[4] = { LINES_A, LINES_B, LINES_C, LINES_D };
+    int N[4] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N }, total = N[0] + N[1] + N[2] + N[3], sum = 0;
+    TCHECK(lang_line_count() == total, "line count %d, tables have %d", lang_line_count(), total);
+    int nk = lang_key_count();
+    for (int t = 0, base = 0; t < 4; base += N[t], t++)
+        for (int i = 0; i < N[t]; i++) {
+            const Line *l = &T[t][i]; const Line *const *rows; int n = lang_key_rows(l->key, &rows), found = 0, last = -1, ordered = 1;
+            for (int r = 0; r < n; r++) {
+                int ord = -1;
+                for (int u = 0, b = 0; u < 4 && ord < 0; b += N[u], u++) if (rows[r] >= T[u] && rows[r] < T[u] + N[u]) ord = b + (int)(rows[r] - T[u]);
+                if (rows[r] == l) found = 1;
+                if (ord <= last) ordered = 0;
+                last = ord;
+                if (strcmp(rows[r]->key, l->key)) { TCHECK(0, "key [%s] holds a row of [%s]", l->key, rows[r]->key); break; }
+            }
+            if (!found || !ordered) { TCHECK(0, "row %d of table %d (key [%s]): found %d, in table order %d", i, t, l->key, found, ordered); goto keys_done; }
+        }
+keys_done:;
+    { int cnt = 0, nrows; const char *pk = NULL;
+      for (int i = 0; i < nk; i++) {
+          const char *k = lang_key_name(i, &nrows);
+          TCHECK(k && (!pk || strcmp(pk, k) < 0), "keys are not strictly sorted at %d", i);
+          sum += nrows; pk = k; cnt++;
+      }
+      TCHECK(lang_key_name(nk, NULL) == NULL && lang_key_name(-1, NULL) == NULL, "key name out of range must be NULL");
+      TCHECK(sum == total && cnt == nk && nk == nkeys, "key index covers %d of %d rows in %d keys (tool saw %d)", sum, total, nk, nkeys); }
+    { const Line *const *rows; TCHECK(lang_key_rows("no.such.key", &rows) == 0 && rows == NULL, "an unknown key must give no rows"); }
+
+    /* 2. the pattern index: every pattern is a candidate for its own surface text, ids come in ascending order without repeats */
+    int np = lang_pat_count(); TCHECK(np == PATS_N, "pattern count %d, PATS has %d", np, PATS_N);
+    int bad_p = 0;
+    for (int k = 0; k < np && bad_p < 5; k++) {
+        char txt[160]; int o = 0;
+        for (const char *p = lang_pat(k)->pat; *p && o < 150; p++) { if (*p == '*') txt[o++] = 'x'; else if (*p == '?') txt[o++] = 'a'; else if (*p != '$') txt[o++] = *p; }
+        txt[o] = 0;
+        PatCur c; lang_pat_cursor(&c, txt); int id, got = 0, lastid = -1, asc = 1;
+        while ((id = lang_pat_next(&c)) >= 0) { if (id == k) got = 1; if (id <= lastid) asc = 0; lastid = id; }
+        if (!got || !asc) { TCHECK(0, "pattern %d [%s]: reachable %d, ascending %d", k, lang_pat(k)->pat, got, asc); bad_p++; }
+    }
+    { const int *ids; int ns = lang_pat_safety(&ids), want = 0; for (int k = 0; k < PATS_N; k++) if (PATS[k].intent == I_SELFHARM) want++;
+      TCHECK(ns == want && ns > 0, "safety list has %d patterns, PATS has %d", ns, want); }
+    { PatCur c; lang_pat_cursor(&c, "qqqq"); int n = 0; while (lang_pat_next(&c) >= 0) n++; TCHECK(n <= 3, "a word nothing starts with met %d candidates", n); }
+
+    /* 3. registering later: the indexes rebuild and the old answers stay */
+    int lines0 = lang_line_count(), pats0 = lang_pat_count(), greet0; { const Line *const *r; greet0 = lang_key_rows("r.greet", &r); }
+    TCHECK(lang_register_lines(T6_LINES, 3) == 0 && lang_register_pats(T6_PATS, 2) == 0, "register failed");
+    TCHECK(lang_register_lex(T6_LEX) == 0 && lang_register_vocab(T6_VOCAB) == 0, "register lex/vocab failed");
+    { const Line *const *r; int n = lang_key_rows("t6.key", &r), g = lang_key_rows("r.greet", &r);
+      TCHECK(n == 2 && r[0] != NULL, "new key t6.key has %d rows (want 2)", n);
+      TCHECK(g == greet0 + 1 && !strcmp(r[g - 1]->text, "Extra greeting."), "r.greet has %d rows (want %d), the new one last", g, greet0 + 1); }
+    TCHECK(lang_line_count() == lines0 + 3 && lang_pat_count() == pats0 + 2, "counts after register: %d lines (want %d), %d patterns (want %d)", lang_line_count(), lines0 + 3, lang_pat_count(), pats0 + 2);
+    { PatCur c; lang_pat_cursor(&c, "zzqx hello"); int id, a = 0, b = 0; while ((id = lang_pat_next(&c)) >= 0) { if (id == pats0) a = 1; if (id == pats0 + 1) b = 1; }
+      TCHECK(a && b, "the registered patterns are not candidates (%d %d)", a, b); }
+    { const char *rows[4]; int n = lang_lex_find("adore", rows, 4);
+      TCHECK(n == 2 && !strcmp(rows[0], "adore|love|4") && !strcmp(rows[1], "adore|praise|2"), "lex find adore: %d rows, registration order", n);
+      TCHECK(lang_lex_find("adored", rows, 4) == 0 && lang_lex_find("ador", rows, 4) == 0 && lang_lex_find("", rows, 4) == 0, "lex find matched a non word");
+      TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
+      TCHECK(lang_lex_count() == 4 && lang_vocab_count() == 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
+      const char *v = lang_vocab_find("wraith"); TCHECK(v && !strcmp(v, "wraith|9001|n"), "vocab find wraith");
+      TCHECK(!lang_vocab_find("wrait") && !lang_vocab_find("adore"), "vocab find matched a word it does not have"); }
+    TCHECK(lang_init_ms() >= 0.0 && lang_line_count() == lines0 + 3, "a forced rebuild changed the counts");
+
+    /* 4. reset: back to the built-in tables only, and nothing about the test is left */
+    lang_tables_reset();
+    { const Line *const *r; TCHECK(lang_line_count() == lines0 && lang_pat_count() == pats0 && lang_key_rows("t6.key", &r) == 0 && lang_lex_count() == 0 && lang_vocab_count() == 0, "reset did not restore the built-in tables"); }
+    printf("tables: %d lines in %d keys, %d patterns, registry and indexes %s\n", total, nk, np, tfail ? "FAIL" : "ok");
+    return tfail;
+}
+
+/* ---- chunk 6: timings ---- */
+static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1e6; }
+
+static void do_bench(void) {
+    static const char *const PH[] = { "hello who are you", "i dont care about your mission", "thank you so much", "where am i and what is this place",
+        "you are stupid and i hate this", "can you help me please", "tell me a joke", "i am scared of the sky", "my name is Bob", "what is the hole",
+        "are you real or just a game", "i love the music", "sorry i did not mean it", "why would i listen to you", "how old are you",
+        "tell me a secret about life", "wait a second", "i agree with you", "bye for now", "zzzz qqqq xxxx vvvv wwww" };
+    enum { NL = 40 };
+    static char lines[NL][256];
+    unsigned seed = 12345u;
+    for (int i = 0; i < NL; i++) {
+        lines[i][0] = 0;
+        while (strlen(lines[i]) < 200) { seed = seed * 1103515245u + 12345u; strcat(lines[i], PH[(seed >> 16) % 20]); strcat(lines[i], " "); }
+        lines[i][200] = 0;
+    }
+    double init = lang_init_ms();                       /* a full build of every index */
+    for (int i = 0; i < NL; i++) { Heard h; lang_parse(lines[i], &h); }   /* warm up */
+
+    double t0 = now_ms();
+    for (int k = 0; k < 1000; k++) { Heard h; lang_parse(lines[k % NL], &h); }
+    double parse = (now_ms() - t0) / 1000.0;
+
+    Persona p = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    t0 = now_ms();
+    for (int k = 0; k < 1000; k++) { Heard h; char out[600]; lang_parse(lines[k % NL], &h); p.mood = 0; lang_reply(&p, &h, out, sizeof out); }
+    double reply = (now_ms() - t0) / 1000.0 - parse;    /* the reply alone (the parse inside is taken off) */
+
+    static const int STY[3] = { STYLE_PLAIN, STYLE_DIVINE, STYLE_STREET };
+    char key[40], out[400]; t0 = now_ms(); int picked = 0;
+    for (int k = 0; k < 10000; k++) {
+        Persona q = { "X", STY[k % 3], 0, 50, 0, 8 };
+        snprintf(key, sizeof key, "r.%s", INTENT_N[k % (I_COUNT - 2)]);
+        picked += lang_line_tone(&q, key, (Tone)(k % 4), out, sizeof out);
+    }
+    double pick = (now_ms() - t0) / 10000.0;
+
+    printf("bench: %d lines, %d keys, %d patterns\n", lang_line_count(), lang_key_count(), lang_pat_count());
+    printf("  init (all indexes)   %8.3f ms\n", init);
+    printf("  parse, 200 chars     %8.4f ms each (1,000 parses)\n", parse);
+    printf("  reply (after parse)  %8.4f ms each (1,000 replies)\n", reply);
+    printf("  line pick            %8.4f ms each (10,000 picks, %d found)\n", pick, picked);
+    printf("  budgets (chunk 159, measured on the phone): init <= 80 ms %s, parse <= 1 ms %s, reply <= 3 ms %s\n",
+           init <= 80 ? "ok" : "OVER", parse <= 1 ? "ok" : "OVER", reply <= 3 ? "ok" : "OVER");
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -174,8 +307,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--coverage")) { do_coverage(quota); any = 1; }
         else if (!strcmp(a, "--dupes"))    { do_dupes(); any = 1; }
         else if (!strcmp(a, "--length"))   { do_length(); any = 1; }
+        else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; do_bench(); }
     return rc;
 }

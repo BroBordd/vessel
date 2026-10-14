@@ -4,6 +4,7 @@
  * see lang.h for the big picture. the tables live in lang_pats.c and lines_*.c */
 #include "lang.h"
 #include "lang_data.h"
+#include "lang_tables.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,8 +101,9 @@ static int scan(const char *lc, int len, Span *sp, int maxsp) {
     while (i < len && n < maxsp) {
         if (!is_word((unsigned char)lc[i]) || (i > 0 && is_word((unsigned char)lc[i - 1]))) { i++; continue; }
         const char *best = lc + i; int bk = -1, bstars = 99;
-        for (int k = 0; k < PATS_N; k++) {
-            const char *p = PATS[k].pat;
+        PatCur cur; lang_pat_cursor(&cur, lc + i);               /* chunk 6: only the patterns that can start here, in table order */
+        for (int k; (k = lang_pat_next(&cur)) >= 0;) {
+            const char *p = lang_pat(k)->pat;
             if (*p != '*' && *p != '?' && *p != lc[i]) continue;
             const char *e = lc + i;
             mt(p, lc + i, lc, &e, p);
@@ -110,7 +112,7 @@ static int scan(const char *lc, int len, Span *sp, int maxsp) {
             if (e > best || (e == best && bk >= 0 && st < bstars)) { best = e; bk = k; bstars = st; }
         }
         if (bk >= 0) {
-            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = PATS[bk].intent; sp[n].prefix = prefix_len(PATS[bk].pat);
+            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = lang_pat(bk)->intent; sp[n].prefix = prefix_len(lang_pat(bk)->pat);
             n++; i = (int)(best - lc);
         } else i++;
     }
@@ -121,11 +123,11 @@ static int scan(const char *lc, int len, Span *sp, int maxsp) {
 /* safety words are checked everywhere in the text, even inside a longer phrase ("i want to kill myself") */
 static int safety_scan(const char *lc, int len, Span *out, int maxo) {
     int n = 0;
+    const int *ids; int nids = lang_pat_safety(&ids);          /* chunk 6: only the I_SELFHARM patterns */
     for (int i = 0; i < len && n < maxo; i++) {
         if (!is_word((unsigned char)lc[i]) || (i > 0 && is_word((unsigned char)lc[i - 1]))) continue;
-        for (int k = 0; k < PATS_N; k++) {
-            if (PATS[k].intent != I_SELFHARM) continue;
-            const char *p = PATS[k].pat; const char *e = lc + i;
+        for (int j = 0; j < nids; j++) {
+            const char *p = lang_pat(ids[j])->pat; const char *e = lc + i;
             if (*p != lc[i]) continue;
             mt(p, lc + i, lc, &e, p);
             if (e > lc + i) { out[n].start = i; out[n].end = (int)(e - lc); out[n].intent = I_SELFHARM; out[n].prefix = 0; n++; break; }
@@ -256,8 +258,6 @@ void lang_apply(Persona *ps, const Heard *h) {
 }
 
 /* ---------- line picking ---------- */
-static const Line *const TABLE[4] = { LINES_A, LINES_B, LINES_C, LINES_D };
-static const int *const COUNT[4] = { &LINES_A_N, &LINES_B_N, &LINES_C_N, &LINES_D_N };
 
 /* the no-repeat memory (chunk 5: 24 -> 128 lines). how much of it counts depends on the key: a key with N rows
  * does not use its last min(N/2, 40) lines again, so a small key is never starved and a big one rarely repeats */
@@ -284,27 +284,25 @@ static const Line **cand;
 static int *wt, cand_cap;
 
 static const Line *pick_exact(const Persona *ps, const char *key, int tone, int any_style) {
-    int n = 0, sum = 0, nkey = 0;
-    for (int t = 0; t < 4; t++)
-        for (int i = 0; i < *COUNT[t]; i++) {
-            const Line *l = &TABLE[t][i];
-            if (strcmp(l->key, key)) continue;
-            nkey++;
-            if (!(l->tones & (1u << tone))) continue;
-            if (!any_style && !(l->styles & ps->style)) continue;
-            if (n >= cand_cap) {
-                int nc = cand_cap ? cand_cap * 2 : 128;
-                const Line **c2 = realloc(cand, (size_t)nc * sizeof *cand);
-                int *w2 = realloc(wt, (size_t)nc * sizeof *wt);
-                if (c2) cand = c2;
-                if (w2) wt = w2;
-                if (!c2 || !w2) break;                 /* out of memory: pick from what we have */
-                cand_cap = nc;
-            }
-            int w = 1;
-            if (!any_style && l->styles != ALLS && (l->styles & ps->style) == l->styles) w = 3;   /* made just for this style */
-            cand[n] = l; wt[n] = w; n++;
+    int n = 0, sum = 0;
+    const Line *const *rows; int nkey = lang_key_rows(key, &rows);     /* chunk 6: only this key's rows, in table order */
+    for (int r = 0; r < nkey; r++) {
+        const Line *l = rows[r];
+        if (!(l->tones & (1u << tone))) continue;
+        if (!any_style && !(l->styles & ps->style)) continue;
+        if (n >= cand_cap) {
+            int nc = cand_cap ? cand_cap * 2 : 128;
+            const Line **c2 = realloc(cand, (size_t)nc * sizeof *cand);
+            int *w2 = realloc(wt, (size_t)nc * sizeof *wt);
+            if (c2) cand = c2;
+            if (w2) wt = w2;
+            if (!c2 || !w2) break;                 /* out of memory: pick from what we have */
+            cand_cap = nc;
         }
+        int w = 1;
+        if (!any_style && l->styles != ALLS && (l->styles & ps->style) == l->styles) w = 3;   /* made just for this style */
+        cand[n] = l; wt[n] = w; n++;
+    }
     if (!n) return NULL;
     int window = nkey / 2 < WINDOW_MAX ? nkey / 2 : WINDOW_MAX;
     for (int i = 0; i < n; i++) { if (window > 0 && was_recent(cand[i], key, window)) wt[i] = 0; sum += wt[i]; }
