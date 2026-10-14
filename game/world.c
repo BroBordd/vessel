@@ -1686,9 +1686,11 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
     int hut_foot = house_on && !indoors ? house_sy * tile : 0;
     if (indoors) {                                                /* the room's furniture, by its feet */
-        if (item_house) item_draw_ground(r, cx, cy, t);           /* something lying on the floor: under everyone */
         for (int i = 0; i < house_piece_count(); i++)
-            if (house_piece_foot(i) * tile <= pyp) house_piece_draw(r, i, -cx, -cy, px, t);
+            if (house_piece_floor(i)) house_piece_draw(r, i, -cx, -cy, px, t);        /* the rug and the doormat are the floor itself ... */
+        if (item_house) item_draw_ground(r, cx, cy, t);           /* ... something lying on it is drawn over them (it used to sink into the rug), under everyone */
+        for (int i = 0; i < house_piece_count(); i++)
+            if (!house_piece_floor(i) && house_piece_foot(i) * tile <= pyp) house_piece_draw(r, i, -cx, -cy, px, t);
     } else {
         if (!item_house) item_draw_ground(r, cx, cy, t);          /* lying on the grass: under everyone */
         if (hut_foot && hut_foot <= pyp) house_draw_outside(r, (house_sx - HUT_W / 2) * tile - cx, (house_sy - HUT_H) * tile - cy, px, t, house_label);

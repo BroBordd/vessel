@@ -31,6 +31,7 @@ int  house_inside_solid(int tx, int ty);
 /* the pieces: draw each one before or after the player by its foot line (tiles, y). (ox, oy) = screen px of tile (0, 0) of the room. */
 int   house_piece_count(void);
 float house_piece_foot(int i);
+int   house_piece_floor(int i);                    /* the rug and the doormat: they lie ON the floor, so anything lying on it (the orb, the hammer) is drawn over them */
 void  house_piece_draw(SDL_Renderer *r, int i, int ox, int oy, int px, float t);
 /* the plain tiles of the room (floor planks and walls), same coordinates: x, y = screen px of the tile */
 void house_draw_floor_tile(SDL_Renderer *r, int tx, int ty, int x, int y, int px);

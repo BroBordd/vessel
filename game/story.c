@@ -569,13 +569,11 @@ static void story_vessel_died(void) {
 int story_limbo_take_enter(void) { int e = limbo_enter_req; limbo_enter_req = 0; return e; }
 
 /* ---------- Alex dies (chunk 38) ----------
- * the one swing took her head off (world_npc_behead: the head flies, the blood splashes, the body falls). when the blood has landed the death
- * cutscene runs on HER: the camera pushes in, the scene goes grey and she goes red, the peeps, the flatline, the words "Alex has died." and then
- * the world is free again. no heart (she has no chest to show it on), no grave: her body stays lying in the house. alex_dead remembers it. */
+ * the one swing took her head off (world_npc_behead: the head flies, the blood splashes, the body falls). when the blood has landed the world is
+ * simply free again: NO death screen for her (no camera push, no grey, no flatline, no "Alex has died."). no heart, no grave: her body stays
+ * lying in the house. alex_dead remembers it. */
 #define ALEX_BLOOD_T     2.0f           /* the head and the drops need this long to land */
-#define ALEX_TEXT_AT     1.2f           /* after the flatline: the words */
 #define ALEX_SPARK_DELAY 1.0f           /* the first squirt comes this long after the world is free */
-#define ALEX_END_HOLD    3.5f           /* the words stay this long, then the world is free */
 /* chunk 39: her body is searched (the magnifying glass next to it, a hold): the orb goes straight into the pockets, "Get the orb from Alex" is done and the
  * next goal, "Repair the shrine", comes in SILENTLY: no thought, no dialog, nothing but the normal task toast. */
 /* chunk 40: the repair. with the orb ours, the same hold with the hammer next to the broken shrine mends it (the break played backwards, shrine.c). the first
@@ -612,20 +610,14 @@ static void alex_searched_cb(void) {
     world_drop_item_by_npc(ITEM_ORB, alex_id);              /* the search shakes it loose: it falls next to her */
 }
 static void alex_death_end(void) {
-    world_death_cancel();                                   /* the zoom eases out, the colour returns, the controls come back */
+    world_death_cancel();                                   /* (nothing zoomed or greyed any more: it makes sure the controls are there) */
     alex_dead = 1;
     if (!orb_taken && !orb_dropped) world_enable_body_search(alex_id, alex_searched_cb);   /* chunk 39: she still carries the orb */
     world_npc_sparks(alex_id, ALEX_SPARK_DELAY);            /* chunk 38.1: from now on her body squirts, for as long as the house is loaded */
 }
-static void alex_death_text(void) {
-    world_death_text("Alex has died.");
-    story_after(ALEX_END_HOLD, alex_death_end);
-}
-static void alex_death_ready(void) { story_after(DEATH_QUICK_TEXT_AT, alex_death_text); }     /* the monitor's peeps and flatline belong to the heart scene only: the words come at once */
-static void alex_death_begin(void) { world_death_begin_at(alex_id, alex_death_ready); }
 static void alex_killed(void) {
     world_npc_behead(alex_id);
-    story_after(ALEX_BLOOD_T, alex_death_begin);
+    story_after(ALEX_BLOOD_T, alex_death_end);              /* no death screen for her (no zoom, no grey, no words): when the blood has landed her body is just there */
 }
 
 /* ---------- "Die" (chunk 41) ----------

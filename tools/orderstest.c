@@ -540,24 +540,13 @@ int main(void) {
         CHECK(gore_stain_count() >= 25, "the blood left only %d stains", gore_stain_count());
         {   float hx, hy, ax, ay; gore_head_pos(&hx, &hy); npc_tile(alex_id, &ax, &ay);
             CHECK(fabsf(hx - ax * tile) + fabsf(hy - ay * tile) > 1.0f * tile, "the head lies where the body is (it did not fly): head %.1f,%.1f body %.1f,%.1f tile %d", hx, hy, ax * tile, ay * tile, tile); }
-        CHECK(world_death_active() && world_death_npc() == alex_id, "the death cutscene is not on Alex (%d, %d)", world_death_active(), world_death_npc());
+        /* no death screen for her: when the blood has landed the world is simply free (no camera push, no grey, no words, no monitor) */
+        CHECK(!world_death_active() && world_death_npc() < 0, "Alex got a death screen (%d, %d)", world_death_active(), world_death_npc());
+        CHECK(death_msg[0] == 0, "words are on screen after Alex's death (\"%s\")", death_msg);
+        CHECK(alex_dead, "alex_dead is not set once the blood has landed");
+        CHECK(zoom < 1.2f, "the camera pushed in on her (%.2f)", zoom);
         frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_stains.bmp");                    /* the stains on the floor, the head (look at it) */
-        {   int b0 = sfx_debug_beeps(), f0 = sfx_debug_flatlines();
-            run(DEATH_SETTLE_T + 0.4f);
-            CHECK(zoom > 2.0f, "the camera did not push in on her (%.2f)", zoom);
-            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_death.bmp");                 /* grey room, red body (look at it) */
-            run(DEATH_QUICK_TEXT_AT + 0.3f);                              /* hotfix: no monitor here (the beeps are the heart scene's): the words come at once */
-            CHECK(sfx_debug_beeps() == b0 && sfx_debug_flatlines() == f0, "Alex's death played the monitor (%d peeps, %d flatlines)", sfx_debug_beeps() - b0, sfx_debug_flatlines() - f0);
-            CHECK(strcmp(death_msg, "Alex has died.") == 0, "the words are missing (\"%s\")", death_msg);
-            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/alex_text.bmp");                  /* the words (look at it) */
-            CHECK(!alex_dead, "alex_dead before the cutscene ended");
-            CHECK(sfx_debug_pfft() == pf0 && gore_spark_bursts() == 0, "the sparks started during the death scene (%d pfft, %d bursts)", sfx_debug_pfft() - pf0, gore_spark_bursts());
-            run(ALEX_END_HOLD + 0.5f);
-            CHECK(!world_death_active() && world_death_npc() < 0 && alex_dead, "the world is not free after the words (%d)", world_death_active());
-            run(2.0f);
-            CHECK(zoom < 1.2f, "the camera did not ease out (%.2f)", zoom);
-        }
-        /* chunk 38.1: the sparks. quiet through the whole cutscene, then the endless idle: bursts, a pfft each, the body shakes */
+        /* chunk 38.1: the sparks. the endless idle starts a moment after the blood has landed: bursts, a pfft each, the body shakes */
         {   int p0 = sfx_debug_pfft(), b0 = gore_spark_bursts(), shook = 0, flew = 0, ox, oy;
             CHECK(gore_sparks_running(), "the sparks are not running after the cutscene");
             for (float sec = 0; sec < 8.0f; sec += 0.016f) {
@@ -601,6 +590,7 @@ int main(void) {
             CHECK(!world_has_item(ITEM_ORB) && !orb_taken && item_exists() && orb_dropped, "the search put the orb in the pockets (it must drop on the floor)");
             CHECK(mission_repair < 0, "\"Repair the shrine\" came in before the orb was picked up");
             run(ITEM_DROP_T + 0.4f);                                                 /* it lands */
+            frame(0.0f); SDL_RenderPresent(rr); SDL_SaveBMP(surf, "build/orb_dropped.bmp");                  /* the orb on the floor, over the rug (look at it) */
             {   float ix, iy; item_tile(&ix, &iy); pxp = ix * tile; pyp = (iy + 0.4f) * tile; indoors = 1; run(0.3f);
                 CHECK(near_item, "the hand button does not show next to the dropped orb (indoors)");
                 tap(hbx, hby); run(0.3f); }

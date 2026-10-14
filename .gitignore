@@ -3,3 +3,5 @@ build/
 *.idsig
 debug.jks
 __pycache__/
+save.dat
+save.dat.tmp

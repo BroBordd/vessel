@@ -292,6 +292,7 @@ static const Piece PIECES[] = {
 };
 int   house_piece_count(void) { return (int)(sizeof PIECES / sizeof PIECES[0]); }
 float house_piece_foot(int i) { return PIECES[i].foot; }
+int   house_piece_floor(int i) { return PIECES[i].foot < 0.15f; }
 void  house_piece_draw(SDL_Renderer *r, int i, int ox, int oy, int px, float t) {
     R = r; OX = ox; OY = oy; P = px; TT = t;
     PIECES[i].fn();
