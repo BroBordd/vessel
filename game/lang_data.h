@@ -6,14 +6,32 @@
 #define LANG_DATA_H
 #include <stdint.h>
 
-/* tone masks: which moods a line fits */
-#define WARM 1
-#define NEUT 2
-#define COLD 4
-#define HOST 8
-#define ALLT 15
-#define NICE (WARM | NEUT)
-#define RUDE (COLD | HOST)
+/* tone masks: which moods a line fits. the first four keep bits 1, 2, 4, 8 so every old table compiles (chunk 7: 20 moods) */
+#define WARM 1u
+#define NEUT 2u
+#define COLD 4u
+#define HOST 8u
+#define PLAY (1u << 4)    /* playful */
+#define SARC (1u << 5)    /* sarcastic */
+#define WEAR (1u << 6)    /* weary */
+#define WORR (1u << 7)    /* worried */
+#define CURI (1u << 8)    /* curious */
+#define SOLE (1u << 9)    /* solemn */
+#define SMUG (1u << 10)   /* smug */
+#define TEND (1u << 11)   /* tender */
+#define SULK (1u << 12)   /* sulky */
+#define SUSP (1u << 13)   /* suspicious */
+#define AFRA (1u << 14)   /* afraid */
+#define HOLL (1u << 15)   /* hollow */
+#define MANI (1u << 16)   /* manic */
+#define SHY  (1u << 17)   /* shy */
+#define BORE (1u << 18)   /* bored */
+#define EXCI (1u << 19)   /* excited */
+/* the groups of docs/convo_plan.md: nice + (+ rude) + dark cover all 20; the old rows that said NICE or RUDE meant the old four, so they now say so */
+#define NICE (WARM | NEUT | PLAY | TEND | CURI | EXCI | SHY)
+#define RUDE (COLD | HOST | SARC | SMUG | SULK | SUSP)
+#define DARK (AFRA | HOLL | MANI | SOLE | WEAR | WORR | BORE)
+#define ALLT (NICE | RUDE | DARK)
 /* style masks: who can say it. a line made for one style is picked 3x more often by that style */
 #define PLAIN  1
 #define DIVINE 2

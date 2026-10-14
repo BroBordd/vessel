@@ -10,7 +10,8 @@
  *   --length           length histogram, lines over 110 (warn) and 150 (fail later, chunk 156)
  *   --tables           (chunk 6) the registry and the indexes against a brute force walk of the tables: every key, every pattern, the word hashes
  *   --bench            (chunk 6) timings: init, 1,000 parses of 200 character lines, 1,000 replies, 10,000 line picks, and the budgets of chunk 159
- *   --all              all of the above. exit code 1 only if --check or --tables found a problem */
+ *   --moods            (chunk 7) the fallback chain of each of the 20 moods and, per key, which mood's lines answer for each mood (= own lines, a letter = reached through the chain, . = nothing). fails if a chain has no old mood in it or a key with lines is silent for a mood
+ *   --all              all of the above. exit code 1 only if --check, --tables or --moods found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
@@ -293,6 +294,57 @@ static void do_bench(void) {
            init <= 80 ? "ok" : "OVER", parse <= 1 ? "ok" : "OVER", reply <= 3 ? "ok" : "OVER");
 }
 
+/* ---- chunk 7: the 20 moods and their fallback chains ---- */
+static int do_moods(void) {
+    int bad = 0;
+    printf("moods: %d, fallback chains (own mood first, then what is tried, then the nearest of the old four)\n", TONE_COUNT);
+    for (int t = 0; t < TONE_COUNT; t++) {
+        int ord[TONE_COUNT], n = lang_mood_chain(t, ord, TONE_COUNT), old = 0;
+        printf("  %c %-10s:", lang_tone_code(t), lang_tone_name(t));
+        for (int k = 0; k < n; k++) { printf(" %c", lang_tone_code(ord[k])); if (ord[k] < 4) old++; }
+        printf("\n");
+        if (ord[0] != t) { printf("BAD CHAIN: %s does not start with itself\n", lang_tone_name(t)); bad++; }
+        if (old < 4) { printf("BAD CHAIN: %s never reaches all four old moods (%d)\n", lang_tone_name(t), old); bad++; }
+    }
+    /* the chain itself, on throwaway lines: own mood wins, then the chain, then the nearest old mood, then any style */
+    {
+        static const Line T7[] = { { "t7.key", COLD, ALLS, "cold line" }, { "t7.key", PLAY, ALLS, "play line" }, { "t7.only", HOST, DIVINE, "host divine line" } };
+        lang_register_lines(T7, 3);
+        Persona q = { "T", STYLE_PLAIN, 0, 50, 0, 8 }; char out[80];
+        struct { const char *key; int mood, want; } cases[] = {
+            { "t7.key", TONE_PLAYFUL, TONE_PLAYFUL }, { "t7.key", TONE_SARCASTIC, TONE_COLD }, { "t7.key", TONE_AFRAID, TONE_COLD },
+            { "t7.key", TONE_WARM, TONE_COLD }, { "t7.key", TONE_EXCITED, TONE_PLAYFUL }, { "t7.key", TONE_MANIC, TONE_PLAYFUL }, { "t7.nokey", TONE_WARM, -1 } };
+        for (unsigned i = 0; i < sizeof cases / sizeof *cases; i++) {
+            int r = lang_mood_resolve(cases[i].key, cases[i].mood, 0);
+            if (r != cases[i].want) { printf("BAD RESOLVE %s %s: got %d want %d\n", cases[i].key, lang_tone_name(cases[i].mood), r, cases[i].want); bad++; }
+        }
+        if (!lang_line_tone(&q, "t7.key", TONE_PLAYFUL, out, sizeof out) || strcmp(out, "play line")) { printf("BAD: playful did not get its own line (%s)\n", out); bad++; }
+        if (!lang_line_tone(&q, "t7.key", TONE_SARCASTIC, out, sizeof out) || strcmp(out, "cold line")) { printf("BAD: sarcastic did not fall back to cold (%s)\n", out); bad++; }
+        if (!lang_line_tone(&q, "t7.only", TONE_SHY, out, sizeof out) || strcmp(out, "host divine line")) { printf("BAD: last resort (any mood, any style) failed (%s)\n", out); bad++; }
+        if (lang_mood_resolve("t7.only", TONE_SHY, STYLE_PLAIN) != TONE_HOSTILE || lang_mood_resolve("t7.only", TONE_SHY, 0) != TONE_HOSTILE) { printf("BAD: resolve with a style\n"); bad++; }
+        lang_tables_reset();
+        if (lang_mood_resolve("t7.key", TONE_WARM, 0) != -1) { printf("BAD: the throwaway lines are still there after reset\n"); bad++; }
+    }
+    printf("answers per key (column = mood %s; = own lines, letter = answered by that mood through the chain, . = nothing). any style:\n  ", "WNCHPSEOQLMTKUAZXYBV");
+    for (int t = 0; t < TONE_COUNT; t++) printf("%c", lang_tone_code(t));
+    printf("\n");
+    int silent = 0, direct = 0, cells = 0;
+    for (int k = 0; k < lang_key_count(); k++) {
+        int nrows; const char *key = lang_key_name(k, &nrows);
+        if (!nrows) continue;
+        char row[TONE_COUNT + 1];
+        for (int t = 0; t < TONE_COUNT; t++) {
+            int r = lang_mood_resolve(key, t, 0);
+            row[t] = r < 0 ? '.' : r == t ? '=' : lang_tone_code(r);
+            cells++; if (r < 0) { silent++; bad++; } else if (r == t) direct++;
+        }
+        row[TONE_COUNT] = 0;
+        if (strncmp(key, "r.", 2) == 0 || strncmp(key, "p.", 2) == 0) printf("  %s  %s\n", row, key);
+    }
+    printf("moods: %d key x mood cells, %d answered by own lines, %d through a chain, %d silent. %s\n", cells, direct, cells - direct - silent, silent, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -308,9 +360,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--dupes"))    { do_dupes(); any = 1; }
         else if (!strcmp(a, "--length"))   { do_length(); any = 1; }
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; do_bench(); }
     return rc;
 }

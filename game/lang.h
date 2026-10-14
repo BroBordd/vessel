@@ -31,7 +31,15 @@ typedef enum {
     I_COUNT
 } Intent;
 
-typedef enum { TONE_WARM, TONE_NEUTRAL, TONE_COLD, TONE_HOSTILE } Tone;
+/* chunk 7: twenty moods. the first four keep 0-3 (lang_tone still only yields these until chunk 8). a mood with no line for a key
+ * answers through its fallback chain (lang_mood_chain), then the nearest of the old four, then any */
+typedef enum {
+    TONE_WARM, TONE_NEUTRAL, TONE_COLD, TONE_HOSTILE,
+    TONE_PLAYFUL, TONE_SARCASTIC, TONE_WEARY, TONE_WORRIED, TONE_CURIOUS, TONE_SOLEMN,
+    TONE_SMUG, TONE_TENDER, TONE_SULKY, TONE_SUSPICIOUS, TONE_AFRAID, TONE_HOLLOW,
+    TONE_MANIC, TONE_SHY, TONE_BORED, TONE_EXCITED,
+    TONE_COUNT
+} Tone;
 enum { STYLE_PLAIN = 1, STYLE_DIVINE = 2, STYLE_STREET = 4 };
 
 typedef struct {
@@ -88,5 +96,11 @@ void lang_apply(Persona *ps, const Heard *h);    /* moves mood + charisma for wh
 int  lang_reply(Persona *ps, const Heard *h, char *out, int cap);   /* applies, then answers. returns 1 if a real intent was answered */
 int  lang_line(const Persona *ps, const char *key, char *out, int cap);   /* any named line, formatted. 0 if none */
 int  lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap);
+/* moods (chunk 7): the order of moods tried for a line of mood t: its chain, then the nearest of the old four. returns how many (no repeats) */
+int  lang_mood_chain(int t, int *out, int cap);
+const char *lang_tone_name(int t);               /* "warm" ... "excited" */
+char lang_tone_code(int t);                      /* the letter code of docs/convo_plan.md: W N C H P S E O Q L M T K U A Z X Y B V */
+/* which mood's lines answer for (key, mood t, style mask or 0 = any): t itself, or the one reached through the fallbacks; -1 if the key has nothing */
+int  lang_mood_resolve(const char *key, int t, int style);
 
 #endif

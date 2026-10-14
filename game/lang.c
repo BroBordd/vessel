@@ -312,21 +312,78 @@ static const Line *pick_exact(const Persona *ps, const char *key, int tone, int 
     return cand[0];
 }
 
-/* the tone asked for, else the nearest tone that has something */
+/* ---------- the 20 moods and their fallback chains (chunk 7) ----------
+ * a mood with no line for a key tries its chain, then the nearest of the old four, then (second pass) any style. the old four are
+ * their own chain, so a play-through with only those answers exactly as before. */
+static const char *const TONE_NAME[TONE_COUNT] = {
+    "warm", "neutral", "cold", "hostile", "playful", "sarcastic", "weary", "worried", "curious", "solemn",
+    "smug", "tender", "sulky", "suspicious", "afraid", "hollow", "manic", "shy", "bored", "excited" };
+static const char TONE_CODE[TONE_COUNT + 1] = "WNCHPSEOQLMTKUAZXYBV";
+#define CH_END 255
+static const unsigned char CHAIN[TONE_COUNT][6] = {
+    [TONE_WARM] = { TONE_WARM, CH_END }, [TONE_NEUTRAL] = { TONE_NEUTRAL, CH_END },
+    [TONE_COLD] = { TONE_COLD, CH_END }, [TONE_HOSTILE] = { TONE_HOSTILE, CH_END },
+    [TONE_PLAYFUL]    = { TONE_PLAYFUL, TONE_EXCITED, TONE_WARM, TONE_NEUTRAL, CH_END },
+    [TONE_SARCASTIC]  = { TONE_SARCASTIC, TONE_COLD, TONE_NEUTRAL, TONE_HOSTILE, CH_END },
+    [TONE_WEARY]      = { TONE_WEARY, TONE_NEUTRAL, TONE_HOLLOW, TONE_COLD, CH_END },
+    [TONE_WORRIED]    = { TONE_WORRIED, TONE_TENDER, TONE_WARM, TONE_NEUTRAL, CH_END },
+    [TONE_CURIOUS]    = { TONE_CURIOUS, TONE_NEUTRAL, TONE_PLAYFUL, TONE_WARM, CH_END },
+    [TONE_SOLEMN]     = { TONE_SOLEMN, TONE_NEUTRAL, TONE_WEARY, TONE_COLD, CH_END },
+    [TONE_SMUG]       = { TONE_SMUG, TONE_COLD, TONE_SARCASTIC, TONE_NEUTRAL, CH_END },
+    [TONE_TENDER]     = { TONE_TENDER, TONE_WARM, TONE_WORRIED, TONE_NEUTRAL, CH_END },
+    [TONE_SULKY]      = { TONE_SULKY, TONE_COLD, TONE_NEUTRAL, TONE_HOSTILE, CH_END },
+    [TONE_SUSPICIOUS] = { TONE_SUSPICIOUS, TONE_COLD, TONE_CURIOUS, TONE_NEUTRAL, CH_END },
+    [TONE_AFRAID]     = { TONE_AFRAID, TONE_WORRIED, TONE_SHY, TONE_NEUTRAL, CH_END },
+    [TONE_HOLLOW]     = { TONE_HOLLOW, TONE_NEUTRAL, TONE_COLD, TONE_WEARY, CH_END },
+    [TONE_MANIC]      = { TONE_MANIC, TONE_EXCITED, TONE_PLAYFUL, TONE_WARM, TONE_NEUTRAL, CH_END },
+    [TONE_SHY]        = { TONE_SHY, TONE_NEUTRAL, TONE_WARM, TONE_WORRIED, CH_END },
+    [TONE_BORED]      = { TONE_BORED, TONE_NEUTRAL, TONE_COLD, TONE_WEARY, CH_END },
+    [TONE_EXCITED]    = { TONE_EXCITED, TONE_WARM, TONE_PLAYFUL, TONE_NEUTRAL, CH_END },
+};
+
+const char *lang_tone_name(int t) { return t >= 0 && t < TONE_COUNT ? TONE_NAME[t] : "?"; }
+char lang_tone_code(int t) { return t >= 0 && t < TONE_COUNT ? TONE_CODE[t] : '?'; }
+
+/* the full try order for mood t: its chain, then the old four by distance from the chain's first old mood (as the old picker did) */
+int lang_mood_chain(int t, int *out, int cap) {
+    int n = 0, base = TONE_NEUTRAL;
+    if (t < 0 || t >= TONE_COUNT) t = TONE_NEUTRAL;
+    #define ADD(x) do { int x_ = (x); int dup_ = 0; for (int q_ = 0; q_ < n; q_++) if (out[q_] == x_) dup_ = 1; if (!dup_ && n < cap) out[n++] = x_; } while (0)
+    for (const unsigned char *c = CHAIN[t]; *c != CH_END; c++) ADD(*c);
+    for (const unsigned char *c = CHAIN[t]; *c != CH_END; c++) if (*c < 4) { base = *c; break; }
+    for (int d = 0; d < 4; d++) {
+        int order[2] = { base - d, base + d };
+        if (base < 2) { order[0] = base + d; order[1] = base - d; }
+        for (int k = 0; k < (d ? 2 : 1); k++) if (order[k] >= 0 && order[k] <= 3) ADD(order[k]);
+    }
+    #undef ADD
+    return n;
+}
+
+/* the mood asked for, else the next one of its order that has something */
 static const Line *pick(const Persona *ps, const char *key, int tone) {
+    int ord[TONE_COUNT], n = lang_mood_chain(tone, ord, TONE_COUNT);
     for (int any = 0; any < 2; any++)
-        for (int d = 0; d < 4; d++) {
-            int order[2] = { tone - d, tone + d };
-            if (tone < 2) { order[0] = tone + d; order[1] = tone - d; }
-            for (int k = 0; k < (d ? 2 : 1); k++) {
-                int t = order[k];
-                if (t < 0 || t > 3) continue;
-                const Line *l = pick_exact(ps, key, t, any);
-                if (l) return l;
-            }
+        for (int k = 0; k < n; k++) {
+            const Line *l = pick_exact(ps, key, ord[k], any);
+            if (l) return l;
         }
     return NULL;
 }
+
+int lang_mood_resolve(const char *key, int t, int style) {
+    int ord[TONE_COUNT], n = lang_mood_chain(t, ord, TONE_COUNT);
+    const Line *const *rows; int nkey = lang_key_rows(key, &rows);
+    for (int any = 0; any < 2; any++) {
+        if (any && !style) break;                              /* style 0 = any style: one pass is enough */
+        for (int k = 0; k < n; k++)
+            for (int r = 0; r < nkey; r++)
+                if ((rows[r]->tones & (1u << ord[k])) && (!style || any || (rows[r]->styles & style))) return ord[k];
+    }
+    return -1;
+}
+
+static int tone_rude(Tone t) { return t == TONE_COLD || t == TONE_HOSTILE; }   /* as the old test tone >= COLD, while only 4 tones exist */
 
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
 static const char *g_topic = "";
@@ -430,11 +487,11 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     int len = (int)strlen(body);
     char pre[80] = "", post[100] = "", full[800];
     g_tone = (int)tone;
-    if (len < 110 && rn(100) < (tone >= TONE_COLD ? 45 : 25)) {
+    if (len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, pre, (int)sizeof pre, 1); }
     }
-    if (len + (int)strlen(pre) < 100 && rn(100) < (tone >= TONE_COLD ? 50 : 30)) {
+    if (len + (int)strlen(pre) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
         const Line *l = pick(ps, "p.post", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, post, (int)sizeof post, 1); }
     }

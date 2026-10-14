@@ -128,7 +128,7 @@ const Line LINES_A[] = {
     {"end.bored", COLD, STREET, "Alright, alright, I am done talking. Scram."},
 
     /* ---- end.angry: the npc cuts the chat after being insulted ---- */
-    {"end.angry", NICE, ALLS, "That is it. I am done talking. Go."}, {"end.angry", COLD, ALLS, "Enough. I will not stand here and be insulted. Go."},
+    {"end.angry", WARM | NEUT, ALLS, "That is it. I am done talking. Go."}, {"end.angry", COLD, ALLS, "Enough. I will not stand here and be insulted. Go."},
     {"end.angry", HOST, ALLS, "Get out of my sight. Now."}, {"end.angry", HOST, ALLS, "We are done here. Go."}, {"end.angry", COLD, ALLS, "I will not waste another word on you."},
     {"end.angry", HOST, DIVINE, "You have tried my patience for the last time, worm. Go."}, {"end.angry", COLD, DIVINE, "Insolent. We are finished, mortal. Go."},
     {"end.angry", HOST, STREET, "Beat it, {pet}. Before I lose my temper."},
