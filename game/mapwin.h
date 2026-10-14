@@ -2,8 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
  * THE MAP WINDOW: opens when the player taps the minimap. a window like the music and brain ones (it takes every touch while it is open,
- * game.c routes it first and draws it last, over the top buttons): the whole map, DRAG to move it, the + and - buttons to zoom (the
- * touch stream has one finger, so no pinch), the round dot button to centre on the player, X to close. one line of help (drag) sits under the controls.
+ * game.c routes it first and draws it last, over the top buttons): the whole map, DRAG to move it, PINCH with two fingers or the + and - buttons to zoom, the round dot button to centre on the player, X to close. one line of help (drag) sits under the controls.
  * marks are little pictures (mapicon.h) or dots, never text (chunk 60).
  * it starts zoomed out so the whole map shows. it shows the same marks as the minimap (npcs, hole, and what was found: house, shrine, graves, the hammer, the temple).
  * the window owns no map: it asks world.c for a MapView every frame (mapwin_set_source), so it always shows what is there now. */
@@ -27,6 +26,7 @@ void mapwin_open(void);                             /* zoomed out, the whole map
 void mapwin_close(void);
 int  mapwin_active(void);
 int  mapwin_touch(int a, int x, int y);             /* Android MotionEvent action. 1 = used (always, while open) */
+int  mapwin_touch_p(int pid, int a, int x, int y);  /* another finger (pid = the app's pointer id + 1): a second finger on the map pinches to zoom (and pans with the midpoint) */
 void mapwin_update(float dt);
 void mapwin_draw(SDL_Renderer *r);
 

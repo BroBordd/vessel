@@ -22,11 +22,14 @@ int  musicwin_active(void);                /* open (or still sliding away) */
 void musicwin_close(void);                 /* slides it away (the Android back button); nothing if it is not open */
 /* a = Android MotionEvent action. returns 1 when the touch was used (always, while the window is open) */
 int  musicwin_touch(int a, int x, int y);
+/* another finger (pid = the app's pointer id + 1): plays its own piano key, so chords work. 1 = used */
+int  musicwin_touch_p(int pid, int a, int x, int y);
 void musicwin_update(float dt);
 void musicwin_draw(SDL_Renderer *r);
 
 /* test hooks */
 int  musicwin_debug_key_at(int x, int y);  /* midi note under a screen point, -1 if none */
 int  musicwin_debug_scroll(void);          /* track list scroll offset in px */
+int  musicwin_debug_held(void);            /* keys held down right now (one per finger) */
 
 #endif

@@ -178,8 +178,12 @@ int main(int argc, char **argv) {
                 } else if (s[0] == 'v' && sscanf(s, "v %f", &hz) == 1) {           /* the display's refresh rate in Hz: how long a frame takes to reach the glass */
                     audio_set_refresh(hz);
                 } else if (s[0] == 'm' && sscanf(s, "m %d %d %d %d", &pr, &a, &x, &y) == 4) {      /* another finger: id, action, x, y (the primary one is "t") */
+                    /* the open window takes the other finger first: the map pinches, the music window's piano plays a chord. the world only gets it
+                     * when no window is open (a lift always gets through to the world, so no control stays held) */
+                    if (mapwin_active()) mapwin_touch_p(pr + 1, a, x, y);
+                    else if (musicwin_active()) musicwin_touch_p(pr + 1, a, x, y);
                     if (state == ST_WORLD && (a != 0 || (!mapwin_active() && !musicwin_active() && !brainwin_active() && !pausebtn_paused())))
-                        world_touch_p(pr + 1, a, x, y);                                              /* only the world uses a second finger; a lift always gets through */
+                        world_touch_p(pr + 1, a, x, y);
                 } else if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
                     if (a == 4 && !handle_back(state)) { printf("back: unhandled\n"); fflush(stdout); }
                 } else if (sscanf(s, "p %d", &a) == 1) {             /* the app went to the background (1) or came back (0) */

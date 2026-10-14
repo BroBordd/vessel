@@ -19,8 +19,12 @@ static int hb, help_cell, help_y, nlines;
 static char lines[6][128];
 static float ppt, min_ppt, max_ppt, ccx, ccy;               /* zoom (px per tile), the tile at the centre of the view */
 static int drag, lx, ly, pressed;                           /* pressed: 1 close, 2 zoom in, 3 zoom out, 4 you */
+/* multitouch: a second finger on the map pinches. the primary finger is (lx, ly); the other one is (p2x, p2y) with its pointer id + 1 in p2.
+ * while both are down the map zooms by the change in their distance and pans with their midpoint, so the spot between the fingers stays under them.
+ * when one lifts, the one left carries on dragging (drag_pid says which one pans: 0 = the primary) */
+static int p2, p2x, p2y, pinch, drag_pid;
 
-static const char HELP[] = "DRAG TO MOVE THE MAP.";
+static const char HELP[] = "DRAG TO MOVE THE MAP. PINCH TO ZOOM.";
 
 static int inside(SDL_Rect q, int x, int y) { return x >= q.x && y >= q.y && x < q.x + q.w && y < q.y + q.h; }
 static void fill(SDL_Renderer *r, SDL_Rect q) { SDL_RenderFillRect(r, &q); }
@@ -60,10 +64,10 @@ static void layout(void) {
     view = (SDL_Rect){ win.x + bt, hdr.y + hb + bt, win.w - 2 * bt, cy - pad - (hdr.y + hb + bt) };
 }
 
-void mapwin_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = drag = pressed = 0; layout(); }
+void mapwin_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = drag = pressed = 0; p2 = pinch = drag_pid = 0; layout(); }
 void mapwin_set_source(void (*fn)(MapView *v)) { source = fn; }
 int  mapwin_active(void) { return is_open; }
-void mapwin_close(void) { is_open = drag = pressed = 0; }
+void mapwin_close(void) { is_open = drag = pressed = 0; p2 = pinch = drag_pid = 0; }
 
 static void clamp_view(void) {
     if (ppt < min_ppt) ppt = min_ppt;
@@ -82,27 +86,77 @@ void mapwin_open(void) {
     min_ppt = fx < fy ? fx : fy; if (min_ppt < 1) min_ppt = 1;
     max_ppt = MAX_UNITS * u; if (max_ppt < min_ppt * 2) max_ppt = min_ppt * 2;
     ppt = min_ppt; ccx = mv.mw * 0.5f; ccy = mv.mh * 0.5f;
-    is_open = 1; drag = pressed = 0;
+    is_open = 1; drag = pressed = 0; p2 = pinch = drag_pid = 0;
 }
 
 static void zoom_by(float k) { ppt *= k; clamp_view(); }
 static void center_on_you(void) { ccx = mv.ptx; ccy = mv.pty; if (ppt < min_ppt * 2.5f) ppt = min_ppt * 2.5f > max_ppt ? max_ppt : min_ppt * 2.5f; clamp_view(); }
 
+/* a pinch is measured from where it began, never step by step (the app sends one line per finger, so a move of both fingers arrives as two
+ * steps with one finger already moved: only the final state of the two counts, and clamping the zoom in between must not lose anything).
+ * at the start: the distance, the zoom, and the map point under the midpoint. the zoom is that zoom times (distance / start distance), and
+ * the map point stays under the midpoint, so the map zooms about the fingers and follows them when both move */
+static float pin_d0, pin_ppt0, pin_wx, pin_wy;
+static void pinch_begin(int ax, int ay, int bx, int by) {
+    float dx = (float)(ax - bx), dy = (float)(ay - by);
+    pin_d0 = sqrtf(dx * dx + dy * dy); if (pin_d0 < 8.0f) pin_d0 = 8.0f;
+    pin_ppt0 = ppt;
+    pin_wx = ccx + ((ax + bx) * 0.5f - (view.x + view.w * 0.5f)) / ppt;
+    pin_wy = ccy + ((ay + by) * 0.5f - (view.y + view.h * 0.5f)) / ppt;
+    pinch = 1;
+}
+static void pinch_step(int ax, int ay, int bx, int by) {
+    float dx = (float)(ax - bx), dy = (float)(ay - by), d = sqrtf(dx * dx + dy * dy);
+    ppt = pin_ppt0 * d / pin_d0;
+    if (ppt < min_ppt) ppt = min_ppt;
+    if (ppt > max_ppt) ppt = max_ppt;
+    ccx = pin_wx - ((ax + bx) * 0.5f - (view.x + view.w * 0.5f)) / ppt;
+    ccy = pin_wy - ((ay + by) * 0.5f - (view.y + view.h * 0.5f)) / ppt;
+    clamp_view();
+}
+
+/* another finger (pid = the app's pointer id + 1). down on the map while the primary finger drags it = a pinch begins. 1 = used */
+int mapwin_touch_p(int pid, int a, int x, int y) {
+    if (!is_open) return 0;
+    if (a == 0) {
+        if (p2 || !drag || !inside(view, x, y)) return 1;                     /* a pinch needs the first finger on the map (not on a button) and a free second one */
+        p2 = pid; p2x = x; p2y = y; pinch_begin(lx, ly, x, y);
+        return 1;
+    }
+    if (pid != p2) return 1;
+    if (a == 2) {
+        p2x = x; p2y = y;
+        if (pinch) pinch_step(lx, ly, p2x, p2y);
+        else if (drag && drag_pid == pid) { ccx -= (x - lx) / ppt; ccy -= (y - ly) / ppt; lx = x; ly = y; clamp_view(); }   /* the primary lifted: this one pans */
+    } else {                                                                   /* the second finger lifted (or was cancelled) */
+        if (drag_pid == pid) drag = 0;                                         /* it was the one panning: nobody is */
+        pinch = 0; drag_pid = 0; p2 = 0;                                       /* else the primary one carries on dragging from where it is */
+    }
+    return 1;
+}
+
 int mapwin_touch(int a, int x, int y) {
     if (!is_open) return 0;
     if (a == 0) {
+        if (drag && drag_pid && p2 && inside(view, x, y)) {                    /* the second finger is still panning and the first is back: pinch again */
+            lx = x; ly = y; drag_pid = 0; pinch_begin(lx, ly, p2x, p2y);
+            return 1;
+        }
         pressed = inside(close_r, x, y) ? 1 : inside(zin_r, x, y) ? 2 : inside(zout_r, x, y) ? 3 : inside(you_r, x, y) ? 4 : 0;
-        drag = !pressed && inside(view, x, y); lx = x; ly = y;
+        drag = !pressed && inside(view, x, y); lx = x; ly = y; p2 = pinch = drag_pid = 0;
     } else if (a == 2 && drag) {
-        ccx -= (x - lx) / ppt; ccy -= (y - ly) / ppt; lx = x; ly = y; clamp_view();
+        if (pinch) { lx = x; ly = y; pinch_step(lx, ly, p2x, p2y); }
+        else { ccx -= (x - lx) / ppt; ccy -= (y - ly) / ppt; lx = x; ly = y; clamp_view(); }
+    } else if (a == 1 && pinch) {                                            /* the primary lifted mid-pinch: the second finger takes over the drag */
+        pinch = 0; lx = p2x; ly = p2y; drag_pid = p2; pressed = 0;
     } else if (a == 1) {
         int p = pressed;
         if (p == 1 && inside(close_r, x, y)) mapwin_close();
         else if (p == 2 && inside(zin_r, x, y)) zoom_by(ZOOM_STEP);
         else if (p == 3 && inside(zout_r, x, y)) zoom_by(1.0f / ZOOM_STEP);
         else if (p == 4 && inside(you_r, x, y)) center_on_you();
-        pressed = drag = 0;
-    } else if (a == 3) pressed = drag = 0;
+        pressed = drag = 0; p2 = pinch = drag_pid = 0;
+    } else if (a == 3) { pressed = drag = 0; p2 = pinch = drag_pid = 0; }
     return 1;
 }
 

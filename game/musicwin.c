@@ -58,7 +58,12 @@ static float flash;                                     /* the status line shows
 static int   grab;                                      /* what the current touch started on: 0 nothing, 1 piano, 2 close, 3 outside,
                                                            4 pause, 5 volume slider, 6 MAP button, 7 CUSTOM button, 8 track list,
                                                            9 progress bar, 10 loop checkbox */
-static int   held_midi = -1;
+static int   held_midi = -1;                            /* the note the PRIMARY finger holds */
+#define SEC_MAX 16                                      /* multitouch: every other finger (slot = the app's pointer id + 1) plays its own note, so chords work */
+static int   sec_midi[SEC_MAX] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+static int   sec_on[SEC_MAX];                           /* this finger went down on the piano: it plays until it lifts, sliding over the keys */
+static int   midi_held_count(int m) { int n = held_midi == m; for (int i = 0; i < SEC_MAX; i++) n += sec_midi[i] == m; return n; }
+static int   key_held(int m) { return midi_held_count(m) > 0; }
 
 static C3 mix(C3 a, C3 b, float k) { return (C3){ (int)(a.r + (b.r - a.r) * k), (int)(a.g + (b.g - a.g) * k), (int)(a.b + (b.b - a.b) * k) }; }
 static void col(SDL_Renderer *r, C3 c, int a) { SDL_SetRenderDrawColor(r, c.r, c.g, c.b, a); }
@@ -92,6 +97,7 @@ static int key_at(int x, int y) {
 }
 int musicwin_debug_key_at(int x, int y) { return key_at(x, y); }
 int musicwin_debug_scroll(void) { return list_scroll; }
+int musicwin_debug_held(void) { int n = held_midi >= 0; for (int i = 0; i < SEC_MAX; i++) n += sec_midi[i] >= 0; return n; }   /* how many keys are held down (one per finger) */
 
 /* ---------- layout ---------- */
 static void layout(void) {
@@ -173,6 +179,7 @@ static void layout(void) {
 void musicwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1; flash = 0; list_scroll = 0; fling_on = 0;
+    for (int i = 0; i < SEC_MAX; i++) { sec_midi[i] = -1; sec_on[i] = 0; }
     memset(lvl, 0, sizeof lvl); memset(peak, 0, sizeof peak); memset(hold, 0, sizeof hold);
     memset(nv, 0, sizeof nv); memset(dr, 0, sizeof dr); memset(rg, 0, sizeof rg);
     layout();
@@ -183,6 +190,7 @@ void musicwin_open(void) {
     music_scrub_prepare();                                  /* start decoding the track in the background so the bar can play it backwards */
     layout();
     is_open = 1; closing = 0; grab = 0; held_midi = -1; t = 0; flash = 0;
+    for (int i = 0; i < SEC_MAX; i++) { sec_midi[i] = -1; sec_on[i] = 0; }
     int sel = jukebox_mode() == JB_CUSTOM ? jukebox_custom_index() : jukebox_playing_index();
     list_scroll = 0; fling_on = 0;
     if (sel >= 0) {                                         /* bring the current track into view */
@@ -193,8 +201,10 @@ void musicwin_open(void) {
 }
 int  musicwin_active(void) { return is_open || closing; }
 
-static void release(void) { if (held_midi >= 0) { sfx_note_off(held_midi); held_midi = -1; } }
-static void close_win(void) { release(); music_scrub_release(); is_open = 0; closing = 1; grab = 0; }
+static void release(void) { int m = held_midi; held_midi = -1; if (m >= 0 && !midi_held_count(m)) sfx_note_off(m); }      /* (a key two fingers hold keeps ringing until the last one lifts) */
+static void sec_release(int s) { int m = sec_midi[s]; sec_midi[s] = -1; if (m >= 0 && !midi_held_count(m)) sfx_note_off(m); }
+static void sec_release_all(void) { for (int i = 0; i < SEC_MAX; i++) { sec_release(i); sec_on[i] = 0; } }
+static void close_win(void) { release(); sec_release_all(); music_scrub_release(); is_open = 0; closing = 1; grab = 0; }
 
 void musicwin_close(void) { if (is_open) close_win(); }
 
@@ -302,6 +312,24 @@ int musicwin_touch(int a, int x, int y) {
         }
         grab = 0;
         return 1;
+    }
+    return 1;
+}
+
+/* another finger (pid = the app's pointer id + 1). only the piano listens to it: down on a key plays it, sliding over keys plays them, lifting lets go */
+int musicwin_touch_p(int pid, int a, int x, int y) {
+    if (!is_open) return closing;
+    if (pid <= 0 || pid >= SEC_MAX) return 1;
+    if (a == 0) {
+        int k = key_at(x, y);
+        sec_release(pid); sec_on[pid] = k >= 0;
+        if (k >= 0) { sec_midi[pid] = k; sfx_note_on(k); }
+    } else if (a == 2) {
+        if (!sec_on[pid]) return 1;
+        int k = key_at(x, y);
+        if (k != sec_midi[pid]) { sec_release(pid); if (k >= 0) { sec_midi[pid] = k; sfx_note_on(k); } }
+    } else if (a == 1 || a == 3) {
+        sec_release(pid); sec_on[pid] = 0;
     }
     return 1;
 }
@@ -588,7 +616,7 @@ static void draw_piano(SDL_Renderer *r) {
         SDL_Rect q = white_rect(m);
         float a = nv[m - LO_MIDI]; a = a > 1 ? 1 : powf(a, 0.7f);
         C3 base = { 236, 238, 246 }, c = mix(base, reg_col(m), a);
-        if (m == held_midi) c = COL_HELD;
+        if (key_held(m)) c = COL_HELD;
         col(r, (C3){ 10, 12, 24 }, 255); fillr(r, q.x, q.y, q.w, q.h);
         col(r, c, 255); fillr(r, q.x + sep, q.y, q.w - sep, q.h - sep);
         if (m % 12 == 0 && kw >= 8 * cl) {                        /* name the C keys */
@@ -602,7 +630,7 @@ static void draw_piano(SDL_Renderer *r) {
         SDL_Rect q = black_rect(m);
         float a = nv[m - LO_MIDI]; a = a > 1 ? 1 : powf(a, 0.7f);
         C3 c = mix((C3){ 24, 26, 40 }, reg_col(m), a);
-        if (m == held_midi) c = COL_HELD;
+        if (key_held(m)) c = COL_HELD;
         col(r, (C3){ 0, 0, 0 }, 255); fillr(r, q.x - 1, q.y, q.w + 2, q.h + 1);
         col(r, c, 255); fillr(r, q.x, q.y, q.w, q.h);
     }
