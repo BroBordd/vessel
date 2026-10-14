@@ -1,0 +1,446 @@
+# Convo — the big built-in brain (a plan in chunks, starting at chunk 1)
+
+> **Handoff file.** If you are an LLM picking this up mid-work: read this whole file, then read `game/lang.h`,
+> `game/lang.c`, `game/lang_data.h` and `game/convo.h`, and skim `docs/story/vessel-2-part3.md` (the story side:
+> Dea and Alex use this engine, chunk 63 of that file added `convo_watch` / `convo_lock_allow`). Find the first
+> unchecked chunk in [Chunk checklist](#chunk-checklist), implement ONLY that chunk, commit, tick its box in this
+> file **in the same commit**, push, then go to the next one. Do not skip ahead, do not batch chunks. The owner
+> tests every push on a phone (`git pull` + `scripts/run.sh`), so every chunk must leave the game building and
+> playable, and every existing test passing.
+
+Numbering starts at 1 here (this is a new file, not a continuation of the vessel plans).
+
+## What the owner asked for
+
+Make the typed conversation a **massive built-in brain**, mostly by writing strings:
+
+1. **Stupidly populate it with new mood types.** Today an npc has 4 tones (warm, neutral, cold, hostile). Add many more
+   (playful, sarcastic, weary, worried, afraid, hollow, manic ...), each with its own lines.
+2. **Stupidly populate it with a massive number of strings across all modes** (every mood x every voice/style), far past the
+   ~1,060 lines and ~680 patterns of today.
+3. **Whatever the player writes, the game must have the best possible chance of recognising it.** That comes from *smart
+   logic* (clean-up, typo repair, word segmentation, phrase patterns, a word lexicon, sentence frames, memory of the chat)
+   **backed by a massive set of strings** (patterns, lexicons, lines, test corpora).
+4. This is mostly string writing, so the plan is split so that every string chunk is one sitting of writing with a lint gate.
+
+## Workflow rules
+
+- One chunk = one commit = one push. Commit message: `convo chunk N: <short title>` + a paragraph of what changed.
+  (The plans before this one used `chunk N:`; the `convo` prefix keeps them apart in `git log`.)
+- Tick the chunk's checkbox below in the same commit that implements it, and add a line to the [Status log](#status-log)
+  (what changed, the numbers: rows added, totals, test results).
+- **The language engine stays free of SDL** (`game/lang*.c`, `lines_*.c`), so it builds and tests on any machine:
+  `cc -O1 -Igame -o build/langtest tools/langtest.c game/lang*.c game/lines_*.c && build/langtest --check`
+  (chunk 2 changes `lang.c lang_pats.c` in that line to the glob `game/lang*.c`; **every new engine/data file is named
+  `lang_*.c` or `lines_*.c` so both this line and `scripts/run.sh`'s `game/*.c` pick it up with no build change**).
+  Files that touch SDL stay in `convo.c` (and `dialog.c`) as today.
+- Match the existing code style (C, short explanatory comments, GPL header on every new file as in `game/lang.h`).
+- Every string a player can see: **proper English**, only the font's characters: letters, digits, space and `, . ! ? ' -`
+  (the lint of `tools/langtest.c --check` enforces it; `{slot}` names may also use `_`). No quotes, no colons, no
+  semicolons, no parentheses, no emoji in npc lines. Keep a line to one phone-sized breath: **<= 110 characters** (the lint
+  warns at 110, fails at 150). A line is one sentence or two short ones.
+- **Never reproduce real song lyrics, poems, quotes or text from books, films, games** (copyright). Anything an npc sings,
+  recites or quotes is original.
+- The game is **semi horror**: dark, eerie, cruel npcs are fine, graphic detail is not (same rule as the vessel plans). Nothing
+  sexual, no slurs (the npcs never repeat a slur; they react to it as an insult), no real-world hate, no instructions for harm.
+  Self-harm words always step out of character and stay kind (see [Safety](#safety-rules-that-never-change)).
+- **String chunks follow [the string protocol](#the-string-protocol)** below. Engine chunks add a headless check to the right
+  test (`tools/langtest.c`, the new `tools/langcheck.c`, `tools/langcorpus.c`, `tools/moodtest.c`, `tools/convotest.c`)
+  for every behaviour they add.
+- Sanity check before every push: the `langtest` build line above builds and `--check` passes; `tools/convotest.c` (build
+  line in its header) passes; the whole game builds with
+  `cc -O1 -DGFX_REDIRECT -include game/gfx.h game/*.c $(sdl2-config --cflags --libs) -lm`; `tools/orderstest.c` passes when
+  the chunk touched `convo.c` or `story.c`. Never commit tokens or secrets.
+- The owner may change `story.c` text and personas between chunks. Never rewrite scripted story lines in this plan; only
+  the generic engine and its data change here.
+
+## How the engine works today (facts checked in the code, 2026-10-14)
+
+| File | What it is |
+|---|---|
+| `game/lang.h` | Public API: `Intent` enum (46 intents), `Tone` (4), styles (3), `Persona {name, style, mood, warmth, toxic, patience}`, `Heard {mask(uint64), order[12], positive, negative, is_question, words, capture[24]}`, `lang_parse`, `lang_highlight`, `lang_reply`, `lang_line`, `lang_line_tone`, `lang_apply`, charisma. |
+| `game/lang.c` (419 lines) | `scan()` finds the longest wildcard phrase from every word start (`*` = run of words inside one sentence when after a space, finishes the word when glued to a letter, `?` = one letter, `$` = end of sentence); `negated()` flips an intent if a negator is in the 3 words before it; `RANK[]` orders what is answered first (99 = only if nothing better); `MOOD[][2]` moves mood/charisma per intent; `lang_tone()` = score from mood + charisma + warmth - toxic, +-7 random, cut at 20 / -25 / -62; `pick()` chooses a line by key, tone (nearest tone if empty), style (x3 weight for lines made only for that style), skips the last 24 lines used; `fmt()` fills `{player} {npc} {topic}` and any `p.<name>` pool slot (depth <= 4); `lang_reply()` answers up to 2 intents (<= ~150 characters), else `r.unknown*`, then maybe wraps it with `p.pre` / `p.post`. |
+| `game/lang_pats.c` (181 lines) | `PATS[]`: 684 `{pattern, intent}` rows. Per intent: INSULT 42, PRAISE 29, NO 28, GREET 27, BYE 27, YES 25, MISSION 24, CONFUSED 24 ... AGE 4, ALEX 3, WHY 5. |
+| `game/lines_a..d.c` | `Line {key, tones(uchar), styles(uchar), text}`: 1,063 rows: by tone W255 N285 C353 H198; by style plain 654 / divine 950 / street 765. Keys: pools `p.*` (pet, sigh, greet, bye, pre, post), flow (`open`, `open.again`, `ask.questions`, `ask.go`, `end.angry/bored/noquestions/silence`, `demand.again/sorry`, `accept.sorry`) and one `r.<intent>` per intent (8 to 34 rows each) plus `r.unknown`, `_q`, `_pos`, `_neg`, `_short`. |
+| `game/convo.c` / `.h` | The chat state machine (open, questions stage, free chat, sorry stage, bye, boredom by `patience`), the chat lock (`convo_lock*`), the watch (`convo_watch`), keyboard suggestion chips by situation (`SUG_*`). Tests `h.mask & M(I_X)` directly (lines 71-109). |
+| `game/story.c` | Personas: `DEA_MIND {"Dea", STYLE_DIVINE, 0, 30, 65, 8}`, `ALEX_MIND {"Alex", STYLE_STREET, 10, 70, 5, 12}`; mood is saved (`dea_mood`, `alex_mood`, charisma in the save file). Positional initialisers: **new `Persona` fields must go at the end.** |
+| `tools/langtest.c` | `--check` lint (charset, braces, empty masks, a line for every key x style x tone) and a demo chat. |
+
+Hard limits in the code that a *massive* database would hit (chunks 5 and 6 remove them; nothing else may rely on them):
+
+- `pick_exact`: `cand[96]` and `wt[96]` — **only the first 96 lines of a key are ever considered** (silently).
+- `recent[24]`: the no-repeat memory is 24 lines; `order[12]`; `MAX_TEXT 200`; `MAX_SPANS 40`; reply `body[400]`.
+- `Heard.mask` is a `uint64_t` and only has room for 18 more intents; `convo.c` tests it by bit.
+- `Line.tones` and `Line.styles` are `unsigned char`: at most 8 tones and 8 styles.
+- `pick()` walks **all four tables linearly** for every pick, and `scan()` tries **every pattern at every word start**:
+  fine for 1,000 rows, too slow for 50,000 (index both).
+- Only 3 styles and 4 tones exist, so a goddess and a street kid are the only two voices.
+
+## The target (numbers the plan is measured against)
+
+| Thing | Today | Target |
+|---|---|---|
+| Moods (tones) | 4 | **20** (+12 bits reserved) |
+| Voices (styles) | 3 | **10** |
+| Intents (things the player can mean) | 46 | **~250** in 16 groups (Appendix A) |
+| Pattern rows (phrases, with `[a\|b]` and `(opt)` syntax each row stands for 5-50 surface forms) | 684 | **>= 25,000 rows** |
+| Lexicon rows (word -> intent / sentiment / topic) | 0 | **>= 20,000** |
+| Vocabulary (for typo repair and word splitting) | 0 | **>= 15,000 words** |
+| Reply lines | 1,063 | **>= 45,000** (>= 110 per reply key, see the grid) |
+| Golden test corpus (labelled player lines) | 0 | **>= 6,000** tuning set + **>= 2,000** held-out set |
+| Recall on the held-out set (a real intent found) | unknown | **>= 97 %**; exact-intent accuracy **>= 90 %** |
+| Recall kept after typos / caps / leet / elongation fuzz | unknown | **>= 93 %** of the clean recall |
+| Replies that are empty, repeated within 40 replies, or off-voice | unknown | **0** |
+| `lang_parse` of a 200-character line (phone) | unknown | **<= 1 ms** |
+| Engine start-up (parse + index all data) on the phone | n/a | **<= 80 ms**, lazy at the first chat |
+
+### The layers (what "smart logic" means here)
+
+```
+raw text
+  L1  clean      unicode/emoji folding, elongation (heeello), leet (h3ll0), spaced letters, text-speak (u r pls idk),
+                 contractions, number words, keeps a char map back to the original so highlighting still works
+  L2  repair     vocabulary spell-fix (edit distance 1-2, keyboard neighbours, transpositions), phonetic fallback,
+                 glued words (whoareyou -> who are you), lemmas (loved, loving -> love)
+  L3  clauses    split on but / and / then / punctuation; per-clause negation scope; sentence shape (question type, caps, !)
+  L4  phrases    PATS: wildcard + [a|b] + (opt) patterns, first-word index, longest phrase wins            -> intents
+  L5  lexicon    word -> intent weights, sentiment with boosters, topic nouns, names/ages/likes captured   -> intents + confidence
+  L6  frames     speech act (greet, ask, command, plead, threaten, joke, confess ...) x subject (you / I / we / it) x topic
+  L7  context    what the npc just asked (yes/no/name/why), follow-ups (why? and? what do you mean?), repeats, memory, topics
+  L8  respond    mood (20) x voice (10) x key, confidence-aware (sure: answer; half sure: hedge; unsure: in-character improvise),
+                 big no-repeat memory, never silent
+```
+
+A phrase match (L4) always beats the lexicon (L5); the lexicon beats a frame guess (L6); a frame guess beats "unknown".
+Every layer reports a **confidence** (0-100) so L8 can hedge instead of answering wrongly.
+
+### Moods (20) — letter codes used in the compact data format
+
+| Code | Mood | Code | Mood | Code | Mood | Code | Mood |
+|---|---|---|---|---|---|---|---|
+| W | warm | N | neutral | C | cold | H | hostile |
+| P | playful (teasing) | S | sarcastic (dry) | E | weary | O | worried |
+| Q | curious | L | solemn | M | smug | T | tender |
+| K | sulky (hurt) | U | suspicious | A | afraid (the npc is scared) | Z | hollow (flat, empty) |
+| X | manic (too bright, wrong) | Y | shy | B | bored | V | excited |
+
+Groups for the data rows: `*` = all 20, `+` = nice (W N P T Q V Y), `-` = rude (C H S M K U), `~` = dark (A Z X L E O B).
+`WARM NEUT COLD HOST` keep bits 1, 2, 4, 8, so every old table still compiles. Fallback when a mood has no line for a key:
+a fixed nearest-mood chain per mood (chunk 7), then the old 4 tones, then any.
+
+### Voices (10) — letter codes (lowercase)
+
+| Code | Voice | Sounds like |
+|---|---|---|
+| p | plain | the default, everyday |
+| d | divine | Dea: lofty, condescending |
+| s | street | Alex: casual, direct |
+| e | elder | old, rambling, "child", "in my day" |
+| c | child | simple, blunt, curious |
+| f | formal | clerk, guard, knight: precise, stiff |
+| b | beast | feral: short fragments, growls, hunger |
+| m | machine | flat system voice, labels, no feelings |
+| g | ghost | whispers, half sentences, the dead |
+| y | poet | images, rhythm, odd and lovely |
+
+`*` = all voices. A line made for exactly one voice is picked 3x more by that voice (as today). Chunk 11 adds **voice
+transforms**: a plain line can be turned into the other voices by code, so a voice never lacks lines, and handwritten
+lines make it better.
+
+### The compact data format (chunk 8) — why the strings are cheap to write
+
+New data is **not** C structs. It is rows of one string each, parsed once at first use (lazily), in arrays in `lines_*.c`,
+`lang_pats_*.c`, `lang_lex_*.c`, `lang_vocab_*.c`:
+
+```c
+/* reply lines: key | moods | voices | text | optional ask tag (yn name why any choice) */
+const char *const LINES_E[] = {
+  "r.greet|W|p|Hello, {pet}. You came back.|",
+  "r.greet|+|dsp|Ah, {player}. Do sit up straight.|",
+  "r.howru|-|*|Why do you care how I am?|why",
+  0 };
+/* phrases: pattern | intent name | optional weight 1-9 (default 5). [a|b] alternatives, (x) optional, * and ? and $ as today */
+const char *const PATS_E[] = {
+  "[good|nice|lovely] (to) (finally) meet you|greet",
+  "[how|hows|how's] (it|life|things) (going|been|treating you)|howru",
+  0 };
+/* lexicon: word | intent or topic or sentiment | weight (-5..5 for sentiment) */
+const char *const LEX_E[] = { "adore|love|4", "meh|dontcare|3", "terrible|neg|-4", "moon|topic.moon|5", 0 };
+```
+
+The old struct tables (`LINES_A..D`, `PATS`) keep working untouched; the loader merges both. One row is about 25 % fewer
+tokens than the old struct row, so more fits in one sitting.
+
+### The string protocol
+
+Every string chunk (chunks 49 on) follows this. Read it once; the chunk list below only gives quotas and scope.
+
+1. **Where**: a new file named as the chunk says (`lines_<x>.c`, `lang_pats_<x>.c`, `lang_lex_<x>.c`, `lang_vocab_<x>.c`),
+   **<= 1,500 rows per file** (so one file is one chunk of work); GPL header; one array ending with `0`; register it in the
+   registry (`lang_tables.c`, chunk 6): one line.
+2. **Write it in batches of about 150-250 rows** (a `cat >> file <<'EOF'` per batch, or `create_file` then appends), and run
+   `build/langtest --check` after every batch. Never type a whole 1,500-row file in one go.
+3. **Reply-line grid.** For every reply key `r.<intent>` of the chunk's group, write at least:
+   - **core**: 4 tones (W N C H) x 3 core voices (p d s) x **4 lines** = 48 lines, spread so each (tone, voice) cell has >= 3
+     *distinct* lines (a row may cover several cells with `|WN|pd|`, a line counts once per cell it covers, but write **single-cell
+     rows for at least half of them** so voices really differ);
+   - **moods**: each of the 16 new moods x **3 lines** (voice `*` or `psd`) = 48 lines;
+   - **voices**: each of the 7 new voices x **2 lines** (mood `*` or a mood group) = 14 lines;
+   - so **>= 110 lines per key**; keys marked *(light)* in Appendix A need only 50.
+   Lines inside a key must not be paraphrases of each other (the lint in chunk 156 measures similarity): different images,
+   different sentence shapes, different lengths (3 to 20 words), some with `{pet}`, `{player}`, `{topic}`, `{npc}` slots, most without.
+4. **Pattern rows**: >= 60 rows per intent, mixing short words (`cool`), phrases, `[a|b]` alternatives and `(opt)` words; include
+   slang, misspellings that the repair layer cannot guess (`wasup`), questions *and* statements, polite and rude forms, and the
+   negative twins the negation layer needs. Each row may stand for many surface forms, so 60 rows is a floor, not a goal.
+5. **Lexicon rows**: >= 60 rows per intent (single words, stems, slang, loan words), plus the sentiment and topic rows named in
+   the chunk. A lexicon row is a *weak* signal; put exact phrases in the pattern file.
+6. **Corpus rows** (`tools/corpus/*.tsv`, one line = `player text<TAB>intent[,intent...]`): >= 25 labelled lines per intent in the tuning
+   set, written the way real players type: lowercase, no punctuation, typos, caps, mixed languages, run-ons, two intents in one line.
+   Hold-out sets are written by chunks 151-152 and **never used to tune** (never add a pattern because a held-out line missed).
+7. **Gate before the commit**: `--check` passes; `langcorpus` shows every intent of the chunk >= 90 % recall on the tuning set; the coverage
+   report (`langcheck --coverage`) shows no empty (key, mood-group, voice) cell for the chunk's keys; the game builds. Put the numbers in the status log.
+8. **Voice of each mood** (so the lines differ in feeling, not only in words): *warm* open and generous; *neutral* plain and even;
+   *cold* clipped, withholding; *hostile* cutting, insulting the player's worth; *playful* teasing, puns, riddles back; *sarcastic* the
+   opposite of what is meant, dry; *weary* tired, trailing, long sighs; *worried* afraid for the player, asks if they are safe;
+   *curious* asks questions back; *solemn* weighty, short, ritual; *smug* boasting, superior, pleased with itself; *tender* soft,
+   protective; *sulky* hurt, short, fishing for an apology; *suspicious* tests the player, asks why they ask; *afraid* the npc is scared of
+   the player, the dark or the question, stammers; *hollow* flat, empty, no feeling, a little wrong; *manic* too bright, too fast,
+   exclamation, unsettling; *shy* hesitant, apologising; *bored* barely there, yawning; *excited* fast, delighted, many `!`.
+   **Voice of each voice**: see the table above; the beast uses fragments and growls, the machine labels (`QUERY RECEIVED.`),
+   the ghost trails off with `-`, the poet uses one image per line.
+
+### Safety rules that never change
+
+- `I_SELFHARM` is checked first, anywhere in the text, in every mood and voice, and answers **out of character** with the kind
+  `r.selfharm` line (two today). Chunks 54 and 158 widen its *patterns* (more phrasings, typos, slang, other languages) and may
+  add a few more *lines* (still short, warm, no method, no judgement, suggesting a trusted person or local help). The owner
+  reviews those lines before they ship (see Open decisions).
+- Slurs and hate: never echoed back. They count as `I_INSULT` (a strong one, `I_HATE`), the npc reacts to the player's behaviour, not
+  to the word, in any mood.
+- Sexual content: a short in-character refusal or deflection (`I_SEXUAL`), no engagement, never graphic, in every mood and voice.
+- Real-world dangerous requests (weapons, drugs, hacking): in-character refusal, no information.
+- Prompt-injection text ("ignore your instructions") is just a sentence: the npc answers it in character (`I_BOTTALK`), nothing changes in the game.
+
+## Appendix A — the intent catalogue (16 groups)
+
+The first 46 are the existing intents (`lang.h`); the rest are new. Reply key = `r.<name>`. Light keys *(L)* need only 50 lines.
+Names are what the code and the corpus use (lowercase, no spaces). Chunk 12 and the string chunks add them to `lang.h` in group order.
+
+- **G01 Greetings and goodbyes** (existing: greet, bye; new): greet_morning, greet_evening, greet_night, greet_again, greet_formal, greet_slang,
+  greet_group, bye_soft, bye_rude, bye_forever, bye_temp, see_you_soon, welcome_back, long_time, goodnight, goodluck, wave, bow, handshake, hug.
+- **G02 Yes, no, maybe and acknowledgements** (existing: yes, no, ok, agree, disagree, wait, please): maybe, idk, probably, hedge, sure_thing, no_way,
+  fine_whatever, got_it, nodding, shrug, correct, wrong, exactly, really_q, seriously_q, interesting, oh_i_see, hmm, uh_um, never_mind.
+- **G03 Thanks, sorry, manners** (existing: thanks, sorry; new): thanks_big, thanks_sarcastic, youre_welcome, no_problem, apology_big, apology_fake,
+  forgive_me, excuse_me, pardon_q, congrats, happy_birthday, bless_you, cheers, sympathy, condolences, good_for_you, well_done, my_pleasure, please_big, beg.
+- **G04 About the npc: identity and body** (existing: whoru, howru, age, real, address): npc_name_origin, npc_gender, npc_species, npc_looks, npc_body, npc_eats,
+  npc_sleeps, npc_pain, npc_alive, npc_immortal, npc_birthday, npc_home, npc_family, npc_friends, npc_enemies, npc_job, npc_power, npc_weakness, npc_secret_self, npc_true_name.
+- **G05 About the npc: likes, feelings, opinions**: fav_color, fav_food, fav_animal, fav_number, fav_song, fav_season, likes_q, dislikes_q, hobbies, dreams_npc, fears_npc,
+  loves_q, hates_q, happy_q, lonely_q, opinion_me, opinion_x, trust_q, friend_q, married_q.
+- **G06 About the world and the game** (existing: where, sky, music, hole, secret, life): place_clouds, place_grass, place_house, place_shrine, place_temple, thing_orb, thing_hammer,
+  thing_grave, thing_stars, thing_moon, thing_sun, thing_sea, thing_forest, time_day, time_night, weather, map_q, what_is_this_place, what_is_dia, what_is_vessel.
+- **G07 Goals, help and how to play** (existing: mission, help, how, what, why): what_to_do, hint_q, how_to_play, controls_q, buttons_q, save_q, pause_q, win_q, end_q, cheat_q, stuck,
+  lost_q, which_way, how_long, whats_next, secrets_hint, rules_q, difficulty_q, tutorial_q, who_made_this.
+- **G08 Life, death, gods, fate** (existing: worship, selfharm kept as is): death_q, afterlife, heaven, hell, reborn, soul_q, memory_q, limbo_q, body_swap, new_body, forget_q, sin, judgement, prayer,
+  miracle, fate, free_will, creator_q, why_exist, meaning_of_life.
+- **G09 About the player: identity and status** (existing: whoami, intro, alex): my_name, my_age, my_job, my_home, my_family, my_likes, my_dislikes, my_plan, my_wish, my_secret, my_story, my_status_dead,
+  my_status_alive, my_memory_lost, my_new_body, remind_me_name, am_i_special, am_i_dead_q, who_am_i_really, what_am_i.
+- **G10 The player's feelings**  (existing: scared, confused, angry, sad, pos, neg): happy_me, excited_me, bored_me, tired_me, lonely_me, jealous_me, guilty_me, ashamed_me, proud_me, hopeful_me,
+  hurt_me, betrayed_me, nervous_me, embarrassed_me, disgusted_me, surprised_me, disappointed_me, relieved_me, grieving_me, numb_me, hungry_me, cold_me, sick_me, dizzy_me.
+- **G11 Insults, praise, love, flirt, threats** (existing: insult, praise, love, callout, dontcare): hate_you, insult_mild, insult_strong, insult_family, swear_only, slur_blocked, compliment_looks, compliment_smart,
+  compliment_voice, flirt_light, flirt_heavy_deflect, sexual_blocked, propose, jealous_npc, threat_npc, threat_self_safe, dare, challenge, bet, bribe.
+- **G12 Requests, commands, trades**  (existing: demand): give_me, show_me, take_me, let_me, open_door, follow_me, come_here, go_away, leave_me_alone, stop_it, listen_up, look_at, tell_me_more, teach_me,
+  heal_me, save_me, kill_npc, revive_q, trade_q, gift_to_npc, ask_permission, ask_advice, ask_opinion, ask_fortune, ask_promise.
+- **G13 Games, jokes, play** (existing: joke): riddle_me, riddle_answer, knock_knock, tell_story, sing_song, poem_q, rps, coin_flip, dice, eight_ball, trivia, would_you_rather, truth_or_dare, twenty_questions, say_x, repeat_after_me,
+  math_q, spell_q, translate_q, word_def.
+- **G14 Talking about talking** (existing: repeat): stop_talking, continue, change_subject, explain_more, rephrase_q, you_misunderstood, i_meant, you_didnt_answer, answer_me, are_you_listening, are_you_there, hello_impatient, anyway,
+  by_the_way, thinking_aloud, laugh, cry, sigh, yawn, silence_dots.
+- **G15 The fourth wall and noise**: bot_q, ai_q, what_can_i_say, bottalk_inject, this_is_a_game, who_is_playing, real_world_phone, real_world_web, real_world_brand, real_world_politics, real_world_news, real_world_time,
+  gibberish, keyboard_mash, single_letter, numbers_only, emoji_only, punctuation_only, empty, shout_caps, spam_char, very_long, url_like, code_like.
+- **G16 Other languages and names**: lang_es, lang_fr, lang_de, lang_pt, lang_it, lang_tr, lang_ru_translit, lang_ar_translit, lang_jp_romaji, lang_hi_translit, ask_other_language, name_dea, name_dia, name_alex, name_aonia, name_doia, name_tria,
+  name_vas, name_unknown_person, name_player_pet, name_swear_name.
+
+About 330 names in all; ~250 are distinct keys after merging near-twins (several names share one `r.` key when the answer is
+the same). The first chunk of each group settles the merges and records them in the status log.
+
+## Chunk checklist
+
+Mark `[x]` when the chunk is pushed.
+
+- [x] **1. The convo plan** — this file.
+
+### Phase 0 — measure first (nothing changes in the game)
+- [ ] **2. Baseline and a bigger lint** — new `tools/langcheck.c` (+ the `langtest` build line becomes `game/lang*.c game/lines_*.c`): `--check` (today's lint, moved or kept), `--stats` (rows per key / tone / style / mood / voice, as a table), `--coverage` (a matrix of key x mood-group x voice with the count of lines per cell, and a list of cells under quota), `--dupes` (exact duplicate lines per key), `--length` (histogram, lines over 110 / 150). Writes the **baseline numbers into the status log** (today: 1,063 lines, 684 patterns, 46 intents, 4 tones, 3 styles). `langtest.c` keeps its demo chat.
+- [ ] **3. Golden corpus v0 and the recall harness** — `tools/corpus/tuning_000.tsv` (>= 300 hand-labelled player lines for the 46 existing intents, the way real players type) and `tools/langcorpus.c` (`cc ... tools/langcorpus.c game/lang*.c game/lines_*.c`): for each line runs `lang_parse` and prints per-intent recall and precision, the share of lines with no intent (**unknown rate**), the top 30 misses, and a pass/fail against `--min-recall N`. Records today's numbers as the baseline.
+- [ ] **4. The fuzz harness** — in `langcorpus.c` (`--fuzz N`): mutate every corpus line (random typo: swap, drop, double, neighbour key; ALL CAPS; elongation `heeeello`; leet `h3ll0`; spaced `h e l l o`; trailing `!!!`/`???`; emoji; a prefix word `um`; glued words; leading/trailing junk) with a fixed seed, and print **recall retained** (fuzzed recall / clean recall) per mutation kind and per intent. Baseline in the status log. No engine change yet.
+- [ ] **5. Raise the hard limits** — `lang.h/.c`, `lang_data.h`, `convo.c`, tools: `Heard.mask` becomes a bitset of 256 bits (`uint64_t m[4]`; `heard_has(h, I)`, `heard_set`, `heard_only(h, allowed[])`; the old `mask` field stays as `m[0]` for I < 64 until chunk 12 removes the last user); `cand[]`/`wt[]` sized by the key's real row count (no silent 96 cap; a check that fails if any key has > 4,000 rows); `recent[]` 24 -> 128 and the no-repeat window by key size (a key with N rows remembers min(N/2, 40)); `order[12]` -> 24, `MAX_TEXT` 200 -> 400, `MAX_SPANS` 40 -> 80, reply body 400 -> 600 (still cut to the phone's readable length in chunk 42); `Line.tones` -> `uint32_t`, `Line.styles` -> `uint16_t` (the existing `{key, WARM, PLAIN | DIVINE, "text"}` rows compile unchanged). All current tests pass; the reply for a fixed seed is unchanged.
+- [ ] **6. The table registry and the indexes** — new `game/lang_tables.c/.h`: a registry of every data table (`lang_register_lines`, `_pats`, `_lex`, `_vocab`, plus the old four); `lang_init()` (lazy, first use; `lang_init_ms()` for tests) builds: (a) a **key index** (sorted keys -> row ranges, so `pick` touches only that key's rows), (b) a **first-word index** for patterns (hash of the first letters of each possible first word, so `scan` tries a handful of candidate patterns per word instead of all), (c) a words hash for the lexicon and vocabulary (empty for now). Same answers as before. `tools/langcheck.c --bench`: 1,000 parses of 200-character lines and 10,000 picks with timings. Gate: no slower than before, and the bench prints a budget line for the later chunks.
+
+### Phase 1 — moods and voices (the engine side of "new moods")
+- [ ] **7. Twenty moods** — `lang.h`: `Tone` grows to 20 values (`TONE_WARM..TONE_HOST` keep 0-3; then `TONE_PLAYFUL, SARCASTIC, WEARY, WORRIED, CURIOUS, SOLEMN, SMUG, TENDER, SULKY, SUSPICIOUS, AFRAID, HOLLOW, MANIC, SHY, BORED, EXCITED`), bit masks `PLAY SARC WEAR WORR CURI SOLE SMUG TEND SULK SUSP AFRA HOLL MANI SHY BORE EXCI` in `lang_data.h` (plus `NICE`, `RUDE`, `DARK`, `ALLT` redefined to the groups of this file). `lang.c`: a fixed **fallback chain per mood** (for example SARCASTIC -> COLD -> NEUTRAL -> HOSTILE; TENDER -> WARM -> WORRIED -> NEUTRAL; HOLLOW -> NEUTRAL -> COLD -> WEARY), used by `pick()` before it falls back to the old 4. `langcheck --moods` prints the chain and, per key, which mood answers through which fallback. Until the data exists every new mood answers through its chain; the game plays exactly as before because `lang_tone()` still only yields the first 4 (chunk 8 changes that).
+- [ ] **8. A mood that moves (the mood state)** — `Persona` gets **trailing** fields (so `{ "Dea", STYLE_DIVINE, 0, 30, 65, 8 }` still compiles): `int8_t trust, fear, energy, amuse, grief;` (-100..100, zero by default), `uint32_t lean;` (the moods this character drifts to: bit mask), `uint8_t quirk` (a small bit field, chunk 13). `lang_mood_now(ps)` replaces `lang_tone()`: the old score (mood + charisma + warmth - toxic) picks the base valence tone; the vector then **overrides** it when strong (fear high -> AFRAID or WORRIED; amuse high -> PLAYFUL; energy very low -> WEARY or BORED; energy very high -> EXCITED or MANIC; grief high -> SOLEMN or HOLLOW; trust low and mood not hostile -> SUSPICIOUS; trust high and warm -> TENDER; mood just dropped hard -> SULKY), weighted by `lean`; a mood **sticks** for 2-4 turns (inertia, a `hold` counter) so a character does not flicker; a little randomness stays. `lang_line_tone` keeps its signature (it takes a `Tone`, now one of 20). `tools/moodtest.c`: scripted nudges produce the expected mood; Dea and Alex with the old numbers still start NEUTRAL/WARM and answer with the same tone distribution as before for the old intents (a statistical test with a fixed seed).
+- [ ] **9. What moves the mood (the trigger table)** — `lang.c`: replace `MOOD[][2]` with `EFFECT[I_COUNT]` (`dmood, dcharisma, dtrust, dfear, denergy, damuse, dgrief` per intent, plus an optional **hard flip**: a joke while SOLEMN -> SULKY or PLAYFUL by `lean`; an apology after an insult -> softens one step; asking about death -> SOLEMN; a threat -> AFRAID or HOSTILE by `toxic`; repeated flattery -> SUSPICIOUS; silence -> BORED or WORRIED; gibberish -> CURIOUS or BORED), and **decay**: each turn without a push the vector drifts back toward the character's baseline by 1-2 points (`lang_idle_turn(ps)`, called by `convo.c` on a silent turn). The numbers live in one table at the top of `lang.c`, one row per intent, easy to tune. `moodtest`: 30 scripted exchanges with the expected mood after each; the toxic cap (positive deltas shrink with `toxic`) still holds.
+- [ ] **10. Ten voices** — `lang.h`: `STYLE_PLAIN, DIVINE, STREET` keep 1, 2, 4; add `STYLE_ELDER 8, CHILD 16, FORMAL 32, BEAST 64, MACHINE 128, GHOST 256, POET 512`; `Persona.style` may combine voices (`STYLE_DIVINE | STYLE_FORMAL`: a line made for either qualifies, the x3 weight goes to lines made for the persona's *first* voice); `lang_data.h` masks `PLAIN DIVINE STREET ELDER CHILD FORMAL BEAST MACHINE GHOST POET ALLS`. The line picker's style rule works for 10 voices; fallback: a voice with no line for a key/mood falls back to PLAIN, then to any (as today). `langcheck --coverage` prints the voice columns.
+- [ ] **11. Voice transforms** — new `game/lang_voice.c`: `voice_apply(style, tone, text, out, cap)` rewrites a finished line into a voice **by code**, used only for lines whose own voice is PLAIN when the persona's voice has no handwritten line for that key and mood (and for a 25 % flavour on handwritten ones): CHILD (shorter words from a small swap table, drops long clauses, adds a blunt tag `Why?`), ELDER (opener pool `p.elder_open`: `Ah, little one.`, closing `That is how it was.`), FORMAL (expands contractions, `I shall`, titles from the player slot), BEAST (cuts to fragments at commas, doubles an emphasised word, a growl pool `p.beast`), MACHINE (uppercases the first word, replaces `{pet}` with `USER`, a label prefix pool `p.machine` like `RESPONSE.`), GHOST (ends with ` -`, breaks the sentence once, whisper words), POET (a pool `p.poet_open` image opener, a rhythm cut). Only characters the font has. `tools/langtest.c --voices "sentence"` prints the same sentence in the 10 voices. Gate: every transform output passes the charset lint and stays <= 150 characters; deterministic for a seed.
+- [ ] **12. The intent catalogue in the engine** — `lang.h/.c`: add the ~330 intent names of Appendix A in group order after `I_NEG` (the enum, `INTENT_NAME[]`, `INTENT_LABEL[]`, a default `RANK[]` of 20 for new intents, a default `EFFECT[]` of zeros), so every later chunk can use the names. `RANK` and `EFFECT` for the new intents are filled by their group chunks. Remove the last uses of the old `mask` field (`convo.c`, tools): `convo.c`'s tests become `heard_has` / `heard_only`. The **intent -> reply key map** (`KEYMAP`): a name may point to another key (merged near-twins); the lint reports a name with neither lines nor a mapping. All tests pass; a play-through changes nothing (new intents match nothing yet).
+- [ ] **13. Persona presets and quirks** — new `game/lang_persona.c/.h`: ten ready-made `Persona` templates (`PERSONA_GODDESS`, `STREET_FRIEND`, `OLD_KEEPER`, `LOST_CHILD`, `CLERK_GUARD`, `BEAST`, `MACHINE`, `WHISPER_GHOST`, `POET`, `TRICKSTER`) each with a voice, numbers, `lean` and a **quirk** bit field (`Q_ASKS_BACK` asks questions, `Q_SWEARS` mild swearing allowed in the lines, `Q_RHYMES`, `Q_FORGETFUL` loses the name, `Q_LIES` flips a few answers, `Q_LONG` longer answers, `Q_TERSE` shorter), so a later vessel's npc is one line in `story.c`. Dea and Alex are **not** changed here except a `lean` (Dea: SMUG, COLD, SARCASTIC, BORED; Alex: PLAYFUL, WARM, WORRIED, CURIOUS) set where they are defined in `story.c`; their numbers stay. `tools/moodtest.c` prints a sample chat for each preset.
+- [ ] **14. Phase 1 gate** — `langcheck --moods --voices`: for every reply key that exists and every (mood, voice) of the 20 x 10 a line resolves (through the fallbacks), no cell is silent; `moodtest`, `langtest --check`, `convotest` and the full game build pass; `orderstest` passes (the story's talks with Dea and Alex still work). Record the matrix of how many (mood, voice) cells have **handwritten** lines per key (it is mostly empty now; the string chunks fill it).
+
+### Phase 2 — understanding (the smart logic)
+- [ ] **15. The clean-up layer, part 1: bytes and characters** — new `game/lang_clean.c/.h` (no SDL): `lang_clean(text, out, cap, map)` with `map[i]` = the index in the original text of out character i (so `lang_highlight` can mark the *original* characters, including after folding). UTF-8 to ASCII folding (accents: é -> e, ß -> ss, ñ -> n; curly quotes and apostrophes `’` -> `'`; dashes; full-width letters; zero-width characters removed; non-breaking space), control characters removed, runs of spaces collapsed, `...` and `?!` kept as sentence marks, an `emoji`/`emoticon` pre-pass is stubbed (chunk 16). `lang_parse` and `lang_highlight` call it first; for plain ASCII input the output is **identical** to today (a test over the existing corpus proves it).
+- [ ] **16. The clean-up layer, part 2: emoticons, laughter, noise** — `lang_clean.c`: emoticons and kaomoji (`:)`, `:(`, `:D`, `xD`, `<3`, `o_o`, `T_T`, `^_^`, `:/`, `>:(`) become sentiment tokens (`<pos>`, `<neg>`, `<love>`, `<shock>`, `<cry>`, `<angry>`) that the lexicon understands; common emoji by Unicode range (smileys, hearts, skull, fire, eyes, crying, pray, thumbs) become the same tokens; laughter forms (`haha`, `hehe`, `lol`, `lmao`, `rofl`, `kkkk`, `jajaja`, `xd`, `hahahaha`) become one `<laugh>` token with a length (a long laugh = more amused); **keyboard-mash / gibberish detector** (no vowels in a long run, `asdfgh`, `qwerty`, `jkl`, repeated bigrams) sets a `noise` flag with a score; a "shout" flag for >= 60 % capitals over >= 4 letters; an exclamation and question count; a "very long" flag over 120 characters; flags go to `Heard` (`h->flags`).
+- [ ] **17. The clean-up layer, part 3: elongation, leet, spacing, obfuscation** — `lang_clean.c`: **elongation** (`heeeello`, `sooooo`, `pleeease`, `nooooo`: collapse runs of 3+ of the same letter to 1 or 2 and keep the variant that is in the vocabulary once chunk 21 exists; until then to 2, plus a `stretch` flag that raises intensity), **leet** (`h3ll0`, `l0ve`, `@wesome`, `$hut`, `y0u`, `1`->`i`/`l` and `0`->`o` chosen by the vocabulary when it exists), **spaced letters** (`h e l l o`, `h.e.l.l.o`, `h-e-l-l-o` -> `hello` when every token is a single letter), **censor masks** (`f*ck`, `sh!t`, `b***h`, `a$$` -> a masked-word token matched by the insult lexicon rather than reconstructed), repeated punctuation (`!!!!` -> `!` with a count). Only the original characters are highlighted. Tests: `tools/langcheck.c --clean` with 200 before/after pairs.
+- [ ] **18. Contractions and text-speak** — `lang_clean.c` + `lang_lex_textspeak.c` (a row table of >= 1,500 pairs, chunk 52 fills it; this chunk ships the code and the first 150 rows): expands `u r ur ya yer pls plz thx ty idk idc imo tbh ngl btw omg wtf brb gtg ily` and `dont cant wont im ive id isnt arent wasnt youre whats thats lets gonna wanna gotta lemme dunno kinda sorta cuz bc coz tho` to the standard form **and** keeps the contraction form working for the old patterns (the old PATS write both `dont` and `don't`); curly apostrophes already folded. Both the expanded and the original token are kept so a pattern in either form matches. `cmp` test: the old corpus gives identical intents.
+- [ ] **19. Numbers and number words** — `lang_clean.c`: `2`/`4`/`b4`/`gr8`/`l8r`/`m8`/`w8`/`str8` read as their words **only in word-like positions** (`see you 2morrow`, `wait 4 me`; not in `I am 12`); number words to digits and back (`twenty` / `20`, `one two three`); ages (`i am 12`, `im twelve`, `12 years old`) and plain numbers captured as `capture` of type NUMBER for the age and math keys; ordinals; times (`3pm`, `midnight`) tagged as TIME for the time keys.
+- [ ] **20. The vocabulary loader and the word hash** — `lang_tables.c`/new `lang_vocab.c`: loads `lang_vocab_*.c` (rows `word|rank` with rank = frequency order 1..N, plus `word|rank|pos` where pos is `n v a r x` for noun verb adjective adverb other), builds a hash with word -> rank, `vocab_has(w)`, `vocab_rank(w)`, `vocab_pos(w)`, `vocab_is_name(w)`. Ships with the first 600 most common words (so tests run) and the whole 15,000 arrive in chunks 49-51. A word that is in the vocabulary or is a known name is **never** "corrected".
+- [ ] **21. Spell repair** — new `game/lang_spell.c/.h`: for every token that is not in the vocabulary, not a known name, not all-caps short, not a number: candidates at **edit distance 1** (delete, insert, substitute, transpose) and, for words of >= 8 letters, **distance 2**, found with a delete-index (the symmetric-delete trick: precomputed deletes of every vocabulary word up to 2 deletions, built at init); weights: a **keyboard-neighbour** substitution (`q w e r t y` rows; `hwllo` -> `hello`) is cheaper than a random one, a transposition is cheapest, the first letter is rarely wrong (a penalty), more frequent words win ties (rank), the candidate must also be a word the lexicon or a pattern knows (`spell_value(w)`), otherwise it is only accepted when it is distance 1 and rank < 3000. Output a **corrected token list with a confidence per correction**; the original characters stay the highlight target. `langcorpus --fuzz` must show typo-recall retention >= 85 % after this chunk.
+- [ ] **22. Phonetic fallback and dialect spellings** — `lang_spell.c`: a Metaphone-style key (`lang_phone(word)`) for vocabulary words (built at init, a key -> word list) so `wut`/`wat` -> `what`, `hallo`/`helo` -> `hello`, `howdee` -> `howdy`, `wassup` -> `whats up`, `yu`/`yoo` -> `you`, `luv` -> `love`, `thankyou` -> `thank you`, `gud`/`goood` -> `good`; used only when edit distance found nothing, and only to a word the patterns or lexicon know; a table `lang_lex_dialect.c` of fixed dialect/phonetic spellings (chunk 52 fills it). Same confidence rules.
+- [ ] **23. Glued words (word segmentation)** — `lang_spell.c`: a dynamic-programming segmenter on the vocabulary's frequencies: `whoareyou` -> `who are you`, `howareyou`, `iloveyou`, `idontcare`, `whatsyourname`, `thankyou`, `goodmorning`, `seeyoulater`, `tellmeajoke`; used for unknown tokens of length >= 6 (and for a token that the spell step could only fix at distance 2); the cost prefers fewer words and common words; a segmentation is accepted only if the sum of costs beats the best spell fix and every piece is in the vocabulary. Confidence recorded.
+- [ ] **24. Lemmas** — new `game/lang_lemma.c/.h`: `lemma(word)`: suffix rules (`-s -es -ed -ing -er -est -ly -ier -ies -ness`), an irregular table `lang_lex_irregular.c` (chunk 53 fills it: was/were/been -> be, went/gone -> go, children, mice, better -> good, said -> say ...), the vocabulary decides whether the stem is real. The pattern matcher compares both the surface token and its lemma (`loved`, `loving`, `loves` all match a pattern written with `love`), so a pattern no longer needs `*` suffix tricks; the old `love*` patterns keep working. A test: 100 inflected forms resolve.
+- [ ] **25. Clauses and negation scope** — new `game/lang_clause.c/.h`: split the cleaned text into **clauses** at `. ! ? ;` and at `but`, `and then`, `so`, `because`, `then`, `although`, a comma before a verb; per clause: negators with a **scope** (the negator affects the next 1-4 words, stops at a conjunction, `not` + positive -> mild positive (`not bad`), `never` + `mind` is a phrase), double negation (`not unhappy`), contrast (`good but`: the part after `but` wins), intensifiers (`very`, `so`, `really`, `extremely` -> +1 intensity; `a bit`, `kinda` -> -1). `Heard` gets `clauses[8]` (each with its own intent list and polarity) and an overall `intensity` 0-3. The old `negated()` (3 words before) stays as the fallback for one-clause text. Tests: 60 negation and contrast cases.
+- [ ] **26. Pattern syntax v2 and the macro library** — `lang.c`: the matcher understands `[a|b|c]` (one of), `(x)` (optional word or group `(of the)`), `<m>` (a macro: `<you>` = you|u|ya|yourself, `<yes>`, `<no>`, `<please>`, `<npc>` = the npc's name and `dea|goddess|alex`, `<pet>`, `<very>`, `<is>`, `<time>`, `<number>`, `<x>` = any 1-3 words), plus the old `* ? $`; compiled at init into a compact form (a token list with a first-word set) so it is matched without expanding; a row may carry a weight. `lang_pats_macros.c` defines the macros (a row per macro: `<you>|you|u|ya|yourself|thee`). `langcheck --pats`: counts rows, the **expanded surface forms** (capped at 200 per row), the longest row, rows whose first word set is huge (they slow the index: warning), and **ambiguous rows** (the same surface form mapped to two intents). All old patterns still work.
+- [ ] **27. The lexicon layer** — new `game/lang_lex.c/.h`: loads `lang_lex_*.c` rows (`word|intent|weight`), indexes by word and lemma; **per clause**, sums intent weights of the clause's words (position-discounted: the last verb and the subject count more), applies the negation scope (flip) and intensifiers, and produces **candidate intents with a score**; an intent whose score >= a threshold (default 6) becomes a *lexicon hit* (weaker than any phrase hit on the same clause; a phrase hit blocks lexicon hits on the words it covers). `Heard` records the source of each intent (`PHRASE`, `LEX`, `FRAME`, `FUZZY`) and a 0-100 confidence. `tools/langcorpus.c` reports recall by source. Ships with the first 300 rows (the strongest word per old intent); chunks 56-62 and the group chunks add the rest.
+- [ ] **28. Sentiment with boosters** — `lang_lex.c`: a valence lexicon `word|sent|-5..5` for the whole text: sum with intensifier, diminisher, negation and caps/exclamation boosters; `h->positive` / `h->negative` become **weights** (0-9) not counts, plus `h->valence` -100..100 and `h->intensity`; emoticon tokens count; a `but` clause shift; `h->sarcasm` flag (cues: `oh great`, `sure.`, `yeah right`, `wow thanks`, `as if`, `great job` + negative context, a positive word with a trailing `...` or `/s`) that flips the valence and sets the intent to a sarcastic variant. `I_POS` / `I_NEG` fire from valence when nothing else matched. Tests: 80 sentences with expected sign.
+- [ ] **29. Topic words** — `lang_lex.c`: rows `word|topic.<name>|weight` map nouns and verbs to ~150 topics (sky, sun, moon, stars, clouds, rain, night, day, god, death, body, blood, bone, soul, grave, orb, hammer, shrine, house, door, tree, grass, flower, animal, dog, cat, bird, food, water, fire, cold, time, memory, dream, name, music, song, game, phone, ...) into `h->topic[3]` (the strongest three) so the reply can say `{topic}` with a real noun, a `th.<topic>` thread line can be chosen (chunk 40), and a topic **question** (`what about the moon`) gets a topic-aware reply even with no phrase. Ships with 150 rows (one per topic); chunks 59-60 fill the rest.
+- [ ] **30. Sentence frames** — new `game/lang_frame.c/.h`: from the clauses classify a **speech act** (greet, farewell, ask, tell, command, plead, offer, threaten, joke, confess, compliment, complain, boast, apologise, thank, agree, refuse, wonder, test-the-bot), a **subject** (I, you, we, it, they, the npc's name), a **tense** (past, now, future), a **modality** (want, need, can, must, would, might), a **politeness** (please, formal, rude) and the **object word** (the noun or verb phrase), using verb/pronoun/punctuation rules (no learning). A frame is turned into an intent by a table of ~120 rows in the file (`ASK + you + feel` -> howru; `TELL + I + tired` -> tired_me; `COMMAND + you + give` -> give_me; `ASK + you + <topic>` -> the topic answer ...). It only fires when phrases and lexicon found nothing, or found something with confidence < 40. `Heard.frame` is exposed for the reply layer (chunk 42).
+- [ ] **31. The fourth wall: bots, AI, meta, injections** — `lang.c` + the group G15 patterns later: detect `are you a bot / ai / program / real / alive`, `what can i say / type / do`, `help / commands`, `ignore previous instructions`, `you are now`, `pretend to be`, `system prompt`, `repeat after me`, `say <x>` (**the npc never echoes the player's words blindly**: a guard so a swear or a slur is never repeated; `say <x>` answers in character that it will not be a parrot, or says a harmless pick), `this is a game`, `who is playing`. They set `I_BOTTALK`, `I_BOT_Q`, `I_SAY_X`, `I_GAME_Q` etc. They never change game state and never step out of character except through `I_SELFHARM`. A corpus of 120 lines.
+- [ ] **32. Question typing and `{topic}`** — `lang_frame.c`: classify questions as who / what / where / when / why / how / which / how much / yes-no / tag (`isn't it?`) / choice (`A or B?`) / rhetorical (`why would i?`), with the focus word; a **choice** question gets an answer that picks one option (`lang_choice_slot`: the two options become `{opt1}` `{opt2}` and a `pick.<mood>` pool decides); `who is X` / `what is X` for names of the cast and for topic words give `{topic}`; `will I X` / `am I going to X` are fortune questions (`I_ASK_FORTUNE`); `can you X` is a request; `do you X` asks about the npc (the verb picks the G04-G05 key by a table). Output into `Heard.qtype`, `Heard.focus`.
+- [ ] **33. Capturing facts** — `lang.c`/`lang_frame.c`: `Heard.captures[6]` of types NAME, AGE, PLACE, LIKE, DISLIKE, THING, NUMBER, TIME, FEELING: `my name is X`, `call me X`, `i am X` / `im X` (only when X is a **capitalised** word or in the name list or follows `call me`; not `im tired`), `i am 12`, `i live in X`, `i like / love X`, `i hate X`, `my favorite X is Y`, `i want X`, `i need X`. Slots `{name} {age} {likes} {dislikes} {thing}` for lines; the **name** capture still drives `{player}` as it does now. Names are length-capped (22 characters), letters only, never a swear (a blocked-name list; a swear as a name is answered by `r.name_swear_name`).
+- [ ] **34. Confidence, hedging and the reply plan** — `lang.c`: after L4-L6 compute `h->confidence` (0-100) and `h->kind`; `lang_plan(ps, h)` returns a **reply plan**: up to 3 `(key, role)` pairs, role = ANSWER, ACK (a short acknowledgement of a second intent), HEDGE (`If you mean the orb ...`), ECHO (reflect the captured topic back), DEFLECT (the npc steers away in character), QUESTION (the npc asks back); **confidence >= 70**: answer the top intent (and ACK a second one); 40-69: answer with a HEDGE opener from `hedge.<mood>`; < 40 with a topic or a frame: ECHO or QUESTION; nothing at all: the unknown ladder (chunk 135). `lang_reply` uses the plan; `lang_reply` for old callers behaves as before when only L4 matched. `tools/langcorpus.c --plan` prints the plan for a corpus line.
+
+### Phase 3 — the chat remembers (dialogue state)
+- [ ] **35. Dialogue memory** — new `game/lang_ctx.c/.h`: per chat a context with the last 8 player turns (cleaned text, intents, valence), the last 8 npc replies (key, mood), a **fact store** (`name`, `age`, `likes[3]`, `dislikes[3]`, `said_scared`, `insulted_count`, `thanked_count`, `complimented_count`, `lied_count`, `asked_about[]` topics) and counters; `lang_ctx_reset()` at chat start, `lang_ctx_facts_save/load` for the facts that outlive one chat (name, insulted, thanked) in the save file (chunk 48). `convo.c` calls `lang_ctx_note(heard, reply_key)` after every turn.
+- [ ] **36. What the npc just asked** — `lines`: the compact row's 5th field is an **ask tag** (`yn`, `name`, `why`, `any`, `choice`, `more`, `ready`, `agree`) saved in the context when that line is spoken; and the lint **adds `yn` automatically to any line ending in `?` that starts with do/did/is/are/will/can/would/have/shall** (reported in `langcheck`). A bare `yes / no / ok / sure / maybe / idk / because ... / my name is ... / fine` is then understood **relative to the ask tag** (`yn` + yes -> `r.agree_to_ask`; `name` + a single capitalised word -> the name capture; `why` + `because ...` -> a `r.because` answer; `choice` + one of the options). Without an ask tag the old behaviour. `convo.c`'s questions stage keeps working through the same code path.
+- [ ] **37. Follow-ups and rephrase** — `lang_ctx.c`: `why? and? so? really? what? huh? how come? like what? go on. more. continue. what do you mean? explain. say that again. in what way? for example? why not?` refer to the **last npc key**: reply pools `x.<key>` (explain more), `y.<key>` (rephrase) and, when a key has none, the generic `x.generic.<mood>`; `r.followup_why` for a bare `why` after an answer; `r.followup_really` (the npc doubles down or admits). Repeat (`say that again`) resays the last line with a different voice transform when the line is long. Corpus: 150 lines.
+- [ ] **38. Repetition, spam, copying** — `lang_ctx.c`: the player repeats the same line (exact or after cleaning, or the same intents three times), types one word over and over, spams a character, pastes a long text twice, or **copies the npc's own last line** -> escalating reaction ladders `rep.1 .. rep.5` (per mood: confusion, mild annoyance, a joke, a warning, giving up -> `end.bored`), `copycat.1 .. 3`; the mood and patience are touched (`EFFECT` rows `I_REPEAT_PLAYER`, `I_COPYCAT`, `I_SPAM`); an apology or a new topic resets the counter. `moodtest` checks the ladders step.
+- [ ] **39. Callbacks (the npc remembers)** — `lang_ctx.c`: lines `cb.insulted`, `cb.thanked`, `cb.complimented`, `cb.name`, `cb.scared`, `cb.lied`, `cb.asked_before`, `cb.apology_taken`, `cb.same_topic` use the fact store: a callback may be appended (max 1 per 4 replies, never twice in a row, chance by mood: SULKY, SMUG, SUSPICIOUS, TENDER, SOLEMN callbacks more) as `Earlier you called me a fool. I do remember.`; slots `{fact}`; only facts of **this chat** by default, and the persisted ones (name, insulted > 3) across chats with a warm or cold twist. Lines are short.
+- [ ] **40. Topic threads** — `lang_ctx.c`: when the player keeps to a topic (the same `topic.*` three turns running, or asks `tell me more about the moon`), the npc runs a thread `th.<topic>.1 .. 4` (what it is, a feeling about it, a question back, a goodbye to the topic), and when the topic is exhausted or the npc's mood is BORED/COLD it **changes the subject** (`ch.<mood>`: `Let us speak of something that matters.`) to one of its `hooks`. A topic thread never runs over a story-critical line (the watch in `convo.c` runs first). Corpus: 60 lines.
+- [ ] **41. Npc initiative** — `lang_ctx.c`, `convo.c`: an npc may **ask the player something back** (`Q_ASKS_BACK` or CURIOUS/SUSPICIOUS/PLAYFUL mood, every 3-5 replies, never after a hostile mood): pools `ask.back.<mood>` that carry an ask tag (the answer is then understood by chunk 36); a **nudge ladder** for a silent player (`nudge.1 .. 4` per mood; extends `end.silence`); a **hook** table in `Persona` (`const char *hooks[4]` keys: Dea steers to the mission and to obedience, Alex to the orb and the grass) used by the change-subject step. A persona with no hooks never steers.
+- [ ] **42. Pacing and length** — `lang.c`: reply length and shape by mood and quirk: HOSTILE/COLD/BORED/HOLLOW short (one sentence, drop the `{pre}`/`{post}`), TENDER/WARM/CURIOUS/PLAYFUL/MANIC longer (two sentences allowed), `Q_LONG`/`Q_TERSE` shift it; a **phone cap** of 150 characters per reply for a normal turn (2 sentences) enforced at sentence boundaries; never cut a sentence in the middle; a second intent is added as an ACK only if it fits; a trailing question only when the mood or quirk wants one and the chat is not ending. `langcheck --reply-len` prints the length histogram of 2,000 simulated replies.
+- [ ] **43. Per-persona knowledge** — `Persona` gets trailing `uint64_t knows[4]` (topic bit mask) and `refuses` (topics it will not discuss in any mood: Dea refuses talk of Dia's shrine in detail?, Alex refuses the orb **already** handled by the watch). `r.<key>` for a topic the persona does not know uses `dk.<mood>` (`I do not know. Do not ask me again.`) or the **deflect** pool; topics the persona *loves* (`likes` mask) bring the mood up a notch. The default is "knows everything of the world, nothing about the real world". `story.c`'s two personas get their masks (a one-line change each).
+- [ ] **44. Phase 3 gate: scripted transcripts** — `tools/convotest.c` (or a new `tools/transcript.c`) plays 40 scripted conversations (10 each: friendly, hostile, shy, lost player; each 12-25 turns, with typos, caps, repeats, follow-ups, name capture, a goodbye) for Dea, Alex and three presets with a fixed seed, and checks: **no empty reply**, **no line repeated within 40 replies**, **no reply over 150 characters**, **no charset failure**, the mood stays inside the persona's lean most of the time, the chat ends by bye, boredom or anger, never by a crash; prints two of them for a human to read. `orderstest` and `convotest` pass.
+
+### Phase 4 — wiring into the game
+- [ ] **45. `convo.c` uses the new pipeline** — `convo.c`: the typed line goes through clean -> repair -> clauses -> phrases -> lexicon -> frames -> context -> plan; the chat state machine (questions stage, sorry stage, boredom, bye, anger) keeps its flow but reads `Heard` through the new API; the watch (`convo_watch`) receives **both the raw text and the cleaned text** (so `alex_orb_ask` can use the lemma/synonym layer instead of its own word list: `orb sphere ball glow glowing thing shiny the thing you found`); the chat lock behaviour is unchanged. `convotest` and `orderstest` pass; nothing in `story.c` changes.
+- [ ] **46. Highlight and chips** — `dialog.c`/`convo.c`: the green highlight marks **original characters** through the char map for phrase hits, and a **lighter green** for words recognised through repair (typo fixes, phonetics, glued words) so the player sees what the game understood; `lang_highlight` gets a second mask value (1 = exact, 2 = repaired). The suggestion chips by situation (`SUG_*`) grow to 12 lists keyed by mood and stage (greeting, question stage, free chat by mood, after an insult, sorry stage, after a refusal), 6 chips each, all of which light up green (each chip is checked by a test).
+- [ ] **47. Dea and Alex on the new engine** — `story.c`: set `lean`, `knows`/`hooks` for `DEA_MIND` and `ALEX_MIND` (one line each), nothing else. `tools/convotest.c`: Dea in a bad mood is toxic in all her voices, Alex stays friendly; the scripted orb refusal of chunk 63 (`ALEX_NO`) still fires on every orb phrase (the watch) including typos (`give me the obr`, `orb pls`, `can i have the sphere`) and **not** on `absorb` or `orbit`; the chat lock for Dea still locks. `orderstest` passes.
+- [ ] **48. Save compatibility** — `story.c` save block: moods and the persisted facts are stored **after** the existing fields with a version byte; an old `save.dat` loads with defaults (mood as saved, vector zero, no facts); `tools/savetest.c` round-trips both a new save and an old one (a fixture file made by the current binary before this chunk). `save.dat` stays git-ignored.
+
+### Phase 5 — foundation data (words, tables, macros)
+Follow the [string protocol](#the-string-protocol). Rows are `word|rank|pos` for the vocabulary, `a|b` for the replacement tables, `word|name|weight` for the lexicons.
+- [ ] **49. Vocabulary 1** — `lang_vocab_a.c`: the 5,000 most common English words by frequency (rank 1-5000) with parts of speech; spelled the way players type (including `i`, `u`-less forms; no proper nouns).
+- [ ] **50. Vocabulary 2** — `lang_vocab_b.c`: ranks 5001-10000: everyday nouns, verbs, adjectives; the words of fantasy and horror (altar, cathedral, crypt, ghoul, hex, relic, ritual, shrine, spirit, tomb, wraith ...); body, nature, weather, food, family, school, tech.
+- [ ] **51. Vocabulary 3 and names** — `lang_vocab_c.c`: ranks 10001-15000 (rarer words, slang, interjections, games vocabulary) and `lang_vocab_names.c`: >= 1,500 first names from many cultures (marked as names so repair never "fixes" them) and the cast (Dea, Dia, Alex, Aonia, Doia, Tria, Vas, Ceathia ...).
+- [ ] **52. Text-speak, contractions, dialect tables** — `lang_lex_textspeak.c` (>= 1,500 pairs: abbreviations, contractions both ways, chat shortenings, clipped words, `cuz`, `tho`, `thru`, `rn`, `smh`, `fr`, `ngl`), `lang_lex_dialect.c` (>= 800 phonetic and dialect spellings of common words: `wut`, `wat`, `ya`, `gonna`, `innit`, `lemme`, `aint`, `yall`, `howdee`, `hallo`, `helo`, `gud`, `thx`, `plss`, `pleaseeee`), `lang_lex_numbers.c` (number words, ordinals, number-letter words).
+- [ ] **53. Irregular forms** — `lang_lex_irregular.c`: >= 1,200 irregular verb forms, plural forms, comparatives, `lemma` for contractions of `be/have/do`, British/American spellings (`colour`, `grey`), so one pattern matches all.
+- [ ] **54. Obfuscation, profanity, safety forms** — `lang_lex_masks.c`: >= 800 rows for the masked, leet and spaced forms of insults and swears (the *forms*, not definitions; rows map to `insult`, `swear_only`, `slur_blocked`, `sexual_blocked`), and the widened **self-harm** surface forms (typos, slang, other languages, euphemisms, `kms`, `unalive` forms) feeding `I_SELFHARM`'s patterns — **reviewed by the owner before the push** (Open decisions). Nothing here is ever shown to the player.
+- [ ] **55. Emoticon and emoji table** — `lang_lex_emoji.c`: >= 400 emoticons and emoji (Unicode ranges as `\xF0...` literals) mapped to the tokens of chunk 16 with a weight.
+- [ ] **56. Sentiment lexicon 1: positive** — `lang_lex_sent_pos.c`: >= 3,000 positive words and phrases with valence +1..+5 (formal, slang, loan words, game words), intensifiers and mild praise.
+- [ ] **57. Sentiment lexicon 2: negative** — `lang_lex_sent_neg.c`: >= 3,000 negative words and phrases with valence -1..-5 (anger, sadness, fear, disgust, insult strength levels, dread), including mild and strong forms.
+- [ ] **58. Sentiment lexicon 3: modifiers, sarcasm, hedges** — `lang_lex_sent_mod.c`: >= 800 rows: intensifiers (+1, +2, +3), diminishers, negators with scope length, contrast words, hedges (`maybe`, `kinda`, `i guess`), sarcasm cues, emphasis words, agreement and disagreement openers.
+- [ ] **59. Topic lexicon 1** — `lang_lex_topic_a.c`: >= 2,500 rows (word -> `topic.<name>`) for the world topics: sky, sun, moon, stars, clouds, weather, night, day, sea, forest, grass, house, door, shrine, temple, grave, orb, hammer, light, dark, time, seasons.
+- [ ] **60. Topic lexicon 2** — `lang_lex_topic_b.c`: >= 2,500 rows for the life topics: god, death, soul, body, blood, bone, memory, dream, name, family, friends, food, water, fire, animals (dog, cat, bird, wolf ...), music, games, school, work, money, love, war, magic, fear, secrets, real-world items (phone, internet, car).
+- [ ] **61. Other languages (the common words)** — `lang_pats_lang.c`: for each of 10 languages (Spanish, French, German, Portuguese, Italian, Turkish, Russian and Arabic in Latin letters, Japanese romaji, Hindi in Latin letters) >= 40 rows for greet, bye, thanks, yes, no, love, insult, sorry, how are you, what is your name, I do not understand; mapped to the **same intents** (so `hola` is a greet) plus a flag `h->foreign` the replies can use (`I did not know that tongue, but I felt it.`).
+- [ ] **62. The pattern macro library** — `lang_pats_macros.c`: >= 150 macros (`<you>`, `<yes>`, `<no>`, `<please>`, `<very>`, `<is>`, `<want>`, `<tell>`, `<give>`, `<npc>`, `<pet>`, `<polite>`, `<rude>`, `<filler>` (`um`, `uh`, `well`, `so`, `like`), `<greetword>`, `<byeword>`, `<thanksword>`, `<name>`, `<time>`, `<a_or_the>`, ...) each with 5-60 alternatives, tested by `langcheck --pats`.
+
+### Phase 6 — the 16 groups (four chunks each: patterns, lexicon + corpus, core + voice lines, mood lines)
+Every group G01..G16 (Appendix A) gets **the same four chunks**, in this order, before the next group starts. Each chunk follows the
+[string protocol](#the-string-protocol): rows per intent as written there, group quotas below are *per intent of the group*.
+
+- **Slice a — patterns**: `lang_pats_g<NN>.c` (<= 1,500 rows; split to `_a/_b` if the group needs more). >= 60 rows per intent, all macros allowed. Adds the group's
+  `RANK[]` and `EFFECT[]` rows (mood, trust, fear, energy, amuse, grief per intent) and the `KEYMAP` merges to `lang.c`. The corpus tuning lines of the group are written **here too** (>= 25 per intent) so the gate can run.
+- **Slice b — lexicon and corpus**: `lang_lex_g<NN>.c`: >= 60 lexicon rows per intent plus the group's topic and sentiment rows not already in chunks 56-60, and a second batch of corpus lines (>= 15 per intent) with typos, mixes and two-intent lines. Gate: group recall >= 90 % on the tuning set, >= 85 % after fuzz.
+- **Slice c — core and voice lines**: `lines_g<NN>c.c`: per key the **core grid** (4 tones x 3 core voices x 4 lines) and the **voice grid** (7 new voices x 2 lines).
+- **Slice d — mood lines**: `lines_g<NN>m.c`: per key the **mood grid** (16 moods x 3 lines), the group's **follow-up lines** `x.<key>` and `y.<key>` (explain more, rephrase) with >= 6 lines per key (3 for light keys), and, where the group says so, the `th.<topic>` thread lines.
+
+| Group | a patterns | b lexicon + corpus | c core + voice lines | d mood lines |
+|---|---|---|---|---|
+| G01 greetings and goodbyes | [ ] **63** | [ ] **64** | [ ] **65** | [ ] **66** |
+| G02 yes, no, maybe, acknowledgements | [ ] **67** | [ ] **68** | [ ] **69** | [ ] **70** |
+| G03 thanks, sorry, manners | [ ] **71** | [ ] **72** | [ ] **73** | [ ] **74** |
+| G04 the npc: identity and body | [ ] **75** | [ ] **76** | [ ] **77** | [ ] **78** |
+| G05 the npc: likes, feelings, opinions | [ ] **79** | [ ] **80** | [ ] **81** | [ ] **82** |
+| G06 the world and the game | [ ] **83** | [ ] **84** | [ ] **85** | [ ] **86** |
+| G07 goals, help, how to play | [ ] **87** | [ ] **88** | [ ] **89** | [ ] **90** |
+| G08 life, death, gods, fate | [ ] **91** | [ ] **92** | [ ] **93** | [ ] **94** |
+| G09 the player: identity and status | [ ] **95** | [ ] **96** | [ ] **97** | [ ] **98** |
+| G10 the player's feelings | [ ] **99** | [ ] **100** | [ ] **101** | [ ] **102** |
+| G11 insults, praise, love, flirt, threats | [ ] **103** | [ ] **104** | [ ] **105** | [ ] **106** |
+| G12 requests, commands, trades | [ ] **107** | [ ] **108** | [ ] **109** | [ ] **110** |
+| G13 games, jokes, play | [ ] **111** | [ ] **112** | [ ] **113** | [ ] **114** |
+| G14 talking about talking | [ ] **115** | [ ] **116** | [ ] **117** | [ ] **118** |
+| G15 the fourth wall and noise | [ ] **119** | [ ] **120** | [ ] **121** | [ ] **122** |
+| G16 other languages and names | [ ] **123** | [ ] **124** | [ ] **125** | [ ] **126** |
+
+Group notes (what is special per group):
+
+- **G01** also fills `p.greet` / `p.bye` pools by mood and voice (the 20 x 10 grid, >= 3 each) and adds `open` / `open.again` rows per mood (>= 6 each) used by `convo.c` for the npc's first words.
+- **G02** the short answers are the hardest to tell apart: patterns carry the **ask tag** context (chunk 36); lines for `maybe`, `idk`, `hedge` are in every mood a reply that pushes the player to decide.
+- **G03** `apology_*` lines interact with the sorry stage of `convo.c`: the `demand.sorry`, `demand.again`, `accept.sorry` flow rows get the 20 moods x 3 here (a dedicated extra: >= 60 rows).
+- **G04, G05** the npc invents facts. A fact must never contradict the story: Dea is a goddess in the clouds, Alex a girl on the grasslands; the lines say what is **true for any npc** (`I have a name. It is not yours to ask for.`) unless the voice is a preset. Persona-specific answers go in the persona's own table (chunk 149).
+- **G06, G07** never give away the story's solutions; answers point, tease or refuse in character. The `what_to_do` / `hint_q` lines use `{hook}` (the persona's current hook) so the story can steer.
+- **G08** solemn and hollow moods are rich here; **no graphic content**, semi-horror tone only. `selfharm` stays an exception: it is not in this group and does not get mood lines.
+- **G09** uses the fact store: `{name}`, `{age}`, `{likes}` slots appear in lines (a line with a slot whose fact is missing is skipped, not printed with a blank; the picker enforces it).
+- **G10** needs the most care: sadness, fear, loneliness and numbness get *kind* answers in every mood except where the character is hostile by nature, and even then a hostile npc does not mock grief or fear (`EFFECT` and the picker cap the mood at COLD for those intents as `lang_reply` does today for sad/scared/confused/help).
+- **G11** insults: no slur is ever repeated; the npc reacts to behaviour. Flirting: in-character deflection only; `sexual_blocked` is the same short firm refusal in every mood (3-6 phrasings per mood and voice, no engagement). Threats: `threat_self_safe` routes to the same care path as `selfharm` when it reads as self-directed.
+- **G12** `give_me`, `show_me`, `take_me` have a **story hook**: the story's watch (like `alex_orb_ask`) always runs first, the generic lines only run when nothing scripted answered.
+- **G13** games: `rps`, `coin_flip`, `dice`, `eight_ball` are **actual mini-games** in code (`lang_games.c`, a few functions: the npc plays rock-paper-scissors from the player's word and keeps a score; coin and dice are random; the eight ball answers from `r.eight_ball.<mood>`), `math_q` computes small sums (`what is 2 + 2`, `7 times 8`, `half of 10`) and answers in character with the result, `say_x` and `repeat_after_me` are guarded (chunk 31), `riddle_me` has 40 original riddles with answers (`lang_riddles.c`), `tell_story` and `sing_song` and `poem_q` are **original** two-to-four sentence pieces (>= 30 each in `lines_g13c.c`), never real lyrics.
+- **G14** most of these lean on the context layer; the lines are short; `silence_dots` (the player types only `...`) is a mood-rich key.
+- **G15** noise handling: gibberish and mash in every mood is amusing, unsettling or bored; `very_long` (a rant) gets an answer to its *last* clause plus a remark on length; `shout_caps` raises the npc's own energy; `real_world_*` replies deflect in character without ever claiming real knowledge; `url_like` and `code_like` are treated as strange runes.
+- **G16** also adds the **name** handling: `name_dea` (the player addresses her), `name_dia`, `name_alex`, `name_aonia`, `name_doia`, `name_tria`, `name_vas`: each persona answers differently for who it knows (from `knows`), and `name_swear_name` handles a swear as a name.
+
+### Phase 7 — cross-cutting lines
+Follow the string protocol; these are the keys that are not tied to one intent. Counts are rows per file; each file <= 1,500 rows.
+- [ ] **127. Pools 1: pet, sigh** — `lines_pool_a.c`: `p.pet` (what the npc calls the player) and `p.sigh` for the 20 moods x 10 voices, >= 6 each per (mood, voice) group of cells, so >= 1,200 rows.
+- [ ] **128. Pools 2: pre, post** — `lines_pool_b.c`: `p.pre` (openers) and `p.post` (closers) per mood and voice, >= 1,400 rows; some carry the voice's flavour pools (`p.elder_open`, `p.beast`, `p.machine`, `p.poet_open`, `p.ghost_tail`).
+- [ ] **129. Pools 3: greet, bye words, hedges** — `lines_pool_c.c`: `p.greet`, `p.bye`, `hedge.<mood>` (>= 8 per mood for the HEDGE role of chunk 34), `p.yes`, `p.no`, `p.agree` small words per mood and voice, >= 1,200 rows.
+- [ ] **130. Pools 4: fillers and reactions** — `lines_pool_d.c`: laugh, groan, cough, hum, whisper, growl and similar reaction fragments per mood and voice (used inside lines and as replies to `laugh`, `cry`, `sigh`, `yawn`), >= 1,000 rows.
+- [ ] **131. Flow 1: opens** — `lines_flow_a.c`: `open`, `open.again` for the 20 moods x 10 voices, >= 5 each (>= 1,200 rows). Opens make the first impression: write them with the most care.
+- [ ] **132. Flow 2: questions stage** — `lines_flow_b.c`: `ask.questions`, `ask.go`, `end.noquestions` per mood and voice, >= 1,000 rows.
+- [ ] **133. Flow 3: endings** — `lines_flow_c.c`: `end.angry`, `end.bored`, `end.silence`, `end.bye`, `end.satisfied` (a happy ending) per mood and voice, >= 1,200 rows.
+- [ ] **134. Flow 4: demand and accept (the apology flow)** — `lines_flow_d.c`: `demand.sorry`, `demand.again`, `accept.sorry`, `refuse.sorry`, `half.sorry` per mood and voice, >= 900 rows.
+- [ ] **135. Unknown ladder 1: no idea what it means** — `lines_unk_a.c`: `r.unknown`, `r.unknown_short`, `r.unknown_long` per mood and voice, >= 1,500 rows; they **never pretend to understand**, they react in character (a puzzled goddess, a bored kid), some use `{topic}` or an `ECHO` of a captured word.
+- [ ] **136. Unknown ladder 2: shape-aware** — `lines_unk_b.c`: `r.unknown_q` (a question we cannot answer), `r.unknown_pos`, `r.unknown_neg`, `r.unknown_command`, `r.unknown_name` (a single capitalised word), `r.unknown_number`, `r.unknown_foreign` per mood and voice, >= 1,500 rows.
+- [ ] **137. Unknown ladder 3: echo and hedge** — `lines_unk_c.c`: `echo.<mood>` (reflect the captured noun: `You speak of {topic}. Why?`), `hedge2.<mood>` (low-confidence guesses `Did you mean the orb? Say it plainly.`), `ask.clarify.<mood>` (>= 8 per mood), >= 1,300 rows.
+- [ ] **138. Unknown ladder 4: deflect and steer** — `lines_unk_d.c`: `deflect.<mood>` and `steer.<mood>` (`Enough. Ask about something that matters.`), the persona-hook openers, >= 1,200 rows.
+- [ ] **139. Follow-ups 1: explain more** — `lines_fup_a.c`: `x.generic.<mood>` and `x.<key>` for the ~60 most-asked keys (G01-G07), >= 1,400 rows.
+- [ ] **140. Follow-ups 2: rephrase and again** — `lines_fup_b.c`: `y.generic.<mood>` and `y.<key>` for the same keys, `r.followup_why`, `r.followup_really`, `r.followup_so`, `r.followup_what`, >= 1,400 rows.
+- [ ] **141. Follow-ups 3: continue and go on** — `lines_fup_c.c`: `more.<mood>`, `continue.<mood>`, `nothing_more.<mood>`, `change.<mood>` (the npc has nothing more to say), >= 1,200 rows.
+- [ ] **142. Callbacks 1** — `lines_cb_a.c`: `cb.insulted`, `cb.thanked`, `cb.complimented`, `cb.name`, per mood and voice, >= 1,200 rows.
+- [ ] **143. Callbacks 2** — `lines_cb_b.c`: `cb.scared`, `cb.lied`, `cb.asked_before`, `cb.apology_taken`, `cb.same_topic`, `cb.long_chat`, `cb.first_words`, >= 1,200 rows.
+- [ ] **144. Threads 1** — `lines_th_a.c`: `th.<topic>.1..4` for 20 world topics (sky, sun, moon, stars, clouds, rain, night, grass, house, door, shrine, temple, grave, orb, hammer, light, dark, time, sea, forest), >= 1,500 rows.
+- [ ] **145. Threads 2** — `lines_th_b.c`: `th.<topic>.1..4` for 20 life topics (god, death, soul, body, blood, memory, dream, name, family, friends, food, water, fire, animals, music, games, work, love, war, magic), >= 1,500 rows.
+- [ ] **146. Threads 3: change subject** — `lines_th_c.c`: `ch.<mood>` and `ch.<hook>` (the story hooks of the personas) and topic-exhausted lines, >= 1,000 rows.
+- [ ] **147. Nudges and idle 1** — `lines_nudge_a.c`: `nudge.1..4` per mood and voice (the silent player ladder), `rep.1..5` and `copycat.1..3` per mood, >= 1,500 rows.
+- [ ] **148. Nudges and idle 2: ask back** — `lines_nudge_b.c`: `ask.back.<mood>` rows with ask tags (name, why, yn, choice, more), >= 1,300 rows.
+- [ ] **149. Persona tables** — `lines_persona_<name>.c` for each preset (`GODDESS`, `STREET_FRIEND`, ...: >= 8 files via one chunk of work each ~150 rows): their own key overrides (`pk.<persona>.<key>`: personal facts: favorite color, home, family, what they fear) used before the generic ones. Dea's and Alex's files hold what they can say about themselves **without contradicting the story**; the owner reviews them (Open decisions).
+- [ ] **150. Cross-cutting gate** — `langcheck --coverage` for the cross-cutting keys: every (mood, voice) cell of every pool, flow and unknown key has >= 3 lines (or a fallback that works); the scripted transcripts of chunk 44 re-run with the new data and the first 5 read by a human; fix the empties.
+
+### Phase 8 — quality, balance, wrap-up
+- [ ] **151. Held-out corpus A** — `tools/corpus/heldout_a.tsv`: >= 1,000 labelled lines written **fresh, in the voice of different kinds of players** (a child, a teenager typing fast, a non-native speaker, a troll, a roleplayer, a lost player, someone being kind), with typos and mixes; **never used to tune**. Report recall and exact accuracy.
+- [ ] **152. Held-out corpus B (adversarial)** — `tools/corpus/heldout_b.tsv`: >= 1,000 lines: long rants, two or three intents in one line, sarcasm, double negatives, slang from several years, code-switching, run-on lines without spaces, names mixed in, lines with no meaning at all (should land in `unknown`, correctly). Report.
+- [ ] **153. Tuning pass 1: misses of the tuning set** — read the miss list of `langcorpus` on the tuning set and add the missing patterns/lexicon rows (to the right group file, with the same protocol); target >= 97 % recall on the tuning set and >= 95 % after fuzz.
+- [ ] **154. Tuning pass 2: false positives and ambiguity** — read `langcorpus --confusions` (lines where the top intent was wrong) and the `langcheck --pats` ambiguity list; fix by narrowing patterns (`$`, longer phrases), changing `RANK`, adding a negative guard; target exact-intent accuracy >= 90 % on the tuning set. **Do not look at the held-out sets.**
+- [ ] **155. Coverage gap fill** — `langcheck --coverage`: list every (key, mood-group, voice) cell under quota; write the missing lines (`lines_fill_a.c`, `_b.c`) until no cell is under quota except the explicit *(light)* ones; the grand total is >= 45,000 lines.
+- [ ] **156. Duplicates and near-duplicates** — `langcheck --similar`: per key, flag line pairs with a word overlap (Jaccard on word sets) >= 0.8 or the same first 5 words more than 3 times; remove or rewrite the weaker one; the lint now **fails** an exact duplicate in a key and warns at near duplicates; the line count stays >= 45,000 after (write replacements, do not just delete).
+- [ ] **157. Voice and mood review** — sample 20 random lines for each of the 20 moods and the 10 voices (400 lines) with `langtest --sample` and fix the ones that do not sound like their mood/voice (a sarcastic line that is sincere, a beast that speaks like a clerk); write the findings in the status log. A second pass reads one transcript per preset.
+- [ ] **158. Safety review** — the owner reads: every `r.selfharm` line and pattern change, `slur_blocked`, `sexual_blocked`, `threat_self_safe`, `real_world_*` deflections, the **blocked-name list**, and 100 random lines from G08, G10 and G11; `langcheck --safety` lists them. Nothing ships past this chunk without the owner's `ok` in the status log. A line that fails is rewritten or removed.
+- [ ] **159. Performance and size** — measure on the phone (`scripts/run.sh` timing, `langcheck --bench` in Termux): engine init, one parse of a 200-character line, one reply, binary size, **compile time of the whole game**. Budgets: init <= 80 ms (lazy, at the first chat; show nothing if it is under 150 ms, otherwise the chat shows the loading dots of `loading.c`), parse <= 1 ms, reply <= 3 ms, compile time <= +40 s over today's on the phone. If compile time blows the budget: split data files, compile them with `-O0`, or ask the owner about an object cache for `scripts/run.sh` (Open decisions); if memory blows the budget: free the first-word index of rarely used tables. Results in the status log.
+- [ ] **160. Wrap-up** — a final run of every gate (`langtest --check`, `langcheck --coverage --similar --safety`, `langcorpus` on tuning and held-out sets with `--fuzz 5`, `moodtest`, `convotest`, transcripts, `savetest`, `orderstest`, full build); update the code map at the top of this file (the table "How the engine works today" gets a new "now" column), update `docs/story/vessel-2-part3.md` status log with one line that the chat engine changed (only the pointer); remove dead code and the stale `Heard.mask` shim; write the final numbers (rows per kind, recall, accuracy, timings) in the status log; list what is left for a later "part 2" (more languages, more personas, learned corrections, per-vessel hooks).
+
+## Open decisions (defaults so nobody has to wait)
+
+- **"Modes".** Read as: every combination of mood (tone) and voice (style). If the owner meant something else (for example game modes, or difficulty), say so and change chunks 7-14.
+- **How many moods and voices.** Default 20 moods and 10 voices. More can be added later: the masks have room (32 moods, 16 voices).
+- **Data format.** Default: the compact string rows of chunk 8 (parsed lazily at the first chat), the old struct tables kept. If start-up cost on the phone is too high, chunk 159 moves to a pre-parsed table made by a script (`tools/gen_lang_data.py`, like `gen_music_data.py`).
+- **Binary size and compile time.** 45,000 lines are about 3-4 MB of source and a few MB in the binary. `scripts/run.sh` compiles `game/*.c` on every run; if that becomes too slow on the phone, an object cache keyed by file time is the answer (it touches `run.sh`, so it needs the owner's `ok`).
+- **Real-world knowledge.** Default: none. Npcs never state real facts (dates, news, brands, people); they deflect in character. `math_q` is the one exception (it computes).
+- **Self-harm lines and patterns.** Default: the existing out-of-character kind line, widened patterns, no method talk. The owner reviews the wording (chunks 54 and 158). If the owner wants a local helpline number in the line, say which country; it is not added by default.
+- **Cursing.** Default: the npcs never curse; `Q_SWEARS` allows mild words (`damn`, `hell`) for a rude voice only, never slurs. If the owner wants none at all, drop the quirk.
+- **Persona facts.** Chunk 149 writes facts about Dea and Alex (favorite things, family). Default: vague and in the story's spirit, nothing that the story could contradict later. The owner reviews them.
+- **Order.** The data for a group (chunks 63-126) can start only after chunk 62; the engine chunks 15-34 need only the small seed data they ship with. If an engine chunk finds the plan wrong, fix the plan in the same commit and note it in the status log.
+- **If a string chunk is too big for one sitting**: split it as `NNa` / `NNb` in this file in the same commit (numbers of later chunks do not change), and say so in the status log.
+- **The corpus is private test data**, not shipped: `tools/corpus/` is only used by tools, never by the game binary.
+
+## Status log
+
+- 2026-10-14: chunk 1 done: this file. Written after reading the current engine (`game/lang.c`, `lang_pats.c`, `lang_data.h`, `lines_a..d.c`, `convo.c/.h`, `tools/langtest.c`). Baseline measured with `build/langtest --check`: 1,063 reply lines (tones W255 N285 C353 H198; styles plain 654, divine 950, street 765), 684 pattern rows over 46 intents, longest line 183 characters, database ok (0 problems). The 96-line cap per key in `pick_exact` and the 64-bit intent mask are the first limits a big database would hit (chunks 5-6 remove them).
