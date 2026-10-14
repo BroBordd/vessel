@@ -23,6 +23,23 @@ Make the typed conversation a **massive built-in brain**, mostly by writing stri
    **backed by a massive set of strings** (patterns, lexicons, lines, test corpora).
 4. This is mostly string writing, so the plan is split so that every string chunk is one sitting of writing with a lint gate.
 
+## Environment notes (for an instance that starts cold, with no memory of earlier chunks)
+
+Nothing in this plan depends on a chat history. What a fresh instance still needs from its operator or must set up itself:
+
+- **Repo and push access.** `git clone https://github.com/BroBordd/vessel.git` (the old `brobordd/vessel` URL redirects with a "repository moved" notice; pushes still work). The owner gives a token in the chat; it is never written into any file, commit or this plan.
+- **Git identity.** A fresh clone has none and `git commit` fails with "Author identity unknown". Set it locally (not `--global`), matching the existing history: `git config user.name "Claude"` and `git config user.email "claude@users.noreply.github.com"`.
+- **How the owner works.** They `git pull` and run the game and the scripts on a phone (Termux, `scripts/run.sh`). Push after every chunk, to `main`, with `git pull --rebase` first. Replies in the chat stay short: what was done, the numbers, what is next; no long explanations, no complaints about the token or the process.
+- **The sandbox may not have SDL.** `sdl2-config` is missing in the sandbox the first chunks were written in, so **`convotest`, `orderstest` and the full game build could not be run there**. Chunks 1-4 touched no game code, so that was safe; from chunk 5 on (which edits `convo.c`) a chunk that cannot run them must say so plainly in its status log line ("not run: no SDL here") and keep its change small enough to be checked by reading and by the engine-only tools. Try `apt-get install libsdl2-dev` (or `pip`/`npm` are not needed) first; if the network blocks it, say so.
+- **Engine-only gates that always run** (no SDL), from the repo root, creating `build/` first (`mkdir -p build`; it is git-ignored):
+  - `cc -O1 -Igame -o build/langtest tools/langtest.c game/lang*.c game/lines_*.c && build/langtest --check`
+  - `cc -O1 -Igame -o build/langcheck tools/langcheck.c game/lang*.c game/lines_*.c && build/langcheck --all`
+  - `cc -O1 -Igame -o build/langcorpus tools/langcorpus.c game/lang*.c game/lines_*.c && build/langcorpus tools/corpus/tuning_*.tsv` (add `--fuzz 5`, `--min-recall N`, `--only a,b`, `--min-retained N`)
+  - the SDL ones (build lines are in the header comment of each file): `tools/convotest.c`, `tools/orderstest.c` (it takes minutes: about 3.5 minutes plus 18 s for the grave-photo blink check, mind a tool time limit), `tools/savetest.c`; `tools/groundtest.c` is **stale** and is not a gate.
+- **Numbers to compare against** are in the status log (chunk 2: 1,063 lines, 684 patterns; chunk 3: recall 79.3 %, exact 68.0 %, unknown 9.1 %; chunk 4: fuzz retained 58.2 %). A chunk that makes any of them worse (other than by design) stops and says why.
+- **Where to look first.** Read `game/lang.h`, `game/lang.c`, `game/lang_data.h`, `game/convo.h`, then `docs/story/vessel-2-part3.md` for the story side. The first unchecked box in the checklist is the next chunk.
+- **Data files are written in batches** (see the string protocol); never paste a 1,500-row file in one tool call. Corpus files are plain tab-separated text; type real TAB characters (generate them with a small script if the editor turns tabs into spaces).
+
 ## Workflow rules
 
 - One chunk = one commit = one push. Commit message: `convo chunk N: <short title>` + a paragraph of what changed.
@@ -47,8 +64,8 @@ Make the typed conversation a **massive built-in brain**, mostly by writing stri
 - **String chunks follow [the string protocol](#the-string-protocol)** below. Engine chunks add a headless check to the right
   test (`tools/langtest.c`, the new `tools/langcheck.c`, `tools/langcorpus.c`, `tools/moodtest.c`, `tools/convotest.c`)
   for every behaviour they add.
-- Sanity check before every push: the `langtest` build line above builds and `--check` passes; `tools/convotest.c` (build
-  line in its header) passes; the whole game builds with
+- Sanity check before every push: the `langtest` build line above builds and `--check` passes (and `langcheck`, `langcorpus` still run); `tools/convotest.c` (build
+  line in its header) passes **where SDL is available** (see Environment notes); the whole game builds with
   `cc -O1 -DGFX_REDIRECT -include game/gfx.h game/*.c $(sdl2-config --cflags --libs) -lm`; `tools/orderstest.c` passes when
   the chunk touched `convo.c` or `story.c`. Never commit tokens or secrets.
 - The owner may change `story.c` text and personas between chunks. Never rewrite scripted story lines in this plan; only
