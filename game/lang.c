@@ -35,12 +35,40 @@ static const unsigned char RANK[I_COUNT] = {
     /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99
 };
 
-/* mood change, charisma change. positive mood is softened for toxic npcs (see lang_apply) */
-static const signed char MOOD[I_COUNT][2] = {
-    [I_GREET] = {2, 0}, [I_THANKS] = {4, 1}, [I_SORRY] = {6, 0}, [I_PRAISE] = {8, 2}, [I_LOVE] = {6, 1},
-    [I_WORSHIP] = {10, 2}, [I_JOKE] = {3, 1}, [I_INSULT] = {-14, -2}, [I_CALLOUT] = {-3, 0}, [I_DEMAND] = {-5, -1},
-    [I_DONTCARE] = {-8, -1}, [I_DISAGREE] = {-4, 0}, [I_AGREE] = {4, 1}, [I_SCARED] = {0, -1}, [I_SAD] = {0, -1},
-    [I_ANGRY] = {-4, -1}, [I_PLEASE] = {3, 1}, [I_INTRO] = {2, 0}, [I_HOWRU] = {2, 1}, [I_ADDRESS] = {1, 0},
+/* WHAT MOVES THE MOOD (chunk 9): one row per intent, easy to tune. a row is what ONE hearing of the intent does:
+ *   mood, cha  : the warm..hostile mood and the player's charisma (as before)
+ *   trust fear energy amuse grief : the mood vector (-100..100). a value of 40 or more picks a mood (see vector_mood)
+ *   flip       : a HARD FLIP, a mood that is set at once whatever the numbers say (see lang_apply)
+ * positive mood, trust and amuse shrink with the npc's toxic (toxic npcs warm up slowly). a part of the vector that nothing pushed this
+ * turn drifts back towards 0 by 1-2 points. */
+enum { FL_NONE, FL_JOKE, FL_SORRY, FL_DEATH, FL_THREAT, FL_FLATTER, FL_INSULT };
+typedef struct { signed char mood, cha, trust, fear, energy, amuse, grief; unsigned char flip; } Effect;
+static const Effect EFFECT[I_COUNT] = {
+    /*                      mood cha trust fear energy amuse grief flip */
+    [I_GREET]    = {          2,  0,   1,   0,   0,    0,   0, FL_NONE },
+    [I_THANKS]   = {          4,  1,   3,   0,   0,    1,   0, FL_NONE },
+    [I_SORRY]    = {          6,  0,   3,  -3,   0,    0,   0, FL_SORRY },
+    [I_PRAISE]   = {          8,  2,   2,   0,   2,    2,   0, FL_FLATTER },
+    [I_LOVE]     = {          6,  1,   3,   0,   2,    2,   0, FL_FLATTER },
+    [I_WORSHIP]  = {         10,  2,   2,   0,   3,    0,   0, FL_FLATTER },
+    [I_JOKE]     = {          3,  1,   0,   0,   2,   15,   0, FL_JOKE },
+    [I_INSULT]   = {        -14, -2,  -8,   0,   3,   -6,   0, FL_INSULT },
+    [I_CALLOUT]  = {         -3,  0,  -3,   0,   2,    0,   0, FL_NONE },
+    [I_DEMAND]   = {         -5, -1,  -4,   0,   2,    0,   0, FL_NONE },
+    [I_DONTCARE] = {         -8, -1,  -4,   0,  -4,   -3,   0, FL_NONE },
+    [I_DISAGREE] = {         -4,  0,  -1,   0,   0,    0,   0, FL_NONE },
+    [I_AGREE]    = {          4,  1,   2,   0,   0,    0,   0, FL_NONE },
+    [I_SCARED]   = {          0, -1,   1,   4,   0,    0,   0, FL_NONE },
+    [I_SAD]      = {          0, -1,   0,   0,  -2,    0,   8, FL_NONE },
+    [I_ANGRY]    = {         -4, -1,  -2,   3,   4,    0,   0, FL_NONE },
+    [I_PLEASE]   = {          3,  1,   1,   0,   0,    0,   0, FL_NONE },
+    [I_INTRO]    = {          2,  0,   1,   0,   0,    0,   0, FL_NONE },
+    [I_HOWRU]    = {          2,  1,   1,   0,   0,    1,   0, FL_NONE },
+    [I_ADDRESS]  = {          1,  0,   1,   0,   0,    0,   0, FL_NONE },
+    [I_LIFE]     = {          0,  0,   0,   0,   0,    0,   6, FL_DEATH },   /* death is most of what I_LIFE hears: a flip to SOLEMN */
+    [I_CONFUSED] = {          0,  0,   0,   0,  -2,    0,   0, FL_NONE },
+    [I_REPEAT]   = {          0,  0,   0,   0,  -2,   -1,   0, FL_NONE },
+    [I_HELP]     = {          0,  0,   2,   0,   0,    0,   0, FL_NONE },
 };
 
 /* ---------- random ---------- */
@@ -253,6 +281,8 @@ Tone lang_mood_now(const Persona *ps) { return ps->hold ? (Tone)ps->held : plain
 #define LEAN_DRIFT 20           /* % per turn that a character with a lean drifts to one of its moods when nothing else moves it */
 #define SULK_DROP 10            /* mood lost in one turn that can make a character with a lean for SULKY sulk */
 
+/* a mood that sticks 2-4 turns, whatever picked it */
+static void stick(Persona *ps, Tone m) { ps->held = (int8_t)m; ps->hold = (uint8_t)(2 + rn(3)); }
 static int lean_has(const Persona *ps, int t) { return (int)((ps->lean >> t) & 1u); }
 
 /* the strongest push on the mood right now (a Tone), or -1. base = the plain mood without the random part; drop = mood lost this turn */
@@ -289,22 +319,85 @@ static void mood_turn(Persona *ps, int drop) {
         if (n) m = ok[rn(n)];
     }
     if (m < 0) return;
-    ps->held = (int8_t)m;
-    ps->hold = (uint8_t)(2 + rn(3));                    /* 2 to 4 turns */
+    stick(ps, (Tone)m);                                 /* 2 to 4 turns */
+}
+
+static int8_t *vec(Persona *ps, int i) { return i == 0 ? &ps->trust : i == 1 ? &ps->fear : i == 2 ? &ps->energy : i == 3 ? &ps->amuse : &ps->grief; }
+static int clamp100(int v) { return v > 100 ? 100 : v < -100 ? -100 : v; }
+
+/* every part of the vector that was not pushed this turn (d[i] == 0) drifts back towards 0 by 1-2 points. nothing is drawn if it is all 0 */
+static void drift(Persona *ps, const int d[5]) {
+    for (int i = 0; i < 5; i++) {
+        int8_t *v = vec(ps, i);
+        if (d[i] || !*v) continue;
+        int step = 1 + rn(2);
+        if (*v > 0) *v = (int8_t)(*v > step ? *v - step : 0); else *v = (int8_t)(*v < -step ? *v + step : 0);
+    }
+}
+
+void lang_threat(Persona *ps) {
+    if (ps->toxic < 40) { ps->fear = (int8_t)clamp100(ps->fear + 25); stick(ps, TONE_AFRAID); }
+    else stick(ps, TONE_HOSTILE);
+    ps->trust = (int8_t)clamp100(ps->trust - 15);
 }
 
 void lang_apply(Persona *ps, const Heard *h) {
-    int before = ps->mood;
+    int before = ps->mood, was_sour = ps->sour, was_held = ps->hold ? ps->held : -1;
+    int d[5] = {0}, joke = 0, sorry = 0, flatter = 0, insult = 0, death = 0, threat = 0;
     for (int i = 0; i < h->n; i++) {
-        int in = h->order[i];
-        int dm = MOOD[in][0], dc = MOOD[in][1];
+        const Effect *e = &EFFECT[h->order[i]];
+        int dm = e->mood, dt = e->trust, da = e->amuse;
         if (dm > 0) dm = dm * (100 - ps->toxic / 2) / 100;          /* toxic npcs warm up slowly */
+        if (dt > 0) dt = dt * (100 - ps->toxic / 2) / 100;
+        if (da > 0) da = da * (100 - ps->toxic / 2) / 100;
         ps->mood += dm;
-        lang_add_charisma(dc);
+        lang_add_charisma(e->cha);
+        d[0] += dt; d[1] += e->fear; d[2] += e->energy; d[3] += da; d[4] += e->grief;
+        switch (e->flip) {
+            case FL_JOKE: joke = 1; break;      case FL_SORRY: sorry = 1; break;   case FL_FLATTER: flatter = 1; break;
+            case FL_INSULT: insult = 1; break;  case FL_DEATH: death = 1; break;   case FL_THREAT: threat = 1; break;
+            default: break;
+        }
     }
-    if (ps->mood > 100) ps->mood = 100;
-    if (ps->mood < -100) ps->mood = -100;
+    ps->mood = clamp100(ps->mood);
+    for (int i = 0; i < 5; i++) { int8_t *v = vec(ps, i); *v = (int8_t)clamp100(*v + d[i]); }
+    drift(ps, d);
+    ps->quiet = 0;
+    if (ps->sour) ps->sour--;
+    if (insult) ps->sour = 3;                                       /* an apology within 3 turns of an insult softens it */
     mood_turn(ps, before - ps->mood);
+
+    /* the hard flips: they replace whatever mood is held */
+    ps->flat = flatter ? (uint8_t)(ps->flat + 1) : 0;
+    if (ps->flat >= 3) { stick(ps, TONE_SUSPICIOUS); ps->trust = (int8_t)clamp100(ps->trust - 12); ps->flat = 0; }      /* flattery again and again: what do they want? */
+    if (joke && (was_held == TONE_SOLEMN || was_held == TONE_HOLLOW)) {          /* a joke in a dark moment: it lands or it stings */
+        if (lean_has(ps, TONE_SULKY)) stick(ps, TONE_SULKY);
+        else if (lean_has(ps, TONE_PLAYFUL)) stick(ps, TONE_PLAYFUL);
+    }
+    if (sorry && was_sour) {                                        /* an apology after an insult softens one step */
+        ps->mood = clamp100(ps->mood + 10);
+        if (ps->hold && (ps->held == TONE_SULKY || ps->held == TONE_SUSPICIOUS || ps->held == TONE_SARCASTIC || ps->held == TONE_SMUG)) ps->hold = 0;
+        ps->sour = 0;
+    }
+    if (death) stick(ps, TONE_SOLEMN);
+    if (threat) lang_threat(ps);
+}
+
+void lang_idle_turn(Persona *ps) {
+    int d[5] = {0};
+    drift(ps, d);
+    if (ps->quiet < 255) ps->quiet++;
+    if (ps->sour) ps->sour--;
+    mood_turn(ps, 0);
+    if (ps->quiet >= 2 && !ps->hold) stick(ps, ps->warmth >= 50 ? TONE_WORRIED : TONE_BORED);      /* a long silence: they worry, or they are bored */
+}
+
+/* nothing understood and only a word or two: a character that leans to CURIOUS wonders, one that leans to BORED yawns. 1 if it stuck */
+static int gibberish_flip(Persona *ps, const Heard *h) {
+    if (ps->hold || h->words < 1 || h->words > 3 || h->is_question || h->positive || h->negative) return 0;
+    if (lean_has(ps, TONE_CURIOUS)) { stick(ps, TONE_CURIOUS); return 1; }
+    if (lean_has(ps, TONE_BORED)) { stick(ps, TONE_BORED); return 1; }
+    return 0;
 }
 
 /* ---------- line picking ---------- */
@@ -526,6 +619,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     }
 
     if (!answered) {                                                   /* never leave the player hanging */
+        if (gibberish_flip(ps, h)) tone = lang_mood_now(ps);
         const char *key = "r.unknown";
         if (h->is_question && h->words >= 2) key = "r.unknown_q";
         else if (h->negative > h->positive) key = "r.unknown_neg";

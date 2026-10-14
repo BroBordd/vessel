@@ -57,6 +57,7 @@ typedef struct {
     /* kept by the engine, leave at 0: a mood that sticks (held) for `hold` more turns */
     uint8_t hold;
     int8_t held;
+    uint8_t quiet, flat, sour;      /* silent turns in a row, flattery turns in a row, turns left since the last insult (chunk 9) */
 } Persona;
 #define LEAN(t) (1u << (t))
 
@@ -104,6 +105,8 @@ void lang_heard_label(const Heard *h, char *out, int cap);   /* "HEARD: HELLO + 
  * otherwise it is the plain warm / neutral / cold / hostile of mood + charisma + warmth - toxic, a bit random */
 Tone lang_mood_now(const Persona *ps);
 void lang_apply(Persona *ps, const Heard *h);    /* moves mood + charisma for what was said; one call = one turn (the sticking mood counts them) */
+void lang_idle_turn(Persona *ps);                /* a turn where the player said nothing the engine heard: the vector drifts back to 0, a long silence makes them BORED or WORRIED */
+void lang_threat(Persona *ps);                   /* the player threatened them: AFRAID (gentle by nature) or HOSTILE (toxic). no intent calls this yet */
 int  lang_reply(Persona *ps, const Heard *h, char *out, int cap);   /* applies, then answers. returns 1 if a real intent was answered */
 int  lang_line(const Persona *ps, const char *key, char *out, int cap);   /* any named line, formatted. 0 if none */
 int  lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap);

@@ -75,7 +75,7 @@ static void on_reply(int page, const char *text) {
     if (!text) text = "Bye";                                /* the BYE button: the player says goodbye, and the npc answers that */
     else if (W.fn && C.stage != ST_SORRY) {                 /* chunk 63: the story may answer this line itself (Alex and the orb) */
         char own[480];
-        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; speak(own, REPLY_OPTIONAL, text); return; }
+        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); speak(own, REPLY_OPTIONAL, text); return; }
     }
     lang_parse(text, &h);
     Persona *ps = C.mind;
