@@ -385,13 +385,63 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }).start();
     }
 
+    // --- touch: every finger is tracked by its own id ---
+    // the game's classic input is ONE pointer: "t <action> <x> <y>" (0 down, 1 up, 2 move, 3 cancel). that stays the PRIMARY finger: the first one
+    // down, until it lifts (a second finger can no longer make the primary jump to somewhere else, as it did when only pointer 0 was read).
+    // every OTHER finger is sent as "m <id> <action> <x> <y>" (same actions, id = Android's pointer id), so the game can use two thumbs.
+    // a finger that goes down while no primary is held becomes the primary. (older games ignore "m" lines.)
+    private int primaryId = -1;
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        float k = viewScale;                       // screen pixels -> game pixels: undo the letterbox
-        final String line = "t " + e.getActionMasked() + " "
-                + (int) ((e.getX() - viewX) / k) + " " + (int) ((e.getY() - viewY) / k) + "\n";
-        send(line);
+        final float k = viewScale;                 // screen pixels -> game pixels: undo the letterbox
+        final int act = e.getActionMasked();
+        final StringBuilder sb = new StringBuilder();
+        switch (act) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN: {
+                int i = e.getActionIndex();
+                int id = e.getPointerId(i);
+                if (act == MotionEvent.ACTION_DOWN) primaryId = -1;          // a fresh gesture: nobody is held
+                if (primaryId < 0) { primaryId = id; touchLine(sb, "t ", id, 0, e.getX(i), e.getY(i), k, false); }
+                else touchLine(sb, "m ", id, 0, e.getX(i), e.getY(i), k, true);
+                break;
+            }
+            case MotionEvent.ACTION_MOVE:
+                for (int i = 0; i < e.getPointerCount(); i++) {
+                    int id = e.getPointerId(i);
+                    if (id == primaryId) touchLine(sb, "t ", id, 2, e.getX(i), e.getY(i), k, false);
+                    else touchLine(sb, "m ", id, 2, e.getX(i), e.getY(i), k, true);
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP: {
+                int i = e.getActionIndex();
+                int id = e.getPointerId(i);
+                if (id == primaryId) { touchLine(sb, "t ", id, 1, e.getX(i), e.getY(i), k, false); primaryId = -1; }
+                else touchLine(sb, "m ", id, 1, e.getX(i), e.getY(i), k, true);
+                if (act == MotionEvent.ACTION_UP) primaryId = -1;
+                break;
+            }
+            case MotionEvent.ACTION_CANCEL:
+                for (int i = 0; i < e.getPointerCount(); i++) {
+                    int id = e.getPointerId(i);
+                    if (id == primaryId) touchLine(sb, "t ", id, 3, e.getX(i), e.getY(i), k, false);
+                    else touchLine(sb, "m ", id, 3, e.getX(i), e.getY(i), k, true);
+                }
+                primaryId = -1;
+                break;
+            default:
+                return true;                       // hover etc.
+        }
+        if (sb.length() > 0) send(sb.toString());  // one write per event, however many fingers
         return true;
+    }
+
+    private void touchLine(StringBuilder sb, String tag, int id, int action, float x, float y, float k, boolean withId) {
+        sb.append(tag);
+        if (withId) sb.append(id).append(' ');
+        sb.append(action).append(' ').append((int) ((x - viewX) / k)).append(' ').append((int) ((y - viewY) / k)).append('\n');
     }
 
     @Override
