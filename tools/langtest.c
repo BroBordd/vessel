@@ -39,22 +39,39 @@ static int check_key_rows(const Line *const *T, const int *N) {
 
 /* chunk 5: the raised limits */
 _Static_assert(sizeof(((Line *)0)->tones) >= 4 && sizeof(((Line *)0)->styles) >= 2, "Line.tones must be 32 bit and Line.styles 16 bit");
-_Static_assert(sizeof(((Heard *)0)->m) * 8 >= 256 && HEARD_ORDER >= 24, "Heard must hold 256 intents and 24 in order");
+_Static_assert(sizeof(((Heard *)0)->m) * 8 >= 512 && HEARD_ORDER >= 24, "Heard must hold 512 intents and 24 in order");
 
 static int check_limits(const Line *const *T, const int *N) {
     int bad = 0;
-    /* the 256 bit set, and the old `mask` name still reads word 0 */
+    /* the 512 bit set (chunk 12: 380 intents; the old `mask` name is gone) */
     Heard h; memset(&h, 0, sizeof h);
-    static const int ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, 255 };
+    static const int ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, 255, 256, 300, 379, 447, 511 };
     for (unsigned i = 0; i < sizeof ids / sizeof *ids; i++) heard_set(&h, ids[i]);
     for (int i = 0; i < HEARD_MAX; i++) {
         int want = 0; for (unsigned k = 0; k < sizeof ids / sizeof *ids; k++) if (ids[k] == i) want = 1;
         if (heard_has(&h, i) != want) { printf("HEARD BITSET wrong at intent %d\n", i); bad++; break; }
     }
-    if (h.mask != h.m[0] || !(h.mask & 1u)) { printf("HEARD mask alias is not m[0]\n"); bad++; }
-    static const int all_ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, 255, -1 };
-    static const int some_ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, -1 };
+    if (I_COUNT > HEARD_MAX || I_COUNT < 380) { printf("INTENT COUNT %d is wrong (380 expected, at most %d)\n", I_COUNT, HEARD_MAX); bad++; }
+    static const int all_ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, 255, 256, 300, 379, 447, 511, -1 };
+    static const int some_ids[] = { 0, 1, 45, 63, 64, 65, 127, 128, 200, 255, 256, 300, 379, 447, -1 };
     if (!heard_only(&h, all_ids) || heard_only(&h, some_ids)) { printf("heard_only wrong\n"); bad++; }
+    /* chunk 12: the intent catalogue and the intent -> reply key map */
+    {
+        char k[60];
+        if (strcmp(lang_intent_name(I_GREET), "greet") || strcmp(lang_intent_name(I_NEG), "neg") || strcmp(lang_intent_name(I_GREET_MORNING), "greet_morning") ||
+            strcmp(lang_intent_name(I_NAME_SWEAR_NAME), "name_swear_name") || lang_intent_name(I_COUNT) || lang_intent_name(-1)) { printf("INTENT names wrong\n"); bad++; }
+        if (lang_intent_by_name("selfharm") != I_SELFHARM || lang_intent_by_name("hug") != I_HUG || lang_intent_by_name("nonsense") != -1) { printf("INTENT by_name wrong\n"); bad++; }
+        lang_intent_key(I_THANKS, k, sizeof k); if (strcmp(k, "r.thanks")) { printf("INTENT key default wrong: %s\n", k); bad++; }
+        lang_intent_key(I_GREET_SLANG, k, sizeof k); if (strcmp(k, "r.greet_slang")) { printf("INTENT key default wrong: %s\n", k); bad++; }
+        lang_keymap_test("greet_slang", "r.greet");
+        lang_intent_key(I_GREET_SLANG, k, sizeof k); if (strcmp(k, "r.greet")) { printf("KEYMAP did not map greet_slang: %s\n", k); bad++; }
+        lang_intent_key(I_THANKS, k, sizeof k); if (strcmp(k, "r.thanks")) { printf("KEYMAP changed an unmapped name: %s\n", k); bad++; }
+        lang_keymap_clear_test();
+        lang_intent_key(I_GREET_SLANG, k, sizeof k); if (strcmp(k, "r.greet_slang")) { printf("KEYMAP test row was not cleared: %s\n", k); bad++; }
+        /* the new intents match nothing yet: a phrase of every old pattern still gives only old intents */
+        Heard hh; lang_parse("hello who are you", &hh);
+        for (int i = I_OLD_COUNT; i < I_COUNT; i++) if (heard_has(&hh, i)) { printf("a NEW intent %s was heard\n", lang_intent_name(i)); bad++; break; }
+    }
     /* a long line: an intent said after character 200 and past 40 phrases is still heard */
     char big[420]; big[0] = 0;
     for (int i = 0; i < 40; i++) strcat(big, "blorp ");   /* 240 characters nothing understands */
@@ -158,6 +175,7 @@ static int check_voices(const Line *const *T, const int *N) {
     /* a line over 150 characters is never touched (the self-harm lines) */
     { char big[260]; memset(big, 'a', 200); big[200] = 0; char a[300]; if (voice_apply(STYLE_BEAST, 0, big, a, sizeof a) || strcmp(a, big)) { printf("VOICE: a long line was touched\n"); bad++; } }
     /* wiring */
+    voice_enable(1);
     static const int NEWV[] = { STYLE_ELDER, STYLE_CHILD, STYLE_FORMAL, STYLE_BEAST, STYLE_MACHINE, STYLE_GHOST, STYLE_POET };
     static const char *const WK[] = { "r.greet", "r.thanks", "r.howru", "r.sky", "r.mission", "r.unknown", "r.insult", "r.joke" };
     for (int pass = 0; pass < 2; pass++) {

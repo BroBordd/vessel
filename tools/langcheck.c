@@ -12,10 +12,12 @@
  *   --bench            (chunk 6) timings: init, 1,000 parses of 200 character lines, 1,000 replies, 10,000 line picks, and the budgets of chunk 159
  *   --moods            (chunk 7) the fallback chain of each of the 20 moods and, per key, which mood's lines answer for each mood (= own lines, a letter = reached through the chain, . = nothing). fails if a chain has no old mood in it or a key with lines is silent for a mood
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
+ *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods or --voices found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
+#include "lang_voice.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -29,15 +31,7 @@ static const int *const CNT[4] = { &LINES_A_N, &LINES_B_N, &LINES_C_N, &LINES_D_
 static const char *const TONE_N[NT] = { "warm", "neut", "cold", "host" };
 static const char *const STYLE_N[NS] = { "plain", "divine", "street", "elder", "child", "formal", "beast", "machine", "ghost", "poet" };
 
-/* same order as INTENT_NAME in lang.c (the array has no size, so the assert catches a drift in length) */
-static const char *const INTENT_N[] = {
-    "greet", "bye", "yes", "no", "ok", "thanks", "sorry", "howru", "whoru", "where",
-    "whoami", "mission", "why", "how", "what", "help", "insult", "praise", "love", "worship",
-    "joke", "scared", "confused", "angry", "sad", "intro", "repeat", "sky", "music", "hole",
-    "secret", "life", "wait", "please", "agree", "disagree", "dontcare", "demand", "callout", "age",
-    "real", "address", "selfharm", "alex", "pos", "neg"
-};
-_Static_assert(sizeof INTENT_N / sizeof *INTENT_N == I_COUNT, "INTENT_N in langcheck.c is out of date: see lang.c");
+#define INTENT_N(i) lang_intent_name(i)     /* chunk 12: one list of names, in lang_intents.h */
 
 #define EACH(l) for (int t_ = 0; t_ < 4; t_++) for (int i_ = 0; i_ < *CNT[t_]; i_++) for (const Line *l = &TAB[t_][i_]; l; l = NULL)
 
@@ -109,15 +103,51 @@ static void do_stats(void) {
     int pi[I_COUNT] = {0}, bad = 0;
     for (int k = 0; k < PATS_N; k++) { if (PATS[k].intent >= 0 && PATS[k].intent < I_COUNT) pi[PATS[k].intent]++; else bad++; }
     printf("  patterns : %d rows%s\n   ", PATS_N, bad ? " (SOME HAVE A BAD INTENT)" : "");
-    for (int i = 0; i < I_COUNT; i++) printf(" %s %d%s", INTENT_N[i], pi[i], i % 8 == 7 ? "\n   " : "");
-    printf("\n");
+    int shown_i = 0, nopat = 0;
+    for (int i = 0; i < I_COUNT; i++) { if (!pi[i]) { nopat++; continue; } printf(" %s %d%s", INTENT_N(i), pi[i], ++shown_i % 8 == 0 ? "\n   " : ""); }
+    printf("\n   (%d of the %d intents have no patterns yet: the %d new ones of chunk 12 get theirs in their group chunks)\n", nopat, I_COUNT, I_COUNT - I_OLD_COUNT);
     /* which intents have patterns but no reply lines, or the reverse */
-    for (int i = 0; i < I_COUNT; i++) {
-        char key[40]; snprintf(key, sizeof key, "r.%s", INTENT_N[i]);
+    for (int i = 0; i < I_OLD_COUNT; i++) {
+        char key[40]; snprintf(key, sizeof key, "r.%s", INTENT_N(i));
         int n = 0; EACH(l) if (!strcmp(l->key, key)) n++;
-        if (i != I_POS && i != I_NEG && !n) printf("  NOTE: intent %s has no reply lines\n", INTENT_N[i]);
-        if (!pi[i]) printf("  NOTE: intent %s has no patterns\n", INTENT_N[i]);
+        if (i != I_POS && i != I_NEG && !n) printf("  NOTE: intent %s has no reply lines\n", INTENT_N(i));
+        if (!pi[i]) printf("  NOTE: intent %s has no patterns\n", INTENT_N(i));
     }
+}
+
+/* chunk 12: the intent catalogue and the intent -> reply key map. fails on: a duplicate or empty name, a name that is not lower-case letters, digits and
+ * underscores, a mapping for a name that is not an intent, a mapping to a key with no lines, a name that is mapped twice. NOTEs (not failures, until the
+ * group chunks are done): an intent with neither lines nor a mapping, counted per group */
+static int do_intents(void) {
+    int bad = 0, with_lines = 0, mapped = 0, neither = 0;
+    for (int i = 0; i < I_COUNT; i++) {
+        const char *n = lang_intent_name(i);
+        if (!n || !*n) { printf("INTENT %d has no name\n", i); bad++; continue; }
+        for (const char *c = n; *c; c++) if (!(islower((unsigned char)*c) || isdigit((unsigned char)*c) || *c == '_')) { printf("INTENT name [%s] has a bad character\n", n); bad++; break; }
+        for (int j = 0; j < i; j++) if (!strcmp(lang_intent_name(j), n)) { printf("INTENT name [%s] is used twice (%d and %d)\n", n, j, i); bad++; }
+        if (lang_intent_by_name(n) != i) { printf("INTENT lang_intent_by_name(%s) != %d\n", n, i); bad++; }
+        if (!lang_intent_label(i) || !*lang_intent_label(i)) { printf("INTENT %s has no label\n", n); bad++; }
+    }
+    for (int k = 0; k < lang_keymap_count(); k++) {
+        const char *nm, *key; lang_keymap_row(k, &nm, &key);
+        if (lang_intent_by_name(nm) < 0) { printf("KEYMAP row %d: [%s] is not an intent\n", k, nm); bad++; }
+        for (int j = 0; j < k; j++) { const char *n2, *k2; lang_keymap_row(j, &n2, &k2); if (!strcmp(n2, nm)) { printf("KEYMAP: [%s] is mapped twice\n", nm); bad++; } }
+        const Line *const *rows; if (lang_key_rows(key, &rows) == 0) { printf("KEYMAP: [%s] -> [%s] but that key has no lines\n", nm, key); bad++; }
+    }
+    int gneither[16] = {0};
+    for (int i = 0; i < I_COUNT; i++) {
+        char key[60]; lang_intent_key(i, key, sizeof key);
+        const Line *const *rows; int n = lang_key_rows(key, &rows);
+        char own[60]; snprintf(own, sizeof own, "r.%s", lang_intent_name(i));
+        if (strcmp(key, own)) mapped++;
+        if (n) with_lines++;
+        else if (i != I_POS && i != I_NEG) { neither++; if (i >= I_OLD_COUNT) gneither[(i - I_OLD_COUNT) * 16 / (I_COUNT - I_OLD_COUNT)]++; else printf("  NOTE: old intent %s has neither lines nor a mapping\n", lang_intent_name(i)); }
+    }
+    printf("intents: %d (%d old + %d new), %d with reply lines, %d mapped to another key, %d with neither lines nor a mapping (all of them new until their group chunks)\n",
+           I_COUNT, I_OLD_COUNT, I_COUNT - I_OLD_COUNT, with_lines, mapped, neither);
+    printf("keymap rows: %d. heard set: %d bits for %d intents\n", lang_keymap_count(), HEARD_MAX, I_COUNT);
+    printf(bad ? "%d INTENT PROBLEMS\n" : "intents ok (%d problems)\n", bad);
+    return bad;
 }
 
 /* which voices have a row made for them (not just an ALLS row): the old three always, the new ones when their data arrives */
@@ -291,7 +321,7 @@ static void do_bench(void) {
     char key[40], out[400]; t0 = now_ms(); int picked = 0;
     for (int k = 0; k < 10000; k++) {
         Persona q = { "X", STY[k % 3], 0, 50, 0, 8 };
-        snprintf(key, sizeof key, "r.%s", INTENT_N[k % (I_COUNT - 2)]);
+        snprintf(key, sizeof key, "r.%s", INTENT_N(k % (I_OLD_COUNT - 2)));
         picked += lang_line_tone(&q, key, (Tone)(k % 4), out, sizeof out);
     }
     double pick = (now_ms() - t0) / 10000.0;
@@ -359,6 +389,7 @@ static int do_moods(void) {
 /* ---- chunk 10: the ten voices ---- */
 static int do_voices(void) {
     int bad = 0;
+    voice_enable(0);          /* this test is about the picker: the raw lines, not the chunk 11 rewrites */
     static const Line T10[] = {
         { "t10.a", ALLT, PLAIN, "plain a" }, { "t10.a", ALLT, BEAST, "beast a" }, { "t10.a", ALLT, DIVINE, "divine a" }, { "t10.a", ALLT, FORMAL, "formal a" }, { "t10.a", ALLT, GHOST, "ghost a" },
         { "t10.b", ALLT, PLAIN, "plain b" }, { "t10.b", ALLT, ELDER, "elder b" },
@@ -400,6 +431,7 @@ static int do_voices(void) {
     }
     if (silent) { printf("BAD VOICE: %d of %d key x voice x mood cells are silent\n", silent, cells); bad++; }
     printf("voices: %d voices, %d reply key x voice x mood cells all answered through their fallbacks. %s\n", NS, cells, bad ? "PROBLEMS" : "ok");
+    voice_enable(1);
     return bad;
 }
 
@@ -414,6 +446,7 @@ int main(int argc, char **argv) {
         const char *a = argv[i];
         if (!strcmp(a, "--check"))    { rc |= do_check() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--stats"))    { do_stats(); any = 1; }
+        else if (!strcmp(a, "--intents"))  { rc |= do_intents() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--coverage")) { do_coverage(quota); any = 1; }
         else if (!strcmp(a, "--dupes"))    { do_dupes(); any = 1; }
         else if (!strcmp(a, "--length"))   { do_length(); any = 1; }
@@ -422,7 +455,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

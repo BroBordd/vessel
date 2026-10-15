@@ -21,22 +21,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* same order as INTENT_NAME in lang.c (the assert catches a drift in length) */
-static const char *const IN[] = {
-    "greet", "bye", "yes", "no", "ok", "thanks", "sorry", "howru", "whoru", "where",
-    "whoami", "mission", "why", "how", "what", "help", "insult", "praise", "love", "worship",
-    "joke", "scared", "confused", "angry", "sad", "intro", "repeat", "sky", "music", "hole",
-    "secret", "life", "wait", "please", "agree", "disagree", "dontcare", "demand", "callout", "age",
-    "real", "address", "selfharm", "alex", "pos", "neg"
-};
-_Static_assert(sizeof IN / sizeof *IN == I_COUNT, "IN in langcorpus.c is out of date: see lang.c");
-
-#define M(i) (1ull << (i))
+#define IN_(i) lang_intent_name(i)
+/* a set of intents (chunk 12: 380 intents do not fit a uint64_t any more) */
+typedef struct { uint64_t w[HEARD_MAX / 64]; } Set;
+static int  sh(const Set *s, int i) { return (int)((s->w[i >> 6] >> (i & 63)) & 1u); }
+static void sa(Set *s, int i) { s->w[i >> 6] |= 1ull << (i & 63); }
+static int  s_any(const Set *s) { for (int k = 0; k < HEARD_MAX / 64; k++) if (s->w[k]) return 1; return 0; }
+static int  s_meet(const Set *a, const Set *b) { for (int k = 0; k < HEARD_MAX / 64; k++) if (a->w[k] & b->w[k]) return 1; return 0; }
+static int  s_eq(const Set *a, const Set *b) { return !memcmp(a->w, b->w, sizeof a->w); }
+static Set  s_of(const Heard *h) { Set s; memcpy(s.w, h->m, sizeof s.w); return s; }
 #define MAXL 20000
-typedef struct { char text[512]; uint64_t exp; int none; } Row;
+typedef struct { char text[512]; Set exp; int none; } Row;
 static Row rows[MAXL]; static int nrows;
 
-static int intent_by_name(const char *n) { for (int i = 0; i < I_COUNT; i++) if (!strcmp(IN[i], n)) return i; return -1; }
+static int intent_by_name(const char *n) { return lang_intent_by_name(n); }
 
 static int load(const char *path) {
     FILE *f = fopen(path, "r");
@@ -51,13 +49,13 @@ static int load(const char *path) {
         *tab = 0;
         if (nrows >= MAXL) { fprintf(stderr, "too many rows\n"); fclose(f); return 1; }
         Row *r = &rows[nrows];
-        snprintf(r->text, sizeof r->text, "%s", line); r->exp = 0; r->none = 0;
+        snprintf(r->text, sizeof r->text, "%s", line); memset(&r->exp, 0, sizeof r->exp); r->none = 0;
         for (char *tok = strtok(tab + 1, ","); tok; tok = strtok(NULL, ",")) {
             while (*tok == ' ') tok++;
             if (!strcmp(tok, "none")) { r->none = 1; continue; }
             int k = intent_by_name(tok);
             if (k < 0) { fprintf(stderr, "%s:%d: unknown intent '%s'\n", path, ln, tok); bad++; continue; }
-            r->exp |= M(k);
+            sa(&r->exp, k);
         }
         nrows++;
     }
@@ -65,9 +63,9 @@ static int load(const char *path) {
     return bad;
 }
 
-static void names(uint64_t m, char *out, int cap) {
+static void names(const Set *m, char *out, int cap) {
     out[0] = 0; int o = 0;
-    for (int i = 0; i < I_COUNT; i++) if (m & M(i)) o += snprintf(out + o, (size_t)(cap - o > 0 ? cap - o : 0), "%s%s", o ? "," : "", IN[i]);
+    for (int i = 0; i < I_COUNT; i++) if (sh(m, i)) o += snprintf(out + o, (size_t)(cap - o > 0 ? cap - o : 0), "%s%s", o ? "," : "", IN_(i));
     if (!o) snprintf(out, (size_t)cap, "-");
 }
 
@@ -140,7 +138,7 @@ static int mutate(char *t, int cap, int kind) {
     return strcmp(before, t) != 0;
 }
 
-static uint64_t only;
+static Set only;
 static int run_fuzz(int per, int nshow, int minret) {
     long lab[F_COUNT] = {0}, cl[F_COUNT] = {0}, fu[F_COUNT] = {0}, kept[F_COUNT] = {0}; int nvar[F_COUNT] = {0};
     long ilab[I_COUNT] = {0}, icl[I_COUNT] = {0}, ifu[I_COUNT] = {0};
@@ -148,7 +146,7 @@ static int run_fuzz(int per, int nshow, int minret) {
     printf("\n=== fuzz: %d variants per line per kind, seed fixed ===\n", per);
     for (int r = 0; r < nrows; r++) {
         Row *w = &rows[r];
-        if (w->none || !w->exp || (only && !(w->exp & only))) continue;
+        if (w->none || !s_any(&w->exp) || (s_any(&only) && !s_meet(&w->exp, &only))) continue;
         Heard h0; lang_parse(w->text, &h0);
         for (int k = 0; k < F_COUNT; k++) for (int v = 0; v < per; v++) {
             char t[512]; strncpy(t, w->text, sizeof t - 1); t[sizeof t - 1] = 0;
@@ -157,11 +155,11 @@ static int run_fuzz(int per, int nshow, int minret) {
             else changed = mutate(t, 199, k);
             if (!changed) continue;
             Heard h; lang_parse(t, &h); nvar[k]++;
-            for (int i = 0; i < I_COUNT; i++) if (w->exp & M(i)) {
-                int c = (h0.mask & M(i)) != 0, f = (h.mask & M(i)) != 0;
+            for (int i = 0; i < I_COUNT; i++) if (sh(&w->exp, i)) {
+                int c = heard_has(&h0, i), f = heard_has(&h, i);
                 lab[k]++; cl[k] += c; fu[k] += f; kept[k] += c && f; tk += c && f; tl++; tc += c; tf += f;
                 ilab[i]++; icl[i] += c; ifu[i] += f;
-                if (c && !f && shown < nshow) { printf("  lost %-8s %-40s <- %-30s [%s]\n", IN[i], t, w->text, FNAME[k]); shown++; }
+                if (c && !f && shown < nshow) { printf("  lost %-8s %-40s <- %-30s [%s]\n", IN_(i), t, w->text, FNAME[k]); shown++; }
             }
         }
     }
@@ -175,13 +173,13 @@ static int run_fuzz(int per, int nshow, int minret) {
     printf("%-16s %8ld %7.1f%% %7.1f%% %8.1f%% %7.1f%%   (retained = fuzzed recall / clean recall; kept = labels heard clean that are still heard)\n",
            "ALL", tl, tl ? 100.0 * tc / tl : 0, tl ? 100.0 * tf / tl : 0, ret, tc ? 100.0 * tk / tc : 0.0);
     printf("\nper intent (retained = fuzzed hits / clean hits over all mutations):\n");
-    for (int i = 0; i < I_COUNT; i++) if (ilab[i]) printf("  %-9s clean %5.1f%%  fuzzed %5.1f%%  retained %5.1f%%\n", IN[i], 100.0 * icl[i] / ilab[i], 100.0 * ifu[i] / ilab[i], icl[i] ? 100.0 * ifu[i] / icl[i] : 0);
+    for (int i = 0; i < I_COUNT; i++) if (ilab[i]) printf("  %-9s clean %5.1f%%  fuzzed %5.1f%%  retained %5.1f%%\n", IN_(i), 100.0 * icl[i] / ilab[i], 100.0 * ifu[i] / ilab[i], icl[i] ? 100.0 * ifu[i] / icl[i] : 0);
     if (minret >= 0) { printf("min-retained %d%%: %s\n", minret, ret < minret ? "FAIL" : "PASS"); return ret < minret; }
     return 0;
 }
 
 int main(int argc, char **argv) {
-    int minrec = -1, nmiss = 30, bad = 0, fuzz = 0, fuzzshow = 15, minret = -1; only = 0; const char *files[64]; int nf = 0;
+    int minrec = -1, nmiss = 30, bad = 0, fuzz = 0, fuzzshow = 15, minret = -1; memset(&only, 0, sizeof only); const char *files[64]; int nf = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--min-recall") && i + 1 < argc) minrec = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--misses") && i + 1 < argc) nmiss = atoi(argv[++i]);
@@ -191,7 +189,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--seed") && i + 1 < argc) fz = (uint32_t)atoi(argv[++i]) | 1u;
         else if (!strcmp(argv[i], "--only") && i + 1 < argc) {
             char buf[400]; snprintf(buf, sizeof buf, "%s", argv[++i]);
-            for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) { int k = intent_by_name(t); if (k < 0) { fprintf(stderr, "unknown intent %s\n", t); return 2; } only |= M(k); }
+            for (char *t = strtok(buf, ","); t; t = strtok(NULL, ",")) { int k = intent_by_name(t); if (k < 0) { fprintf(stderr, "unknown intent %s\n", t); return 2; } sa(&only, k); }
         } else if (nf < 64) files[nf++] = argv[i];
     }
     if (!nf) { fprintf(stderr, "usage: langcorpus [--min-recall N] [--only a,b] [--misses N] FILE...\n"); return 2; }
@@ -205,26 +203,28 @@ int main(int argc, char **argv) {
     printf("=== misses (first %d) ===\n", nmiss);
     for (int r = 0; r < nrows; r++) {
         Row *w = &rows[r];
-        if (only && !(w->exp & only)) continue;
+        if (s_any(&only) && !s_meet(&w->exp, &only)) continue;
         Heard h; lang_parse(w->text, &h);
-        uint64_t got = h.mask, cmp_got = got & ~(M(I_POS) | M(I_NEG)), cmp_exp = w->exp & ~(M(I_POS) | M(I_NEG));
-        if (w->exp & M(I_POS)) cmp_got |= got & M(I_POS);
-        if (w->exp & M(I_NEG)) cmp_got |= got & M(I_NEG);
+        Set got = s_of(&h), cmp_got = got, cmp_exp = w->exp;
+        cmp_got.w[I_POS >> 6] &= ~(1ull << (I_POS & 63)); cmp_got.w[I_NEG >> 6] &= ~(1ull << (I_NEG & 63));      /* the sentiment words only count when expected */
+        cmp_exp.w[I_POS >> 6] &= ~(1ull << (I_POS & 63)); cmp_exp.w[I_NEG >> 6] &= ~(1ull << (I_NEG & 63));
+        if (sh(&w->exp, I_POS) && sh(&got, I_POS)) sa(&cmp_got, I_POS);
+        if (sh(&w->exp, I_NEG) && sh(&got, I_NEG)) sa(&cmp_got, I_NEG);
         scored++;
         if (!h.n) unknown++;
         int miss = 0;
         if (w->none) { none_n++; if (!h.n) none_ok++; else miss = 1; }
         else {
-            if (cmp_got == cmp_exp) exact++;
+            if (s_eq(&cmp_got, &cmp_exp)) exact++;
             for (int i = 0; i < I_COUNT; i++) {
-                if (w->exp & M(i)) { exp_n[i]++; if (got & M(i)) hit[i]++; else miss = 1; }
-                if (got & M(i)) { pred[i]++; if (w->exp & M(i)) ok_pred[i]++; }
+                if (sh(&w->exp, i)) { exp_n[i]++; if (sh(&got, i)) hit[i]++; else miss = 1; }
+                if (sh(&got, i)) { pred[i]++; if (sh(&w->exp, i)) ok_pred[i]++; }
             }
         }
-        if (w->none) for (int i = 0; i < I_COUNT; i++) if (got & M(i)) pred[i]++;
+        if (w->none) for (int i = 0; i < I_COUNT; i++) if (sh(&got, i)) pred[i]++;
         if (miss) {
             missed_rows++;
-            if (shown < nmiss) { char e[120], g[120]; names(w->none ? 0 : w->exp, e, sizeof e); names(got, g, sizeof g); printf("  %-44s want %-22s got %s\n", w->text, w->none ? "none" : e, g); shown++; }
+            if (shown < nmiss) { char e[120], g[120]; Set nil; memset(&nil, 0, sizeof nil); names(w->none ? &nil : &w->exp, e, sizeof e); names(&got, g, sizeof g); printf("  %-44s want %-22s got %s\n", w->text, w->none ? "none" : e, g); shown++; }
         }
     }
     int te = 0, th = 0, worst_bad = 0;
@@ -232,8 +232,8 @@ int main(int argc, char **argv) {
     for (int i = 0; i < I_COUNT; i++) {
         if (!exp_n[i] && !pred[i]) continue;
         double rc = exp_n[i] ? 100.0 * hit[i] / exp_n[i] : -1, pr = pred[i] ? 100.0 * ok_pred[i] / pred[i] : -1;
-        int gated = !only || (only & M(i));          /* with --only, just those intents are held to the minimum */
-        printf("  %-9s recall %5.1f%% (%d/%d)   precision %5.1f%% (%d/%d)%s\n", IN[i], rc, hit[i], exp_n[i], pr, ok_pred[i], pred[i],
+        int gated = !s_any(&only) || sh(&only, i);          /* with --only, just those intents are held to the minimum */
+        printf("  %-9s recall %5.1f%% (%d/%d)   precision %5.1f%% (%d/%d)%s\n", IN_(i), rc, hit[i], exp_n[i], pr, ok_pred[i], pred[i],
                (minrec >= 0 && gated && exp_n[i] && rc < minrec) ? "   <-- below min" : "");
         if (gated) { te += exp_n[i]; th += hit[i]; }
         if (minrec >= 0 && gated && exp_n[i] && rc < minrec) worst_bad++;

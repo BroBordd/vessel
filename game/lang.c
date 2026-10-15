@@ -12,29 +12,72 @@
 #include <string.h>
 
 /* ---------- names ---------- */
+/* the 46 original intents, then the 334 of lang_intents.h (chunk 12) */
 static const char *const INTENT_NAME[I_COUNT] = {
     "greet", "bye", "yes", "no", "ok", "thanks", "sorry", "howru", "whoru", "where",
     "whoami", "mission", "why", "how", "what", "help", "insult", "praise", "love", "worship",
     "joke", "scared", "confused", "angry", "sad", "intro", "repeat", "sky", "music", "hole",
     "secret", "life", "wait", "please", "agree", "disagree", "dontcare", "demand", "callout", "age",
-    "real", "address", "selfharm", "alex", "pos", "neg"
+    "real", "address", "selfharm", "alex", "pos", "neg",
+#define X(id, name, label) [I_##id] = name,
+    INTENT_LIST(X)
+#undef X
 };
 static const char *const INTENT_LABEL[I_COUNT] = {
     "HELLO", "BYE", "YES", "NO", "OK", "THANKS", "SORRY", "HOW ARE YOU", "WHO ARE YOU", "WHERE",
     "WHO AM I", "MISSION", "WHY", "HOW", "WHAT", "HELP", "INSULT", "PRAISE", "LOVE", "WORSHIP",
     "JOKE", "FEAR", "CONFUSION", "ANGER", "SADNESS", "INTRO", "REPEAT", "SKY", "MUSIC", "HOLE",
     "SECRET", "LIFE", "WAIT", "PLEASE", "AGREE", "DISAGREE", "DONT CARE", "DEMAND", "CALL OUT", "AGE",
-    "REALITY", "NAME", "CONCERN", "ALEX", "GOOD", "BAD"
+    "REALITY", "NAME", "CONCERN", "ALEX", "GOOD", "BAD",
+#define X(id, name, label) [I_##id] = label,
+    INTENT_LIST(X)
+#undef X
 };
 
+const char *lang_intent_name(int in) { return in >= 0 && in < I_COUNT ? INTENT_NAME[in] : NULL; }
+const char *lang_intent_label(int in) { return in >= 0 && in < I_COUNT ? INTENT_LABEL[in] : NULL; }
+int lang_intent_by_name(const char *name) { for (int i = 0; i < I_COUNT; i++) if (!strcmp(INTENT_NAME[i], name)) return i; return -1; }
+
+/* INTENT -> REPLY KEY. by default an intent is answered by r.<name>. a row here sends a NAME to another key, so merged near-twins (several names, one
+ * answer) need only one set of lines: { "greet_slang", "r.greet" }. the group chunks fill it (the first chunk of each group settles its merges).
+ * the lint (langcheck --intents) reports a name with neither lines nor a mapping, and a mapping to a key that has no lines. the last row is the end mark. */
+typedef struct { const char *name, *key; } KeyMap;
+static const KeyMap KEYMAP[] = {
+    { NULL, NULL }
+};
+int lang_keymap_count(void) { int n = 0; while (KEYMAP[n].name) n++; return n; }
+int lang_keymap_row(int i, const char **name, const char **key) {
+    if (i < 0 || i >= lang_keymap_count()) return 0;
+    *name = KEYMAP[i].name; *key = KEYMAP[i].key; return 1;
+}
+static const KeyMap *test_map[8]; static KeyMap test_rows[8]; static int ntest;
+int lang_keymap_test(const char *name, const char *key) {
+    if (ntest >= 8 || lang_intent_by_name(name) < 0) return -1;
+    test_rows[ntest].name = name; test_rows[ntest].key = key; test_map[ntest] = &test_rows[ntest]; ntest++;
+    return 0;
+}
+void lang_keymap_clear_test(void) { ntest = 0; }
+const char *lang_intent_key(int in, char *buf, int cap) {
+    const char *n = lang_intent_name(in);
+    if (cap <= 0) return "";
+    if (!n) { buf[0] = 0; return buf; }
+    for (int i = ntest - 1; i >= 0; i--) if (!strcmp(test_map[i]->name, n)) { snprintf(buf, (size_t)cap, "%s", test_map[i]->key); return buf; }
+    for (const KeyMap *k = KEYMAP; k->name; k++) if (!strcmp(k->name, n)) { snprintf(buf, (size_t)cap, "%s", k->key); return buf; }
+    snprintf(buf, (size_t)cap, "r.%s", n);
+    return buf;
+}
+
 /* lower number = answered first. 99 = only ever answered when nothing better was said */
-static const unsigned char RANK[I_COUNT] = {
+static const unsigned char RANK[I_COUNT] = {     /* chunk 12: an intent after I_NEG with a 0 here has the default rank 20 (rank_of); the group chunks fill their rows */
     /* greet */ 8, /* bye */ 9, /* yes */ 99, /* no */ 99, /* ok */ 99, /* thanks */ 7, /* sorry */ 3, /* howru */ 12, /* whoru */ 11, /* where */ 13,
     /* whoami */ 14, /* mission */ 15, /* why */ 99, /* how */ 99, /* what */ 99, /* help */ 25, /* insult */ 1, /* praise */ 6, /* love */ 4, /* worship */ 5,
     /* joke */ 24, /* scared */ 26, /* confused */ 29, /* angry */ 28, /* sad */ 27, /* intro */ 10, /* repeat */ 34, /* sky */ 21, /* music */ 22, /* hole */ 16,
     /* secret */ 17, /* life */ 18, /* wait */ 99, /* please */ 99, /* agree */ 33, /* disagree */ 32, /* dontcare */ 31, /* demand */ 30, /* callout */ 2, /* age */ 19,
     /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99
 };
+
+#define RANK_DEFAULT 20
+static int rank_of(int in) { return in >= I_OLD_COUNT && RANK[in] == 0 ? RANK_DEFAULT : RANK[in]; }
 
 /* WHAT MOVES THE MOOD (chunk 9): one row per intent, easy to tune. a row is what ONE hearing of the intent does:
  *   mood, cha  : the warm..hostile mood and the player's charisma (as before)
@@ -527,7 +570,7 @@ static const Line *pick(const Persona *ps, const char *key, int tone) {
  * mood) rewritten into its voice by code, and a little flavour (25 %) on the lines made for it. the old three voices are never touched, and the
  * out-of-character self-harm line never is. `pass` is g_pass read right after the pick (formatting picks pool lines and changes it) */
 static void voice_line(const Persona *ps, const char *key, const Line *l, int pass, int tone, char *out, int cap) {
-    if (!voice_is_new(ps->style) || !strcmp(key, "r.selfharm")) return;
+    if (!voice_enabled() || !voice_is_new(ps->style) || !strcmp(key, "r.selfharm")) return;
     char tmp[600]; int did = 0, v = voice_first(ps->style);
     if (pass == 1 && (l->styles & PLAIN)) did = voice_apply(v, tone, out, tmp, (int)sizeof tmp);
     else if (pass == 0 && rn(100) < 25) did = voice_flavour(v, tone, out, tmp, (int)sizeof tmp);
@@ -613,10 +656,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         for (int i = 0; i < h->n; i++) {
             int in = h->order[i];
             if (in == I_POS || in == I_NEG) continue;
-            if ((RANK[in] == 99) == (pass == 1)) cand[nc++] = in;
+            if ((rank_of(in) == 99) == (pass == 1)) cand[nc++] = in;
         }
         for (int a = 0; a < nc; a++)                                   /* tiny sort by rank */
-            for (int b = a + 1; b < nc; b++) if (RANK[cand[b]] < RANK[cand[a]]) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
+            for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
         for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
     }
 
@@ -631,8 +674,8 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
             else if (tt == TONE_BORED) tt = TONE_NEUTRAL;
         }
         g_tone = (int)tt;
-        char key[24], one[200];
-        snprintf(key, sizeof key, "r.%s", INTENT_NAME[in]);
+        char key[40], one[200];
+        lang_intent_key(in, key, (int)sizeof key);
         const Line *l = pick(ps, key, (int)tt);
         if (!l) continue;
         int pass = g_pass;

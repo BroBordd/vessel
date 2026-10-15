@@ -19,6 +19,7 @@
 #ifndef LANG_H
 #define LANG_H
 #include <stdint.h>
+#include "lang_intents.h"
 
 /* what the player can mean. keep the order in sync with INTENT_NAME / INTENT_LABEL in lang.c */
 typedef enum {
@@ -28,8 +29,13 @@ typedef enum {
     I_SECRET, I_LIFE, I_WAIT, I_PLEASE, I_AGREE, I_DISAGREE, I_DONTCARE, I_DEMAND, I_CALLOUT, I_AGE,
     I_REAL, I_ADDRESS, I_SELFHARM, I_ALEX,
     I_POS, I_NEG,                       /* pure sentiment words: only used when nothing else matched */
+    /* chunk 12: the 334 intents of docs/convo_plan.md Appendix A, in group order (game/lang_intents.h). they match nothing until their group's patterns exist */
+#define X(id, name, label) I_##id,
+    INTENT_LIST(X)
+#undef X
     I_COUNT
 } Intent;
+#define I_OLD_COUNT (I_NEG + 1)         /* the 46 intents that existed before chunk 12 */
 
 /* chunk 7: twenty moods. the first four keep 0-3 (until the mood vector moves in chunk 9, only a set vector, a lean or the plain mood gives them). a mood with no line for a key
  * answers through its fallback chain (lang_mood_chain), then the nearest of the old four, then any */
@@ -66,13 +72,10 @@ typedef struct {
 } Persona;
 #define LEAN(t) (1u << (t))
 
-#define HEARD_MAX 256   /* intents that fit in a Heard (a 256 bit set) */
+#define HEARD_MAX 512   /* intents that fit in a Heard (a 512 bit set; chunk 12: 380 intents) */
 #define HEARD_ORDER 24  /* intents remembered in the order they were said */
 typedef struct {
-    union {
-        uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only */
-        uint64_t mask;                /* old name for m[0]: only right for intents below 64, goes away in chunk 12 */
-    };
+    uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only (the old `mask` name is gone since chunk 12) */
     int order[HEARD_ORDER], n;   /* intents in the order they were said */
     int positive, negative;
     int is_question, words;
@@ -91,6 +94,19 @@ static inline int  heard_only(const Heard *h, const int *allowed) {
     }
     return 1;
 }
+
+/* ---- the intent catalogue (chunk 12) ---- */
+_Static_assert(I_COUNT <= HEARD_MAX, "more intents than a Heard can hold: raise HEARD_MAX");
+const char *lang_intent_name(int in);                       /* "greet", "greet_morning" ... NULL if out of range */
+const char *lang_intent_label(int in);                      /* "HELLO", "GREET MORNING" ... */
+int         lang_intent_by_name(const char *name);          /* -1 if unknown */
+/* the reply key that answers an intent: "r.<name>", or the key KEYMAP maps its name to (merged near-twins). buf is filled and returned */
+const char *lang_intent_key(int in, char *buf, int cap);
+int         lang_keymap_count(void);                        /* rows of KEYMAP, and the i-th: name -> key (tools / lint) */
+int         lang_keymap_row(int i, const char **name, const char **key);
+/* tests only: a temporary mapping on top of KEYMAP (up to 8); lang_keymap_clear_test() forgets them */
+int         lang_keymap_test(const char *name, const char *key);
+void        lang_keymap_clear_test(void);
 
 /* ---- setup ---- */
 void lang_seed(unsigned s);

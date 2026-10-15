@@ -28,6 +28,10 @@ const char *voice_name(int style);                             /* "plain" ... "p
 /* both fill out (always a valid line, a copy of text when nothing changed) and return 1 if it differs from text */
 int  voice_apply(int style, int tone, const char *text, char *out, int cap);      /* the full rewrite */
 int  voice_flavour(int style, int tone, const char *text, char *out, int cap);    /* only the openers, closers and tags */
+/* tests: voice_enable(0) turns OFF the wiring in lang.c (a persona with a new voice is then answered with the raw lines, as in chunk 10); voice_apply / voice_flavour
+ * called directly always work. on by default */
+void voice_enable(int on);
+int  voice_enabled(void);
 unsigned voice_applied(void);                                  /* how many times a transform changed a line since the last voice_seed (tests) */
 
 #endif

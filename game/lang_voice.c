@@ -16,6 +16,9 @@
 static unsigned g_seed = 1, g_applied;
 void voice_seed(unsigned s) { g_seed = s ? s : 1; g_applied = 0; }
 unsigned voice_applied(void) { return g_applied; }
+static int g_enabled = 1;
+void voice_enable(int on) { g_enabled = on != 0; }
+int voice_enabled(void) { return g_enabled; }
 
 int voice_first(int style) { return style ? (style & -style) : STYLE_PLAIN; }
 int voice_is_new(int style) { int v = voice_first(style); return v >= STYLE_ELDER && v <= STYLE_POET; }
