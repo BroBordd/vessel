@@ -45,13 +45,14 @@ typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); l
 #define LF_SPACED 128u  /* chunk 17: spaced letters (h e l l o, h.e.l.l.o) were joined */
 #define LF_MASKED 256u  /* chunk 17: a censored word (f*ck) was seen, see TK_MASK */
 #define LF_PUNCT  512u  /* chunk 17: a run of !!! ??? .... was shortened */
+#define LF_TEXTSPEAK 1024u  /* chunk 18: text-speak or a contraction (u, idk, dont, im, gonna) has an expanded variant */
 typedef struct {
     unsigned flags;
     int noise;                        /* 0-100: share of the letters that sit in mash / gibberish words */
     int excl, quest;                  /* number of ! and ? (cleaned text), at most 255 */
     int letters, caps;                /* letters seen and how many were capitals */
     int laugh;                        /* the longest laugh (letters), 0 = none */
-    int stretch, nstretch, nleet, nspaced, npunct;   /* chunk 17: longest elongated run, and how many words / runs each rule changed */
+    int stretch, nstretch, nleet, nspaced, npunct, nexpand;   /* chunk 17: longest elongated run, and how many words / runs each rule changed */
     int ntok, count[TK_COUNT];        /* tokens kept (the first LANG_MAX_TOK) and how many of each kind were seen */
     LangTok tok[LANG_MAX_TOK];
 } LangInfo;
@@ -79,6 +80,18 @@ const char *lang_token_name(int kind);
 typedef int (*LangKnownFn)(const char *w, int n);        /* is w[0..n) a known word? */
 void lang_clean_set_known(LangKnownFn fn);               /* set by lang_init (patterns, lexicon, vocabulary); NULL = no dictionary */
 int  lang_clean_words(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info);
+
+/* ---- PART 4 (chunk 18): contractions and text-speak ----
+ * lang_clean_expand(in, inmap, out, cap, outmap, src, info) writes the EXPANDED variant of the text the matcher sees: every token that the
+ * text-speak table knows (u idk dont im gonna ...) is replaced by its standard form (you, i do not know, do not, i am, going to). It is a
+ * second text, not a replacement: the engine scans both, so a pattern written either way (dont / don't / do not) matches, and the text as
+ * typed is never lost. out[i] came from in[src[i]] (an expansion maps to the token it replaced: its first letters to the token's first
+ * character, its last letter to the token's LAST character, so a highlight covers the whole token); outmap[i] = inmap[src[i]] (inmap, outmap,
+ * src may be NULL). Returns the length. info (may be NULL) gets nexpand (tokens expanded) and LF_TEXTSPEAK; nexpand 0 means out == in.
+ * A token whose expansion would not fit in cap is left as typed. Lookup is by the whole token (letters, digits, inner apostrophes). */
+typedef const char *(*LangExpandFn)(const char *w, int n);   /* the standard form of w[0..n), NUL-ended, or NULL */
+void lang_clean_set_expand(LangExpandFn fn);                 /* set by lang_init (the text-speak table); NULL = no expansion */
+int  lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info);
 
 /* the same characters at the same places (same length, same map), but the case kept: for names (the capture of "im Alice") */
 int lang_clean_case(const char *text, char *out, int cap, int *map);

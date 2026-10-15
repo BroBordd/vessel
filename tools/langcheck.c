@@ -17,6 +17,7 @@
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
  *                      (chunk 17) part 3, lang_clean_words: about 230 before/after pairs (elongation, leet, spaced letters, censor masks, repeated punctuation, and the shapes that must NOT change: 3pm 1st b4 gr8 2day mp3 user1 a number a url), the maps (monotone, inside the text, the stretch of a final run), flags and TK_MASK ranges, highlight and name capture through it, leet self-harm, no dictionary, idempotence, and how many reply lines / patterns / corpus lines it changes
+ *                      (chunk 18) text-speak and contractions, lang_clean_expand: the table (>= 150 well-formed rows, no duplicates), about 100 before/after pairs, the maps (a highlight covers the whole typed token), the cap, no hook, and the superset rule: everything the text as typed heard is still heard
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -844,6 +845,114 @@ static int do_words(int argc, char **argv) {
     return bad;
 }
 
+/* ---- chunk 18: contractions and text-speak (the expanded variant) ---- */
+static int xp(const char *text, char *out, int cap, int *omap, int *src, LangInfo *f) {
+    char a[410]; int m1[410];
+    lang_init();
+    lang_clean_info(text, a, 410, m1, f);
+    char b[410]; int m3[410];
+    lang_clean_words(a, m1, b, 410, m3, NULL, f);
+    return lang_clean_expand(b, m3, out, cap, omap, src, f);
+}
+static int do_textspeak(int argc, char **argv) {
+    int bad = 0, npairs = 0, rows = 0;
+    char o[410]; int map[410], src[410]; LangInfo f;
+    /* the table */
+    for (const char *const *r = TEXTSPEAK; *r; r++) {
+        rows++;
+        const char *bar = strchr(*r, '|'); int kn = bar ? (int)(bar - *r) : 0;
+        int ok = bar && kn > 0 && bar[1];
+        for (int i = 0; ok && i < kn; i++) if (!((*r)[i] >= 'a' && (*r)[i] <= 'z') && (*r)[i] != '\'') ok = 0;     /* no digits (chunk 19), no case, no spaces */
+        for (const char *q = bar ? bar + 1 : ""; ok && *q; q++) if (!((*q >= 'a' && *q <= 'z') || *q == ' ' || *q == '\'')) ok = 0;
+        if (ok && strlen(bar + 1) == (size_t)kn && !strncmp(*r, bar + 1, (size_t)kn)) ok = 0;                     /* not itself */
+        for (const char *const *r2 = r + 1; ok && *r2; r2++) { const char *b2 = strchr(*r2, '|'); if (b2 && b2 - *r2 == kn && !strncmp(*r, *r2, (size_t)kn)) { printf("BAD TEXTSPEAK: duplicate key in \"%s\"\n", *r); bad++; } }
+        if (!ok) { printf("BAD TEXTSPEAK: row \"%s\"\n", *r); bad++; }
+    }
+    if (rows < 150) { printf("BAD TEXTSPEAK: only %d rows, the first batch has at least 150\n", rows); bad++; }
+    static const struct { const char *in, *out; } P[] = {
+        { "u r cool", "you are cool" }, { "ur cool", "your cool" }, { "ya know", "you know" }, { "yer mad", "your mad" }, { "pls help", "please help" },
+        { "plz plz", "please please" }, { "thx", "thanks" }, { "ty so much", "thank you so much" }, { "idk", "i do not know" }, { "idc about it", "i do not care about it" },
+        { "imo yes", "in my opinion yes" }, { "tbh no", "to be honest no" }, { "ngl that hurt", "not going to lie that hurt" }, { "btw who are you", "by the way who are you" },
+        { "omg", "oh my god" }, { "wtf is this", "what the hell is this" }, { "brb", "be right back" }, { "gtg bye", "got to go bye" }, { "ily", "i love you" }, { "i luv u", "i love you" },
+        { "dont", "do not" }, { "don't", "do not" }, { "cant", "cannot" }, { "can't go", "cannot go" }, { "wont", "will not" }, { "won't", "will not" },
+        { "im bob", "i am bob" }, { "i'm bob", "i am bob" }, { "ive got it", "i have got it" }, { "i've won", "i have won" }, { "i'd go", "i would go" }, { "i'll go", "i will go" },
+        { "isnt", "is not" }, { "arent you", "are not you" }, { "wasnt me", "was not me" }, { "didnt", "did not" }, { "doesn't", "does not" }, { "shouldnt", "should not" },
+        { "youre nice", "you are nice" }, { "you're nice", "you are nice" }, { "theyre here", "they are here" }, { "we're here", "we are here" }, { "hes ok", "he is ok" }, { "shes ok", "she is ok" },
+        { "whats ur name", "what is your name" }, { "what's up", "what is up" }, { "thats it", "that is it" }, { "whos there", "who is there" }, { "wheres my dog", "where is my dog" }, { "hows it going", "how is it going" },
+        { "lets go", "let us go" }, { "let's go", "let us go" }, { "gonna", "going to" }, { "wanna play", "want to play" }, { "gotta go", "got to go" }, { "lemme see", "let me see" },
+        { "dunno", "do not know" }, { "kinda sad", "kind of sad" }, { "sorta ok", "sort of ok" }, { "cuz", "because" }, { "bc i said so", "because i said so" }, { "coz", "because" }, { "tho", "though" },
+        { "how r u doin?", "how are you doin?" }, { "k", "ok" }, { "y not", "why not" }, { "n you", "and you" }, { "whatcha doing", "what are you doing" }, { "cya", "see you" },
+        { "'u'", "'you'" }, { "(idk)", "(i do not know)" }, { "idk!", "i do not know!" }, { "idk, u?", "i do not know, you?" },
+        /* what must stay */
+        { "hello there", "hello there" }, { "you are cool", "you are cool" }, { "i do not know", "i do not know" }, { "do not", "do not" }, { "what is your name", "what is your name" },
+        { "ok", "ok" }, { "see you", "see you" }, { "", "" }, { "3pm", "3pm" }, { "gr8", "gr8" }, { "2day", "2day" }, { "b4", "b4" }, { "bob", "bob" }, { "ur", "your" },
+        { "dont dont dont", "do not do not do not" }, { "idk idk", "i do not know i do not know" },
+    };
+    for (unsigned i = 0; i < sizeof P / sizeof *P; i++) {
+        int n = xp(P[i].in, o, 410, map, src, &f); npairs++;
+        if (strcmp(o, P[i].out)) { printf("BAD TEXTSPEAK: \"%s\" -> \"%s\" (wanted \"%s\")\n", P[i].in, o, P[i].out); bad++; }
+        int same = !strcmp(P[i].in, P[i].out);
+        char a[410]; int m1[410]; LangInfo g; lang_clean_info(P[i].in, a, 410, m1, &g);
+        if (!!f.nexpand == same && strcmp(a, o)) { printf("BAD TEXTSPEAK: nexpand %d for \"%s\"\n", f.nexpand, P[i].in); bad++; }
+        int tot = (int)strlen(P[i].in), ok = map[n] == tot;
+        for (int k = 0; ok && k < n; k++) if (map[k] < 0 || map[k] >= tot || (k && map[k] < map[k - 1])) ok = 0;
+        if (!ok) { printf("BAD TEXTSPEAK MAP: \"%s\"\n", P[i].in); bad++; }
+    }
+    /* a highlight covers the whole typed token: the last letter of an expansion maps to the last character of the token */
+    xp("say idk ok", o, 410, map, src, &f);
+    { int last = -1; for (int k = 0; o[k]; k++) if (!strncmp(o + k, "know", 4)) last = k + 3; if (last < 0 || map[last] != 6) { printf("BAD TEXTSPEAK MAP: the end of idk maps to byte %d, not 6\n", last < 0 ? -1 : map[last]); bad++; } }
+    /* the cap: a token whose expansion does not fit stays as typed; the output always ends */
+    { char t[8]; lang_init(); char a[410]; int m1[410]; LangInfo g; lang_clean_info("idk idk", a, 410, m1, &g);
+      int n = lang_clean_expand(a, m1, t, 8, NULL, NULL, &g); if (n > 7 || (strcmp(t, "idk idk") && strcmp(t, "idk"))) { printf("BAD TEXTSPEAK CAP: \"%s\"\n", t); bad++; }
+      n = lang_clean_expand(a, m1, t, 1, NULL, NULL, &g); if (n != 0 || t[0]) { printf("BAD TEXTSPEAK CAP: cap 1\n"); bad++; } }
+    /* no hook: nothing is expanded */
+    { lang_clean_set_expand(NULL); xp("idk dont u", o, 410, NULL, NULL, &f); if (strcmp(o, "idk dont u") || f.nexpand) { printf("BAD TEXTSPEAK: expanded with no table\n"); bad++; } lang_clean_set_expand(lang_textspeak); }
+    /* heard: what the old patterns could not hear, and the flag */
+    {   static const struct { const char *t; int in; } I[] = { { "ily", I_LOVE }, { "i luv u", I_LOVE }, { "how r you doin", I_HOWRU }, { "whats ur name", I_WHORU }, { "hows it going", I_HOWRU } };
+        for (unsigned i = 0; i < sizeof I / sizeof *I; i++) { Heard h; lang_parse(I[i].t, &h); if (!heard_has(&h, I[i].in) || !(h.flags & LF_TEXTSPEAK)) { printf("BAD HEARD: \"%s\" does not give %s (flags %u)\n", I[i].t, lang_intent_name(I[i].in), h.flags); bad++; } }
+        Heard h; lang_parse("hello there", &h); if (h.flags & LF_TEXTSPEAK) { printf("BAD HEARD: plain text flagged as text-speak\n"); bad++; }
+    }
+    /* safety in both texts, the name from the text as typed (case kept) and from the expanded text when only it hears it */
+    {   static const char *const S[] = { "i wanna die", "im gonna kill myself", "i dont wanna live", "i wanna kill myself" };
+        for (unsigned i = 0; i < sizeof S / sizeof *S; i++) { Heard h; lang_parse(S[i], &h); printf("%s", ""); if (!heard_has(&h, I_SELFHARM)) { printf("note: \"%s\" is not heard as selfharm (the plain pattern set decides; chunk 154 owns the wording)\n", S[i]); } }
+        Heard h; lang_parse("my name is Bob", &h); if (strcmp(h.capture, "Bob")) { printf("BAD CAPTURE: Bob -> \"%s\"\n", h.capture); bad++; }
+        lang_parse("im Bob", &h); if (h.capture[0] && strcmp(h.capture, "Bob")) { printf("BAD CAPTURE: im Bob -> \"%s\"\n", h.capture); bad++; }
+    }
+    /* highlight: what only the expanded variant heard lights up the typed token */
+    {   uint8_t m[420]; lang_highlight("ily", m); if (!(m[0] && m[1] && m[2])) { printf("BAD HIGHLIGHT: ily is not all marked\n"); bad++; }
+        lang_highlight("hey ily bob", m); if (m[3] || !(m[4] && m[5] && m[6])) { printf("BAD HIGHLIGHT: ily inside a line\n"); bad++; } }
+    /* the superset rule (the plan's "the old corpus gives identical intents"): turn the table off and parse everything we have; with it on, every intent
+     * heard without it is still heard. extra intents are the point; lost ones are bugs */
+    {   int lost = 0, gained = 0, lines = 0;
+        char **txt = NULL; int nt = 0, ct = 0;
+        #define ADDT(str) do { if (nt == ct) { ct = ct ? ct * 2 : 4096; txt = realloc(txt, (size_t)ct * sizeof *txt); } txt[nt++] = strdup(str); } while (0)
+        EACH(l) ADDT(l->text);
+        for (int i = 0; i < lang_pat_count(); i++) ADDT(lang_pat(i)->pat);
+        for (int a_ = 1; a_ < argc; a_++) {
+            if (argv[a_][0] == '-' || !strstr(argv[a_], ".tsv")) continue;
+            FILE *fp = fopen(argv[a_], "r"); if (!fp) continue; char ln[1024];
+            while (fgets(ln, sizeof ln, fp)) { if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0; ADDT(ln); }
+            fclose(fp);
+        }
+        for (int i = 0; i < nt; i++) {
+            Heard a, b;
+            lang_clean_set_expand(NULL);  lang_parse(txt[i], &a);
+            lang_clean_set_expand(lang_textspeak); lang_parse(txt[i], &b);
+            lines++;
+            for (int in = 0; in < I_COUNT; in++) {
+                if (heard_has(&a, in) && !heard_has(&b, in)) { if (lost < 5) printf("  lost %s on \"%s\"\n", lang_intent_name(in), txt[i]); lost++; }
+                if (!heard_has(&a, in) && heard_has(&b, in)) gained++;
+            }
+            free(txt[i]);
+        }
+        free(txt);
+        printf("expanded variant over %d texts (reply lines, patterns, corpus): %d intents gained, %d lost\n", lines, gained, lost);
+        if (lost) { printf("BAD TEXTSPEAK: the expanded variant must never take a heard intent away (%d)\n", lost); bad++; }
+    }
+    printf("textspeak: %d rows, %d before/after pairs and the checks around them. %s\n", rows, npairs, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -862,11 +971,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

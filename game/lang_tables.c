@@ -15,6 +15,7 @@ typedef struct { const Pat *t; int n; } PatTab;
 static LineTab ltab[MAX_TABLES]; static int nlt;
 static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
+static const char *const *tstab[MAX_TABLES]; static int nts_t;       /* chunk 18: text-speak rows */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static int builtin_done, dirty = 1;
 
@@ -22,6 +23,7 @@ static void builtin(void);
 int lang_register_lines(const Line *t, int n) { builtin(); if (nlt >= MAX_TABLES) return -1; ltab[nlt].t = t; ltab[nlt].n = n; nlt++; dirty = 1; return 0; }
 int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; npt++; dirty = 1; return 0; }
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
+int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
 
 /* the old tables, in the order the engine always walked them. they always come first, whatever registers first */
@@ -31,9 +33,10 @@ static void builtin(void) {
     lang_register_lines(LINES_A, LINES_A_N); lang_register_lines(LINES_B, LINES_B_N);
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
     lang_register_pats(PATS, PATS_N);
+    lang_register_textspeak(TEXTSPEAK);
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -262,6 +265,37 @@ static void build_known(void) {
 }
 int lang_known_word(const char *w, int n) { lang_init(); return kw_find(w, n); }
 
+/* ---------- the text-speak map (chunk 18): token as typed -> standard form ---------- */
+typedef struct { const char *from; int n; const char *to; } TS;
+static TS *tsm; static int tscap, tsn;
+static const char *ts_find(const char *w, int n) {
+    if (!tscap) return NULL;
+    for (unsigned h = whash(w, n) & (unsigned)(tscap - 1);; h = (h + 1) & (unsigned)(tscap - 1)) {
+        if (!tsm[h].from) return NULL;
+        if (tsm[h].n == n && !memcmp(tsm[h].from, w, (size_t)n)) return tsm[h].to;
+    }
+}
+static void ts_put(const char *from, int n, const char *to) {
+    for (unsigned h = whash(from, n) & (unsigned)(tscap - 1);; h = (h + 1) & (unsigned)(tscap - 1)) {
+        if (!tsm[h].from) { tsm[h].from = from; tsm[h].n = n; tsm[h].to = to; tsn++; return; }
+        if (tsm[h].n == n && !memcmp(tsm[h].from, from, (size_t)n)) { tsm[h].to = to; return; }     /* a later row wins */
+    }
+}
+static void build_textspeak(void) {
+    free(tsm); tsm = NULL; tscap = tsn = 0;
+    int rows = 0;
+    for (int t = 0; t < nts_t; t++) for (const char *const *r = tstab[t]; *r; r++) rows++;
+    if (!rows) return;
+    tscap = 16; while (tscap < rows * 2) tscap *= 2;
+    tsm = calloc((size_t)tscap, sizeof *tsm);
+    if (!tsm) { tscap = 0; return; }
+    for (int t = 0; t < nts_t; t++) for (const char *const *r = tstab[t]; *r; r++) {
+        const char *bar = strchr(*r, '|');
+        if (bar && bar > *r && bar[1]) ts_put(*r, (int)(bar - *r), bar + 1);
+    }
+}
+const char *lang_textspeak(const char *w, int n) { lang_init(); return ts_find(w, n); }
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -271,7 +305,9 @@ void lang_init(void) {
     build_widx(&lexi, lextab, nlex_t);
     build_widx(&vocabi, vocabtab, nvocab_t);
     build_known();
+    build_textspeak();
     lang_clean_set_known(lang_known_word);
+    lang_clean_set_expand(lang_textspeak);
     dirty = 0;
 }
 

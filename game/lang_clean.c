@@ -541,6 +541,37 @@ int lang_clean_words(const char *in, const int *inmap, char *out, int cap, int *
     return n;
 }
 
+/* ---- chunk 18: contractions and text-speak (see lang_clean.h) ---- */
+static LangExpandFn EXPAND;
+void lang_clean_set_expand(LangExpandFn fn) { EXPAND = fn; }
+
+int lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info) {
+    int n = (int)strlen(in), o = 0, nx = 0, own[W3];
+    if (cap < 1) return 0;
+    if (outmap && !src) { src = own; if (cap > W3) cap = W3; }       /* the map needs the sources */
+    for (int i = 0; i < n && o < cap - 1;) {
+        if (!is_aq(in[i])) { out[o] = in[i]; if (src) src[o] = i; o++; i++; continue; }
+        int j = i; while (j < n && is_aq(in[j])) j++;
+        int a = i, b = j;                                          /* the word without edge apostrophes (a quote, not a letter) */
+        while (a < b && in[a] == '\'') a++;
+        while (b > a && in[b - 1] == '\'') b--;
+        const char *ex = (EXPAND && b > a) ? EXPAND(in + a, b - a) : NULL;
+        int xl = ex ? (int)strlen(ex) : 0;
+        if (ex && xl > 0 && o + (a - i) + xl + (j - b) <= cap - 1) {
+            for (int q = i; q < a; q++) { out[o] = in[q]; if (src) src[o] = q; o++; }
+            for (int q = 0; q < xl; q++) { out[o] = ex[q]; if (src) src[o] = (q == xl - 1) ? b - 1 : a; o++; }
+            for (int q = b; q < j; q++) { out[o] = in[q]; if (src) src[o] = q; o++; }
+            nx++;
+        } else for (int q = i; q < j && o < cap - 1; q++) { out[o] = in[q]; if (src) src[o] = q; o++; }
+        i = j;
+    }
+    out[o] = 0;
+    if (src) src[o] = n;
+    if (outmap && inmap) { for (int k = 0; k < o; k++) outmap[k] = inmap[src[k]]; outmap[o] = inmap[n]; }
+    if (info) { info->nexpand = nx; if (nx) info->flags |= LF_TEXTSPEAK; }
+    return o;
+}
+
 int lang_clean(const char *text, char *out, int cap, int *map)      { return clean(text, out, cap, map, 1, NULL); }
 int lang_clean_case(const char *text, char *out, int cap, int *map) { return clean(text, out, cap, map, 0, NULL); }
 int lang_clean_info(const char *text, char *out, int cap, int *map, LangInfo *info) { return clean(text, out, cap, map, 1, info); }

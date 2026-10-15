@@ -20,6 +20,7 @@ int  lang_register_lines(const Line *t, int n);
 int  lang_register_pats(const Pat *t, int n);
 int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight", the array ends with 0 */
 int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", the array ends with 0 */
+int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
 /* ---- init ---- */
@@ -47,6 +48,8 @@ const char *lang_vocab_find(const char *word);                      /* the vocab
 /* chunk 17: is w[0..n) a word some table knows (a pattern word, a lexicon word, a vocabulary word)? used by the clean-up layer to pick the
  * reading of leet and elongated words; lang_init plugs it into lang_clean_set_known */
 int  lang_known_word(const char *w, int n);
+/* chunk 18: the standard form of the token w[0..n) ("idk" -> "i do not know"), or NULL; lang_init plugs it into lang_clean_set_expand */
+const char *lang_textspeak(const char *w, int n);
 int  lang_lex_count(void);
 int  lang_vocab_count(void);
 

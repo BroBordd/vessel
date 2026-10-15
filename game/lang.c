@@ -254,33 +254,53 @@ static int prepare3(const char *text, char *lc, int *map, int *src, char *t1, La
 }
 static int prepare(const char *text, char *lc, int *map) { return prepare3(text, lc, map, NULL, NULL, NULL); }
 
-void lang_parse(const char *text, Heard *h) {
-    memset(h, 0, sizeof *h);
-    char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT]; LangInfo info;
-    int len = prepare3(text, lc, NULL, src, t1, &info);
-    h->flags = info.flags; h->noise = (uint8_t)info.noise; h->excl = (uint8_t)info.excl; h->quest = (uint8_t)info.quest; h->laugh = (uint8_t)(info.laugh > 255 ? 255 : info.laugh);
-    h->stretch = (uint8_t)(info.stretch > 255 ? 255 : info.stretch);
-    for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
-    Span sp[MAX_SPANS];
-    int ns = scan(lc, len, sp, MAX_SPANS);
-    Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
-    if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
+/* one text's matches into the Heard. primary = the text as typed (counts positive / negative and takes the name capture); the expanded variant
+ * (chunk 18) adds only what the text as typed did not already say. srcmap[i] = the index in the part 1 text t1 of lc[i], for the case twin */
+typedef struct { const char *text, *t1; char cs[MAX_TEXT]; int have; } Case;
+static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *srcmap, Case *cs, int primary) {
     for (int k = 0; k < ns; k++) {
         int in = sp[k].intent;
         if (negated(lc, sp[k].start)) in = flip(in);
-        if (in == I_POS) h->positive++;
-        else if (in == I_NEG) h->negative++;
-        if (in == I_INTRO) {
+        if (primary || !heard_has(h, in)) { if (in == I_POS) h->positive++; else if (in == I_NEG) h->negative++; }
+        if (in == I_INTRO && !h->capture[0]) {
             int a = sp[k].start + sp[k].prefix, b = sp[k].end;
             while (a < b && lc[a] == ' ') a++;
             int n = b - a; if (n > 22) n = 22;
-            if (n > 0) {                                  /* the case kept: lc[i] came from t1[src[i]], and lang_clean_case has the same places as t1 */
-                char cs[MAX_TEXT]; lang_clean_case(text, cs, MAX_TEXT, NULL);
-                for (int q = 0; q < n; q++) { int j = src[a + q]; h->capture[q] = (lc[a + q] == t1[j]) ? cs[j] : lc[a + q]; }
+            if (n > 0) {                                  /* the case kept: lc[i] came from t1[srcmap[i]], and lang_clean_case has the same places as t1 */
+                if (!cs->have) { lang_clean_case(cs->text, cs->cs, MAX_TEXT, NULL); cs->have = 1; }
+                for (int q = 0; q < n; q++) { int j = srcmap[a + q]; h->capture[q] = (lc[a + q] == cs->t1[j]) ? cs->cs[j] : lc[a + q]; }
                 h->capture[n] = 0;
             }
         }
         if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
+    }
+}
+
+void lang_parse(const char *text, Heard *h) {
+    memset(h, 0, sizeof *h);
+    char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT]; LangInfo info;
+    int len = prepare3(text, lc, NULL, src, t1, &info);
+    char lx[MAX_TEXT]; int xs[MAX_TEXT], xsrc[MAX_TEXT];       /* chunk 18: the expanded variant (u -> you, idk -> i do not know, dont -> do not) */
+    int lenx = lang_clean_expand(lc, NULL, lx, MAX_TEXT, NULL, xs, &info);
+    int has_x = info.nexpand > 0;
+    h->flags = info.flags; h->noise = (uint8_t)info.noise; h->excl = (uint8_t)info.excl; h->quest = (uint8_t)info.quest; h->laugh = (uint8_t)(info.laugh > 255 ? 255 : info.laugh);
+    h->stretch = (uint8_t)(info.stretch > 255 ? 255 : info.stretch);
+    for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
+    Case cs; cs.text = text; cs.t1 = t1; cs.have = 0;
+    Span sp[MAX_SPANS];
+    int ns = scan(lc, len, sp, MAX_SPANS);
+    Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
+    if (has_x) {                                               /* the safety words are looked for in both texts */
+        Span sx[4]; int nsx = safety_scan(lx, lenx, sx, 4);
+        if (nsx) nsf = nsf ? nsf : nsx;
+    }
+    if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
+    absorb(h, lc, sp, ns, src, &cs, 1);
+    if (has_x) {
+        Span spx[MAX_SPANS];
+        int nx = scan(lx, lenx, spx, MAX_SPANS);
+        for (int i = 0; i < lenx; i++) xsrc[i] = src[xs[i]];
+        absorb(h, lx, spx, nx, xsrc, &cs, 0);
     }
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
@@ -317,6 +337,17 @@ int lang_highlight(const char *text, uint8_t *mask) {
     for (int k = 0; k < ns; k++) mark(text, map, total, sp[k].start, sp[k].end, mask);
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
     for (int k = 0; k < nsf; k++) mark(text, map, total, sf[k].start, sf[k].end, mask);
+    char lx[MAX_TEXT]; int mx[MAX_TEXT]; LangInfo ex;           /* chunk 18: what only the expanded variant heard lights up too (the whole typed token) */
+    memset(&ex, 0, sizeof ex);
+    int lenx = lang_clean_expand(lc, map, lx, MAX_TEXT, mx, NULL, &ex);
+    if (ex.nexpand) {
+        Span spx[MAX_SPANS];
+        int nx = scan(lx, lenx, spx, MAX_SPANS);
+        for (int k = 0; k < nx; k++) mark(text, mx, total, spx[k].start, spx[k].end, mask);
+        Span sx[4]; int nsx = safety_scan(lx, lenx, sx, 4);
+        for (int k = 0; k < nsx; k++) mark(text, mx, total, sx[k].start, sx[k].end, mask);
+        ns += nx; nsf += nsx;
+    }
     return ns + nsf;
 }
 

@@ -55,6 +55,7 @@ typedef struct { const char *pat; int intent; } Pat;
 extern const Line LINES_A[], LINES_B[], LINES_C[], LINES_D[];
 extern const int  LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N;
 extern const Pat  PATS[];
+extern const char *const TEXTSPEAK[];   /* chunk 18: rows "from|to", game/lang_lex_textspeak.c */
 extern const int  PATS_N;
 
 #endif
