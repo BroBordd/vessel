@@ -86,7 +86,8 @@ typedef struct {
     uint8_t noise;      /* 0-100: how much of the text is keyboard mash or gibberish */
     uint8_t excl, quest;   /* number of ! and ? */
     uint8_t laugh;      /* the longest laugh in letters (a long laugh is more amused), 0 = none */
-    uint8_t tok[TK_COUNT];   /* tokens seen per kind: emoticons, emoji, laughs (a run of the same emoji counts once) */
+    uint8_t tok[TK_COUNT];   /* tokens seen per kind: emoticons, emoji, laughs, censored words (a run of the same emoji counts once) */
+    uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
 static inline int  heard_has(const Heard *h, int i) { return (int)((h->m[i >> 6] >> (i & 63)) & 1u); }

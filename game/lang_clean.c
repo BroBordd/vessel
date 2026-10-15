@@ -96,7 +96,7 @@ static int fold(int cp, int lower, char *buf) {
 /* ------------------------------------------------------------------------------------------------------------------------
  * chunk 16: tokens (emoticons, emoji, laughs) and the shape of the line. None of this changes the cleaned text.
  * ---------------------------------------------------------------------------------------------------------------------- */
-static const char *const TOKEN_NAME[TK_COUNT] = { "none", "pos", "neg", "love", "shock", "cry", "angry", "laugh" };
+static const char *const TOKEN_NAME[TK_COUNT] = { "none", "pos", "neg", "love", "shock", "cry", "angry", "laugh", "mask" };
 const char *lang_token_name(int kind) { return kind >= 0 && kind < TK_COUNT ? TOKEN_NAME[kind] : "none"; }
 
 /* a new token, or one more of the same kind right after the last one (a run of the same emoji is one token) */
@@ -282,6 +282,262 @@ static int clean(const char *text, char *out, int cap, int *map, int lower, Lang
         if (info->count[TK_POS] + info->count[TK_NEG] + info->count[TK_LOVE] + info->count[TK_SHOCK] + info->count[TK_CRY] + info->count[TK_ANGRY]) info->flags |= LF_EMOTE;
         for (int a = 1; a < info->ntok; a++) { LangTok t = info->tok[a]; int b = a - 1; while (b >= 0 && info->tok[b].a > t.a) { info->tok[b + 1] = info->tok[b]; b--; } info->tok[b + 1] = t; }   /* in text order */
     }
+    return n;
+}
+
+/* ------------------------------------------------------------------------------------------------------------------------
+ * chunk 17: part 3 - elongation, leet, spaced letters, censor masks, repeated punctuation (see lang_clean.h).
+ * Every stage reads (text, global index per char) and writes the same, where the index points into the text lang_clean_info made,
+ * so the composition of the stages needs no extra work. Output is never longer than input.
+ * ---------------------------------------------------------------------------------------------------------------------- */
+static LangKnownFn KNOWN;
+void lang_clean_set_known(LangKnownFn fn) { KNOWN = fn; }
+static int known(const char *w, int n) { return KNOWN && n > 0 && KNOWN(w, n); }
+
+#define W3 1024
+static int is_a(int c) { return c >= 'a' && c <= 'z'; }
+static int is_d(int c) { return c >= '0' && c <= '9'; }
+static int is_aq(int c) { return is_a(c) || is_d(c) || c == '\''; }      /* part of a word */
+static int is_mask(int c) { return c == '*' || c == '#' || c == '%' || c == '^' || c == '~'; }
+static int is_trim(int c) { return c && strchr("\"'()[]{}<>.,;:?!*#%^~-_+=/\\|&", c) != NULL; }
+static int is_vow(int c) { return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'y'; }
+
+typedef struct { char *b; int *ib; int o; } Out;
+static void emit(Out *u, int c, int idx) { u->b[u->o] = (char)c; u->ib[u->o] = idx; u->o++; }
+
+/* stage 0: !!!! -> !   ???? -> ?   ?!?! -> ?!   !?!? -> !?   ..... -> ...   ,,, -> , */
+static int st_punct(const char *a, const int *ia, int n, char *b, int *ib, LangInfo *f) {
+    Out u = { b, ib, 0 };
+    for (int i = 0; i < n;) {
+        int c = a[i], j = i;
+        if (c == '!' || c == '?') {
+            while (j < n && (a[j] == '!' || a[j] == '?')) j++;
+            int run = j - i, k = i + 1, keep = 1;
+            while (k < j && a[k] == c) k++;
+            if (k < j) keep = 2;                                   /* a mixed run keeps its first two different marks */
+            if (run > keep) { emit(&u, c, ia[i]); if (keep == 2) emit(&u, a[k], ia[k]); f->npunct++; }
+            else for (int q = i; q < j; q++) emit(&u, a[q], ia[q]);
+        } else if (c == '.' || c == ',') {
+            while (j < n && a[j] == c) j++;
+            int run = j - i, keep = c == '.' ? (run >= 4 ? 3 : run) : 1;
+            if (c == '.' && run >= 4) f->npunct++; else if (c == ',' && run >= 2) f->npunct++;
+            for (int q = 0; q < keep; q++) emit(&u, c, ia[i + q]);
+        } else { emit(&u, c, ia[i]); j = i + 1; }
+        i = j;
+    }
+    b[u.o] = 0;
+    return u.o;
+}
+
+/* stage 1: h e l l o   h.e.l.l.o   h-e-l-l-o   (single letters, one kind of separator) */
+static int st_spaced(const char *a, const int *ia, int n, char *b, int *ib, LangInfo *f) {
+    Out u = { b, ib, 0 };
+    for (int i = 0; i < n;) {
+        if (is_a(a[i]) && (i == 0 || !is_aq(a[i - 1])) && i + 1 < n) {
+            int sep = a[i + 1], cnt = 1, k = i;
+            if (sep == ' ' || sep == '.' || sep == '-' || sep == '_' || sep == ',') {
+                while (k + 2 < n && a[k + 1] == sep && is_a(a[k + 2]) && !is_aq(a[k + 3])) { k += 2; cnt++; }
+                if (cnt >= 3) {
+                    char w[W3]; int m = 0;
+                    for (int q = i; q <= k; q += 2) w[m++] = a[q];
+                    if (cnt >= 4 || known(w, m)) {
+                        for (int q = i; q <= k; q += 2) emit(&u, a[q], ia[q]);
+                        f->nspaced++;
+                    } else for (int q = i; q <= k; q++) emit(&u, a[q], ia[q]);
+                    i = k + 1;
+                    continue;
+                }
+            }
+        }
+        emit(&u, a[i], ia[i]); i++;
+    }
+    b[u.o] = 0;
+    return u.o;
+}
+
+/* a censored word: * # % ^ ~ between letters (f*ck, s**t, b***h); a*b and i*m are not */
+static int is_masked_word(const char *c, int n) {
+    int letters = 0;
+    for (int i = 0; i < n; i++) if (is_a(c[i])) letters++;
+    if (letters < 2) return 0;
+    for (int i = 1; i < n - 1;) {
+        if (!is_mask(c[i])) { i++; continue; }
+        int e = i; while (e < n && is_mask(c[e])) e++;
+        if (is_a(c[i - 1]) && e < n && is_a(c[e]) && (e - i >= 2 || letters >= 3)) return 1;
+        i = e;
+    }
+    return 0;
+}
+
+/* leet: which letter a character stands for (1 is i here; he11o and l1k3 are settled below) */
+static int leet_of(int c) {
+    switch (c) { case '0': return 'o'; case '1': return 'i'; case '3': return 'e'; case '4': return 'a'; case '5': return 's'; case '7': return 't';
+                 case '@': return 'a'; case '$': return 's'; case '!': return 'i'; }
+    return 0;
+}
+/* the shapes that are safe to read as leet when no dictionary knows the result: never 3pm 1st b4 gr8 2day 10k user1 mp3 ps5 a number */
+static int leet_safe(const char *c, int n) {
+    static const char *const SUF[] = { "st", "nd", "rd", "th", "am", "pm", "s", "k", "m", "x", "d", "yo", "y", NULL };
+    int letters = 0, vowel = 0;                                      /* vowel: in the reading, so the 0 of h3ll0 counts */
+    for (int i = 0; i < n; i++) {
+        if (is_a(c[i])) letters++;
+        if (is_vow(is_a(c[i]) ? c[i] : leet_of(c[i]))) vowel = 1;
+        if (c[i] == '!' || c[i] == '@') return 0;                  /* ambiguous: only a known word may decide */
+    }
+    for (int i = 0; i < n;) {                                       /* digit runs */
+        if (!is_d(c[i])) { i++; continue; }
+        int e = i; while (e < n && is_d(c[e])) e++;
+        if (e - i >= 3 || (e - i == 2 && c[i] != c[i + 1])) return 0;
+        i = e;
+    }
+    if (c[0] == '$') {                                              /* $hut $ucks, not $5 */
+        if (n < 4 || is_d(c[1]) || letters < 3) return 0;
+    }
+    if (is_d(c[0])) {                                               /* a leading digit: 1ove 0kay 3vil yes, 3pm 1st 4ever 0k no */
+        if (c[0] == '4') return 0;
+        int e = 0; while (e < n && is_d(c[e])) e++;
+        if (n - e < 2) return 0;
+        for (int k = 0; SUF[k]; k++) if (!strcmp(c + e, SUF[k])) return 0;
+    }
+    if (n == 2) {                                                   /* h1 n0 m3 i5 i7 : a letter and one trailing digit */
+        if (!(is_a(c[0]) && strchr("01357", c[1]))) return 0;
+    }
+    for (int i = 1; i + 1 < n; i++) if (c[i] == '4' && (is_d(c[i - 1]) || is_d(c[i + 1]))) return 0;
+    if (c[n - 1] == '4') return 0;                                  /* b4 mp4 */
+    if (is_d(c[n - 1]) && n >= 3) {                                 /* hell0 yes: needs three letters before it and a vowel in the reading (not mp3 ps5) */
+        if (!strchr("035", c[n - 1])) return 0;
+        if (letters < 3 || !vowel) return 0;
+    }
+    return vowel;
+}
+/* read leet in place (1 to 1, c is at most W3 long); returns 1 if it changed */
+static int leet_fix(char *c, int n) {
+    int nl = 0, np = 0, pos[8], letters = 0;
+    for (int i = 0; i < n; i++) {
+        if (is_a(c[i])) letters++;
+        else if (c[i] != '\'' && !leet_of(c[i])) return 0;           /* a digit that is not leet (2 6 8 9) or any other mark: not a leet word */
+        if (leet_of(c[i])) nl++;
+    }
+    if (!nl || !letters) return 0;
+    char v[W3];
+    for (int i = 0; i < n; i++) {
+        int L = leet_of(c[i]);
+        v[i] = (char)(L ? L : c[i]);
+        if (c[i] == '1') {
+            if ((i > 0 && c[i - 1] == '1') || (i + 1 < n && c[i + 1] == '1')) v[i] = 'l';      /* he11o */
+            else if (np < 8) pos[np++] = i;                          /* a lone 1 may be i or l */
+        }
+    }
+    v[n] = 0;
+    int np2 = np > 4 ? 4 : np;
+    for (int combo = 0; combo < (1 << np2); combo++) {               /* the default reading first, then the other i / l choices */
+        char w[W3]; memcpy(w, v, (size_t)n + 1);
+        for (int q = 0; q < np2; q++) if (combo >> q & 1) w[pos[q]] = 'l';
+        if (known(w, n)) { memcpy(c, w, (size_t)n); return 1; }
+    }
+    if (!leet_safe(c, n)) return 0;
+    memcpy(c, v, (size_t)n);
+    return 1;
+}
+
+/* elongation: runs of 3+ of one letter go to 1 or 2. A known word wins (two first: goood is good, not god; heeello has no heello, so it is
+ * hello); with no known word see the rule below */
+static int elong_fix(char *c, int *x, int *n, LangInfo *f) {
+    int rs[6], rl[6], nr = 0, N = *n;
+    for (int i = 0; i < N;) {
+        int e = i; while (e < N && c[e] == c[i]) e++;
+        if (e - i >= 3 && is_a(c[i])) { if (nr < 6) { rs[nr] = i; rl[nr] = e - i; } nr++; }
+        i = e;
+    }
+    if (!nr) return 0;
+    int rr = nr > 6 ? 6 : nr, pick = -1;                              /* pick: bit q set = run q keeps 1 letter, clear = 2 */
+    if (rr <= 4 && KNOWN) {
+        for (int combo = 0; combo < (1 << rr) && pick < 0; combo++) {
+            char w[W3]; int m = 0, r = 0;
+            for (int i = 0; i < N;) {
+                if (r < rr && i == rs[r]) { for (int q = 0; q < ((combo >> r & 1) ? 1 : 2); q++) w[m++] = c[i]; i += rl[r]; r++; }
+                else w[m++] = c[i++];
+            }
+            if (known(w, m)) pick = combo;
+        }
+    }
+    if (pick < 0) {                                                   /* nothing known: a, i, u, y runs and long e, o runs go to 1; a short e or o run (soon, good, see) and every consonant run go to 2 */
+        pick = 0;
+        for (int r = 0; r < rr; r++) { int ch = c[rs[r]]; if (is_vow(ch) && !((ch == 'e' || ch == 'o') && rl[r] <= 4)) pick |= 1 << r; }
+    }
+    char nc[W3]; int nx[W3], m = 0, r = 0, longest = 0;
+    for (int i = 0; i < N;) {
+        if (r < rr && i == rs[r]) {
+            int keep = (pick >> r & 1) ? 1 : 2;
+            int last = i + rl[r] == N;                                 /* a run that ends the word maps to its LAST letter, so a highlight covers it all */
+            for (int q = 0; q < keep; q++) { nc[m] = c[i]; nx[m] = (last && q == keep - 1) ? x[i + rl[r] - 1] : x[i + q]; m++; }
+            if (rl[r] > longest) longest = rl[r];
+            i += rl[r]; r++;
+        } else { nc[m] = c[i]; nx[m] = x[i]; m++; i++; }
+    }
+    memcpy(c, nc, (size_t)m); c[m] = 0; memcpy(x, nx, (size_t)m * sizeof(int)); *n = m;
+    f->nstretch++; if (longest > f->stretch) f->stretch = longest;
+    return 1;
+}
+
+/* one token (a run without spaces) */
+static void do_token(const char *t, const int *it, int m, const int *inmap, Out *u, LangInfo *f) {
+    for (int k = 0; k < m; k++)                                      /* addresses, paths and numbers like 3.5 are left alone */
+        if (t[k] == '/' || (t[k] == '.' && k > 0 && k + 1 < m && is_aq(t[k - 1]) && is_aq(t[k + 1]))) { for (int q = 0; q < m; q++) emit(u, t[q], it[q]); return; }
+    int lo = 0, hi = m;
+    while (lo < hi && is_trim(t[lo])) lo++;
+    while (hi > lo && is_trim(t[hi - 1])) hi--;
+    for (int q = 0; q < lo; q++) emit(u, t[q], it[q]);
+    if (lo < hi) {
+        char c[W3]; int x[W3], n = hi - lo, ok = 1;
+        for (int q = 0; q < n; q++) { c[q] = t[lo + q]; x[q] = it[lo + q]; if (!(is_aq(c[q]) || c[q] == '@' || c[q] == '$' || c[q] == '!' || is_mask(c[q]))) ok = 0; }
+        c[n] = 0;                                                  /* leet_safe compares tails as strings */
+        if (ok && is_masked_word(c, n)) {
+            tok_add(f, TK_MASK, inmap[x[0]], inmap[x[n - 1] + 1], n);
+        } else {
+            if (ok && leet_fix(c, n)) f->nleet++;
+            elong_fix(c, x, &n, f);
+        }
+        for (int q = 0; q < n; q++) emit(u, c[q], x[q]);
+    }
+    for (int q = hi > lo ? hi : lo; q < m; q++) emit(u, t[q], it[q]);
+}
+
+static int st_tokens(const char *a, const int *ia, int n, char *b, int *ib, const int *inmap, LangInfo *f) {
+    Out u = { b, ib, 0 };
+    for (int i = 0; i < n;) {
+        if (a[i] == ' ') { emit(&u, ' ', ia[i]); i++; continue; }
+        int j = i; while (j < n && a[j] != ' ') j++;
+        do_token(a + i, ia + i, j - i, inmap, &u, f);
+        i = j;
+    }
+    b[u.o] = 0;
+    return u.o;
+}
+
+int lang_clean_words(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info) {
+    LangInfo own;
+    char b1[W3], b2[W3], b3[W3]; int i0[W3], i1[W3], i2[W3], i3[W3];
+    int n = (int)strlen(in);
+    if (cap < 1) return 0;
+    if (n > W3 - 2) n = W3 - 2;
+    if (!info) { memset(&own, 0, sizeof own); info = &own; }
+    for (int i = 0; i < n; i++) { b1[i] = in[i]; i0[i] = i; }
+    b1[n] = 0;
+    n = st_punct(b1, i0, n, b2, i1, info);
+    n = st_spaced(b2, i1, n, b3, i2, info);
+    n = st_tokens(b3, i2, n, b1, i3, inmap, info);
+    if (n > cap - 1) n = cap - 1;
+    memcpy(out, b1, (size_t)n); out[n] = 0;
+    for (int i = 0; i < n; i++) { if (src) src[i] = i3[i]; if (outmap) outmap[i] = inmap[i3[i]]; }
+    if (outmap) outmap[n] = inmap[(int)strlen(in)];
+    if (src) src[n] = (int)strlen(in);
+    if (info->nstretch) info->flags |= LF_STRETCH;
+    if (info->nleet) info->flags |= LF_LEET;
+    if (info->nspaced) info->flags |= LF_SPACED;
+    if (info->count[TK_MASK]) info->flags |= LF_MASKED;
+    if (info->npunct) info->flags |= LF_PUNCT;
+    for (int a = 1; a < info->ntok; a++) { LangTok t = info->tok[a]; int b = a - 1; while (b >= 0 && info->tok[b].a > t.a) { info->tok[b + 1] = info->tok[b]; b--; } info->tok[b + 1] = t; }
     return n;
 }
 

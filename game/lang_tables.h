@@ -44,6 +44,9 @@ int  lang_pat_safety(const int **ids);                   /* ids of every I_SELFH
 /* ---- words ---- */
 int  lang_lex_find(const char *word, const char **rows, int max);   /* every lexicon row of this word (in registration order) */
 const char *lang_vocab_find(const char *word);                      /* the vocabulary row of this word, or NULL */
+/* chunk 17: is w[0..n) a word some table knows (a pattern word, a lexicon word, a vocabulary word)? used by the clean-up layer to pick the
+ * reading of leet and elongated words; lang_init plugs it into lang_clean_set_known */
+int  lang_known_word(const char *w, int n);
 int  lang_lex_count(void);
 int  lang_vocab_count(void);
 

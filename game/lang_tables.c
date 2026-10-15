@@ -218,6 +218,50 @@ const char *lang_vocab_find(const char *word) { lang_init(); const char *r[1]; r
 int lang_lex_count(void) { lang_init(); return lexi.n; }
 int lang_vocab_count(void) { lang_init(); return vocabi.n; }
 
+/* ---------- the known-word set (chunk 17) ---------- */
+typedef struct { const char *w; int n; } KW;
+static KW *kw; static int kwcap, kwn;
+
+static int kw_find(const char *w, int n) {
+    if (!kwcap) return 0;
+    for (unsigned h = whash(w, n) & (unsigned)(kwcap - 1);; h = (h + 1) & (unsigned)(kwcap - 1)) {
+        if (!kw[h].w) return 0;
+        if (kw[h].n == n && !memcmp(kw[h].w, w, (size_t)n)) return 1;
+    }
+}
+static void kw_put(const char *w, int n) {
+    for (unsigned h = whash(w, n) & (unsigned)(kwcap - 1);; h = (h + 1) & (unsigned)(kwcap - 1))
+        if (!kw[h].w) { kw[h].w = w; kw[h].n = n; kwn++; return; }
+}
+static void kw_add(const char *w, int n) {
+    if (n < 1 || n > 40 || kw_find(w, n)) return;
+    if (kwn * 2 >= kwcap) {                                    /* grow */
+        KW *old = kw; int oc = kwcap;
+        kwcap = kwcap ? kwcap * 2 : 4096; kw = calloc((size_t)kwcap, sizeof *kw); kwn = 0;
+        if (!kw) { kw = old; kwcap = oc; return; }
+        for (int i = 0; i < oc; i++) if (old[i].w) kw_put(old[i].w, old[i].n);
+        free(old);
+    }
+    kw_put(w, n);
+}
+/* every word (letters and inner apostrophes) of a text: the pieces between * ? $ [ ] ( ) | digits and spaces */
+static void kw_words(const char *s) {
+    for (int i = 0; s[i];) {
+        if (!((s[i] >= 'a' && s[i] <= 'z') || s[i] == '\'')) { i++; continue; }
+        int j = i; while ((s[j] >= 'a' && s[j] <= 'z') || s[j] == '\'') j++;
+        int a = i, b = j; while (a < b && s[a] == '\'') a++; while (b > a && s[b - 1] == '\'') b--;
+        kw_add(s + a, b - a);
+        i = j;
+    }
+}
+static void build_known(void) {
+    free(kw); kw = NULL; kwcap = kwn = 0;
+    for (int t = 0; t < npt; t++) for (int i = 0; i < ptab[t].n; i++) kw_words(ptab[t].t[i].pat);
+    for (int t = 0; t < nlex_t; t++) for (const char *const *r = lextab[t]; *r; r++) kw_add(*r, word_len(*r));
+    for (int t = 0; t < nvocab_t; t++) for (const char *const *r = vocabtab[t]; *r; r++) kw_add(*r, word_len(*r));
+}
+int lang_known_word(const char *w, int n) { lang_init(); return kw_find(w, n); }
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -226,6 +270,8 @@ void lang_init(void) {
     build_pats();
     build_widx(&lexi, lextab, nlex_t);
     build_widx(&vocabi, vocabtab, nvocab_t);
+    build_known();
+    lang_clean_set_known(lang_known_word);
     dirty = 0;
 }
 

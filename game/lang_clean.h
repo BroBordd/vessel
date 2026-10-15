@@ -31,7 +31,7 @@
 #define LANG_CLEAN_H
 
 /* sentiment token kinds (chunk 16); the printed names are lang_token_name: pos neg love shock cry angry laugh */
-enum { TK_NONE, TK_POS, TK_NEG, TK_LOVE, TK_SHOCK, TK_CRY, TK_ANGRY, TK_LAUGH, TK_COUNT };
+enum { TK_NONE, TK_POS, TK_NEG, TK_LOVE, TK_SHOCK, TK_CRY, TK_ANGRY, TK_LAUGH, TK_MASK, TK_COUNT };   /* TK_MASK (chunk 17): a censored word like f*ck, b***h (never rebuilt, the lexicon matches it) */
 typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); len = letters of a laugh, or how many of the same emoji in a row (1 for an emoticon) */
 #define LANG_MAX_TOK 24
 /* shape flags */
@@ -40,12 +40,18 @@ typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); l
 #define LF_LONG   4u    /* more than 120 characters (cleaned) */
 #define LF_LAUGH  8u    /* a laugh token */
 #define LF_EMOTE  16u   /* an emoticon or emoji token */
+#define LF_STRETCH 32u  /* chunk 17: an elongated word (heeello, sooooo, pleeease) was shortened */
+#define LF_LEET   64u   /* chunk 17: a leet word (h3ll0, l0ve, @wesome) was read as letters */
+#define LF_SPACED 128u  /* chunk 17: spaced letters (h e l l o, h.e.l.l.o) were joined */
+#define LF_MASKED 256u  /* chunk 17: a censored word (f*ck) was seen, see TK_MASK */
+#define LF_PUNCT  512u  /* chunk 17: a run of !!! ??? .... was shortened */
 typedef struct {
     unsigned flags;
     int noise;                        /* 0-100: share of the letters that sit in mash / gibberish words */
     int excl, quest;                  /* number of ! and ? (cleaned text), at most 255 */
     int letters, caps;                /* letters seen and how many were capitals */
     int laugh;                        /* the longest laugh (letters), 0 = none */
+    int stretch, nstretch, nleet, nspaced, npunct;   /* chunk 17: longest elongated run, and how many words / runs each rule changed */
     int ntok, count[TK_COUNT];        /* tokens kept (the first LANG_MAX_TOK) and how many of each kind were seen */
     LangTok tok[LANG_MAX_TOK];
 } LangInfo;
@@ -55,6 +61,25 @@ int lang_clean(const char *text, char *out, int cap, int *map);
 /* the same, and the tokens and the shape of the line (info may be NULL); info covers the part that was cleaned (out is cut at cap - 1; with no map and an info, cap is at most 1024) */
 int lang_clean_info(const char *text, char *out, int cap, int *map, LangInfo *info);
 const char *lang_token_name(int kind);
+/* ---- PART 3 (chunk 17): elongation, leet, spaced letters, censor masks, repeated punctuation ----
+ * lang_clean_words(in, inmap, out, cap, outmap, src, info) reads the text that lang_clean_info made (lower case, with its map) and
+ * writes the text the matcher sees. out[i] came from in[src[i]] and from the original byte outmap[i] (= inmap[src[i]]; src and
+ * outmap may be NULL; outmap[n] = inmap[strlen(in)]). info (may be NULL) gets the flags, counts and TK_MASK tokens added.
+ *   - elongation: a run of 3+ of the same letter (heeello, sooooo, pleeease, helllo) is cut to 1 or 2: the variant that is a KNOWN
+ *     word wins (hook below); with no known word a vowel run goes to 1 and a consonant run to 2. A run at the end of a word is
+ *     mapped to its LAST letter so a highlight covers the whole stretch. Runs of exactly 2 are never touched (spell repair, chunk 21).
+ *   - leet: 0 o, 1 i or l, 3 e, 4 a, 5 s, 7 t, @ a, $ s, ! i (only inside a word) read as letters in a word that mixes letters and
+ *     them (h3ll0, l0ve, y0u, @wesome, sh!t, a$$, pl3453). A known word wins; with none, only safe shapes are read (never 3pm, 1st,
+ *     b4, gr8, 2day, 10k, user1, a number, a word with a digit that is not leet). 1 is l next to another 1 (he11o) and i alone.
+ *   - spaced letters: a chain of single letters joined by single spaces or one kind of . - _ , (h e l l o, h.e.l.l.o, h-e-l-l-o) is
+ *     joined when it has 4+ letters, or 3 and the result is a known word (so "u r a bot" stays).
+ *   - censor masks: * # % ^ ~ inside a word (f*ck, s**t, b***h) make a TK_MASK token; the text is left as it is, never rebuilt.
+ *   - punctuation runs: !!!! -> !, ???? -> ?, ?!?! -> ?!, !?!? -> !?, 4+ dots -> ..., ,,, -> , (excl and quest keep the counts of part 2).
+ * Plain text with none of these comes back unchanged (same text, same map). */
+typedef int (*LangKnownFn)(const char *w, int n);        /* is w[0..n) a known word? */
+void lang_clean_set_known(LangKnownFn fn);               /* set by lang_init (patterns, lexicon, vocabulary); NULL = no dictionary */
+int  lang_clean_words(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info);
+
 /* the same characters at the same places (same length, same map), but the case kept: for names (the capture of "im Alice") */
 int lang_clean_case(const char *text, char *out, int cap, int *map);
 /* how many bytes of the original text the character at byte index at occupies (a whole UTF-8 sequence; 1 for a broken byte) */

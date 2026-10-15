@@ -242,15 +242,24 @@ static int flip(int intent) {
 }
 
 /* chunk 15: the text goes through lang_clean first (accents folded, odd spaces and invisible characters gone, lower case);
- * map[i] = the byte of the ORIGINAL text that produced lc[i] (map may be NULL) */
-static int prepare(const char *text, char *lc, int *map) {
-    return lang_clean(text, lc, MAX_TEXT, map);
+ * chunk 17: then through lang_clean_words (elongation, leet, spaced letters, repeated punctuation). map[i] = the byte of the ORIGINAL
+ * text that produced lc[i] (map may be NULL); src[i] = the index in the part-1 text (for the case twin; may be NULL); info may be NULL */
+static int prepare3(const char *text, char *lc, int *map, int *src, char *t1, LangInfo *info) {
+    lang_init();                                         /* plugs the known-word hook into the clean-up layer (cheap when nothing changed) */
+    char tmp[MAX_TEXT]; int m1[MAX_TEXT];
+    char *c1 = t1 ? t1 : tmp;
+    LangInfo own; LangInfo *f = info ? info : &own;
+    lang_clean_info(text, c1, MAX_TEXT, m1, f);
+    return lang_clean_words(c1, m1, lc, MAX_TEXT, map, src, f);
 }
+static int prepare(const char *text, char *lc, int *map) { return prepare3(text, lc, map, NULL, NULL, NULL); }
 
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
-    char lc[MAX_TEXT]; LangInfo info; int len = lang_clean_info(text, lc, MAX_TEXT, NULL, &info);
+    char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT]; LangInfo info;
+    int len = prepare3(text, lc, NULL, src, t1, &info);
     h->flags = info.flags; h->noise = (uint8_t)info.noise; h->excl = (uint8_t)info.excl; h->quest = (uint8_t)info.quest; h->laugh = (uint8_t)(info.laugh > 255 ? 255 : info.laugh);
+    h->stretch = (uint8_t)(info.stretch > 255 ? 255 : info.stretch);
     for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
@@ -265,7 +274,11 @@ void lang_parse(const char *text, Heard *h) {
             int a = sp[k].start + sp[k].prefix, b = sp[k].end;
             while (a < b && lc[a] == ' ') a++;
             int n = b - a; if (n > 22) n = 22;
-            if (n > 0) { char cs[MAX_TEXT]; lang_clean_case(text, cs, MAX_TEXT, NULL); memcpy(h->capture, cs + a, (size_t)n); h->capture[n] = 0; }   /* same places as lc, the case kept */
+            if (n > 0) {                                  /* the case kept: lc[i] came from t1[src[i]], and lang_clean_case has the same places as t1 */
+                char cs[MAX_TEXT]; lang_clean_case(text, cs, MAX_TEXT, NULL);
+                for (int q = 0; q < n; q++) { int j = src[a + q]; h->capture[q] = (lc[a + q] == t1[j]) ? cs[j] : lc[a + q]; }
+                h->capture[n] = 0;
+            }
         }
         if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
     }
