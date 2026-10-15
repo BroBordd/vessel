@@ -13,7 +13,8 @@
  *   --moods            (chunk 7) the fallback chain of each of the 20 moods and, per key, which mood's lines answer for each mood (= own lines, a letter = reached through the chain, . = nothing). fails if a chain has no old mood in it or a key with lines is silent for a mood
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
- *   --all              all of the above. exit code 1 only if --check, --tables, --moods or --voices found a problem */
+ *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
+ *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
@@ -435,6 +436,46 @@ static int do_voices(void) {
     return bad;
 }
 
+/* ---- chunk 14: the phase 1 gate (20 moods x 10 voices x every key) ---- */
+static int do_matrix(void) {
+    int bad = 0, keys_n = 0, cells = 0, silent = 0, hand = 0, special = 0, picked = 0, pick_bad = 0;
+    int nk = lang_key_count();
+    /* one persona per voice for the real picker (a voice mask of one bit; Persona is positional: name, style, mood, warmth, toxic, patience) */
+    printf("matrix: handwritten cells per key (of %d = %d moods x %d voices). own = a row covers the mood and the voice (ALLS and ALLT rows count), made = a row made only for some voices covers it\n", TONE_COUNT * NS, TONE_COUNT, NS);
+    printf("  %-22s %5s %5s %5s\n", "key", "rows", "own", "made");
+    int tot_own = 0, tot_made = 0, shown = 0;
+    for (int k = 0; k < nk; k++) {
+        int nrows; const char *key = lang_key_name(k, &nrows);
+        if (!nrows) continue;
+        const Line *const *rows; lang_key_rows(key, &rows);
+        keys_n++;
+        int own = 0, made = 0;
+        for (int v = 0; v < NS; v++) for (int t = 0; t < TONE_COUNT; t++) {
+            cells++;
+            if (lang_mood_resolve(key, t, 1 << v) < 0) { silent++; bad++; if (silent <= 10) printf("  SILENT: %s mood %s voice %s\n", key, lang_tone_name(t), STYLE_N[v]); }
+            int o = 0, m = 0;
+            for (int r = 0; r < nrows; r++) {
+                if (!(rows[r]->tones & (1u << t)) || !(rows[r]->styles & (1u << v))) continue;
+                o = 1; if ((rows[r]->styles & ALLS) != ALLS) m = 1;
+            }
+            own += o; made += m;
+            /* the real picker, for the r.* keys (the ones lang_reply asks for), every voice and mood */
+            if (!strncmp(key, "r.", 2)) {
+                Persona p = { "M", 1 << v, 0, 50, 0, 8 }; char out[200];
+                picked++;
+                if (!lang_line_tone(&p, key, t, out, sizeof out) || !out[0]) { pick_bad++; bad++; if (pick_bad <= 10) printf("  EMPTY REPLY: %s mood %s voice %s\n", key, lang_tone_name(t), STYLE_N[v]); }
+            }
+        }
+        hand += own; special += made; tot_own += own; tot_made += made;
+        if (!strncmp(key, "r.", 2) || !strncmp(key, "p.", 2)) { shown++; if (shown <= 200) printf("  %-22s %5d %5d %5d\n", key, nrows, own, made); }
+    }
+    printf("matrix: %d keys x %d voices x %d moods = %d cells, %d silent, %d real picks empty. handwritten own cells %d (%.1f %%), made-for-some-voices cells %d (%.1f %%)\n",
+           keys_n, NS, TONE_COUNT, cells, silent, pick_bad, hand, cells ? 100.0 * hand / cells : 0.0, special, cells ? 100.0 * special / cells : 0.0);
+    printf("matrix: %d real picks through lang_line_tone (r.* keys, one persona per voice). %s\n", picked, bad ? "PROBLEMS" : "ok");
+    (void)tot_own; (void)tot_made;
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -453,9 +494,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }
