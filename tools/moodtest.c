@@ -9,10 +9,14 @@
  *   3. a mood sticks for 2-4 turns (all of 2, 3 and 4 happen) and does not flicker while the push lasts
  *   4. every mood answers every reply key (through the fallback chain)
  *   5. (chunk 9) what moves the mood: scripted exchanges with the expected mood after each, the hard flips, the decay, the idle turn,
- *      the toxic cap on positive pushes */
+ *      the toxic cap on positive pushes
+ *   6. (chunk 13) the ten persona presets: well formed, persona_init, a clean chat for each, and a printed sample chat for each (build/moodtest --quiet hides it) */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
+#include "lang_persona.h"
+#include "lang_voice.h"
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -241,13 +245,83 @@ static void test_triggers(void) {
       CHECK(p.grief <= 100 && p.amuse <= 100 && p.grief >= -100 && p.energy >= -100 && p.energy <= 100, "the vector left its range"); }
 }
 
-int main(void) {
+/* ---------- chunk 13: the persona presets ---------- */
+static int voice_first_bit(int style) { int v = voice_first(style), n = 0; while (v > 1) { v >>= 1; n++; } return n; }
+static const char *voice_name_of(int style) { return voice_name(style); }
+static int quiet_chat;
+static int clean_text(const char *s) {
+    for (; *s; s++) { int c = (unsigned char)*s; if (!(isalnum(c) || c == ' ' || c == ',' || c == '.' || c == '!' || c == '?' || c == '\'' || c == '-')) return 0; }
+    return 1;
+}
+static void test_presets(void) {
+    static const char *const CHAT[] = { "hello", "who are you", "where am i", "i am scared", "tell me a joke", "you are stupid", "sorry", "thank you", "bye" };
+    int nq = 0, seen_style[11] = {0};
+    CHECK(PERSONA_COUNT == 10, "ten presets expected, %d", (int)PERSONA_COUNT);
+    CHECK(persona_preset(-1) == NULL && persona_preset(PERSONA_COUNT) == NULL, "a bad preset id must give NULL");
+    { Persona junk = { "J", STYLE_PLAIN, 7, 1, 2, 3 }; CHECK(!persona_init(&junk, 99, "X") && junk.mood == 7 && !strcmp(junk.name, "J"), "a bad id must leave the persona untouched"); }
+    for (int id = 0; id < PERSONA_COUNT; id++) {
+        const Persona *pr = persona_preset(id);
+        const char *nm = persona_preset_name(id);
+        CHECK(pr && nm && *nm, "preset %d has no name", id);
+        if (!pr) continue;
+        for (int j = 0; j < id; j++) CHECK(strcmp(persona_preset_name(j), nm) != 0, "preset name %s used twice", nm);
+        CHECK(pr->warmth >= 0 && pr->warmth <= 100 && pr->toxic >= 0 && pr->toxic <= 100 && pr->mood >= -100 && pr->mood <= 100 && pr->patience >= 1 && pr->patience <= 40,
+              "%s: numbers out of range", nm);
+        CHECK(pr->style > 0 && pr->style <= STYLE_ALL, "%s: bad style %d", nm, pr->style);
+        CHECK(pr->lean != 0 && (pr->lean & ~((1u << TONE_COUNT) - 1)) == 0, "%s: lean %u must name 1 or more of the 20 moods", nm, (unsigned)pr->lean);
+        { int n = 0; for (int t = 0; t < TONE_COUNT; t++) n += (int)((pr->lean >> t) & 1u); CHECK(n == 4, "%s: lean has %d moods (4 expected)", nm, n); }
+        CHECK(pr->quirk != 0 && pr->quirk < (1 << QUIRK_COUNT), "%s: bad quirk %d", nm, pr->quirk);
+        for (int b = 0; b < QUIRK_COUNT; b++) if (pr->quirk & (1 << b)) CHECK(strcmp(persona_quirk_name(1 << b), "?") != 0, "%s: quirk bit %d has no name", nm, b);
+        CHECK(!(pr->quirk & Q_TERSE && pr->quirk & Q_LONG), "%s: terse and long together", nm);
+        CHECK(pr->hold == 0 && pr->held == 0 && pr->quiet == 0 && pr->flat == 0 && pr->sour == 0 && !pr->trust && !pr->fear && !pr->energy && !pr->amuse && !pr->grief, "%s: a preset must carry no state", nm);
+        seen_style[voice_first_bit(pr->style)]++;
+        /* persona_init: a copy with the new name, state clean, the preset itself untouched */
+        Persona p; CHECK(persona_init(&p, id, "Zed") && !strcmp(p.name, "Zed") && p.style == pr->style && p.lean == pr->lean && p.quirk == pr->quirk, "%s: persona_init", nm);
+        p.mood = 50; p.hold = 3; p.held = 5; p.fear = 90;
+        Persona q; persona_init(&q, id, NULL);
+        CHECK(!strcmp(q.name, pr->name) && q.mood == pr->mood && q.hold == 0 && q.fear == 0, "%s: a second persona_init must start clean (the first one was changed)", nm);
+        CHECK(persona_preset(id)->mood == pr->mood && persona_preset(id)->fear == 0 && persona_preset(id)->hold == 0, "%s: the preset itself was changed", nm);
+        /* a chat: never empty, only the font's characters, no open slot, the mood stays one of the 20 */
+        lang_seed(100 + (unsigned)id); lang_set_player("Zed"); lang_add_charisma(50 - lang_charisma());
+        Persona c; persona_init(&c, id, NULL);
+        if (!quiet_chat) printf("\n--- %s (voice %s, mood %d, warmth %d, toxic %d, lean", nm, voice_name_of(c.style), c.mood, c.warmth, c.toxic);
+        if (!quiet_chat) { for (int t = 0; t < TONE_COUNT; t++) if ((c.lean >> t) & 1u) printf(" %s", lang_tone_name(t)); printf(", quirks"); for (int b = 0; b < QUIRK_COUNT; b++) if (c.quirk & (1 << b)) printf(" %s", persona_quirk_name(1 << b)); printf(")\n"); }
+        for (unsigned k = 0; k < sizeof CHAT / sizeof *CHAT; k++) {
+            Heard h; char out[600]; lang_parse(CHAT[k], &h);
+            lang_reply(&c, &h, out, sizeof out);
+            Tone m = lang_mood_now(&c);
+            CHECK(out[0] && clean_text(out) && !strchr(out, '{') && (int)strlen(out) < 600, "%s: bad reply to [%s]: [%s]", nm, CHAT[k], out);
+            CHECK(m >= 0 && m < TONE_COUNT, "%s: mood %d out of range", nm, (int)m);
+            if (!quiet_chat) printf("  you: %-16s %s: %s\n", CHAT[k], lang_tone_name((int)m), out);
+        }
+        /* a long chat never breaks: 300 mixed turns, every reply clean */
+        static const char *const MIX[] = { "hi", "you are stupid", "i am sad", "thank you", "why", "banana", "i love you", "shut up", "tell me a joke", "who are you", "ok", "sorry" };
+        for (int t = 0; t < 300; t++) {
+            Heard h; char out[600]; lang_parse(MIX[t % 12], &h); lang_reply(&c, &h, out, sizeof out);
+            if (!out[0] || !clean_text(out) || strchr(out, '{')) { printf("FAIL: %s: turn %d bad reply [%s]\n", nm, t, out); bad++; break; }
+            if (c.mood < -100 || c.mood > 100 || c.trust < -100 || c.trust > 100) { printf("FAIL: %s: state left its range\n", nm); bad++; break; }
+        }
+        (void)nq;
+    }
+    /* the ten presets use ten different first voices or two combined: at least 8 different first voices */
+    { int d = 0; for (int i = 0; i < 11; i++) d += seen_style[i] > 0; CHECK(d >= 8, "the presets use only %d different first voices", d); }
+    /* Dea and Alex (story.c) are the goddess and the street friend by the numbers, so a preset is a drop-in */
+    { const Persona *g = persona_preset(PERSONA_GODDESS), *f = persona_preset(PERSONA_STREET_FRIEND);
+      CHECK(g->style == STYLE_DIVINE && g->mood == 0 && g->warmth == 30 && g->toxic == 65 && g->patience == 8, "goddess numbers are not Dea's");
+      CHECK(f->style == STYLE_STREET && f->mood == 10 && f->warmth == 70 && f->toxic == 5 && f->patience == 12, "street friend numbers are not Alex's");
+      CHECK(g->lean == (LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED)), "goddess lean");
+      CHECK(f->lean == (LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS)), "street friend lean"); }
+}
+
+int main(int argc, char **argv) {
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--quiet")) quiet_chat = 1;
     lang_seed(2026);
     test_old_behaviour();
     test_nudges();
     test_sticking();
     test_answers();
     test_triggers();
+    test_presets();
     printf(bad ? "moodtest: %d PROBLEMS\n" : "moodtest: ok\n", bad);
     return bad ? 1 : 0;
 }

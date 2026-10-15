@@ -64,7 +64,7 @@ typedef struct {
      * the vector says how the character feels right now (-100..100); a strong value overrides the plain warm..hostile mood (lang_mood_now) */
     int8_t trust, fear, energy, amuse, grief;
     uint32_t lean;      /* the moods this character drifts to: bits (1u << TONE_x), same bits as the masks in lang_data.h. 0 = none */
-    uint8_t quirk;      /* a small bit field, chunk 13 */
+    uint8_t quirk;      /* Q_* bits of lang_persona.h (chunk 13): named there, the behaviour lands in later chunks */
     /* kept by the engine, leave at 0: a mood that sticks (held) for `hold` more turns */
     uint8_t hold;
     int8_t held;
