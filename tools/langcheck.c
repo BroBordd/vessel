@@ -15,6 +15,7 @@
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
+ *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -578,6 +579,127 @@ static int do_clean(int argc, char **argv) {
     return bad;
 }
 
+/* ---- chunk 16: emoticons, emoji, laughs, mash, shape of the line ---- */
+static int sig_kinds(const char *text, int *kinds, int max, LangInfo *f) {   /* the token kinds in text order */
+    char o[410]; LangInfo local; if (!f) f = &local;
+    lang_clean_info(text, o, 410, NULL, f);
+    int n = f->ntok < max ? f->ntok : max;
+    for (int i = 0; i < n; i++) kinds[i] = f->tok[i].kind;
+    return n;
+}
+static int do_signals(int argc, char **argv) {
+    int bad = 0;
+    char o[410], o2[410]; int map[410];
+    /* 1. the text itself is never changed by the tokens: with and without info the cleaned text and the map are the same */
+    static const char *const SAME[] = { "hi :) there", "lol that was funny hahaha", "WHAT?!?! asdfgh", "I <3 you \xF0\x9F\x98\x82\xF0\x9F\x98\x82", "xD xD :(((", "plain text, nothing special." };
+    for (unsigned i = 0; i < sizeof SAME / sizeof *SAME; i++) {
+        LangInfo f; int m2[410]; int n1 = lang_clean(SAME[i], o, 410, map), n2 = lang_clean_info(SAME[i], o2, 410, m2, &f);
+        int ok = n1 == n2 && !strcmp(o, o2); for (int k = 0; ok && k <= n1; k++) if (map[k] != m2[k]) ok = 0;
+        if (!ok) { printf("BAD: info changed the cleaned text of \"%s\"\n", SAME[i]); bad++; }
+    }
+    /* 2. emoticons and kaomoji: text -> the kinds found, in order */
+    struct { const char *t; int k[4]; int n; } E[] = {
+        { ":)", { TK_POS }, 1 }, { "hi :-) there", { TK_POS }, 1 }, { "yay :D", { TK_POS }, 1 }, { "ok =)", { TK_POS }, 1 }, { "hi;)", { TK_POS }, 1 }, { "^_^", { TK_POS }, 1 }, { "(^_^)", { TK_POS }, 1 },
+        { ":(", { TK_NEG }, 1 }, { "sad :(((", { TK_NEG }, 1 }, { "well :/", { TK_NEG }, 1 }, { "ugh -_-", { TK_NEG }, 1 }, { "</3", { TK_NEG }, 1 },
+        { "i <3 u", { TK_LOVE }, 1 }, { "<333", { TK_LOVE }, 1 }, { "i<3u", { TK_LOVE }, 1 }, { "bye :*", { TK_LOVE }, 1 },
+        { "o_o", { TK_SHOCK }, 1 }, { "O_O what", { TK_SHOCK }, 1 }, { "wow :O", { TK_SHOCK }, 1 },
+        { "T_T", { TK_CRY }, 1 }, { "me :'(", { TK_CRY }, 1 }, { "sniff ;_;", { TK_CRY }, 1 },
+        { ">:(", { TK_ANGRY }, 1 }, { "grr >:-(", { TK_ANGRY }, 1 },
+        { "xD", { TK_LAUGH }, 1 }, { "XDDD", { TK_LAUGH }, 1 }, { ":) :(", { TK_POS, TK_NEG }, 2 }, { ":):)", { TK_POS }, 1 }, { "<3 :D xD", { TK_LOVE, TK_POS, TK_LAUGH }, 3 },
+        /* not faces */
+        { "meet me at 10:30", { 0 }, 0 }, { "see http://example.com now", { 0 }, 0 }, { "item 8) done", { 0 }, 0 }, { "ratio 5:3 ok", { 0 }, 0 }, { "the axd and boxdog", { 0 }, 0 },
+        { "a:dog b:pen", { 0 }, 0 }, { "plain words, with punctuation. really? yes!", { 0 }, 0 }, { "Re: hello (see note): fine", { 0 }, 0 },
+    };
+    for (unsigned i = 0; i < sizeof E / sizeof *E; i++) {
+        int k[8]; LangInfo f; int n = sig_kinds(E[i].t, k, 8, &f);
+        int ok = n == E[i].n; for (int j = 0; ok && j < n; j++) if (k[j] != E[i].k[j]) ok = 0;
+        if (!ok) { printf("BAD EMOTICON: \"%s\" -> %d tokens (first %s), want %d (first %s)\n", E[i].t, n, n ? lang_token_name(k[0]) : "-", E[i].n, E[i].n ? lang_token_name(E[i].k[0]) : "-"); bad++; }
+    }
+    /* 3. the original bytes of a token */
+    { LangInfo f; lang_clean_info("so :-) ok", o, 410, NULL, &f); if (f.ntok != 1 || f.tok[0].a != 3 || f.tok[0].b != 6) { printf("BAD TOKEN RANGE: \":-)\" at %d-%d, want 3-6\n", f.ntok ? f.tok[0].a : -1, f.ntok ? f.tok[0].b : -1); bad++; } }
+    /* 4. emoji */
+    struct { const char *t; int kind, len; } M[] = {
+        { "\xF0\x9F\x98\x80", TK_POS, 1 }, { "\xF0\x9F\x99\x82", TK_POS, 1 }, { "\xF0\x9F\x91\x8D", TK_POS, 1 }, { "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD", TK_POS, 1 }, { "\xF0\x9F\x94\xA5", TK_POS, 1 },
+        { "\xF0\x9F\x99\x8F", TK_POS, 1 }, { "\xE2\x9D\xA4\xEF\xB8\x8F", TK_LOVE, 1 }, { "\xF0\x9F\x92\x96", TK_LOVE, 1 }, { "\xF0\x9F\x98\x8D", TK_LOVE, 1 },
+        { "\xF0\x9F\x98\x82", TK_LAUGH, 1 }, { "\xF0\x9F\x98\x82\xF0\x9F\x98\x82\xF0\x9F\x98\x82", TK_LAUGH, 3 }, { "\xF0\x9F\xA4\xA3", TK_LAUGH, 1 },
+        { "\xF0\x9F\x98\xAD", TK_CRY, 1 }, { "\xF0\x9F\x98\xA2", TK_CRY, 1 }, { "\xF0\x9F\x98\xA1", TK_ANGRY, 1 }, { "\xF0\x9F\x98\xA0", TK_ANGRY, 1 },
+        { "\xF0\x9F\x98\xB1", TK_SHOCK, 1 }, { "\xF0\x9F\x91\x80", TK_SHOCK, 1 }, { "\xF0\x9F\x92\x80", TK_NEG, 1 }, { "\xF0\x9F\x98\x9E", TK_NEG, 1 }, { "\xF0\x9F\x91\x8E", TK_NEG, 1 },
+    };
+    for (unsigned i = 0; i < sizeof M / sizeof *M; i++) {
+        LangInfo f; lang_clean_info(M[i].t, o, 410, NULL, &f);
+        if (f.ntok != 1 || f.tok[0].kind != M[i].kind || f.tok[0].len != M[i].len || f.tok[0].a != 0 || f.tok[0].b != (int)strlen(M[i].t)) {
+            printf("BAD EMOJI #%u: %d tokens, kind %s len %d range %d-%d; want %s len %d range 0-%d\n", i, f.ntok, f.ntok ? lang_token_name(f.tok[0].kind) : "-", f.ntok ? f.tok[0].len : 0, f.ntok ? f.tok[0].a : 0, f.ntok ? f.tok[0].b : 0, lang_token_name(M[i].kind), M[i].len, (int)strlen(M[i].t)); bad++; }
+    }
+    { LangInfo f; lang_clean_info("hi \xF0\x9F\x8C\x8D there", o, 410, NULL, &f); if (f.ntok) { printf("BAD: an emoji we do not read made a token\n"); bad++; } }
+    /* 5. laughs: the word is a LAUGH token with its length; words that only look like one are not */
+    struct { const char *t; int len; } L[] = {
+        { "haha", 4 }, { "hahaha", 6 }, { "HAHAHAHA", 8 }, { "hehe", 4 }, { "hihi", 4 }, { "ahahah", 6 }, { "muahaha", 7 }, { "hahahaaa", 8 }, { "lol", 3 }, { "lool", 4 }, { "lolol", 5 }, { "LOL", 3 },
+        { "lmao", 4 }, { "lmaooo", 6 }, { "lmfao", 5 }, { "rofl", 4 }, { "roflmao", 7 }, { "kkkk", 4 }, { "jajaja", 6 }, { "jeje", 4 }, { "xd", 2 }, { "xdd", 3 }, { "rsrs", 4 }, { "wkwkwk", 6 }, { "kek", 3 },
+        { "that was lol", 3 }, { "lol, ok", 3 }, { "no way hahaha!", 6 },
+    };
+    for (unsigned i = 0; i < sizeof L / sizeof *L; i++) {
+        LangInfo f; lang_clean_info(L[i].t, o, 410, NULL, &f);
+        if (f.count[TK_LAUGH] != 1 || f.laugh != L[i].len || !(f.flags & LF_LAUGH)) { printf("BAD LAUGH: \"%s\" -> %d laugh tokens, longest %d, want 1 of %d\n", L[i].t, f.count[TK_LAUGH], f.laugh, L[i].len); bad++; }
+    }
+    static const char *const NOTL[] = { "hah", "ha", "he", "ahh", "aha", "hello", "hi", "loll", "chat", "behave", "hahn", "ohhh", "kk", "lollipop", "color", "kick", "wow", "what is funny", "xylophone", "heh" };
+    for (unsigned i = 0; i < sizeof NOTL / sizeof *NOTL; i++) {
+        LangInfo f; lang_clean_info(NOTL[i], o, 410, NULL, &f);
+        if (f.count[TK_LAUGH]) { printf("BAD LAUGH: \"%s\" is not a laugh\n", NOTL[i]); bad++; }
+    }
+    { LangInfo f; lang_clean_info("lol and then hahaha", o, 410, NULL, &f); if (f.count[TK_LAUGH] != 2 || f.laugh != 6 || f.tok[0].a != 0 || f.tok[1].a != 13) { printf("BAD LAUGH: two laughs (%d, longest %d)\n", f.count[TK_LAUGH], f.laugh); bad++; } }
+    /* 6. keyboard mash and gibberish */
+    static const char *const NOISY[] = { "asdfgh", "asdfghjkl", "qwerty", "qwerty uiop", "jkl", "sdkjfhsdkjfh", "asdasdasd", "fjfjfjfj", "zxcvbnm", "lkjhgfdsa", "aaaaaaa", "ksjdhfkjshdf", "hjkl", "poiuytrewq", "xcvbn" };
+    for (unsigned i = 0; i < sizeof NOISY / sizeof *NOISY; i++) {
+        LangInfo f; lang_clean_info(NOISY[i], o, 410, NULL, &f);
+        if (!(f.flags & LF_NOISE) || f.noise < 50) { printf("BAD NOISE: \"%s\" is mash (score %d)\n", NOISY[i], f.noise); bad++; }
+    }
+    static const char *const CLEAN[] = { "hello how are you", "strengths", "rhythm", "property", "liberty", "twelfths", "what is your name", "I love you", "psst", "brr", "hmmmm", "shhhhh", "grrrr", "xyz", "tsk tsk", "hahaha lol",
+        "lalala", "papapa", "tell me about the moon", "angstroms", "who are you", "i want to die" , "banana potato", "the purple elephant dances", "lorem ipsum dolor", "1234", "zzzzz", "go away", "bonbon", "mississippi" };
+    for (unsigned i = 0; i < sizeof CLEAN / sizeof *CLEAN; i++) {
+        LangInfo f; lang_clean_info(CLEAN[i], o, 410, NULL, &f);
+        if (f.flags & LF_NOISE) { printf("BAD NOISE: \"%s\" is not mash (score %d)\n", CLEAN[i], f.noise); bad++; }
+    }
+    { LangInfo f; lang_clean_info("hello asdfgh", o, 410, NULL, &f); if (!(f.flags & LF_NOISE) || f.noise != 54) { printf("BAD NOISE: half a line of mash (score %d, want 54 and the flag)\n", f.noise); bad++; }
+      lang_clean_info("hello how are you asdfgh", o, 410, NULL, &f); if ((f.flags & LF_NOISE) || f.noise != 30) { printf("BAD NOISE: a little mash in a long line (score %d, want 30 and no flag)\n", f.noise); bad++; } }
+    /* 7. shout, exclamation and question counts, long lines */
+    struct { const char *t; int shout; } S[] = { { "HELLO THERE", 1 }, { "hello THERE", 0 }, { "Hello THERE", 1 }, { "HeLLo", 1 }, { "OK", 0 }, { "I AM", 0 }, { "WHAT", 1 }, { "NO!!!", 0 }, { "WHO ARE YOU", 1 }, { "Dea", 0 },
+        { "\xC3\x89" "COUTE MOI", 1 }, { "hello there", 0 }, { "WHY ARE YOU ignoring me", 0 }, { "", 0 } };
+    for (unsigned i = 0; i < sizeof S / sizeof *S; i++) {
+        LangInfo f; lang_clean_info(S[i].t, o, 410, NULL, &f);
+        if (!!(f.flags & LF_SHOUT) != S[i].shout) { printf("BAD SHOUT: \"%s\" (letters %d, capitals %d) shout %d, want %d\n", S[i].t, f.letters, f.caps, !!(f.flags & LF_SHOUT), S[i].shout); bad++; }
+    }
+    { LangInfo f; lang_clean_info("what?!?! hi!!! really?", o, 410, NULL, &f); if (f.excl != 5 || f.quest != 3) { printf("BAD COUNT: ! %d ? %d, want 5 and 3\n", f.excl, f.quest); bad++; }
+      char big[400]; memset(big, '!', 300); big[300] = 0; lang_clean_info(big, o, 410, NULL, &f); if (f.excl != 255) { printf("BAD COUNT: ! saturates at 255, got %d\n", f.excl); bad++; }
+      char l120[200], l121[200]; memset(l120, 'a', 120); l120[120] = 0; memset(l121, 'a', 121); l121[121] = 0;
+      lang_clean_info(l120, o, 410, NULL, &f); int a = !!(f.flags & LF_LONG); lang_clean_info(l121, o, 410, NULL, &f); int b = !!(f.flags & LF_LONG);
+      if (a || !b) { printf("BAD LONG: 120 chars %d (want 0), 121 chars %d (want 1)\n", a, b); bad++; } }
+    /* 8. the flags reach Heard through lang_parse, and nothing about the intents changes */
+    { Heard h, g;
+      lang_parse("WHO ARE YOU?! asdfgh hahaha :) \xF0\x9F\x98\x82\xF0\x9F\x98\x82", &h);
+      if (!(h.flags & (LF_SHOUT | LF_LAUGH | LF_EMOTE)) || (h.flags & LF_NOISE) || h.quest != 1 || h.excl != 1 || h.laugh != 6 || h.tok[TK_LAUGH] != 2 || h.tok[TK_POS] != 1) {
+          printf("BAD HEARD: flags %u noise %d ?%d !%d laugh %d tok laugh %d pos %d\n", h.flags, h.noise, h.quest, h.excl, h.laugh, h.tok[TK_LAUGH], h.tok[TK_POS]); bad++; }
+      lang_parse("who are you", &g); lang_parse("who are you :)", &h);
+      if (memcmp(g.m, h.m, sizeof g.m) || g.n != h.n) { printf("BAD: an emoticon changed which intents are heard\n"); bad++; }
+      lang_parse("lol", &g); if (!heard_has(&g, I_JOKE) || g.laugh != 3) { printf("BAD: lol is still a joke and now also a laugh of 3\n"); bad++; }
+      lang_parse("ASDFGHJKL", &g); if (!(g.flags & LF_NOISE) || !(g.flags & LF_SHOUT) || g.noise != 100) { printf("BAD HEARD: mash flags (%u, noise %d)\n", g.flags, g.noise); bad++; }
+      lang_parse("i want to kill myself :) lol", &g); if (!heard_has(&g, I_SELFHARM)) { printf("BAD: selfharm hidden by tokens\n"); bad++; } }
+    /* 9. the corpus: a line is flagged as noise only when it is labelled none (gibberish is what none is for) */
+    int flagged = 0, lines = 0;
+    for (int a = 1; a < argc; a++) {
+        if (argv[a][0] == '-') continue;
+        FILE *fp = fopen(argv[a], "r"); if (!fp) continue; char ln[1024];
+        while (fgets(ln, sizeof ln, fp)) {
+            if (ln[0] == '#' || ln[0] == '\n') continue;
+            char *tab = strchr(ln, '\t'); char lab[128] = ""; if (tab) { *tab = 0; snprintf(lab, sizeof lab, "%s", tab + 1); lab[strcspn(lab, "\r\n")] = 0; }
+            lines++; LangInfo f; lang_clean_info(ln, o, 410, NULL, &f);
+            if (f.flags & LF_NOISE) { flagged++; if (strcmp(lab, "none")) { printf("BAD NOISE: corpus line \"%s\" (labelled %s) flagged as mash\n", ln, lab); bad++; } }
+        }
+        fclose(fp);
+    }
+    printf("signals: %d tokens tests, %d corpus lines read, %d flagged as mash (all labelled none). %s\n", (int)(sizeof E / sizeof *E + sizeof M / sizeof *M + sizeof L / sizeof *L), lines, flagged, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -596,11 +718,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

@@ -20,6 +20,7 @@
 #define LANG_H
 #include <stdint.h>
 #include "lang_intents.h"
+#include "lang_clean.h"      /* TK_* token kinds and the LF_* shape flags of Heard.flags (chunk 16) */
 
 /* what the player can mean. keep the order in sync with INTENT_NAME / INTENT_LABEL in lang.c */
 typedef enum {
@@ -80,6 +81,12 @@ typedef struct {
     int positive, negative;
     int is_question, words;
     char capture[24];   /* "my name is X" -> X */
+    /* chunk 16: what the text carries besides words (see lang_clean.h). none of it changes which intents are heard yet */
+    unsigned flags;     /* LF_SHOUT LF_NOISE LF_LONG LF_LAUGH LF_EMOTE */
+    uint8_t noise;      /* 0-100: how much of the text is keyboard mash or gibberish */
+    uint8_t excl, quest;   /* number of ! and ? */
+    uint8_t laugh;      /* the longest laugh in letters (a long laugh is more amused), 0 = none */
+    uint8_t tok[TK_COUNT];   /* tokens seen per kind: emoticons, emoji, laughs (a run of the same emoji counts once) */
 } Heard;
 
 static inline int  heard_has(const Heard *h, int i) { return (int)((h->m[i >> 6] >> (i & 63)) & 1u); }

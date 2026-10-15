@@ -5,6 +5,7 @@
  */
 #include "lang_clean.h"
 #include <string.h>
+#include <ctype.h>
 
 /* folded spellings of U+00C0..U+00FF and U+0100..U+017F (lower case; " " = a space). made from the Unicode decompositions plus the
  * letters that do not decompose (ae, d-bar, o-slash, thorn, sharp s, l-stroke, oe, ij ...) */
@@ -74,6 +75,7 @@ static int fold(int cp, int lower, char *buf) {
     }
     switch (cp) {
     case 0xA0: case 0x1680: case 0x2028: case 0x2029: case 0x202F: case 0x205F: case 0x3000: return -1;   /* spaces */
+    case 0x1F3FB: case 0x1F3FC: case 0x1F3FD: case 0x1F3FE: case 0x1F3FF:     /* skin tones belong to their emoji */
     case 0xAD: case 0x2060: case 0x2061: case 0x2062: case 0x2063: case 0x2064: case 0xFEFF: return 0;    /* soft hyphen, word joiners, BOM */
     case 0xAA: buf[0] = 'a'; return 1;
     case 0xBA: buf[0] = 'o'; return 1;
@@ -91,29 +93,201 @@ static int fold(int cp, int lower, char *buf) {
     return -1;
 }
 
-static int clean(const char *text, char *out, int cap, int *map, int lower) {
+/* ------------------------------------------------------------------------------------------------------------------------
+ * chunk 16: tokens (emoticons, emoji, laughs) and the shape of the line. None of this changes the cleaned text.
+ * ---------------------------------------------------------------------------------------------------------------------- */
+static const char *const TOKEN_NAME[TK_COUNT] = { "none", "pos", "neg", "love", "shock", "cry", "angry", "laugh" };
+const char *lang_token_name(int kind) { return kind >= 0 && kind < TK_COUNT ? TOKEN_NAME[kind] : "none"; }
+
+/* a new token, or one more of the same kind right after the last one (a run of the same emoji is one token) */
+static void tok_add(LangInfo *f, int kind, int a, int b, int len) {
+    if (f->ntok && f->tok[f->ntok - 1].kind == kind && f->tok[f->ntok - 1].b == a) { f->tok[f->ntok - 1].b = b; f->tok[f->ntok - 1].len += len; return; }
+    f->count[kind]++;
+    if (f->ntok < LANG_MAX_TOK) { f->tok[f->ntok].kind = kind; f->tok[f->ntok].a = a; f->tok[f->ntok].b = b; f->tok[f->ntok].len = len; f->ntok++; }
+}
+/* an invisible character (a variation selector, a joiner) right after a token belongs to it */
+static void tok_touch(LangInfo *f, int at, int len) { if (f->ntok && f->tok[f->ntok - 1].b == at) f->tok[f->ntok - 1].b = at + len; }
+
+/* emoji by Unicode: which feeling (0 = not one we read) */
+static int emoji_kind(int cp) {
+    switch (cp) {
+    case 0x1F602: case 0x1F923: case 0x1F639: case 0x1F606: return TK_LAUGH;
+    case 0x2764: case 0x2665: case 0x1F60D: case 0x1F618: case 0x1F617: case 0x1F619: case 0x1F61A: case 0x1F970: case 0x1F63B: case 0x1F48B:
+    case 0x1F90D: case 0x1F90E: case 0x1F9E1: case 0x1F5A4: return TK_LOVE;
+    case 0x1F494: case 0x1F61E: case 0x1F612: case 0x1F614: case 0x1F615: case 0x1F641: case 0x2639: case 0x1F44E: case 0x1F4A9: case 0x1F480:
+    case 0x2620: case 0x1F644: case 0x1F61F: case 0x1F623: case 0x1F616: case 0x1F62B: case 0x1F629: case 0x1F922: case 0x1F92E: return TK_NEG;
+    case 0x1F622: case 0x1F62D: case 0x1F625: case 0x1F613: case 0x1F63F: case 0x1F972: return TK_CRY;
+    case 0x1F620: case 0x1F621: case 0x1F624: case 0x1F47F: case 0x1F92C: case 0x1F595: case 0x1F4A2: return TK_ANGRY;
+    case 0x1F62E: case 0x1F62F: case 0x1F632: case 0x1F631: case 0x1F628: case 0x1F630: case 0x1F633: case 0x1F440: case 0x1F92F: case 0x1F627:
+    case 0x1F626: case 0x1F62C: return TK_SHOCK;
+    case 0x1F600: case 0x1F601: case 0x1F603: case 0x1F604: case 0x1F605: case 0x1F607: case 0x1F609: case 0x1F60A: case 0x1F60B: case 0x1F60C:
+    case 0x1F60E: case 0x1F642: case 0x1F643: case 0x263A: case 0x1F917: case 0x1F929: case 0x1F61C: case 0x1F61D: case 0x1F61B: case 0x1F44D:
+    case 0x1F44F: case 0x1F44C: case 0x1F64C: case 0x1F389: case 0x1F38A: case 0x2728: case 0x1F31F: case 0x1F525: case 0x1F64F: case 0x1F4AA:
+    case 0x2B50: case 0x1F4AF: return TK_POS;
+    }
+    if (cp >= 0x1F493 && cp <= 0x1F49F) return TK_LOVE;              /* the coloured and sparkling hearts (the broken heart is above) */
+    return 0;
+}
+
+/* emoticons and kaomoji in ASCII, matched case-insensitively, the longest wins. a mouth may repeat (:))) :((( xDDD <333). */
+static const struct { const char *s; int kind; } EMO[] = {
+    { ">:(", TK_ANGRY }, { ">:-(", TK_ANGRY }, { ">:[", TK_ANGRY }, { ">=(", TK_ANGRY }, { ":@", TK_ANGRY },
+    { ":'(", TK_CRY }, { ":'-(", TK_CRY }, { ";(", TK_CRY }, { ";_;", TK_CRY }, { ";-;", TK_CRY }, { ";^;", TK_CRY }, { ":,(", TK_CRY },
+    { "t_t", TK_CRY }, { "t.t", TK_CRY }, { "t-t", TK_CRY }, { "twt", TK_CRY }, { "q_q", TK_CRY },
+    { "xd", TK_LAUGH }, { "x-d", TK_LAUGH }, { "x'd", TK_LAUGH }, { ":'d", TK_LAUGH },
+    { "</3", TK_NEG },
+    { "<3", TK_LOVE }, { ":*", TK_LOVE }, { ":-*", TK_LOVE }, { ";*", TK_LOVE }, { "xoxo", TK_LOVE },
+    { ":o", TK_SHOCK }, { ":-o", TK_SHOCK }, { "=o", TK_SHOCK }, { ";o", TK_SHOCK }, { "o_o", TK_SHOCK }, { "o.o", TK_SHOCK }, { "0_0", TK_SHOCK },
+    { "0.0", TK_SHOCK }, { ":0", TK_SHOCK }, { ":-0", TK_SHOCK }, { "@_@", TK_SHOCK }, { "x_x", TK_SHOCK },
+    { ":(", TK_NEG }, { ":-(", TK_NEG }, { "=(", TK_NEG }, { ":[", TK_NEG }, { "=[", TK_NEG }, { ":/", TK_NEG }, { ":-/", TK_NEG }, { ":\\", TK_NEG },
+    { ":-\\", TK_NEG }, { ":<", TK_NEG }, { ":-<", TK_NEG }, { "-_-", TK_NEG }, { "-.-", TK_NEG }, { "-__-", TK_NEG }, { ">_<", TK_NEG }, { "._.", TK_NEG },
+    { ":)", TK_POS }, { ":-)", TK_POS }, { "=)", TK_POS }, { "(:", TK_POS }, { "(-:", TK_POS }, { ":]", TK_POS }, { "=]", TK_POS }, { ":>", TK_POS },
+    { ":d", TK_POS }, { ":-d", TK_POS }, { "=d", TK_POS }, { ";)", TK_POS }, { ";-)", TK_POS }, { ";d", TK_POS }, { ":p", TK_POS }, { ":-p", TK_POS },
+    { ";p", TK_POS }, { "=p", TK_POS }, { ":3", TK_POS }, { "^_^", TK_POS }, { "^^", TK_POS }, { "^-^", TK_POS }, { "(^_^)", TK_POS }, { "(^-^)", TK_POS },
+    { "(^^)", TK_POS }, { "^o^", TK_POS }, { "^.^", TK_POS }, { "\\o/", TK_POS }, { "uwu", TK_POS }, { "owo", TK_POS },
+};
+#define N_EMO ((int)(sizeof EMO / sizeof *EMO))
+static const char EMO_FIRST[] = ">:;'=<xX^-(.\\oO0@_tTqQuU";      /* every first character of the table, both cases */
+
+static int ci(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+static int alnum_c(int c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+
+/* the emoticon that starts at byte i of s: its length (0 = none) and its kind */
+static int emoticon_at(const unsigned char *s, int i, int *kind) {
+    int best = 0, bk = 0, prev = i ? s[i - 1] : 0;
+    for (int k = 0; k < N_EMO; k++) {
+        const char *e = EMO[k].s; int n = 0;
+        while (e[n] && ci(s[i + n]) == e[n]) n++;
+        if (e[n] || n <= best) continue;
+        if (alnum_c(e[0]) ? alnum_c(prev) : (prev >= '0' && prev <= '9')) continue;    /* "axd", "10:30", "5:3" are not faces */
+        best = n; bk = EMO[k].kind;
+    }
+    if (!best) return 0;
+    int last = ci(s[i + best - 1]), L = best, next;
+    if (last == '/' || last == '\\') { if (s[i + L] == last) return 0; }                /* "://" in an address */
+    else while (ci(s[i + L]) == last && (!alnum_c(last) || last == 'd' || last == 'p' || last == 'o' || last == '3')) L++;   /* :))) xDDD <333 */
+    next = s[i + L];
+    if (alnum_c(last) && alnum_c(next) && !(s[i] == '<' && last == '3' && !(next >= '0' && next <= '9'))) return 0;   /* "<3u" is love, ":dog" is not a face */
+    *kind = bk;
+    return L;
+}
+
+/* laughter as whole lower case words */
+static int is_haha(const char *w, int n) {                   /* haha hehe hihi ahahah muahaha hahahaa */
+    int i = 0, k = 0;
+    if (n > 3 && (!strncmp(w, "mwa", 3) || !strncmp(w, "mua", 3))) i = 3; else if (n > 2 && w[0] == 'a' && w[1] == 'h') i = 1;
+    while (i + 1 < n && w[i] == 'h' && strchr("aeiou", w[i + 1])) { k++; i += 2; }
+    if (k < 2) return 0;
+    if (i < n && w[i] == 'h') i++;
+    while (i < n && w[i] == w[i - 1] && strchr("aeiou", w[i])) i++;
+    return i == n;
+}
+static int is_laugh(const char *w, int n) {
+    if (n < 2 || n > 30) return 0;
+    if (is_haha(w, n)) return 1;
+    if (n >= 3 && w[0] == 'l') {                             /* lol lool lolol */
+        int i = 1, ok = 0;
+        while (i < n && w[i] == 'o') { while (i < n && w[i] == 'o') i++; if (i < n && w[i] == 'l') { i++; ok = 1; } else { ok = 0; break; } }
+        if (ok && i == n) return 1;
+    }
+    if (!strncmp(w, "lm", 2)) { int i = 2; if (i < n && w[i] == 'f') i++; if (i + 1 < n && w[i] == 'a' && w[i + 1] == 'o') { i += 2; while (i < n && w[i] == 'o') i++; if (i == n) return 1; } }
+    if (!strncmp(w, "rofl", 4)) { if (n == 4) return 1; if (!strncmp(w + 4, "mao", 3)) { int i = 7; while (i < n && w[i] == 'o') i++; return i == n; } }
+    if (n >= 3) { int all = 1; for (int i = 0; i < n; i++) if (w[i] != 'k') all = 0; if (all) return 1; }                  /* kkkk */
+    if (n >= 3 && w[0] == 'x') { int i = 0; while (i + 1 < n && w[i] == 'x' && w[i + 1] == 'd') i += 2; while (i < n && w[i] == 'd') i++; if (i == n) return 1; }   /* xd xdd xdxd */
+    if (n >= 4 && w[0] == 'j' && strchr("aei", w[1])) { int i = 0, k = 0; while (i + 1 < n && w[i] == 'j' && strchr("aei", w[i + 1])) { k++; i += 2; } if (i < n && w[i] == 'j') i++; if (k >= 2 && i == n) return 1; }   /* jaja jeje */
+    if (n >= 4 && !strncmp(w, "rs", 2)) { int i = 0, k = 0; while (i + 1 < n && w[i] == 'r' && w[i + 1] == 's') { k++; i += 2; } if (k >= 2 && i == n) return 1; }                    /* rsrs */
+    if (n >= 4 && !strncmp(w, "wk", 2)) { int i = 0, k = 0; while (i + 1 < n && w[i] == 'w' && w[i + 1] == 'k') { k++; i += 2; } if (i < n && w[i] == 'w') i++; if (k >= 2 && i == n) return 1; }   /* wkwk */
+    return !strcmp(w, "kek") || !strcmp(w, "kekw") || !strcmp(w, "lul") || !strcmp(w, "xd");
+}
+
+/* keyboard mash and gibberish, per whole lower case word */
+static int vowel_c(int c) { return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' || c == 'y'; }
+static int is_noise(const char *w, int n) {
+    static const char *const ROWS[] = { "qwertyuiop", "asdfghjkl", "zxcvbnm", "poiuytrewq", "lkjhgfdsa", "mnbvcxz" };
+    static const char *const SHORT[] = { "asd", "sdf", "dfg", "fgh", "ghj", "hjk", "jkl", "qwe", "wer", "ert", "rty", "tyu", "yui", "uio", "iop", "zxc", "xcv", "cvb", "vbn", "bnm",
+                                         "asdf", "qwer", "zxcv", "uiop", "hjkl", "fdsa", "poiu", "lkjh", NULL };
+    if (n < 3 || is_laugh(w, n)) return 0;
+    { int snd = 1, seen[26] = { 0 }, distinct = 0;                 /* shhhh hmmmm grrrr psssst pfffft are sounds, not mash */
+      for (int i = 0; i < n; i++) { if (!strchr("shmgrbpfzwt", w[i])) snd = 0; else if (!seen[w[i] - 'a']++) distinct++; }
+      if (snd && distinct <= 3) return 0; }
+    for (int k = 0; SHORT[k]; k++) if (!strcmp(w, SHORT[k])) return 1;
+    if (n < 4) return 0;
+    for (int r = 0; r < 6; r++) { int rl = (int)strlen(ROWS[r]); for (int o = 0; o + 5 <= rl; o++) for (int i = 0; i + 5 <= n; i++) if (!memcmp(ROWS[r] + o, w + i, 5)) return 1; }   /* five keys in a row */
+    int run = 0; for (int i = 0; i < n; i++) { run = vowel_c(w[i]) ? 0 : run + 1; if (run >= 6) return 1; }                     /* no vowel for six letters */
+    if (n >= 6) { int same = 1; for (int i = 1; i < n; i++) if (w[i] != w[0]) same = 0; if (same && !strchr("mhszrw", w[0])) return 1; }   /* aaaaaa (hmmmm, shhhh, zzzz are sounds) */
+    for (int u = 2; u <= 3; u++) {                                                                                              /* sdsdsd asdasdasd */
+        if (n < 3 * u) continue;
+        int rep = 1; for (int i = u; i < n; i++) if (w[i] != w[i - u]) rep = 0;
+        if (rep && !(u == 2 && !vowel_c(w[0]) && vowel_c(w[1]))) return 1;                                                      /* lalala, papapa are singing, not mash */
+    }
+    return 0;
+}
+
+/* words of the cleaned text: laughs become tokens, mash counts toward the noise score */
+static void read_words(const char *out, int n, const int *map, const char *text, LangInfo *f) {
+    int letters = 0, noisy = 0;
+    for (int i = 0; i < n;) {
+        if (!(out[i] >= 'a' && out[i] <= 'z')) { i++; continue; }
+        int j = i; while (j < n && out[j] >= 'a' && out[j] <= 'z') j++;
+        int len = j - i; letters += len;
+        if (is_laugh(out + i, len)) {
+            int a = map[i], b = map[j - 1] + lang_clean_orig_len(text, map[j - 1]), seen = 0;
+            for (int k = 0; k < f->ntok; k++) if (f->tok[k].kind == TK_LAUGH && f->tok[k].a <= a && f->tok[k].b >= b) { if (f->tok[k].len < len) f->tok[k].len = len; seen = 1; }   /* "xD" is both */
+            if (!seen) tok_add(f, TK_LAUGH, a, b, len);
+            if (len > f->laugh) f->laugh = len;
+        } else if (is_noise(out + i, len)) noisy += len;
+        i = j;
+    }
+    f->noise = letters ? 100 * noisy / letters : 0;
+    if (f->noise >= 50 && noisy >= 3) f->flags |= LF_NOISE;
+}
+
+static int clean(const char *text, char *out, int cap, int *map, int lower, LangInfo *info) {
     const unsigned char *s = (const unsigned char *)text;
-    int n = 0, i = 0;
+    int n = 0, i = 0, skip = 0, own[1024];
     if (cap < 1) return 0;
+    if (info) { memset(info, 0, sizeof *info); if (!map) { map = own; if (cap > 1024) cap = 1024; } }
     while (s[i]) {
         int cp, len = decode(s + i, &cp);
-        char buf[4]; int bn = fold(cp, lower, buf);
+        if (info) {
+            if (cp >= 0x80) { int k = emoji_kind(cp); if (k) tok_add(info, k, i, i + len, 1); }
+            else if (i >= skip && strchr(EMO_FIRST, cp)) { int k, L = emoticon_at(s, i, &k); if (L) { tok_add(info, k, i, i + L, 1); skip = i + L; } }
+        }
+        char buf[4]; int bn = fold(cp, 0, buf);                  /* the case is kept here, lowered below: the capitals are counted */
         if (bn < 0) {
             if (n > 0 && out[n - 1] != ' ') { if (n >= cap - 1) break; out[n] = ' '; if (map) map[n] = i; n++; }
         } else if (bn > 0) {
             if (n + bn > cap - 1) break;                          /* an expansion is never cut in half */
-            for (int k = 0; k < bn; k++) { out[n] = buf[k]; if (map) map[n] = i; n++; }
-        }
+            for (int k = 0; k < bn; k++) {
+                char c = buf[k];
+                if (info && isalpha((unsigned char)c)) { info->letters++; if (isupper((unsigned char)c)) info->caps++; }
+                if (lower && c >= 'A' && c <= 'Z') c = (char)(c + 32);
+                out[n] = c; if (map) map[n] = i; n++;
+            }
+        } else if (info && cp >= 0) tok_touch(info, i, len);
         i += len;
     }
     if (n > 0 && out[n - 1] == ' ') n--;                          /* no trailing space */
     out[n] = 0;
     if (map) map[n] = (int)strlen(text);
+    if (info) {
+        for (int k = 0; k < n; k++) { if (out[k] == '!' && info->excl < 255) info->excl++; else if (out[k] == '?' && info->quest < 255) info->quest++; }
+        char low[1024]; int m = n < 1023 ? n : 1023;
+        for (int k = 0; k < m; k++) low[k] = (char)ci((unsigned char)out[k]);
+        low[m] = 0;
+        read_words(low, m, map, text, info);
+        if (info->letters >= 4 && info->caps * 100 >= 60 * info->letters) info->flags |= LF_SHOUT;
+        if (n > 120) info->flags |= LF_LONG;
+        if (info->count[TK_LAUGH]) info->flags |= LF_LAUGH;
+        if (info->count[TK_POS] + info->count[TK_NEG] + info->count[TK_LOVE] + info->count[TK_SHOCK] + info->count[TK_CRY] + info->count[TK_ANGRY]) info->flags |= LF_EMOTE;
+        for (int a = 1; a < info->ntok; a++) { LangTok t = info->tok[a]; int b = a - 1; while (b >= 0 && info->tok[b].a > t.a) { info->tok[b + 1] = info->tok[b]; b--; } info->tok[b + 1] = t; }   /* in text order */
+    }
     return n;
 }
 
-int lang_clean(const char *text, char *out, int cap, int *map)      { return clean(text, out, cap, map, 1); }
-int lang_clean_case(const char *text, char *out, int cap, int *map) { return clean(text, out, cap, map, 0); }
+int lang_clean(const char *text, char *out, int cap, int *map)      { return clean(text, out, cap, map, 1, NULL); }
+int lang_clean_case(const char *text, char *out, int cap, int *map) { return clean(text, out, cap, map, 0, NULL); }
+int lang_clean_info(const char *text, char *out, int cap, int *map, LangInfo *info) { return clean(text, out, cap, map, 1, info); }
 
 int lang_clean_orig_len(const char *text, int at) {
     int cp; return decode((const unsigned char *)text + at, &cp);

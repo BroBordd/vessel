@@ -249,7 +249,9 @@ static int prepare(const char *text, char *lc, int *map) {
 
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
-    char lc[MAX_TEXT]; int len = prepare(text, lc, NULL);
+    char lc[MAX_TEXT]; LangInfo info; int len = lang_clean_info(text, lc, MAX_TEXT, NULL, &info);
+    h->flags = info.flags; h->noise = (uint8_t)info.noise; h->excl = (uint8_t)info.excl; h->quest = (uint8_t)info.quest; h->laugh = (uint8_t)(info.laugh > 255 ? 255 : info.laugh);
+    for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
