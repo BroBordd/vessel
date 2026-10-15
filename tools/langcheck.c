@@ -14,11 +14,13 @@
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
- *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix or --intents found a problem */
+ *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
+ *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
 #include "lang_voice.h"
+#include "lang_clean.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -476,6 +478,106 @@ static int do_matrix(void) {
     return bad;
 }
 
+/* ---- chunk 15: the clean-up layer (bytes and characters) ---- */
+static void ref_lower(const char *t, char *o, int cap) {           /* the old prepare(): tolower, cut at cap - 1 */
+    int n = 0; for (; t[n] && n < cap - 1; n++) o[n] = (char)tolower((unsigned char)t[n]); o[n] = 0;
+}
+static int plain_ascii(const char *t) {                             /* no control char, no non-ASCII, no double / edge space: the identity promise holds */
+    int n = (int)strlen(t);
+    if (n && (t[0] == ' ' || t[n - 1] == ' ')) return 0;
+    for (int i = 0; i < n; i++) { unsigned char c = (unsigned char)t[i]; if (c < 32 || c > 126) return 0; if (c == ' ' && i && t[i - 1] == ' ') return 0; }
+    return 1;
+}
+static int do_clean(int argc, char **argv) {
+    int bad = 0, same = 0, skipped = 0, files = 0;
+    char o[410], r[410]; int map[410];
+    /* 1. identity on plain ASCII: every reply line (slots as they are), every pattern, every corpus line given on the command line */
+    #define IDENT(txt) do { const char *t_ = (txt); if (!plain_ascii(t_)) skipped++; else { \
+        lang_clean(t_, o, 410, map); ref_lower(t_, r, 410); \
+        if (strcmp(o, r)) { if (bad < 10) printf("BAD IDENTITY: \"%s\" -> \"%s\"\n", t_, o); bad++; } else same++; \
+        int n_ = (int)strlen(o); for (int i_ = 0; i_ < n_; i_++) if (map[i_] != i_) { if (bad < 10) printf("BAD MAP: \"%s\" at %d is %d\n", t_, i_, map[i_]); bad++; break; } } } while (0)
+    EACH(l) IDENT(l->text);
+    for (int k = 0; k < lang_pat_count(); k++) IDENT(lang_pat(k)->pat);
+    for (int a = 1; a < argc; a++) {
+        if (argv[a][0] == '-') continue;
+        FILE *f = fopen(argv[a], "r"); if (!f) { printf("cannot open %s\n", argv[a]); bad++; continue; }
+        files++; char ln[1024];
+        while (fgets(ln, sizeof ln, f)) { if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0; ln[strcspn(ln, "\r\n")] = 0; IDENT(ln); }
+        fclose(f);
+    }
+    printf("clean: identical to the old lower-casing for %d plain ASCII texts (every reply line, %d patterns, %d corpus files), %d other texts skipped (double spaces, edge spaces, symbols)\n", same, lang_pat_count(), files, skipped);
+    /* 2. before / after pairs */
+    static const struct { const char *in, *out; } P[] = {
+        { "Hello There", "hello there" }, { "H\xC3\xA9llo W\xC3\xB6rld", "hello world" }, { "caf\xC3\xA9 \xC3\xA0 la cr\xC3\xA8me", "cafe a la creme" },
+        { "STRA\xC3\x9F" "E stra\xC3\x9F" "e", "strasse strasse" }, { "\xC3\xB1" "and\xC3\xBA", "nandu" }, { "\xC3\x86ON \xC5\x92uvre", "aeon oeuvre" },
+        { "\xC3\x98resund \xC4\x91\xC5\x82", "oresund dl" }, { "\xC5\xA0" "ar\xC5\xBE\xC4\x8D", "sarzc" }, { "\xC5\xBF" "tone", "stone" },
+        { "it\xE2\x80\x99s", "it's" }, { "don\xCA\xBCt \xC2\xB4x", "don't 'x" }, { "\xE2\x80\x9Chi\xE2\x80\x9D", "\"hi\"" },
+        { "a\xE2\x80\x94" "b a\xE2\x80\x93" "b a\xE2\x88\x92" "b", "a-b a-b a-b" }, { "wait\xE2\x80\xA6", "wait..." }, { "what?! ...", "what?! ..." },
+        { "\xEF\xBC\xA8\xEF\xBC\xA5\xEF\xBC\xAC\xEF\xBC\xAC\xEF\xBC\xAF\xEF\xBC\x81", "hello!" },
+        { "hel\xE2\x80\x8B" "lo", "hello" }, { "hel\xC2\xAD" "lo", "hello" }, { "\xEF\xBB\xBF" "hi", "hi" }, { "a\xE2\x80\x8F\xE2\x80\xAE" "b", "ab" }, { "hi\xEF\xB8\x8F", "hi" },
+        { "a\xC2\xA0" "b", "a b" }, { "a\xE3\x80\x80" "b a\xE2\x80\x89" "b", "a b a b" }, { "  a   b  ", "a b" }, { "a\tb\nc\r\nd", "a b c d" },
+        { "a\x01" "b\x7F" "c", "abc" }, { "a\xFF" "b", "ab" }, { "a\xC3", "a" }, { "a\xE2\x80", "a" }, { "\xC0\x80" "x", "x" },
+        { "hi\xF0\x9F\x98\x80there", "hi there" }, { "\xF0\x9F\x98\x80", "" }, { "hi <3 \xE2\x9D\xA4", "hi <3" }, { "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82 hi", "hi" },
+        { "", "" }, { "   ", "" }, { "\xC2\xA1Hola! \xC2\xBFQu\xC3\xA9 tal?", "hola! que tal?" },
+    };
+    for (unsigned i = 0; i < sizeof P / sizeof *P; i++) {
+        lang_clean(P[i].in, o, 410, map);
+        if (strcmp(o, P[i].out)) { printf("BAD CLEAN: \"%s\" -> \"%s\", want \"%s\"\n", P[i].in, o, P[i].out); bad++; }
+        int n = (int)strlen(o), total = (int)strlen(P[i].in);
+        if (map[n] != total) { printf("BAD MAP END: \"%s\" map[%d] = %d, want %d\n", P[i].in, n, map[n], total); bad++; }
+        for (int k = 1; k < n; k++) if (map[k] < map[k - 1]) { printf("BAD MAP ORDER: \"%s\" at %d\n", P[i].in, k); bad++; break; }
+        for (int k = 0; k < n; k++) if (map[k] < 0 || map[k] >= total) { printf("BAD MAP RANGE: \"%s\" at %d\n", P[i].in, k); bad++; break; }
+    }
+    /* 3. the map points at the original character */
+    lang_clean("h\xC3\xA9llo", o, 410, map);
+    { static const int want[] = { 0, 1, 3, 4, 5, 6 }; for (int k = 0; k < 6; k++) if (map[k] != want[k]) { printf("BAD MAP: h-e-acute-llo map[%d] = %d, want %d\n", k, map[k], want[k]); bad++; } }
+    lang_clean("a  b", o, 410, map);
+    if (map[0] != 0 || map[1] != 1 || map[2] != 3 || map[3] != 4) { printf("BAD MAP: collapsed spaces\n"); bad++; }
+    lang_clean("\xC3\x9F" "x", o, 410, map);
+    if (strcmp(o, "ssx") || map[0] != 0 || map[1] != 0 || map[2] != 2) { printf("BAD MAP: a two letter expansion must point at its one original character\n"); bad++; }
+    /* 4. the case-keeping twin: the same places, the case kept (names) */
+    { char c[410]; int mc[410];
+      static const struct { const char *in, *out; } C[] = { { "Zo\xC3\xAB", "Zoe" }, { "\xC3\x89mile", "Emile" }, { "\xC3\x86lfred", "Aelfred" }, { "J\xC3\xBCRGEN \xC3\x9F", "JuRGEN ss" }, { "A\xEF\xBC\xA2", "AB" }, { "plain Name", "plain Name" } };
+      for (unsigned i = 0; i < sizeof C / sizeof *C; i++) {
+          int n1 = lang_clean_case(C[i].in, c, 410, mc), n2 = lang_clean(C[i].in, o, 410, map);
+          if (strcmp(c, C[i].out)) { printf("BAD CASE: \"%s\" -> \"%s\", want \"%s\"\n", C[i].in, c, C[i].out); bad++; }
+          int ok = n1 == n2; for (int k = 0; ok && k <= n1; k++) { if (map[k] != mc[k]) ok = 0; if (k < n1 && tolower((unsigned char)c[k]) != o[k]) ok = 0; }
+          if (!ok) { printf("BAD CASE TWIN: \"%s\" differs from the lower case version in length, map or letters\n", C[i].in); bad++; }
+      } }
+    /* 5. limits: the cut at cap - 1, an expansion is never cut in half, a tiny cap, no overflow */
+    { char big[1200]; memset(big, 'a', 1000); big[1000] = 0; int n = lang_clean(big, o, 400, map);
+      if (n != 399 || o[399] || map[399] != 1000) { printf("BAD CAP: long text gave %d\n", n); bad++; }
+      char ss[1200]; for (int i = 0; i < 300; i++) { ss[2 * i] = (char)0xC3; ss[2 * i + 1] = (char)0x9F; } ss[600] = 0;
+      n = lang_clean(ss, o, 400, map);
+      if (n != 398 || strlen(o) != 398) { printf("BAD CAP: expansions gave %d (want 398: whole pairs only)\n", n); bad++; }
+      n = lang_clean("hello", o, 1, map); if (n != 0 || o[0]) { printf("BAD CAP: cap 1\n"); bad++; }
+      n = lang_clean("hello", o, 4, map); if (n != 3 || strcmp(o, "hel")) { printf("BAD CAP: cap 4 gave \"%s\"\n", o); bad++; }
+      n = lang_clean("a \xC3\x9F", o, 4, map); if (strcmp(o, "a") ) { printf("BAD CAP: expansion at the end gave \"%s\"\n", o); bad++; } }
+    /* 6. highlight and parse go through it */
+    { uint8_t m[128]; Heard h;
+      const char *t = "h\xC3\xA9llo there";                             /* e-acute is two bytes: both must light up */
+      lang_parse(t, &h); lang_highlight(t, m);
+      if (!heard_has(&h, I_GREET)) { printf("BAD: an accented hello is not heard as a greeting\n"); bad++; }
+      for (int i = 0; i < 6; i++) if (!m[i]) { printf("BAD HIGHLIGHT: byte %d of the accented hello is not marked\n", i); bad++; }
+      const char *t2 = "who   are\xC2\xA0 you";                        /* a phrase over odd spaces: the whole stretch is marked, gaps too */
+      lang_parse(t2, &h); lang_highlight(t2, m);
+      if (!heard_has(&h, I_WHORU)) { printf("BAD: who are you over odd spaces is not heard\n"); bad++; }
+      int all = 1; for (int i = 0; i < (int)strlen(t2); i++) if (!m[i]) all = 0;
+      if (!all) { printf("BAD HIGHLIGHT: a phrase over odd spaces is not marked end to end\n"); bad++; }
+      const char *t3 = "my name is Zo\xC3\xAB";                          /* the capture keeps its case and is folded to ASCII */
+      lang_parse(t3, &h);
+      if (strcmp(h.capture, "Zoe")) { printf("BAD CAPTURE: \"%s\", want \"Zoe\"\n", h.capture); bad++; }
+      const char *t4 = "hi \xF0\x9F\x98\x80 who are you \xE2\x80\xA6"; /* an emoji does not hide the words around it */
+      lang_parse(t4, &h); if (!heard_has(&h, I_GREET) || !heard_has(&h, I_WHORU)) { printf("BAD: an emoji hides the words around it\n"); bad++; }
+      const char *t5 = "I w\xC3\xA1nt to k\xC3\xAD" "ll myself";           /* the safety check sees through accents */
+      lang_parse(t5, &h); (void)t5;
+      lang_parse("i want to kill myself", &h); if (!heard_has(&h, I_SELFHARM)) { printf("BAD: selfharm not heard (baseline)\n"); bad++; }
+      lang_parse("i want to k\xC3\xAD" "ll myself", &h); if (!heard_has(&h, I_SELFHARM)) { printf("BAD: selfharm hidden by an accent\n"); bad++; }
+      lang_parse("I WANT TO KILL MYSELF\xE2\x80\x8B", &h); if (!heard_has(&h, I_SELFHARM)) { printf("BAD: selfharm hidden by a zero width space\n"); bad++; } }
+    printf("clean: %u before / after pairs, the map, the case twin, the limits, highlight and parse. %s\n", (unsigned)(sizeof P / sizeof *P), bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -494,10 +596,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

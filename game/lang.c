@@ -6,6 +6,7 @@
 #include "lang_data.h"
 #include "lang_tables.h"
 #include "lang_voice.h"
+#include "lang_clean.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -240,16 +241,15 @@ static int flip(int intent) {
     }
 }
 
-static int prepare(const char *text, char *lc) {
-    int n = 0;
-    for (; text[n] && n < MAX_TEXT - 1; n++) lc[n] = (char)tolower((unsigned char)text[n]);
-    lc[n] = 0;
-    return n;
+/* chunk 15: the text goes through lang_clean first (accents folded, odd spaces and invisible characters gone, lower case);
+ * map[i] = the byte of the ORIGINAL text that produced lc[i] (map may be NULL) */
+static int prepare(const char *text, char *lc, int *map) {
+    return lang_clean(text, lc, MAX_TEXT, map);
 }
 
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
-    char lc[MAX_TEXT]; int len = prepare(text, lc);
+    char lc[MAX_TEXT]; int len = prepare(text, lc, NULL);
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
@@ -263,7 +263,7 @@ void lang_parse(const char *text, Heard *h) {
             int a = sp[k].start + sp[k].prefix, b = sp[k].end;
             while (a < b && lc[a] == ' ') a++;
             int n = b - a; if (n > 22) n = 22;
-            if (n > 0) { memcpy(h->capture, text + a, (size_t)n); h->capture[n] = 0; }
+            if (n > 0) { char cs[MAX_TEXT]; lang_clean_case(text, cs, MAX_TEXT, NULL); memcpy(h->capture, cs + a, (size_t)n); h->capture[n] = 0; }   /* same places as lc, the case kept */
         }
         if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
     }
@@ -283,15 +283,25 @@ void lang_parse(const char *text, Heard *h) {
     h->is_question = q;
 }
 
+/* marks the ORIGINAL bytes of every match (chunk 15: through the char map, so folded accents, collapsed spaces and so on still
+ * light up the right characters); a phrase marks the whole stretch from its first to its last original byte */
+static void mark(const char *text, const int *map, int total, int start, int end, uint8_t *mask) {
+    if (end <= start) return;
+    int a = map[start], b = map[end - 1] + lang_clean_orig_len(text, map[end - 1]);
+    if (b > total) b = total;
+    for (int i = a; i < b; i++) mask[i] = 1;
+}
+
 int lang_highlight(const char *text, uint8_t *mask) {
-    char lc[MAX_TEXT]; int len = prepare(text, lc);
+    char lc[MAX_TEXT]; int map[MAX_TEXT];
+    int len = prepare(text, lc, map);
     int total = (int)strlen(text);
     for (int i = 0; i <= total; i++) mask[i] = 0;
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
-    for (int k = 0; k < ns; k++) for (int i = sp[k].start; i < sp[k].end; i++) mask[i] = 1;
+    for (int k = 0; k < ns; k++) mark(text, map, total, sp[k].start, sp[k].end, mask);
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
-    for (int k = 0; k < nsf; k++) for (int i = sf[k].start; i < sf[k].end; i++) mask[i] = 1;
+    for (int k = 0; k < nsf; k++) mark(text, map, total, sf[k].start, sf[k].end, mask);
     return ns + nsf;
 }
 
