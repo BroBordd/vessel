@@ -9,6 +9,7 @@
 #include "lang_clean.h"
 #include "lang_spell.h"
 #include "lang_lemma.h"
+#include "lang_clause.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -211,25 +212,8 @@ static int safety_scan(const char *lc, int len, Span *out, int maxo) {
     return n;
 }
 
-static const char *const NEGATORS[] = { "not", "no", "never", "dont", "don't", "cant", "can't", "wont", "won't", "isnt", "isn't",
-    "arent", "aren't", "didnt", "didn't", "hardly", "without", "aint", "ain't", "doesnt", "doesn't", NULL };
-
-/* is there a negator in the 3 words before this point (same sentence)? */
-static int negated(const char *lc, int start) {
-    int i = start - 1, words = 0;
-    while (i >= 0 && words < 3) {
-        while (i >= 0 && lc[i] == ' ') i--;
-        if (i < 0 || !is_word((unsigned char)lc[i])) break;
-        int e = i;
-        while (i >= 0 && is_word((unsigned char)lc[i])) i--;
-        char w[16]; int n = e - i; if (n > 15) n = 15;
-        memcpy(w, lc + i + 1, (size_t)n); w[n] = 0;
-        for (int k = 0; NEGATORS[k]; k++) if (!strcmp(w, NEGATORS[k])) return 1;
-        words++;
-    }
-    return 0;
-}
-
+/* chunk 25: negation is scoped by clause (lang_clause.c): lang_neg_count counts the negators in the 4 words before a match, inside its clause. an odd
+ * number flips the meaning. (the old negated(): 3 words before, no clause, is gone; a one clause text takes the same path) */
 static int flip(int intent) {
     switch (intent) {
     case I_PRAISE: case I_LOVE: case I_WORSHIP: return I_INSULT;
@@ -240,6 +224,14 @@ static int flip(int intent) {
     case I_NEG: return I_POS;
     case I_SCARED: case I_SAD: case I_ANGRY: return I_OK;
     default: return intent;
+    }
+}
+
+static int pol_of(int in) {
+    switch (in) {
+    case I_POS: case I_PRAISE: case I_LOVE: case I_WORSHIP: case I_THANKS: return 1;
+    case I_NEG: case I_INSULT: case I_ANGRY: case I_SAD: case I_SCARED: return -1;
+    default: return 0;
     }
 }
 
@@ -261,10 +253,15 @@ static int prepare(const char *text, char *lc, int *map) { return prepare3(text,
  * (a lemma is not what the player typed). srcmap[i] = the index in the part 1 text t1 of lc[i], for the case twin */
 typedef struct { const char *text, *t1; char cs[MAX_TEXT]; int have; } Case;
 static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *srcmap, Case *cs, int primary) {
+    Clause cl[CLAUSE_MAX]; int ncl = lang_clauses(lc, (int)strlen(lc), cl, CLAUSE_MAX);
+    int cpos[CLAUSE_MAX] = {0}, cneg[CLAUSE_MAX] = {0}, cpol[CLAUSE_MAX] = {0}, cflip[CLAUSE_MAX] = {0}, cn[CLAUSE_MAX] = {0};
+    int cint[CLAUSE_MAX][4];
     for (int k = 0; k < ns; k++) {
-        int in = sp[k].intent;
-        if (negated(lc, sp[k].start)) in = flip(in);
-        if (primary == 1 || !heard_has(h, in)) { if (in == I_POS) h->positive++; else if (in == I_NEG) h->negative++; }
+        int in = sp[k].intent, ci = 0;
+        while (ci + 1 < ncl && sp[k].start >= cl[ci].b) ci++;
+        if (ncl > 0 && (lang_neg_count(lc, sp[k].start, cl[ci].a) & 1)) { int f = flip(in); if (f != in) cflip[ci] = 1; in = f; }
+        if (primary == 1 || !heard_has(h, in)) { if (in == I_POS) { h->positive++; cpos[ci]++; } else if (in == I_NEG) { h->negative++; cneg[ci]++; } }
+        if (primary == 1 && ncl > 0) { cpol[ci] += pol_of(in); if (cn[ci] < 4) cint[ci][cn[ci]++] = in; }
         if (in == I_INTRO && !h->capture[0] && primary != 2) {
             int a = sp[k].start + sp[k].prefix, b = sp[k].end;
             while (a < b && lc[a] == ' ') a++;
@@ -276,6 +273,29 @@ static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *
             }
         }
         if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
+    }
+    if (primary != 1 || ncl <= 0) return;
+    /* chunk 25: the clauses of the text as typed. contrast: what follows a but wins, so the feeling counts of the clauses before it are dropped */
+    h->nclauses = (uint8_t)ncl;
+    int last = -1, strongest = 0;
+    for (int k = 0; k < ncl; k++) {
+        HeardClause *c = &h->clauses[k];
+        c->a = (int16_t)cl[k].a; c->b = (int16_t)cl[k].b; c->contrast = (uint8_t)cl[k].contrast; c->n = (uint8_t)cn[k];
+        for (int q = 0; q < cn[k]; q++) c->intent[q] = (int16_t)cint[k][q];
+        c->polarity = (int8_t)(cpol[k] > 2 ? 2 : cpol[k] < -2 ? -2 : cpol[k]);
+        int in = cn[k] ? 1 + cl[k].boost : 0;
+        if (cn[k] && cflip[k] && c->polarity > 0 && in > 1) in = 1;                 /* not bad is a mild good */
+        c->intensity = (uint8_t)(in < 0 ? 0 : in > 3 ? 3 : in);
+        if (c->polarity) last = k;
+        if (c->intensity > strongest) strongest = c->intensity;
+    }
+    h->intensity = (uint8_t)(last >= 0 ? h->clauses[last].intensity : strongest);
+    int from = -1;
+    for (int k = 0; k < ncl; k++) if (cl[k].contrast && cpos[k] + cneg[k] > 0) from = k;
+    if (from > 0) {
+        int p = 0, n = 0;
+        for (int k = from; k < ncl; k++) { p += cpos[k]; n += cneg[k]; }
+        h->positive = p; h->negative = n;
     }
 }
 

@@ -76,6 +76,16 @@ typedef struct {
 #define HEARD_MAX 512   /* intents that fit in a Heard (a 512 bit set; chunk 12: 380 intents) */
 #define HEARD_NUM 4     /* numbers kept in a Heard (chunk 19) */
 #define HEARD_ORDER 24  /* intents remembered in the order they were said */
+#define HEARD_CLAUSES 8     /* clauses kept in a Heard (chunk 25) */
+/* chunk 25: one clause of the text as typed. a, b = bytes [a, b) of the CLEANED text (lower case, spaces folded: not the typed bytes) */
+typedef struct {
+    int16_t a, b;
+    int8_t polarity;        /* -2..2: positive minus negative feeling words in the clause, after negation (not bad = +1) */
+    uint8_t intensity;      /* 0 says nothing, 1 plain, 2 boosted (very, so, really ...), 3 strongly boosted; a bit / kinda lowers it; not bad stays at 1 */
+    uint8_t contrast;       /* 1 = the clause opens with but / however / yet: it wins over what came before */
+    uint8_t n;              /* intents listed (at most 4) */
+    int16_t intent[4];
+} HeardClause;
 typedef struct {
     uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only (the old `mask` name is gone since chunk 12) */
     int order[HEARD_ORDER], n;   /* intents in the order they were said */
@@ -93,6 +103,8 @@ typedef struct {
     int16_t age;        /* the age the player said (1-120), 0 = none */
     LangNum num[HEARD_NUM];
     uint8_t nspell, spell_conf;   /* chunk 21: words repaired by the spell step, and the lowest confidence among them (0-100; 0 when none) */
+    uint8_t nclauses, intensity;   /* chunk 25: clauses[0..nclauses) and the overall intensity 0-3 (the last clause that has a feeling, else the strongest) */
+    HeardClause clauses[HEARD_CLAUSES];
     uint8_t nlemma;     /* chunk 24: words of the text as typed that have a lemma (loved -> love); flags says LF_LEMMA. the lemma variant only adds intents */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;

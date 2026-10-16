@@ -23,6 +23,7 @@
  *   --spell [FILES]    (chunk 21) the spell repair lang_spell: the dictionary and the delete index, about 60 fix pairs and 70 words that must stay, the never-repaired rules (vocabulary, names, patterns, text-speak, acronyms, names in the middle of a sentence, digits, 1-2 letters), the maps and the highlight, the cap, the Heard fields, self-harm through typos, registering later, the superset rule (spell on never loses an intent over every reply line and every corpus FILE) and the speed. fails on a problem
  *   --phonetic         (chunk 22) the phonetic key lang_phone (24 exact keys, 16 pairs that sound alike, pairs that do not, case, cap, a very long text), the dialect table (>= 150 rows: well-formed, no vocabulary word or name as a key, no text-speak key, no duplicate, the key never its result) and its repair (45 typed -> spelled pairs, what must stay, the order dialect / edit / phonetic, the maps of a multi-word result, the cap, the highlight and Heard, self-harm through a row), the phonetic fallback (what it fixes, real words it must not bend, only words of patterns and lexicons are candidates), registering later, the off switch and the speed. fails on a problem
  *   --lemma [FILES]    (chunk 24) the lemmas: the irregular table (well formed, no chains), 270 inflected forms that must resolve (and be stable), 130 words that must stay, odd inputs, the lemma text (maps, replaced marks, past and aux forms left alone), what the matcher hears through a lemma, the superset rule over the corpus FILES, self-harm unchanged on ordinary sentences, speed, registering a table
+ *   --clause           (chunk 25) clauses, negation scope, contrast and intensity: 63 negation / contrast / intensity cases through lang_parse (Heard.clauses, positive, negative, intensity), lang_clauses (splits, the cap, the boost count), lang_neg_count (the 4 word scope, punctuation, a clause start, two negators), odd and long texts
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -32,6 +33,7 @@
 #include "lang_vocab.h"
 #include "lang_spell.h"
 #include "lang_lemma.h"
+#include "lang_clause.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -1899,6 +1901,138 @@ static int do_lemma(int argc, char **argv) {
     return bad;
 }
 
+/* ---------- chunk 25: clauses, negation scope, contrast, intensity ---------- */
+typedef struct { const char *t; int ncl; int must, mustnot; int pos, neg; int inten; int win; } ClauseCase;
+static int do_clause(void) {
+    int bad = 0, checks = 0;
+    lang_init();
+    #define KCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD CLAUSE: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    /* text, clauses, must hear, must NOT hear, positive count, negative count, overall intensity, polarity of the winning clause (-9 = any; -1 = any count / intensity) */
+    static const ClauseCase C[] = {
+        { "i love you", 1, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "i do not love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i dont love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i never loved you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i cannot love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i can not love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i hate you", 1, I_INSULT, I_PRAISE, -1, -1, -1, -1 },
+        { "i dont hate you", 1, I_PRAISE, I_INSULT, -1, -1, -1, 1 },
+        { "i never hate you", 1, I_PRAISE, I_INSULT, -1, -1, -1, 1 },
+        { "i havent hated you", 1, I_PRAISE, I_INSULT, -1, -1, -1, 1 },
+        { "you are not stupid", 1, I_PRAISE, I_INSULT, -1, -1, -1, 1 },
+        { "you are not nice", 1, I_INSULT, I_PRAISE, -1, -1, -1, -1 },
+        { "not bad", 1, I_POS, I_NEG, 1, 0, 1, 1 },
+        { "not good", 1, I_NEG, I_POS, 0, 1, -1, -1 },
+        { "not happy", 1, I_NEG, I_POS, 0, 1, -1, -1 },
+        { "i am not sad", 1, I_OK, I_SAD, -1, -1, -1, -9 },
+        { "i am not scared", 1, I_OK, I_SCARED, -1, -1, -1, -9 },
+        { "i am not angry", 1, I_OK, I_ANGRY, -1, -1, -1, -9 },
+        { "i wasnt scared", 1, I_OK, I_SCARED, -1, -1, -1, -9 },
+        { "i do not not love you", 1, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "i dont not hate you", 1, I_INSULT, I_PRAISE, -1, -1, -1, -1 },
+        { "never mind", 1, I_NO, -1, -1, -1, -1, -9 },
+        { "never mind i love you", 1, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "never mind. i love you", 2, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "i dont think i love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i do not want to love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i do not really want to love you", 1, I_INSULT, I_LOVE, -1, -1, -1, -1 },
+        { "i do not really want to ever love you", 1, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "i dont know why but i love you", 2, I_LOVE, I_INSULT, -1, -1, -1, 1 },
+        { "i dont hate you but i love you", 2, I_LOVE, -1, -1, -1, -1, 1 },
+        { "i hate you but i love you", 2, I_LOVE, -1, -1, -1, -1, 1 },
+        { "i love you but i hate you", 2, I_INSULT, -1, -1, -1, -1, -1 },
+        { "i love you, but i hate you", 2, I_INSULT, -1, -1, -1, -1, -1 },
+        { "it was good but it was bad", 2, I_NEG, -1, 0, 1, -1, -1 },
+        { "it was bad but it was good", 2, I_POS, -1, 1, 0, -1, 1 },
+        { "it was bad however it was good", 2, I_POS, -1, 1, 0, -1, 1 },
+        { "it was bad yet it was good", 2, I_POS, -1, 1, 0, -1, 1 },
+        { "good but not bad", 2, I_POS, -1, 1, 0, -1, 1 },
+        { "bad but whatever", 2, I_NEG, -1, 0, 1, -1, -1 },
+        { "good. bad.", 2, I_NEG, -1, 1, 1, -1, -1 },
+        { "hello; bye", 2, I_GREET, -1, -1, -1, -1, -9 },
+        { "hello. how are you?", 2, I_GREET, -1, -1, -1, -1, -9 },
+        { "hi and then bye", 2, I_BYE, -1, -1, -1, -1, -9 },
+        { "i was sad then i was happy", 2, I_SAD, -1, -1, -1, -1, -9 },
+        { "i love you because you are good", 2, I_LOVE, -1, -1, -1, -1, -9 },
+        { "i hate you so i leave", 2, I_INSULT, -1, -1, -1, -1, -9 },
+        { "i hate it, i love you", 2, I_LOVE, -1, -1, -1, -1, 1 },
+        { "i hate it, and i love you", 1, I_LOVE, -1, -1, -1, -1, -9 },
+        { "i am sad", 1, I_SAD, -1, -1, -1, 1, -1 },
+        { "so sad", 1, I_SAD, -1, -1, -1, 2, -1 },
+        { "i am so sad", 1, I_SAD, -1, -1, -1, 2, -1 },
+        { "i am very sad", 1, I_SAD, -1, -1, -1, 2, -1 },
+        { "i am very very sad", 1, I_SAD, -1, -1, -1, 3, -1 },
+        { "i am really extremely sad", 1, I_SAD, -1, -1, -1, 3, -1 },
+        { "i am a bit sad", 1, I_SAD, -1, -1, -1, 0, -1 },
+        { "i am kinda sad", 1, I_SAD, -1, -1, -1, 0, -1 },
+        { "i am a little sad", 1, I_SAD, -1, -1, -1, 0, -1 },
+        { "i am sad and very angry", 1, I_ANGRY, -1, -1, -1, 2, -1 },
+        { "the little girl is sad", 1, I_SAD, -1, -1, -1, 1, -1 },
+        { "not very good", 1, I_NEG, I_POS, 0, 1, -1, -1 },
+        { "you never hate me", 1, I_PRAISE, I_INSULT, -1, -1, -1, 1 },
+        { "hello", 1, I_GREET, -1, -1, -1, 1, 0 },
+        { "xyzzy plugh", 1, -1, -1, 0, 0, 0, 0 },
+    };
+    int ncase = (int)(sizeof C / sizeof C[0]);
+    KCHECK(ncase >= 60, "only %d cases", ncase);
+    for (int i = 0; i < ncase; i++) {
+        const ClauseCase *c = &C[i];
+        Heard h; lang_parse(c->t, &h);
+        KCHECK(h.nclauses == c->ncl, "\"%s\": %d clauses, wanted %d", c->t, h.nclauses, c->ncl);
+        if (c->must >= 0) KCHECK(heard_has(&h, c->must), "\"%s\": must hear %s", c->t, lang_intent_name(c->must));
+        if (c->mustnot >= 0) KCHECK(!heard_has(&h, c->mustnot), "\"%s\": must not hear %s", c->t, lang_intent_name(c->mustnot));
+        if (c->pos >= 0) KCHECK(h.positive == c->pos, "\"%s\": positive %d, wanted %d", c->t, h.positive, c->pos);
+        if (c->neg >= 0) KCHECK(h.negative == c->neg, "\"%s\": negative %d, wanted %d", c->t, h.negative, c->neg);
+        if (c->inten >= 0) KCHECK(h.intensity == c->inten, "\"%s\": intensity %d, wanted %d", c->t, h.intensity, c->inten);
+        if (c->win != -9 && c->win != -1) { int last = 0; for (int k = 0; k < h.nclauses; k++) if (h.clauses[k].polarity) last = h.clauses[k].polarity; KCHECK((last > 0) - (last < 0) == c->win, "\"%s\": the winning clause has polarity %d, wanted %d", c->t, last, c->win); }
+        if (c->win == -1) { int last = 0; for (int k = 0; k < h.nclauses; k++) if (h.clauses[k].polarity) last = h.clauses[k].polarity; KCHECK(last <= 0, "\"%s\": the winning clause is positive (%d)", c->t, last); }
+        /* the clause ranges cover the cleaned text without a gap */
+        int ok = h.nclauses == 0 || (h.clauses[0].a == 0 && h.clauses[h.nclauses - 1].b > 0);
+        for (int k = 1; k < h.nclauses; k++) if (h.clauses[k].a != h.clauses[k - 1].b) ok = 0;
+        KCHECK(ok, "\"%s\": the clause ranges leave a gap", c->t);
+    }
+    /* the contrast flag */
+    {   Heard h; lang_parse("good but bad", &h); KCHECK(h.nclauses == 2 && !h.clauses[0].contrast && h.clauses[1].contrast, "good but bad: contrast flags %d %d", h.clauses[0].contrast, h.clauses[1].contrast);
+        lang_parse("bad. good.", &h); KCHECK(h.nclauses == 2 && !h.clauses[1].contrast, "a full stop is not a contrast");
+        lang_parse("hello there", &h); KCHECK(h.nclauses == 1 && h.clauses[0].n >= 1 && h.clauses[0].intent[0] == I_GREET, "the clause lists its intents"); }
+    /* lang_clauses on its own */
+    {   Clause cl[CLAUSE_MAX];
+        KCHECK(lang_clauses("", 0, cl, CLAUSE_MAX) == 0, "an empty text has no clause");
+        int n = lang_clauses("a b c", 5, cl, CLAUSE_MAX); KCHECK(n == 1 && cl[0].a == 0 && cl[0].b == 5, "one clause covers the text");
+        const char *lg = "i go. you stay! we wait; they run but he walks so i sit because it rains then ok although fine though maybe";
+        n = lang_clauses(lg, (int)strlen(lg), cl, CLAUSE_MAX);
+        KCHECK(n == CLAUSE_MAX && cl[n - 1].b == (int)strlen(lg), "a long text is capped at %d clauses and the last one reaches the end (got %d, end %d)", CLAUSE_MAX, n, cl[n - 1].b);
+        for (int k = 1; k < n; k++) KCHECK(cl[k].a == cl[k - 1].b && cl[k].a > cl[k - 1].a, "clause %d does not follow clause %d", k, k - 1);
+        n = lang_clauses("very very sad", 13, cl, CLAUSE_MAX); KCHECK(n == 1 && cl[0].boost == 2, "two boosters count 2 (got %d)", cl[0].boost);
+        n = lang_clauses("a bit sad", 9, cl, CLAUSE_MAX); KCHECK(cl[0].boost == -1, "a bit counts -1 (got %d)", cl[0].boost);
+        n = lang_clauses("so very very very sad", 21, cl, CLAUSE_MAX); KCHECK(cl[0].boost == 2, "boost is capped at 2 (got %d)", cl[0].boost);
+    }
+    /* the negation scope */
+    {   const char *t = "i do not really want to ever love you";
+        int at = (int)(strstr(t, "love") - t);
+        KCHECK(lang_neg_count(t, at, 0) == 0, "the 5th word back is out of scope");
+        const char *u = "i do not really want to love you"; at = (int)(strstr(u, "love") - u);
+        KCHECK(lang_neg_count(u, at, 0) == 1, "the 4th word back is in scope");
+        KCHECK(lang_neg_count(u, at, (int)(strstr(u, "really") - u)) == 0, "a clause start cuts the scope");
+        const char *v = "i do not. i love you"; at = (int)(strstr(v, "love") - v);
+        KCHECK(lang_neg_count(v, at, 0) == 0, "a full stop cuts the scope");
+        const char *w = "no, i love you"; at = (int)(strstr(w, "love") - w);
+        KCHECK(lang_neg_count(w, at, 0) == 0, "a comma cuts the scope");
+        const char *x = "never never love"; KCHECK(lang_neg_count(x, 12, 0) == 2, "two negators count 2");
+        KCHECK(lang_is_negator("dont", 4) && lang_is_negator("cannot", 6) && !lang_is_negator("nothing", 7) && !lang_is_negator("note", 4), "the negator list");
+        KCHECK(lang_neg_count("love", 0, 0) == 0 && lang_neg_count("", 0, 0) == 0, "nothing before the first word");
+    }
+    /* never a crash or a gap on odd texts */
+    {   static const char *const ODD[] = { "", " ", ".", "...", ",,,", "but", "but but but", "so", "and then", "?! ,;", "not", "not not not not not not not not not not not not", "so so so so so so so so so so so so so so" };
+        for (size_t i = 0; i < sizeof ODD / sizeof ODD[0]; i++) { Heard h; lang_parse(ODD[i], &h); KCHECK(h.nclauses <= HEARD_CLAUSES && h.intensity <= 3, "\"%s\": %d clauses, intensity %d", ODD[i], h.nclauses, h.intensity); }
+        char big[1200]; big[0] = 0; for (int i = 0; i < 40; i++) strcat(big, "i love you but i hate you. ");
+        Heard h; lang_parse(big, &h); KCHECK(h.nclauses <= HEARD_CLAUSES, "a long text keeps at most %d clauses", HEARD_CLAUSES);
+    }
+    printf("clause: %d checks, %d problems; %d negation and contrast cases\n", checks, bad, ncase);
+    #undef KCHECK
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1921,12 +2055,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--phonetic")) { rc |= do_phonetic(argc, argv) ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--clause"))   { rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }
