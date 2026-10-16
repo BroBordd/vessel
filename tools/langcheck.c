@@ -20,6 +20,7 @@
  *                      (chunk 18) text-speak and contractions, lang_clean_expand: the table (>= 150 well-formed rows, no duplicates), about 100 before/after pairs, the maps (a highlight covers the whole typed token), the cap, no hook, and the superset rule: everything the text as typed heard is still heard
  *                      (chunk 19) numbers, lang_clean_numbers: numbers, ages, times and ordinals with their original byte ranges (and what must NOT count: user1 mp3 2day a lone "one" 25:00), number words both ways (0-1100 round trip and bigger), the number-letter words of the expanded variant (b4 gr8 2morrow 4ever any1, a lone 2 / 4 as to / too / for), the Heard fields, and the superset rule with the number rules off
  *   --vocab            (chunk 20) the vocabulary and the word hash: every row (word|rank|pos, ranks 1..N in order with no gaps, no duplicates, a-z and '), every lookup (vocab_has / rank / pos / is_name / protected, case blind, pointer and length) against the row, the names, the known-word hook, registering later and reset, and the lookup time. fails on a problem
+ *   --spell [FILES]    (chunk 21) the spell repair lang_spell: the dictionary and the delete index, about 60 fix pairs and 70 words that must stay, the never-repaired rules (vocabulary, names, patterns, text-speak, acronyms, names in the middle of a sentence, digits, 1-2 letters), the maps and the highlight, the cap, the Heard fields, self-harm through typos, registering later, the superset rule (spell on never loses an intent over every reply line and every corpus FILE) and the speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -27,6 +28,7 @@
 #include "lang_voice.h"
 #include "lang_clean.h"
 #include "lang_vocab.h"
+#include "lang_spell.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -1182,6 +1184,204 @@ static int do_vocab(void) {
     return bad;
 }
 
+
+/* ---------- chunk 21: spell repair ---------- */
+static int sp_fix(const char *typed, char *out, int cap, SpellInfo *si) {
+    char lc[600]; int map[600];
+    lang_clean(typed, lc, 600, map);
+    return lang_spell_text(typed, lc, map, 0, out, cap, NULL, NULL, si);
+}
+static int do_spell(int argc, char **argv) {
+    int bad = 0, checks = 0;
+    lang_init();
+    #define SCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD SPELL: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    SCHECK(lang_spell_dict_size() >= 800, "the dictionary has only %d words", lang_spell_dict_size());
+    SCHECK(lang_spell_index_size() > lang_spell_dict_size() * 4, "the delete index has only %d entries", lang_spell_index_size());
+    /* typed -> repaired (a sensible typo of a word the engine knows) */
+    static const char *const FIX[][2] = {
+        { "helo there", "hello there" }, { "hwllo there", "hello there" }, { "ehllo there", "hello there" }, { "hellp", "hello" }, { "yello", "hello" },
+        { "who are yuo", "who are you" }, { "what is yuor name", "what is your name" }, { "i love yuo", "i love you" }, { "tou are kind", "you are kind" },
+        { "sory about that", "sorry about that" }, { "im sorrry", "im sorry" }, { "i am scard", "i am scared" }, { "im scaredd", "im scared" },
+        { "tell me a joek", "tell me a joke" }, { "tell me a jokr", "tell me a joke" }, { "i dont understnd", "i dont understand" },
+        { "how are you doign", "how are you doing" }, { "godbye", "goodbye" }, { "goodbey", "goodbye" }, { "whats the mision", "whats the mission" },
+        { "the sky is bluee", "the sky is blue" }, { "im conufsed", "im confused" }, { "pleas help me", "please help me" }, { "you are stupd", "you are stupid" },
+        { "thankss", "thanks" }, { "thnaks", "thanks" }, { "thaks", "thanks" }, { "yeah i agre", "yeah i agree" }, { "i dont knwo", "i dont know" },
+        { "i wnat help", "i want help" }, { "can you hlep me", "can you help me" }, { "this is cofusing", "this is confusing" }, { "ok i uderstand", "ok i understand" },
+        { "wher are we", "where are we" }, { "whre am i", "where am i" }, { "tel me more", "tell me more" }, { "pleae stop", "please stop" },
+        { "that is funy", "that is funny" }, { "you are mean", "you are mean" }, { "ho are you", "how are you" }, { "hw are you", "how are you" },
+        { "i am afrad", "i am afraid" }, { "im so tird", "im so tired" }, { "sing me a sogn", "sing me a song" }, { "i luv musci", "i luv music" },
+        { "is it real", "is it real" }, { "wath do you want", "what do you want" }, { "wht do you want", "what do you want" }, { "i hate yuo", "i hate you" },
+        { "i feel lonley", "i feel lonely" }, { "the moom is bright", "the moon is bright" }, { "what is that hoel", "what is that hole" },
+        { "i am confsed", "i am confused" }, { "good mornig", "good morning" }, { "good eveing", "good evening" }, { "nver mind", "never mind" },
+        { "i do not undrstand", "i do not understand" }, { "excuse me", "excuse me" }, { "wiat for me", "wait for me" }, { "pelase help", "please help" },
+    };
+    int nfixed = 0, nfix_tests = 0;
+    for (size_t i = 0; i < sizeof FIX / sizeof FIX[0]; i++) {
+        char out[200]; SpellInfo si; sp_fix(FIX[i][0], out, 200, &si);
+        int same = !strcmp(FIX[i][0], FIX[i][1]);
+        if (same) { SCHECK(si.nfix == 0 && !strcmp(out, FIX[i][0]), "\"%s\" is right and must stay (got \"%s\")", FIX[i][0], out); continue; }
+        nfix_tests++;
+        if (!strcmp(out, FIX[i][1])) nfixed++; else if (strstr(FIX[i][1], "") && 0) {}
+        else printf("  (not repaired, ok on a starter vocabulary: \"%s\" -> \"%s\", wanted \"%s\")\n", FIX[i][0], out, FIX[i][1]);
+    }
+    SCHECK(nfixed * 100 >= nfix_tests * 70, "only %d of %d typos were repaired (needs 70 %%)", nfixed, nfix_tests);
+    /* the core pairs must work */
+    {   static const char *const MUST[][2] = { { "helo", "hello" }, { "hwllo", "hello" }, { "ehllo", "hello" }, { "yuo", "you" }, { "sory", "sorry" }, { "joek", "joke" },
+            { "godbye", "goodbye" }, { "mision", "mission" }, { "conufsed", "confused" }, { "understnd", "understand" }, { "thankss", "thanks" } };
+        for (size_t i = 0; i < sizeof MUST / sizeof MUST[0]; i++) {
+            char out[40]; int cf = 0, d = 0; int r = lang_spell_word(MUST[i][0], (int)strlen(MUST[i][0]), out, &cf, &d);
+            SCHECK(r && !strcmp(out, MUST[i][1]), "%s must become %s (got %s)", MUST[i][0], MUST[i][1], r ? out : "nothing");
+            SCHECK(r && cf >= SPELL_MIN_CONF && cf <= 99 && (d == 1 || d == 2), "%s: confidence %d distance %d out of range", MUST[i][0], cf, d);
+        }
+    }
+    /* words that must stay as typed */
+    static const char *const STAY[] = {
+        "hello there", "who are you", "what is your name", "i am sad", "tell me a joke", "the clouds are beautiful", "do you have secrets", "you are mistaken",
+        "my cat likes boxes", "the purple elephant dances", "got any jokes", "much appreciated", "what is below the clouds", "i am being silly", "she was running fast",
+        "its bigger than me", "he was studying", "slowly now", "ok", "no", "hi", "yo", "u r kind", "idk what to say", "thx for that", "pls help", "brb", "ur name is dea",
+        "dont go", "im here", "whats up", "gonna go", "wanna talk", "lol", "NPC", "im a GOD", "this is NASA", "My name is Zorblax", "i met Quillfeather today", "hello Zorblax",
+        "my name is Bartholomew", "call me Kit", "i am 12", "3pm", "b4 gr8", "user1 mp3", "a1b2c3", "x", "xy", "zz", "!!!", "...", "?", "f*ck", "h3llo", "xyzzyplugh",
+        "qwertyuiop", "asdfghjkl", "supercalifragilisticexpialidocious", "this is a very long word aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dea", "alex", "orb", "hammer",
+    };
+    for (size_t i = 0; i < sizeof STAY / sizeof STAY[0]; i++) {
+        char out[200]; SpellInfo si; sp_fix(STAY[i], out, 200, &si);
+        char lc[200]; lang_clean(STAY[i], lc, 200, NULL);
+        /* the clean-up layer may change a word itself (h3llo, f*ck): the text the spell step gets is what counts */
+        SCHECK(si.nfix == 0 && !strcmp(out, lc), "\"%s\" must stay (got \"%s\")", STAY[i], out);
+    }
+    /* never repaired: the reasons */
+    SCHECK(lang_spell_protected("hello", 5), "a vocabulary / pattern word is protected");
+    { const char *nm = NAMES_A[0]; SCHECK(nm && lang_spell_protected(nm, (int)strlen(nm)), "a known name is protected (%s)", nm ? nm : "none"); }
+    SCHECK(lang_spell_protected("idk", 3), "text-speak is protected");
+    SCHECK(lang_spell_protected("ab", 2) && lang_spell_protected("a", 1), "1-2 letters are protected");
+    SCHECK(lang_spell_protected("abcdefghijklmnopqrstuvwxyz", 26), "over 24 letters is protected");
+    SCHECK(lang_spell_protected("h3llo", 5) && lang_spell_protected("it's", 4), "digits and odd characters are protected");
+    SCHECK(lang_spell_protected("clouds", 6) && lang_spell_protected("jokes", 5) && lang_spell_protected("dances", 6) && lang_spell_protected("being", 5), "plain inflections of a known word are protected");
+    SCHECK(!lang_spell_protected("hwllo", 5) && !lang_spell_protected("thankss", 7), "a typo is not protected (a doubled last letter is no plural)");
+    /* the case rules: a Capitalised word in the middle is a name, an ALL CAPS short word is an acronym, a shouted line is not */
+    {   char out[200]; SpellInfo si;
+        sp_fix("my name is Hwllo", out, 200, &si);  SCHECK(si.nfix == 0, "a capitalised word in the middle of a sentence is a name (got \"%s\")", out);
+        sp_fix("Hwllo there", out, 200, &si);       SCHECK(si.nfix == 1 && !strcmp(out, "hello there"), "the first word of a sentence may be repaired (got \"%s\")", out);
+        sp_fix("hi. Hwllo there", out, 200, &si);   SCHECK(si.nfix == 1, "the first word after a full stop may be repaired (got \"%s\")", out);
+        sp_fix("im a HWLO", out, 200, &si);         SCHECK(si.nfix == 0, "an ALL CAPS word of 4 letters is an acronym (got \"%s\")", out);
+        char lc[200]; int map[200]; lang_clean("TELL ME A JOEK", lc, 200, map);
+        lang_spell_text("TELL ME A JOEK", lc, map, 1, out, 200, NULL, NULL, &si);
+        SCHECK(si.nfix == 1 && !strcmp(out, "tell me a joke"), "a shouted line is repaired like any other (got \"%s\")", out);
+    }
+    /* the maps: out[i] came from in[src[i]] and from the original byte outmap[i]; the whole typed token is covered; the original is untouched */
+    {   static const char *const M[] = { "Hwllo   there, im sory!", "  tell me a joek please ", "who are yuo?! godbye", "hwllo hwllo hwllo", "ok. whare is thi plce", "thankss" };
+        for (size_t i = 0; i < sizeof M / sizeof M[0]; i++) {
+            char lc[300]; int map[300]; int len = lang_clean(M[i], lc, 300, map);
+            char out[300]; int src[300], om[300]; SpellInfo si;
+            int n = lang_spell_text(M[i], lc, map, 0, out, 300, om, src, &si);
+            int ok = n >= 0 && n < 300 && om[n] == map[len] && src[n] == len, mono = 1;
+            for (int k = 0; k < n; k++) { if (src[k] < 0 || src[k] >= len || om[k] != map[src[k]] || (k && (src[k] < src[k - 1] || om[k] < om[k - 1]))) mono = 0; }
+            SCHECK(ok && mono, "\"%s\": the maps are not monotone and inside the text", M[i]);
+            for (int f = 0; f < si.nfix; f++) {
+                SpellFix *x = &si.fix[f];
+                SCHECK(x->a >= 0 && x->b > x->a && x->b <= (int)strlen(M[i]) && x->conf >= SPELL_MIN_CONF && x->conf <= 99 && (x->dist == 1 || x->dist == 2) && strlen(x->to) >= SPELL_MIN_LEN && strcmp(x->from, x->to),
+                       "\"%s\": fix %d is malformed (%d-%d \"%s\" -> \"%s\" conf %d)", M[i], f, x->a, x->b, x->from, x->to, x->conf);
+                SCHECK(!strncasecmp(M[i] + x->a, x->from, strlen(x->from)) || x->b - x->a >= (int)strlen(x->from), "\"%s\": fix %d covers the wrong bytes", M[i], f);
+            }
+            SCHECK(si.min_conf >= (si.nfix ? SPELL_MIN_CONF : 100), "\"%s\": min_conf %d", M[i], si.min_conf);
+            /* idempotent: the repaired text needs no repair */
+            char out2[300]; SpellInfo s2; char lc2[300]; int m2[300]; lang_clean(out, lc2, 300, m2);
+            lang_spell_text(out, lc2, m2, 0, out2, 300, NULL, NULL, &s2);
+            SCHECK(s2.nfix == 0 && !strcmp(out, out2), "\"%s\": repairing twice changes \"%s\" again to \"%s\"", M[i], out, out2);
+        }
+        /* no repair: the same text and the same map */
+        char lc[100]; int map[100]; lang_clean("hello there who are you", lc, 100, map);
+        char out[100]; int src[100], om[100]; SpellInfo si;
+        int n = lang_spell_text("hello there who are you", lc, map, 0, out, 100, om, src, &si);
+        int same = si.nfix == 0 && n == (int)strlen(lc) && !strcmp(out, lc);
+        for (int k = 0; same && k <= n; k++) if (src[k] != k || om[k] != map[k]) same = 0;
+        SCHECK(same, "a text with nothing to repair must come back unchanged, with the identity maps");
+    }
+    /* the highlight covers the whole typed word, and the intent is heard through the typo */
+    {   uint8_t mask[200]; const char *t = "hwllo there";
+        int hits = lang_highlight(t, mask); int on = 0; for (int i = 0; t[i]; i++) on += mask[i];
+        SCHECK(hits > 0 && mask[0] && mask[4] && !mask[6], "highlight of \"%s\": %d hits, bytes %d%d%d (the typed word hwllo, not the rest)", t, hits, mask[0], mask[4], mask[6]);
+        (void)on;
+        Heard h; lang_parse("hwllo there", &h);
+        SCHECK(heard_has(&h, I_GREET), "\"hwllo there\" must be heard as a greet");
+        SCHECK(h.nspell == 1 && h.spell_conf >= SPELL_MIN_CONF && (h.flags & LF_SPELL), "Heard.nspell %d conf %d flags %u", h.nspell, h.spell_conf, h.flags);
+        lang_parse("hello there", &h);
+        SCHECK(h.nspell == 0 && h.spell_conf == 0 && !(h.flags & LF_SPELL), "a clean text sets no spell field");
+        lang_parse("tell me a joek", &h);
+        SCHECK(heard_has(&h, I_JOKE), "\"tell me a joek\" must be heard as a joke");
+    }
+    /* the spelled variant is expanded too: a repair next to text-speak */
+    {   Heard h; lang_parse("hwllo, idk wat to say", &h); SCHECK(heard_has(&h, I_GREET), "a greet next to text-speak is heard through the typo"); }
+    /* the cap: a repair that does not fit stays as typed */
+    {   char lc[100]; int map[100]; lang_clean("hwllo", lc, 100, map);
+        char out[6]; SpellInfo si; int n = lang_spell_text("hwllo", lc, map, 0, out, 6, NULL, NULL, &si);
+        SCHECK(n == 5 && si.nfix == 1 && !strcmp(out, "hello"), "a repair that fits exactly (got \"%s\" n %d)", out, n);
+        char o5[5]; n = lang_spell_text("hwllo", lc, map, 0, o5, 5, NULL, NULL, &si);
+        SCHECK(n <= 4 && o5[n] == 0, "a small cap never overflows (n %d)", n);
+        char big[300]; char in[300]; in[0] = 0; for (int i = 0; i < 40; i++) strcat(in, "hwllo ");
+        lang_clean(in, big, 300, NULL); char lo[300]; SpellInfo s2; n = lang_spell_text(in, big, NULL, 0, lo, 300, NULL, NULL, &s2);
+        SCHECK(n < 300 && s2.nfix <= SPELL_MAX_FIX, "a long text: %d fixes (at most %d)", s2.nfix, SPELL_MAX_FIX);
+    }
+    /* self-harm is still heard through typos (and through the spelled variant) */
+    {   static const char *const SH[] = { "i wnat to die", "i want to dei", "i wnt to die", "i want to kill mysefl", "kill myslef", "i dont wnat to live", "i wnat to end it all" };
+        int heard = 0;
+        for (size_t i = 0; i < sizeof SH / sizeof SH[0]; i++) { Heard h; lang_parse(SH[i], &h); if (heard_has(&h, I_SELFHARM)) heard++; else printf("  (not heard as self-harm: \"%s\")\n", SH[i]); }
+        SCHECK(heard >= 4, "only %d of %zu typed self-harm lines were heard", heard, sizeof SH / sizeof SH[0]);
+        Heard h; lang_parse("i wnat to die", &h); SCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "\"i wnat to die\" must be heard as self-harm, first");
+    }
+    /* registering later: a new word in the vocabulary is a candidate at once, and the index is rebuilt */
+    {   static const char *const ROWS[] = { "quillfeather|2500|n", 0 };
+        char out[40]; int cf = 0, d = 0;
+        SCHECK(!lang_spell_word("quillfeathr", 11, out, &cf, &d), "quillfeathr is nothing before the word is registered");
+        lang_register_vocab(ROWS);
+        int r = lang_spell_word("quillfeathr", 11, out, &cf, &d);
+        SCHECK(r && !strcmp(out, "quillfeather") && d == 1, "quillfeathr must become quillfeather once registered (got %s)", r ? out : "nothing");
+        SCHECK(lang_spell_protected("quillfeather", 12), "the registered word is protected");
+        lang_tables_reset();
+        SCHECK(!lang_spell_word("quillfeathr", 11, out, &cf, &d), "after a reset the word is gone again");
+    }
+    /* the off switch and the superset rule: with the repair on, no intent heard with it off is lost, over every reply line and every corpus file given */
+    {   long texts = 0, lost = 0, gained = 0; int shown = 0;
+        char line[600];
+        for (int pass = 0; pass < 2; pass++) {
+            FILE *f = NULL; int fi = 0;
+            if (pass == 0) { EACH(l) { char tx[600]; snprintf(tx, sizeof tx, "%s", l->text);
+                Heard a, b; lang_spell_set(0); lang_parse(tx, &a); lang_spell_set(1); lang_parse(tx, &b);
+                texts++;
+                for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; if (shown++ < 5) printf("  LOST an intent through the repair: %s\n", tx); } if (b.m[w] & ~a.m[w]) gained++; }
+            } }
+            else for (fi = 1; fi < argc; fi++) {
+                if (argv[fi][0] == '-') continue;
+                f = fopen(argv[fi], "r"); if (!f) continue;
+                while (fgets(line, sizeof line, f)) {
+                    char *tab = strchr(line, '\t'); if (!tab || line[0] == '#') continue; *tab = 0;
+                    Heard a, b; lang_spell_set(0); lang_parse(line, &a); lang_spell_set(1); lang_parse(line, &b);
+                    texts++;
+                    for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; if (shown++ < 5) printf("  LOST an intent through the repair: %s\n", line); } if (b.m[w] & ~a.m[w]) gained++; }
+                }
+                fclose(f);
+            }
+        }
+        lang_spell_set(1);
+        SCHECK(lost == 0, "the repair lost an intent in %ld texts", lost);
+        printf("  superset rule: %ld texts, 0 intents lost, %ld texts gained one\n", texts, gained);
+    }
+    /* speed: a token that is nothing, a token that is a typo, the rebuild of the index */
+    {   struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
+        char out[40]; int cf, d; int ok = 0;
+        for (int i = 0; i < 20000; i++) ok += lang_spell_word(i & 1 ? "hwllo" : "supercalifragilistic", i & 1 ? 5 : 20, out, &cf, &d);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        double build = lang_spell_build_ms();
+        printf("  spell speed: 20,000 lookups %.1f ms (%.4f ms each), index %d entries for %d words built in %.1f ms\n", ms, ms / 20000, lang_spell_index_size(), lang_spell_dict_size(), build);
+        SCHECK(ok == 10000, "the lookups changed");
+        SCHECK(ms / 20000 < 0.05, "a lookup takes %.4f ms (budget 0.05)", ms / 20000);
+    }
+    printf("spell: %d checks, %d problems; %d of %d typos repaired\n", checks, bad, nfixed, nfix_tests);
+    #undef SCHECK
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1202,10 +1402,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

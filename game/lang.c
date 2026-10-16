@@ -7,6 +7,7 @@
 #include "lang_tables.h"
 #include "lang_voice.h"
 #include "lang_clean.h"
+#include "lang_spell.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -292,10 +293,27 @@ void lang_parse(const char *text, Heard *h) {
     Case cs; cs.text = text; cs.t1 = t1; cs.have = 0;
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
+    /* chunk 21: the spelled variant (hwllo -> hello) and its expansion; the text as typed is never lost */
+    char ls[MAX_TEXT], lsx[MAX_TEXT]; int ss[MAX_TEXT], ssrc[MAX_TEXT], sxs[MAX_TEXT], sxsrc[MAX_TEXT]; SpellInfo spi;
+    int lens = lang_spell_text(text, lc, map, (info.flags & LF_SHOUT) != 0, ls, MAX_TEXT, NULL, ss, &spi);
+    int has_s = spi.nfix > 0, lensx = 0, has_sx = 0;
+    if (has_s) {
+        info.flags |= LF_SPELL;
+        h->nspell = (uint8_t)(spi.nfix > 255 ? 255 : spi.nfix); h->spell_conf = (uint8_t)spi.min_conf;
+        LangInfo se; memset(&se, 0, sizeof se);
+        lensx = lang_clean_expand(ls, NULL, lsx, MAX_TEXT, NULL, sxs, &se);
+        has_sx = se.nexpand > 0;
+        h->flags = info.flags;
+    }
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
-    if (has_x) {                                               /* the safety words are looked for in both texts */
+    if (has_x) {                                               /* the safety words are looked for in every variant */
         Span sx[4]; int nsx = safety_scan(lx, lenx, sx, 4);
         if (nsx) nsf = nsf ? nsf : nsx;
+    }
+    if (has_s) {
+        Span sx[4]; int nsx = safety_scan(ls, lens, sx, 4);
+        if (nsx) nsf = nsf ? nsf : nsx;
+        if (has_sx) { nsx = safety_scan(lsx, lensx, sx, 4); if (nsx) nsf = nsf ? nsf : nsx; }
     }
     if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
     absorb(h, lc, sp, ns, src, &cs, 1);
@@ -304,6 +322,18 @@ void lang_parse(const char *text, Heard *h) {
         int nx = scan(lx, lenx, spx, MAX_SPANS);
         for (int i = 0; i < lenx; i++) xsrc[i] = src[xs[i]];
         absorb(h, lx, spx, nx, xsrc, &cs, 0);
+    }
+    if (has_s) {
+        Span sps[MAX_SPANS];
+        int nq = scan(ls, lens, sps, MAX_SPANS);
+        for (int i = 0; i < lens; i++) ssrc[i] = src[ss[i]];
+        absorb(h, ls, sps, nq, ssrc, &cs, 0);
+        if (has_sx) {
+            Span spq[MAX_SPANS];
+            int nr = scan(lsx, lensx, spq, MAX_SPANS);
+            for (int i = 0; i < lensx; i++) sxsrc[i] = ssrc[sxs[i]];
+            absorb(h, lsx, spq, nr, sxsrc, &cs, 0);
+        }
     }
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
@@ -350,6 +380,26 @@ int lang_highlight(const char *text, uint8_t *mask) {
         Span sx[4]; int nsx = safety_scan(lx, lenx, sx, 4);
         for (int k = 0; k < nsx; k++) mark(text, mx, total, sx[k].start, sx[k].end, mask);
         ns += nx; nsf += nsx;
+    }
+    char ls[MAX_TEXT], lsx[MAX_TEXT]; int ms[MAX_TEXT], msx[MAX_TEXT]; SpellInfo spi;      /* chunk 21: what only the spelled variant heard lights up the whole typed word */
+    int lens = lang_spell_text(text, lc, map, 0, ls, MAX_TEXT, ms, NULL, &spi);
+    if (spi.nfix) {
+        Span sps[MAX_SPANS];
+        int nq = scan(ls, lens, sps, MAX_SPANS);
+        for (int k = 0; k < nq; k++) mark(text, ms, total, sps[k].start, sps[k].end, mask);
+        Span sq[4]; int nsq = safety_scan(ls, lens, sq, 4);
+        for (int k = 0; k < nsq; k++) mark(text, ms, total, sq[k].start, sq[k].end, mask);
+        ns += nq; nsf += nsq;
+        LangInfo se; memset(&se, 0, sizeof se);
+        int lensx = lang_clean_expand(ls, ms, lsx, MAX_TEXT, msx, NULL, &se);
+        if (se.nexpand) {
+            Span spq[MAX_SPANS];
+            int nr = scan(lsx, lensx, spq, MAX_SPANS);
+            for (int k = 0; k < nr; k++) mark(text, msx, total, spq[k].start, spq[k].end, mask);
+            Span sr[4]; int nsr = safety_scan(lsx, lensx, sr, 4);
+            for (int k = 0; k < nsr; k++) mark(text, msx, total, sr[k].start, sr[k].end, mask);
+            ns += nr; nsf += nsr;
+        }
     }
     return ns + nsf;
 }

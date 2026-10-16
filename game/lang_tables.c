@@ -231,48 +231,59 @@ int lang_lex_count(void) { lang_init(); return lexi.n; }
 int lang_vocab_count(void) { lang_init(); return vocabi.n; }
 
 /* ---------- the known-word set (chunk 17) ---------- */
-typedef struct { const char *w; int n; } KW;
+typedef struct { const char *w; int n; unsigned char val; } KW;      /* val (chunk 21): the word is in a pattern or a lexicon row, not only in the vocabulary */
 static KW *kw; static int kwcap, kwn;
 
-static int kw_find(const char *w, int n) {
-    if (!kwcap) return 0;
+static KW *kw_slot(const char *w, int n) {
+    if (!kwcap) return NULL;
     for (unsigned h = whash(w, n) & (unsigned)(kwcap - 1);; h = (h + 1) & (unsigned)(kwcap - 1)) {
-        if (!kw[h].w) return 0;
-        if (kw[h].n == n && !memcmp(kw[h].w, w, (size_t)n)) return 1;
+        if (!kw[h].w) return NULL;
+        if (kw[h].n == n && !memcmp(kw[h].w, w, (size_t)n)) return &kw[h];
     }
 }
-static void kw_put(const char *w, int n) {
+static int kw_find(const char *w, int n) { return kw_slot(w, n) != NULL; }
+static void kw_put(const char *w, int n, unsigned char val) {
     for (unsigned h = whash(w, n) & (unsigned)(kwcap - 1);; h = (h + 1) & (unsigned)(kwcap - 1))
-        if (!kw[h].w) { kw[h].w = w; kw[h].n = n; kwn++; return; }
+        if (!kw[h].w) { kw[h].w = w; kw[h].n = n; kw[h].val = val; kwn++; return; }
 }
-static void kw_add(const char *w, int n) {
-    if (n < 1 || n > 40 || kw_find(w, n)) return;
+static void kw_add(const char *w, int n, unsigned char val) {
+    if (n < 1 || n > 40) return;
+    KW *e = kw_slot(w, n);
+    if (e) { if (val) e->val = 1; return; }
     if (kwn * 2 >= kwcap) {                                    /* grow */
         KW *old = kw; int oc = kwcap;
         kwcap = kwcap ? kwcap * 2 : 4096; kw = calloc((size_t)kwcap, sizeof *kw); kwn = 0;
         if (!kw) { kw = old; kwcap = oc; return; }
-        for (int i = 0; i < oc; i++) if (old[i].w) kw_put(old[i].w, old[i].n);
+        for (int i = 0; i < oc; i++) if (old[i].w) kw_put(old[i].w, old[i].n, old[i].val);
         free(old);
     }
-    kw_put(w, n);
+    kw_put(w, n, val);
 }
 /* every word (letters and inner apostrophes) of a text: the pieces between * ? $ [ ] ( ) | digits and spaces */
-static void kw_words(const char *s) {
+static void kw_words(const char *s, unsigned char val) {
     for (int i = 0; s[i];) {
         if (!((s[i] >= 'a' && s[i] <= 'z') || s[i] == '\'')) { i++; continue; }
         int j = i; while ((s[j] >= 'a' && s[j] <= 'z') || s[j] == '\'') j++;
         int a = i, b = j; while (a < b && s[a] == '\'') a++; while (b > a && s[b - 1] == '\'') b--;
-        kw_add(s + a, b - a);
+        kw_add(s + a, b - a, val);
         i = j;
     }
 }
 static void build_known(void) {
     free(kw); kw = NULL; kwcap = kwn = 0;
-    for (int t = 0; t < npt; t++) for (int i = 0; i < ptab[t].n; i++) kw_words(ptab[t].t[i].pat);
-    for (int t = 0; t < nlex_t; t++) for (const char *const *r = lextab[t]; *r; r++) kw_add(*r, word_len(*r));
-    for (int t = 0; t < nvocab_t; t++) for (const char *const *r = vocabtab[t]; *r; r++) kw_add(*r, word_len(*r));
+    for (int t = 0; t < npt; t++) for (int i = 0; i < ptab[t].n; i++) kw_words(ptab[t].t[i].pat, 1);
+    for (int t = 0; t < nlex_t; t++) for (const char *const *r = lextab[t]; *r; r++) kw_add(*r, word_len(*r), 1);
+    for (int t = 0; t < nvocab_t; t++) for (const char *const *r = vocabtab[t]; *r; r++) kw_add(*r, word_len(*r), 0);
 }
 int lang_known_word(const char *w, int n) { lang_init(); return kw_find(w, n); }
+/* chunk 21: a word of a pattern or a lexicon row (not only of the vocabulary) / every known word, for the spell dictionary */
+int lang_value_word(const char *w, int n) { lang_init(); KW *e = kw_slot(w, n); return e && e->val; }
+void lang_known_each(void (*fn)(const char *w, int n, int val, void *u), void *u) {
+    lang_init();
+    for (int i = 0; i < kwcap; i++) if (kw[i].w) fn(kw[i].w, kw[i].n, kw[i].val, u);
+}
+static int tables_gen;
+int lang_tables_gen(void) { lang_init(); return tables_gen; }
 
 /* ---------- the text-speak map (chunk 18): token as typed -> standard form ---------- */
 typedef struct { const char *from; int n; const char *to; } TS;
@@ -318,6 +329,7 @@ void lang_init(void) {
     build_textspeak();
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
+    tables_gen++;
     dirty = 0;
 }
 

@@ -51,6 +51,11 @@ const char *lang_vocab_find(const char *word);                      /* the vocab
 int  lang_known_word(const char *w, int n);
 /* chunk 18: the standard form of the token w[0..n) ("idk" -> "i do not know"), or NULL; lang_init plugs it into lang_clean_set_expand */
 const char *lang_textspeak(const char *w, int n);
+/* chunk 21: is w[0..n) a word of a pattern or a lexicon row (the spell repair prefers those); every known word with that flag (the spell dictionary is built
+ * from it); a counter that changes whenever the tables were rebuilt (the spell index rebuilds itself when it sees a new number) */
+int  lang_value_word(const char *w, int n);
+void lang_known_each(void (*fn)(const char *w, int n, int val, void *u), void *u);
+int  lang_tables_gen(void);
 int  lang_lex_count(void);
 int  lang_vocab_count(void);
 /* chunk 20: the names, and the i-th row of the vocabulary / the names in registration order (tools: the lint walks them); NULL past the end */

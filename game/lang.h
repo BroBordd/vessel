@@ -92,6 +92,7 @@ typedef struct {
     uint8_t nnum;       /* numbers captured (at most HEARD_NUM kept) */
     int16_t age;        /* the age the player said (1-120), 0 = none */
     LangNum num[HEARD_NUM];
+    uint8_t nspell, spell_conf;   /* chunk 21: words repaired by the spell step, and the lowest confidence among them (0-100; 0 when none) */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
