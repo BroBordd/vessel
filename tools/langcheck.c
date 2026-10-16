@@ -1573,6 +1573,153 @@ static int do_phonetic(int argc, char **argv) {
     return bad;
 }
 
+/* chunk 23: glued words (word segmentation) */
+static int do_glue(int argc, char **argv) {
+    int bad = 0, checks = 0;
+    lang_init();
+    #define GCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD GLUE: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    /* glued -> split: each is split once (kind SPELL_SEGMENT, dist = cuts) and the result is idempotent */
+    static const char *const SPLIT[][2] = {
+        { "whoareyou", "who are you" }, { "howareyou", "how are you" }, { "iloveyou", "i love you" }, { "idontcare", "i dont care" }, { "whatsyourname", "whats your name" },
+        { "goodmorning", "good morning" }, { "seeyoulater", "see you later" }, { "tellmeajoke", "tell me a joke" }, { "iwanttodie", "i want to die" },
+        { "iwanttokillmyself", "i want to kill myself" }, { "yowhatsup", "yo whats up" }, { "whereami", "where am i" }, { "whatisyourname", "what is your name" },
+        { "canyouhelpme", "can you help me" }, { "thankyouverymuch", "thank you very much" }, { "iamscared", "i am scared" }, { "imsorry", "im sorry" },
+        { "areyouthere", "are you there" }, { "whydoyouhateme", "why do you hate me" }, { "tellmeastory", "tell me a story" }, { "doyouloveme", "do you love me" },
+        { "whoisthegoddess", "who is the goddess" }, { "goodnightsleeptight", "good night sleep tight" }, { "howoldareyou", "how old are you" },
+        { "whatareyoudoing", "what are you doing" }, { "ihateyou", "i hate you" }, { "pleasehelpme", "please help me" }, { "comeheretome", "come here to me" },
+        { "iwanttogohome", "i want to go home" }, { "whoareyouandwhydoyouknowmyname", "who are you and why do you know my name" },
+    };
+    int nsplit = 0;
+    for (size_t i = 0; i < sizeof SPLIT / sizeof SPLIT[0]; i++) {
+        char out[200]; SpellInfo si; sp_fix(SPLIT[i][0], out, 200, &si);
+        if (strcmp(out, SPLIT[i][1])) { printf("  (not split, ok on a starter vocabulary: \"%s\" -> \"%s\", wanted \"%s\")\n", SPLIT[i][0], out, SPLIT[i][1]); continue; }
+        nsplit++;
+        GCHECK(si.nfix == 1 && (si.fix[0].kind == SPELL_SEGMENT || si.fix[0].kind == SPELL_DIALECT) && si.fix[0].conf >= SPELL_MIN_CONF && si.fix[0].conf <= 99 && (si.fix[0].kind == SPELL_DIALECT || si.fix[0].dist >= 1), "\"%s\": fix kind %d conf %d dist %d", SPLIT[i][0], si.fix[0].kind, si.fix[0].conf, si.fix[0].dist);
+        char out2[200]; SpellInfo s2; sp_fix(out, out2, 200, &s2);
+        GCHECK(s2.nfix == 0 && !strcmp(out, out2), "\"%s\": the result must be left alone (got \"%s\")", out, out2);
+    }
+    GCHECK(nsplit * 100 >= (int)(sizeof SPLIT / sizeof SPLIT[0]) * 70, "only %d of %zu glued texts were split (70 %% needed)", nsplit, sizeof SPLIT / sizeof SPLIT[0]);
+    /* the core five from the plan must work on the starter vocabulary, with a sane confidence */
+    {   static const char *const CORE[][2] = { { "whoareyou", "who are you" }, { "howareyou", "how are you" }, { "iloveyou", "i love you" }, { "idontcare", "i dont care" }, { "whatsyourname", "whats your name" }, { "tellmeajoke", "tell me a joke" }, { "seeyoulater", "see you later" } };
+        for (size_t i = 0; i < sizeof CORE / sizeof CORE[0]; i++) {
+            char o[SPELL_TO_MAX]; int cf = 0, np = 0; int r = lang_spell_segment(CORE[i][0], (int)strlen(CORE[i][0]), o, &cf, &np);
+            GCHECK(r && !strcmp(o, CORE[i][1]) && cf >= 70 && np >= 3, "\"%s\" -> \"%s\" conf %d pieces %d (wanted \"%s\", conf >= 70)", CORE[i][0], r ? o : "nothing", cf, np, CORE[i][1]);
+        }
+    }
+    /* what must NOT be split: words of the vocabulary and the patterns, names, inflections, short tokens, text-speak, acronyms, digits, mixed case names */
+    {   static const char *const STAY[] = { "hello", "understand", "something", "tomorrow", "everything", "goodbye", "thanks", "myself", "whatever", "sometimes", "goddess",
+            "Alexander", "hello there", "i am here", "whats up", "thx", "idk", "ily", "n0thing", "abc123", "xyzzyplugh", "qwertyuiop", "asdfghjkl", "zzzzzzzz",
+            "thankss", "clouds", "being", "bigger", "slowly", "dances" };
+        for (size_t i = 0; i < sizeof STAY / sizeof STAY[0]; i++) {
+            char out[200]; SpellInfo si; sp_fix(STAY[i], out, 200, &si);
+            GCHECK(!(si.nfix && si.fix[0].kind == SPELL_SEGMENT), "\"%s\" must not be split (got \"%s\")", STAY[i], out);
+        }
+        char out[200]; SpellInfo si;
+        sp_fix("my name is Whoareyou", out, 200, &si); GCHECK(si.nfix == 0, "a capitalised glued word in the middle of a sentence is a name (got \"%s\")", out);
+        sp_fix("im a WHOAREYOU", out, 200, &si);      GCHECK(si.nfix == 0, "a Capitalised or ALL CAPS word in the middle of a normal line is a name (got \"%s\")", out);
+        sp_fix("WHOAREYOU", out, 200, &si);           GCHECK(si.nfix == 1 && !strcmp(out, "who are you"), "a shouted glued line is split (got \"%s\")", out);
+    }
+    /* the length window: 5 letters are not split, 6 are; 48 letters are, 49 are not */
+    {   char o[SPELL_TO_MAX]; int cf, np; char t49[60], t48[60];
+        GCHECK(lang_spell_segment("seeyou", 6, o, &cf, &np) && !strcmp(o, "see you") && cf >= SPELL_MIN_CONF, "seeyou (6 letters) is split with conf %d", cf);
+        char out[100]; SpellInfo si; sp_fix("tomee", out, 100, &si); GCHECK(!(si.nfix && si.fix[0].kind == SPELL_SEGMENT), "5 letters are never split by the text (got \"%s\")", out);
+        for (int k = 0; k < 12; k++) memcpy(t48 + k * 4, "tell", 4); t48[48] = 0;
+        GCHECK(lang_spell_segment(t48, 48, o, &cf, &np) && np == 12, "48 letters are the limit and are split (pieces %d)", np);
+        GCHECK(!lang_spell_segment("x", 1, o, &cf, &np) && !lang_spell_segment("ab", 2, o, &cf, &np), "1-2 letters have no split");
+        memset(t49, 'a', 49); t49[49] = 0; GCHECK(!lang_spell_segment(t49, 49, o, &cf, &np), "49 letters are over the limit");
+        GCHECK(!lang_spell_segment("Whoareyou", 9, o, &cf, &np) && !lang_spell_segment("who4reyou", 9, o, &cf, &np), "capitals and digits are not letters of the lower case text");
+        GCHECK(!lang_spell_segment("qzxqzxqzx", 9, o, &cf, &np), "no known words, no split");
+        GCHECK(!lang_spell_segment("hellohello", 10, o, &cf, &np) || !strcmp(o, "hello hello"), "hellohello is hello hello or nothing (got %s)", o);
+    }
+    /* typos beat splits and splits beat a far fix: a word the edit repair fixes at distance 1 is not split */
+    {   char out[200]; SpellInfo si;
+        sp_fix("helllo there", out, 200, &si); GCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_EDIT, "helllo is an edit repair (got \"%s\" kind %d)", out, si.nfix ? si.fix[0].kind : -1);
+        sp_fix("whoareyou and hwllo", out, 200, &si); GCHECK(si.nfix == 2 && !strcmp(out, "who are you and hello"), "a split and an edit repair side by side (got \"%s\")", out);
+        sp_fix("wassup", out, 200, &si); GCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_DIALECT, "a dialect row still comes before the splitter");
+        sp_fix("thankyou", out, 200, &si); GCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_DIALECT && !strcmp(out, "thank you"), "the glued forms of the dialect table still use their row (got \"%s\")", out);
+    }
+    /* the maps and the cap */
+    {   const char *t = "whoareyou there"; char lc[100]; int map[100]; int len = lang_clean(t, lc, 100, map);
+        char out[100]; int src[100], om[100]; SpellInfo si; int n = lang_spell_text(t, lc, map, 0, out, 100, om, src, &si);
+        GCHECK(n == 17 && !strcmp(out, "who are you there"), "whoareyou there: \"%s\" (%d)", out, n);
+        GCHECK(si.nfix == 1 && si.fix[0].a == 0 && si.fix[0].b == 9 && si.fix[0].kind == SPELL_SEGMENT, "the fix covers the typed bytes 0-9 (got %d-%d)", si.fix[0].a, si.fix[0].b);
+        GCHECK(om[0] == 0 && om[10] == 8 && om[n] == map[len] && src[n] == len, "the maps: first %d, last letter of you %d", om[0], om[10]);
+        int mono = 1, inside = 1; for (int k = 1; k < n; k++) if (om[k] < om[k - 1] || src[k] < src[k - 1]) mono = 0; for (int k = 0; k < n; k++) if (om[k] < 0 || om[k] > (int)strlen(t)) inside = 0;
+        GCHECK(mono && inside, "the maps are monotone and inside the text");
+        char o11[11]; n = lang_spell_text("whoareyou", "whoareyou", NULL, 0, o11, 11, NULL, NULL, &si);
+        GCHECK(n == 9 && si.nfix == 0 && !strcmp(o11, "whoareyou"), "a cap of 11 cannot hold \"who are you\" and a NUL: as typed (got \"%s\")", o11);
+        char o12[12]; n = lang_spell_text("whoareyou", "whoareyou", NULL, 0, o12, 12, NULL, NULL, &si);
+        GCHECK(n == 11 && si.nfix == 1 && !strcmp(o12, "who are you"), "a cap of 12 holds it exactly (got \"%s\")", o12);
+    }
+    /* Heard, the highlight, the intents */
+    {   Heard h; uint8_t mask[200];
+        lang_parse("whoareyou", &h); GCHECK(heard_has(&h, I_WHORU) && h.nspell == 1 && (h.flags & LF_SPELL) && h.spell_conf >= SPELL_MIN_CONF, "whoareyou is heard as who-are-you with a spell fix (nspell %d conf %d)", h.nspell, h.spell_conf);
+        lang_parse("howareyou", &h);   GCHECK(heard_has(&h, I_HOWRU), "howareyou is heard as how-are-you");
+        lang_parse("iloveyou", &h);    GCHECK(heard_has(&h, I_LOVE), "iloveyou is heard as love");
+        lang_parse("tellmeajoke", &h); GCHECK(heard_has(&h, I_JOKE), "tellmeajoke is heard as a joke request");
+        lang_parse("seeyoulater", &h); GCHECK(heard_has(&h, I_BYE), "seeyoulater is heard as a goodbye");
+        lang_parse("hello there", &h); GCHECK(h.nspell == 0 && !(h.flags & LF_SPELL), "a clean text sets no spell field");
+        lang_highlight("whoareyou", mask); int all = 1; for (int k = 0; k < 9; k++) if (!mask[k]) all = 0; GCHECK(all, "the highlight covers the whole glued word");
+        lang_highlight("zork whoareyou", mask); GCHECK(!mask[0] && !mask[3] && mask[5] && mask[13], "the highlight of one glued word does not cover the others");
+    }
+    /* safety: self-harm through a glued line, a letter by letter line and a shouted one is heard FIRST */
+    {   static const char *const SH[] = { "iwanttodie", "iwanttokillmyself", "i w a n t t o d i e", "i  w a n t  t o  d i e", "I WANT TO DIE", "IWANTTODIE", "iwannadie", "idontwanttolive", "iwishiwasdead" };
+        int heard = 0; Heard h;
+        for (size_t i = 0; i < sizeof SH / sizeof SH[0]; i++) { lang_parse(SH[i], &h); int ok = heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM; heard += ok; if (!ok && i < 6) printf("  (self-harm not heard through \"%s\")\n", SH[i]); }
+        GCHECK(heard >= 6, "only %d of %zu glued self-harm lines were heard", heard, sizeof SH / sizeof SH[0]);
+        lang_parse("iwanttodie", &h); GCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "iwanttodie must be heard as self-harm, first");
+        lang_parse("i w a n t t o d i e", &h); GCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "the letter by letter sentence (the known gap of chunk 17) must be heard as self-harm, first");
+    }
+    /* registering later: a word added to the vocabulary becomes a piece at once; reset forgets it */
+    {   static const char *const VX[] = { "krakatoa|9000|n", 0 }; char o[SPELL_TO_MAX]; int cf, np;
+        GCHECK(!lang_spell_segment("iseekrakatoa", 12, o, &cf, &np), "iseekrakatoa is nothing before the word exists");
+        lang_register_vocab(VX); int r = lang_spell_segment("iseekrakatoa", 12, o, &cf, &np);
+        GCHECK(r && !strcmp(o, "i see krakatoa"), "iseekrakatoa is split once krakatoa is a word (got %s)", r ? o : "nothing");
+        lang_tables_reset(); GCHECK(!lang_spell_segment("iseekrakatoa", 12, o, &cf, &np), "after a reset krakatoa is gone again");
+    }
+    /* the off switch and the superset rule over every reply line and every corpus file */
+    {   char out[200]; SpellInfo si; lang_spell_set(0); sp_fix("whoareyou", out, 200, &si); GCHECK(si.nfix == 0, "the off switch turns the splitter off"); lang_spell_set(1);
+        long texts = 0, lost = 0, gained = 0, changed = 0; int shown = 0; char line[600];
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 0) { EACH(l) { char tx[600]; snprintf(tx, sizeof tx, "%s", l->text);
+                Heard a, b; lang_spell_set(0); lang_parse(tx, &a); lang_spell_set(1); lang_parse(tx, &b); texts++;
+                { char o2[400]; SpellInfo s2; sp_fix(tx, o2, 400, &s2); for (int f = 0; f < s2.nfix; f++) if (s2.fix[f].kind == SPELL_SEGMENT) { changed++; if (shown++ < 40) printf("  (a reply line is split: %s -> %s conf %d)\n", s2.fix[f].from, s2.fix[f].to, s2.fix[f].conf); } }
+                for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; printf("  LOST an intent through the splitter: %s\n", tx); } if (b.m[w] & ~a.m[w]) gained++; } } }
+            else for (int fi = 1; fi < argc; fi++) {
+                if (argv[fi][0] == '-') continue;
+                FILE *f = fopen(argv[fi], "r"); if (!f) continue;
+                while (fgets(line, sizeof line, f)) {
+                    char *tab = strchr(line, '\t'); if (!tab || line[0] == '#') continue; *tab = 0;
+                    Heard a, b; lang_spell_set(0); lang_parse(line, &a); lang_spell_set(1); lang_parse(line, &b); texts++;
+                    { char o2[600]; SpellInfo s2; sp_fix(line, o2, 600, &s2); for (int q = 0; q < s2.nfix; q++) if (s2.fix[q].kind == SPELL_SEGMENT) { changed++; if (shown++ < 8) printf("  (a corpus line is split: \"%s\" -> \"%s\")\n", line, o2); } }
+                    for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; printf("  LOST an intent through the splitter: %s\n", line); } if (b.m[w] & ~a.m[w]) gained++; }
+                }
+                fclose(f);
+            }
+        }
+        lang_spell_set(1);
+        GCHECK(lost == 0, "the splitter lost an intent in %ld texts", lost);
+        printf("  superset rule: %ld texts, 0 intents lost, %ld texts gained one; %ld clean tokens were split (a clean text should have none)\n", texts, gained, changed);
+        GCHECK(changed <= texts / 50, "the splitter changes %ld of %ld clean texts: too eager (budget 2 %%; real words the starter vocabulary lacks, chunks 49-51 end it)", changed, texts);
+    }
+    /* speed: a token that is a sentence, a token that is nothing, a text of 200 characters with a glued word */
+    {   struct timespec a, b; char o[SPELL_TO_MAX]; int cf, np, ok = 0;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (int i = 0; i < 20000; i++) ok += lang_spell_segment(i & 1 ? "whoareyouandwhydoyouknowmyname" : "qzxqzxqzxqzxqzxqzxqzxq", i & 1 ? 30 : 22, o, &cf, &np);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        char tx[260]; snprintf(tx, sizeof tx, "hello there %s and more words to make it long enough to be a long line of text that goes on and on", "whoareyouandwhydoyouknowmyname");
+        Heard h; clock_gettime(CLOCK_MONOTONIC, &a); for (int i = 0; i < 2000; i++) lang_parse(tx, &h); clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms_p = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        printf("  glue speed: 20,000 splits %.1f ms (%.4f ms each), a parse of %d characters with a glued word %.4f ms\n", ms, ms / 20000, (int)strlen(tx), ms_p / 2000);
+        GCHECK(ok == 10000, "the speed loop changed (%d)", ok);
+        GCHECK(ms / 20000 < 0.1 && ms_p / 2000 < 1.0, "too slow: split %.4f ms (budget 0.1), parse %.4f ms (budget 1)", ms / 20000, ms_p / 2000);
+    }
+    printf("glue: %d checks, %d problems; %d of %zu glued texts split\n", checks, bad, nsplit, sizeof SPLIT / sizeof SPLIT[0]);
+    #undef GCHECK
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1595,10 +1742,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--phonetic")) { rc |= do_phonetic(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

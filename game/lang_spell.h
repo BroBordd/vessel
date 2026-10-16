@@ -19,6 +19,12 @@
  *   score        cost + 0.06 * log2(rank): a frequent word wins a tie.
  *   confidence   0-100 from the kind of edit, the length (a short word is unsafe), the first letter, the margin to the second best candidate and
  *                the value flag. A fix is taken at confidence >= SPELL_MIN_CONF; a candidate with no value must be distance 1 and rank < 3000.
+ *   glued words  (chunk 23) a token of 6-48 letters that is not protected is split into known words by a dynamic program (two best paths kept): whoareyou ->
+ *                who are you. A piece is a vocabulary word (a and i alone), a text-speak key of 4+ letters or a word a pattern or lexicon row knows (2+
+ *                letters). Cost of a piece 1 + 0.22 log2(rank): fewer, commoner words win. Confidence 90 minus: 5 per piece beyond 5, 6 per rare 2 letter
+ *                piece, 5 per piece outside the vocabulary, 8 or 30 when two words fill a token under 12 letters (a compound: halfway), 24 / 12 / 4 under
+ *                7 / 8 / 9 letters, 5-22 for a thin margin to the second best split, 12 for an average piece under 2.5 letters. It competes with the edit
+ *                repair by confidence (and wins over a fix of distance 2); the dialect rows still come first.
  *   never repaired: a word that is protected (vocabulary, name, pattern, lexicon, text-speak), 1-2 letters, over 24 letters, anything with a digit or
  *                an odd character, an ALL CAPS word of up to 4 letters (an acronym), a Capitalised word that is not the first of its sentence (a name),
  *                and the words that part 3 of the clean-up layer already changed are read as they came out of it.
@@ -30,15 +36,18 @@
 #define SPELL_MAX_FIX   12          /* corrections reported per text */
 #define SPELL_MIN_LEN   3
 #define SPELL_MAX_LEN   24
-#define SPELL_TO_MAX    48          /* a correction may be several words (dialect rows), <= 40 characters */
+#define SPELL_TO_MAX    96          /* a correction may be several words (dialect rows, glued words) */
+#define SPELL_SEG_MAX   48          /* chunk 23: the longest glued token that is split (the other repairs stop at SPELL_MAX_LEN) */
+#define SPELL_SEG_MIN   6           /* chunk 23: the shortest token that is split */
 
 #define SPELL_EDIT      0           /* SpellFix.kind: the edit repair (chunk 21) */
 #define SPELL_PHONETIC  1           /* chunk 22: the phonetic key found a word */
 #define SPELL_DIALECT   2           /* chunk 22: a row of the dialect table */
+#define SPELL_SEGMENT   3           /* chunk 23: a glued token split into words (whoareyou -> who are you); dist = the number of cuts */
 
 typedef struct {
     int a, b;                       /* original bytes [a, b) of the token as typed */
-    char from[SPELL_MAX_LEN + 1], to[SPELL_TO_MAX];
+    char from[SPELL_SEG_MAX + 1], to[SPELL_TO_MAX];
     int conf;                       /* 0-100 */
     int dist;                       /* unit edit distance: 1 or 2 (edit), 1-3 (phonetic), 0 (a dialect row) */
     int kind;                       /* SPELL_EDIT, SPELL_PHONETIC, SPELL_DIALECT */
@@ -56,6 +65,12 @@ int  lang_phone(const char *w, int n, char *out, int cap);
 int  lang_spell_phonetic(const char *w, int n, char *out, int *conf, int *dist);
 /* the question lang_spell_text asks first: a word that is never repaired because the engine knows it */
 int  lang_spell_protected(const char *w, int n);
+/* chunk 23: the best split of the token w[0..n) (lower case letters, SPELL_SEG_MIN..SPELL_SEG_MAX of them) into known words, or 0. out holds the words
+ * with single spaces (SPELL_TO_MAX bytes), *conf 0-100 and *pieces the number of words (both may be NULL). A piece is a vocabulary word (a and i
+ * alone), a text-speak key or a word a pattern or lexicon row knows (2+ letters). The cost of a piece is 1 + 0.22 log2(rank) (+ more for a 1-2 letter
+ * piece or a word that is not in the vocabulary), so fewer and more common words win; the confidence falls with more pieces, tiny pieces, a short
+ * token and a thin margin to the second best split. The token is not checked for being protected here. */
+int  lang_spell_segment(const char *w, int n, char *out, int *conf, int *pieces);
 
 /* writes the SPELLED variant of in (the text the matcher sees; orig = the text as typed, inmap = in -> orig bytes, both may be NULL; shout = 1 when
  * the whole line is capitals, which turns the capital-letter name rule off). out[i] came from in[src[i]] and from the original byte outmap[i] =

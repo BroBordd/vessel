@@ -312,14 +312,81 @@ int lang_spell_phonetic(const char *w, int n, char *out, int *conf, int *dist) {
     return 1;
 }
 
+
+/* ---------- chunk 23: glued words (whoareyou -> who are you) ---------- */
+/* the cost of w[0..n) as one word of a split, or -1 when it is not a word the splitter may use */
+#define SEG_PIECE_MAX 15
+static double seg_piece(const char *w, int n) {
+    char b[SEG_PIECE_MAX + 1]; memcpy(b, w, (size_t)n); b[n] = 0;
+    int r = vocab_rank(b);
+    if (n == 1) return (r && (w[0] == 'a' || w[0] == 'i')) ? 1.0 + 0.22 * log2((double)r) + 0.9 : -1;    /* only a and i stand alone */
+    double c;
+    if (r) c = 1.0 + 0.22 * log2((double)r);
+    else if (n >= 4 && lang_textspeak(w, n)) c = 1.0 + 0.22 * log2((double)(vocab_top + 100)) + 0.4;      /* whats dont: not the short ones (ive, ty, ur sit inside real words) */
+    else if (n >= 2 && lang_known_word(w, n) && !lang_textspeak(w, n)) c = 1.0 + 0.22 * log2((double)(vocab_top + 100)) + 0.7;   /* joke yo: a pattern or lexicon word */
+    else return -1;
+    return n == 2 ? c + 0.35 : c;
+}
+typedef struct { double c; int prev, pk; } SegState;
+int lang_spell_segment(const char *w, int n, char *out, int *conf, int *pieces) {
+    if (n < 2 || n > SPELL_SEG_MAX) return 0;
+    for (int i = 0; i < n; i++) if (w[i] < 'a' || w[i] > 'z') return 0;
+    ensure();                                                     /* vocab_top and the word tables are current */
+    static double pc[SPELL_SEG_MAX + 1][SEG_PIECE_MAX + 1];       /* piece cost of w[i .. i + len), -2 = not asked yet; one thread (the game and the tools) */
+    for (int i = 0; i < n; i++) for (int l = 0; l <= SEG_PIECE_MAX; l++) pc[i][l] = -2;
+    SegState st[SPELL_SEG_MAX + 1][2];
+    for (int i = 0; i <= n; i++) for (int k = 0; k < 2; k++) { st[i][k].c = 1e30; st[i][k].prev = -1; st[i][k].pk = 0; }
+    st[0][0].c = 0;
+    for (int i = 0; i < n; i++) for (int k = 0; k < 2; k++) {
+        if (st[i][k].c >= 1e29) continue;
+        for (int l = 1; l <= SEG_PIECE_MAX && i + l <= n; l++) {
+            if (pc[i][l] == -2) pc[i][l] = seg_piece(w + i, l);
+            if (pc[i][l] < 0) continue;
+            int j = i + l; double c = st[i][k].c + pc[i][l];
+            if (c < st[j][0].c) { st[j][1] = st[j][0]; st[j][0].c = c; st[j][0].prev = i; st[j][0].pk = k; }
+            else if (c < st[j][1].c) { st[j][1].c = c; st[j][1].prev = i; st[j][1].pk = k; }
+        }
+    }
+    if (st[n][0].c >= 1e29) return 0;
+    int cut[SPELL_SEG_MAX + 1], np = 0, at = n, k = 0;            /* back from the end: the cut positions */
+    while (at > 0) { cut[np++] = at; int pa = st[at][k].prev, pk = st[at][k].pk; at = pa; k = pk; }
+    if (np < 2) return 0;                                         /* the token itself is a word: nothing to split */
+    int o = 0, start = 0, tiny = 0, one = 0, longest = 0, rare = 0, maxrank = 0;
+    for (int q = np - 1; q >= 0; q--) {
+        int e = cut[q], l = e - start;
+        char b[SEG_PIECE_MAX + 1]; memcpy(b, w + start, (size_t)l); b[l] = 0; int r = vocab_rank(b);
+        if (!r) rare++; else if (r > maxrank) maxrank = r;
+        if (l == 2 && (r == 0 || r > 150)) tiny++;                    /* a common 2 letter word (to, is, me, my, do) is no risk */
+        if (l == 1) one++;
+        if (l > longest) longest = l;
+        if (o + l + 1 >= SPELL_TO_MAX) return 0;
+        if (o) out[o++] = ' ';
+        memcpy(out + o, w + start, (size_t)l); o += l; start = e;
+    }
+    out[o] = 0;
+    if (longest <= 2) return 0;                                   /* a pile of little words is not a sentence */
+    int cf = 90;
+    if (np > 5) cf -= 3 * (np - 5);
+    cf -= 6 * tiny + 2 * one + 5 * rare;                          /* 2 letter pieces and words outside the vocabulary are riskier; a and i are cheap */
+    if (np == 2 && n < 12) cf -= (maxrank && maxrank <= 600 && !rare) ? 8 : 30;   /* two words in a short token is mostly a compound word (halfway, careless, begone) */
+    if (n < 7) cf -= 24; else if (n < 8) cf -= 12; else if (n < 9) cf -= 4;     /* a short unknown token is more likely a word the vocabulary lacks */
+    if (st[n][1].c < 1e29) { double d = st[n][1].c - st[n][0].c; cf -= d < 0.5 ? 22 : d < 1.0 ? 12 : d < 2.0 ? 5 : 0; }
+    if (n * 10 / np < 25) cf -= 12;                               /* many tiny pieces: an average under 2.5 letters */
+    if (cf < 0) cf = 0;
+    if (cf > 99) cf = 99;
+    if (conf) *conf = cf;
+    if (pieces) *pieces = np;
+    return 1;
+}
+
 /* ---------- the protected words and the text ---------- */
 /* the plain inflections of a word the engine knows are not typos (clouds, jokes, dances, appreciated, being, bigger, slowly): the vocabulary is
  * short until chunks 49-51, and the lemma rules of chunk 24 will replace this guard. s es ed d ing er est ly, with a dropped e or a doubled letter */
 static int stem_known(const char *w, int n, int k) {            /* the stem w[0..k) or its variants is a known word */
     if (k < 2) return 0;
     if (lang_known_word(w, k)) return 1;
-    char t[SPELL_MAX_LEN + 2]; memcpy(t, w, (size_t)k); t[k] = 'e'; t[k + 1] = 0;
-    if (k + 1 <= SPELL_MAX_LEN && lang_known_word(t, k + 1)) return 1;                       /* danc-ing -> dance */
+    char t[SPELL_SEG_MAX + 2]; memcpy(t, w, (size_t)k); t[k] = 'e'; t[k + 1] = 0;      /* chunk 23: a glued token may be up to SPELL_SEG_MAX letters */
+    if (k + 1 <= SPELL_SEG_MAX && lang_known_word(t, k + 1)) return 1;                       /* danc-ing -> dance */
     if (k >= 3 && w[k - 1] == w[k - 2] && lang_known_word(w, k - 1)) return 1;               /* run-ning -> run */
     if (k >= 3 && w[k - 1] == 'i') { memcpy(t, w, (size_t)k - 1); t[k - 1] = 'y'; if (lang_known_word(t, k)) return 1; }   /* stud-ied -> study */
     return 0;
@@ -333,14 +400,17 @@ static int inflection_of_known(const char *w, int n) {
     }
     return 0;
 }
-int lang_spell_protected(const char *w, int n) {
-    if (n < SPELL_MIN_LEN || n > SPELL_MAX_LEN) return 1;
+static int protected_word(const char *w, int n) {               /* the part of lang_spell_protected that does not look at the length */
     for (int i = 0; i < n; i++) if (w[i] < 'a' || w[i] > 'z') return 1;
     if (vocab_protected(w, n)) return 1;
     if (lang_known_word(w, n)) return 1;
     if (lang_textspeak(w, n)) return 1;
     if (inflection_of_known(w, n)) return 1;
     return 0;
+}
+int lang_spell_protected(const char *w, int n) {
+    if (n < SPELL_MIN_LEN || n > SPELL_MAX_LEN) return 1;
+    return protected_word(w, n);
 }
 
 static int is_letter(char c) { return c >= 'a' && c <= 'z'; }
@@ -359,7 +429,7 @@ int lang_spell_text(const char *orig, const char *in, const int *inmap, int shou
         while (b > a && !is_letter(in[b - 1]) && !(in[b - 1] >= '0' && in[b - 1] <= '9')) b--;
         int n = b - a, fixed = 0, kind = SPELL_EDIT;
         char fix[SPELL_TO_MAX]; int cf = 0, dd = 0; fix[0] = 0;
-        int letters = n >= 2 && n <= SPELL_MAX_LEN; for (int q = a; letters && q < b; q++) if (!is_letter(in[q])) letters = 0;
+        int letters = n >= 2 && n <= SPELL_SEG_MAX; for (int q = a; letters && q < b; q++) if (!is_letter(in[q])) letters = 0;
         if (spell_on && letters) {
             int skip = 0;
             if (orig && inmap) {                                   /* the case the player typed */
@@ -371,10 +441,14 @@ int lang_spell_text(const char *orig, const char *in, const int *inmap, int shou
             const char *dl = (!skip && !vocab_protected(in + a, n) && !lang_textspeak(in + a, n)) ? lang_dialect(in + a, n) : NULL;
             if (dl && strlen(dl) < SPELL_TO_MAX) {                  /* chunk 22: a row of the dialect table (wassup -> whats up) */
                 strcpy(fix, dl); cf = 90; dd = 0; kind = SPELL_DIALECT; fixed = 1;
-            } else if (!skip && n >= SPELL_MIN_LEN && !lang_spell_protected(in + a, n)) {
+            } else if (!skip && n >= SPELL_MIN_LEN && !protected_word(in + a, n)) {
                 int need = n == 3 ? SPELL_MIN_CONF + 8 : n == 4 ? SPELL_MIN_CONF + 4 : SPELL_MIN_CONF;
-                if (lang_spell_word(in + a, n, fix, &cf, &dd) && cf >= need) fixed = 1;
-                else if (lang_spell_phonetic(in + a, n, fix, &cf, &dd) && cf >= need) { fixed = 1; kind = SPELL_PHONETIC; }   /* chunk 22: only when the edit repair found nothing it trusts */
+                if (n <= SPELL_MAX_LEN && lang_spell_word(in + a, n, fix, &cf, &dd) && cf >= need) fixed = 1;
+                char sg[SPELL_TO_MAX]; int sc = 0, sp = 0;            /* chunk 23: a glued token. it competes with the edit repair by confidence; a split also wins over a fix of distance 2 */
+                if (n >= SPELL_SEG_MIN && lang_spell_segment(in + a, n, sg, &sc, &sp) && sc >= SPELL_MIN_CONF && (!fixed || dd >= 2 || sc > cf + 5)) {
+                    strcpy(fix, sg); cf = sc; dd = sp - 1; kind = SPELL_SEGMENT; fixed = 1;
+                }
+                if (!fixed && n <= SPELL_MAX_LEN && lang_spell_phonetic(in + a, n, fix, &cf, &dd) && cf >= need) { fixed = 1; kind = SPELL_PHONETIC; }   /* chunk 22: only when nothing else found a word it trusts */
             }
         }
         int fl = (int)strlen(fix);
