@@ -24,6 +24,7 @@
  *   --phonetic         (chunk 22) the phonetic key lang_phone (24 exact keys, 16 pairs that sound alike, pairs that do not, case, cap, a very long text), the dialect table (>= 150 rows: well-formed, no vocabulary word or name as a key, no text-speak key, no duplicate, the key never its result) and its repair (45 typed -> spelled pairs, what must stay, the order dialect / edit / phonetic, the maps of a multi-word result, the cap, the highlight and Heard, self-harm through a row), the phonetic fallback (what it fixes, real words it must not bend, only words of patterns and lexicons are candidates), registering later, the off switch and the speed. fails on a problem
  *   --lemma [FILES]    (chunk 24) the lemmas: the irregular table (well formed, no chains), 270 inflected forms that must resolve (and be stable), 130 words that must stay, odd inputs, the lemma text (maps, replaced marks, past and aux forms left alone), what the matcher hears through a lemma, the superset rule over the corpus FILES, self-harm unchanged on ordinary sentences, speed, registering a table
  *   --clause           (chunk 25) clauses, negation scope, contrast and intensity: 63 negation / contrast / intensity cases through lang_parse (Heard.clauses, positive, negative, intensity), lang_clauses (splits, the cap, the boost count), lang_neg_count (the 4 word scope, punctuation, a clause start, two negators), odd and long texts
+ *   --pats             (chunk 26) pattern syntax v2 and the macro library: the report of the tables (rows, compiled rows, macros, expanded surface forms capped at 200 per row, the longest row, rows with a huge or wild first word set, ambiguous rows = one surface form mapped to two intents), then the tests: 60 match cases ([a|b] (x) <m> <x> <number> <time> <npc> * ? $), the compile errors, string rows (weights, errors), the weight tie break, a capture and a highlight through a compiled pattern, the safety scan, the index (every form of every row finds its row, a row with several first words is met once), every old pattern compiled and run against the classic matcher over every reply line and corpus FILE (the same end and prefix), a runaway pattern, registering later and reset, and the speed with 2,000 rows. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -34,6 +35,7 @@
 #include "lang_spell.h"
 #include "lang_lemma.h"
 #include "lang_clause.h"
+#include "lang_pat.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -2033,6 +2035,288 @@ static int do_clause(void) {
     return bad;
 }
 
+
+/* ---- chunk 26: pattern syntax v2 ---- */
+static int pfail, pchecks;
+#define PCHECK(c, ...) do { pchecks++; if (!(c)) { printf("BAD PATTERN: " __VA_ARGS__); printf("\n"); pfail++; } } while (0)
+
+/* matched length of pattern at the start of text (-2: does not compile); *pref as lpat_match gives it */
+static int pm(const char *pat, const char *text, int *pref) {
+    const char *why; LPat *lp = lpat_compile(pat, &why);
+    if (!lp) return -2;
+    const char *e = text; int pr = -1;
+    lpat_match(lp, text, text, &e, &pr);
+    if (pref) *pref = pr;
+    return (int)(e - text);
+}
+typedef struct { const char *pat, *text; int len; } PCase;     /* len: the whole text (-1), a number of characters, or 0 = no match */
+typedef struct { char **s; int *intent; int n, cap; } FormList;
+typedef struct { FormList *fl; int intent; } FormCtx;
+static void form_add(const char *f, void *u) {
+    FormCtx *c = u; FormList *l = c->fl;
+    if (l->n == l->cap) { l->cap = l->cap ? l->cap * 2 : 1024; l->s = realloc(l->s, (size_t)l->cap * sizeof *l->s); l->intent = realloc(l->intent, (size_t)l->cap * sizeof *l->intent); }
+    l->s[l->n] = strdup(f); l->intent[l->n] = c->intent; l->n++;
+}
+typedef struct { const char *s; int intent; } FI;
+static int cmp_fi(const void *a, const void *b) { const FI *x = a, *y = b; int c = strcmp(x->s, y->s); return c ? c : x->intent - y->intent; }
+
+static int plen(const char *p) { int n = 0; while (p[n] && p[n] != '*' && p[n] != '$') n++; return n; }
+
+static const char *const PT_ROWS[] = {
+    "qzgood [morning|evening|night]|greet",
+    "qzhi there|greet|3", "qzhi there|bye|7", "qzhi there|no|7",
+    "qzeq one|yes", "qzeq one|no",
+    "qzname [name|handle] is *|intro",
+    "qzmeet <you> (finally)|howru",
+    "[kill|end] qzmy self|selfharm",
+    "qzage i am <number> years old|age",
+    "qzat <time>|wait",
+    "qzx <x> qzy|what",
+    "qzfirst [he|hel|help] me|help",
+    "qzopt (very) (very) nice|praise",
+    "qzx (a|b)|greet", "nopipe", "qzx a|nosuchintent", "qzx a|greet|0", "[qzx|greet",
+    0 };
+
+static int do_pats(int argc, char **argv) {
+    pfail = pchecks = 0;
+    lang_tables_reset(); lang_init();
+
+    /* ---- the report of the tables as they ship ---- */
+    int np = lang_pat_count(), ncomp = 0, nwild = 0, nhuge = 0, longest = 0, longest_id = 0, tot_forms = 0, over = 0;
+    FormList fl = { 0 };
+    for (int k = 0; k < np; k++) {
+        const char *pt = lang_pat(k)->pat; const LPat *lp = lang_pat_compiled(k);
+        if ((int)strlen(pt) > longest) { longest = (int)strlen(pt); longest_id = k; }
+        if (lp) {
+            ncomp++; char hs[LPAT_MAXHEADS][4]; int w = 0, h = 0; lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h);
+            if (h) nhuge++; else if (w) nwild++;
+            FormCtx c = { &fl, lang_pat(k)->intent }; int nf = lpat_forms(lp, 200, form_add, &c); tot_forms += nf; if (nf >= 200) over++;
+        } else {
+            if (*pt == '*' || *pt == '?') nwild++;
+            FormCtx c = { &fl, lang_pat(k)->intent }; form_add(pt, &c); tot_forms++;
+        }
+    }
+    int amb = 0;
+    { FI *fi = malloc((size_t)(fl.n ? fl.n : 1) * sizeof *fi);
+      for (int i = 0; i < fl.n; i++) { fi[i].s = fl.s[i]; fi[i].intent = fl.intent[i]; }
+      qsort(fi, (size_t)fl.n, sizeof *fi, cmp_fi);
+      for (int i = 1; i < fl.n; i++) if (!strcmp(fi[i].s, fi[i - 1].s) && fi[i].intent != fi[i - 1].intent) { if (amb < 5) printf("  note: ambiguous: \"%s\" -> %s and %s\n", fi[i].s, lang_intent_name(fi[i - 1].intent), lang_intent_name(fi[i].intent)); amb++; }
+      free(fi); }
+    for (int i = 0; i < fl.n; i++) free(fl.s[i]);
+    free(fl.s); free(fl.intent);
+    printf("pats: %d rows (%d compiled v2), %d macros, %d rows left out; %d surface forms (%d rows hit the cap of 200), longest row %d characters [%s]; %d rows can start with anything, %d have a huge first word set; %d ambiguous surface forms\n",
+        np, ncomp, lpat_macro_count(), lang_pat_error_count(), tot_forms, over, longest, np ? lang_pat(longest_id)->pat : "", nwild, nhuge, amb);
+    PCHECK(lang_pat_error_count() == 0, "the shipped tables leave %d rows out (first: %s)", lang_pat_error_count(), lang_pat_error_count() ? lang_pat_error(0, NULL) : "");
+    PCHECK(lpat_macro_count() >= 25, "only %d macros are registered", lpat_macro_count());
+    for (int m = 0; m < lpat_macro_count(); m++) {
+        const char *nm = lpat_macro_name(m);
+        PCHECK(lpat_macro_alts(m) > 0 || !strcmp(nm, "x"), "macro <%s> has no alternative", nm);
+        for (int j = 0; j < lpat_macro_alts(m); j++) {
+            const char *a = lpat_macro_alt(m, j);
+            PCHECK(a && *a && !strpbrk(a, "*?$[](<>|") && strcmp(a, "") != 0, "macro <%s> alternative %d [%s] is empty or holds a pattern character", nm, j, a ? a : "(null)");
+            for (const char *c = a; c && *c; c++) PCHECK(islower((unsigned char)*c) || *c == ' ' || *c == '\'' || *c == '_', "macro <%s> alternative [%s] holds a character that is not lower case", nm, a);
+            for (int i2 = 0; i2 < j; i2++) PCHECK(strcmp(a, lpat_macro_alt(m, i2)), "macro <%s> holds [%s] twice", nm, a);
+        }
+    }
+
+    /* ---- 1. the syntax: pattern, text, how much of the text it reaches ---- */
+    static const PCase C[] = {
+        { "[good|nice] meet you", "good meet you", -1 }, { "[good|nice] meet you", "nice meet you", -1 }, { "[good|nice] meet you", "bad meet you", 0 },
+        { "good (to) meet you", "good meet you", -1 }, { "good (to) meet you", "good to meet you", -1 }, { "good (to) meet you", "good too meet you", 0 },
+        { "(hello) there", "there", -1 }, { "(hello) there", "hello there", -1 },
+        { "good (to) (finally) meet you", "good to finally meet you", -1 }, { "good (to) (finally) meet you", "good finally meet you", -1 }, { "good (to) (finally) meet you", "good to meet you", -1 },
+        { "good (to) (finally) meet you", "good meet you", -1 },
+        { "a (b)", "a", -1 }, { "a (b)", "a b", -1 }, { "(a) b", "b", -1 }, { "(a) b", "a b", -1 }, { "a (b) c", "a c", -1 }, { "a (b) c", "a b c", -1 }, { "a (b) c", "ab c", 0 },
+        { "thank(s)", "thank", -1 }, { "thank(s)", "thanks", -1 }, { "thank(s) you", "thank you", -1 }, { "thank(s) you", "thanks you", -1 },
+        { "(of the) moon", "moon", -1 }, { "(of the) moon", "of the moon", -1 }, { "(of the) moon", "of moon", 0 },
+        { "i (really) [do not|dont] care", "i do not care", -1 }, { "i (really) [do not|dont] care", "i really dont care", -1 }, { "i (really) [do not|dont] care", "i really care", 0 },
+        { "how are you (today)", "how are you", -1 }, { "how are you (today)", "how are you today", -1 }, { "how are you (today)", "how are you todays", 11 },
+        { "[who are|who is] you", "who are you", -1 }, { "[who are|who is] you", "who is you", -1 }, { "[who are|who is] you", "who was you", 0 },
+        { "[a [b|c]|d] e", "a b e", -1 }, { "[a [b|c]|d] e", "a c e", -1 }, { "[a [b|c]|d] e", "d e", -1 }, { "[a [b|c]|d] e", "a e", 0 },
+        { "[a|(b) c] d", "a d", -1 }, { "[a|(b) c] d", "b c d", -1 }, { "[a|(b) c] d", "c d", -1 },
+        { "<greetword> there", "hello there", -1 }, { "<greetword> there", "hi there", -1 }, { "<greetword> there", "good day there", -1 }, { "<greetword> there", "hello", 0 },
+        { "<you> are <very> <nice>", "you are very nice", -1 }, { "<you> are <very> <nice>", "u are so lovely", -1 }, { "<you> are <very> <nice>", "u are so bad", 0 },
+        { "<yes> please", "yeah please", -1 }, { "<yes> please", "of course please", -1 },
+        { "tell <me> a joke", "tell me a joke", -1 }, { "tell <me> a joke", "tell myself a joke", -1 },
+        { "<x> is cool", "the moon is cool", -1 }, { "<x> is cool", "is cool", 0 }, { "<x> is cool", "a b c d is cool", 0 }, { "<x> is cool", "a b c is cool", -1 },
+        { "i am <number> years old", "i am 12 years old", -1 }, { "i am <number> years old", "i am twelve years old", -1 }, { "i am <number> years old", "i am old years old", 0 },
+        { "i am <number> years old", "i am 3.5 years old", -1 }, { "i am <number> years old", "i am x years old", 0 },
+        { "at <time>", "at 3pm", -1 }, { "at <time>", "at 10:30 pm", -1 }, { "at <time>", "at 3 oclock", -1 }, { "at <time>", "at midnight", -1 }, { "at <time>", "at noon", -1 }, { "at <time>", "at 3:30", -1 },
+        { "at <time>", "at never", 0 },
+        { "my name is *", "my name is zed", -1 }, { "my name is [dr|mr] *", "my name is dr who", -1 },
+        { "tell me [a|the] *", "tell me a joke", -1 }, { "tell me [a|the] *", "tell me the story. then", 17 },
+        { "[hi|hey]$", "hey", -1 }, { "[hi|hey]$", "hey you", 0 }, { "[yes|no]$", "yes!", 3 },
+        { "h?llo (there)", "hello", -1 }, { "h?llo (there)", "hallo there", -1 }, { "h?llo (there)", "hllo", 0 },
+        { "[thank|thanks]*", "thankyou", -1 }, { "[thank|thanks]*", "thank you", 5 },
+        { "<npc>, hello", "dea, hello", -1 },
+        { "[a|]b", "ab", -1 }, { "[a|]b", "b", -1 },
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        int got = pm(C[i].pat, C[i].text, NULL), want = C[i].len < 0 ? (int)strlen(C[i].text) : C[i].len;
+        PCHECK(got == want, "[%s] against \"%s\": reached %d, wanted %d", C[i].pat, C[i].text, got, want);
+    }
+    { int pr = -1; pm("my name is *", "my name is zed", &pr); PCHECK(pr == 11, "prefix of \"my name is *\" is %d (want 11)", pr);
+      pr = -1; pm("my [name|nickname] is *", "my nickname is zed", &pr); PCHECK(pr == 15, "prefix with an alternative is %d (want 15)", pr);
+      pr = -1; pm("(oh) my name is *", "my name is zed", &pr); PCHECK(pr == 11, "prefix with an optional word skipped is %d (want 11)", pr);
+      pr = -1; pm("i am$", "i am", &pr); PCHECK(pr == 4, "prefix of a $ pattern is %d (want 4)", pr);
+      pr = -1; pm("hello there", "hello there", &pr); PCHECK(pr == 11, "prefix of a plain pattern is %d (want 11)", pr); }
+    /* <npc>: the row and the name set by the caller */
+    lpat_set_npc("Zork");
+    PCHECK(pm("<npc> hello", "zork hello", NULL) == 10, "<npc> must match the npc's name");
+    PCHECK(pm("<npc> hello", "goddess hello", NULL) == 13, "<npc> must match the words of its row");
+    PCHECK(pm("<npc> hello", "zorkx hello", NULL) == 0, "<npc> must match a whole word");
+    lpat_set_npc(NULL);
+    PCHECK(pm("<npc> hello", "zork hello", NULL) == 0, "<npc> still matches a name that was cleared");
+    PCHECK(pm("<npc> hello", "dea hello", NULL) == 9, "<npc> lost its row words");
+
+    /* ---- 2. compile errors ---- */
+    { static const char *const BAD[] = { "[a|b", "a|b", "(x", "x)", "<nosuch> a", "[]", "()", "<x", "a]", "((((((((a))))))))", "[[[[[[[[a]]]]]]]]", "", "<>", "[|]", "[a|b]>" };
+      for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++) {
+          const char *why = ""; LPat *lp = lpat_compile(BAD[i], &why);
+          PCHECK(lp == NULL && why && *why, "[%s] must not compile (got %s)", BAD[i], lp ? "a pattern" : "no reason");
+      }
+      const char *why = ""; PCHECK(lpat_compile("a [b|c] (d) <x> *", &why) != NULL, "a good pattern did not compile (%s)", why);
+      PCHECK(!lpat_is_v2("hello *") && lpat_is_v2("a (b)") && lpat_is_v2("[a|b]") && lpat_is_v2("<x>"), "lpat_is_v2"); }
+
+    /* ---- 3. string rows through the tables: weights, errors, the index, hearing, capture, highlight, safety ---- */
+    lang_tables_reset();
+    int base = lang_pat_count();
+    PCHECK(lang_register_patrows(PT_ROWS) == 0, "register patrows failed");
+    int added = lang_pat_count() - base;
+    PCHECK(added == 14, "%d of the 19 test rows made it into the tables (want 14)", added);
+    PCHECK(lang_pat_error_count() == 5, "%d rows were reported as left out (want 5)", lang_pat_error_count());
+    { static const char *const WHY[5] = { "| outside [ ]", "no pattern or no intent", "unknown intent", "bad weight", "no pattern or no intent" };
+      for (int i = 0; i < 5; i++) { const char *why = NULL, *row = lang_pat_error(i, &why); PCHECK(row && why && !strcmp(why, WHY[i]), "error %d: [%s] %s (want %s)", i, row ? row : "(none)", why ? why : "(none)", WHY[i]); } }
+    PCHECK(lang_pat_error(5, NULL) == NULL && lang_pat_error(-1, NULL) == NULL, "an error index out of range must give NULL");
+    { Heard h;
+      lang_parse("Qzgood evening", &h); PCHECK(heard_has(&h, I_GREET), "[qzgood [morning|evening|night]] did not hear greet");
+      lang_parse("qzgood afternoon", &h); PCHECK(!heard_has(&h, I_GREET), "qzgood afternoon must not hear greet");
+      lang_parse("qzhi there", &h); PCHECK(heard_has(&h, I_BYE) && !heard_has(&h, I_GREET) && !heard_has(&h, I_NO), "the heavier row (7) must win over 3 and over a later 7");
+      lang_parse("qzeq one", &h); PCHECK(heard_has(&h, I_YES) && !heard_has(&h, I_NO), "the first of two rows with one weight must win");
+      lang_parse("qzname handle is Zed", &h); PCHECK(heard_has(&h, I_INTRO) && !strcmp(h.capture, "Zed"), "capture through a compiled pattern: [%s]", h.capture);
+      lang_parse("qzname name is zed", &h); PCHECK(!strcmp(h.capture, "zed"), "capture of the second alternative: [%s]", h.capture);
+      lang_parse("qzmeet you finally", &h); PCHECK(heard_has(&h, I_HOWRU), "qzmeet <you> (finally)");
+      lang_parse("qzmeet ya", &h); PCHECK(heard_has(&h, I_HOWRU), "qzmeet ya");
+      lang_parse("qzage i am twelve years old", &h); PCHECK(heard_has(&h, I_AGE), "a macro with number words");
+      lang_parse("qzage i am 12 years old", &h); PCHECK(heard_has(&h, I_AGE), "a macro with digits");
+      lang_parse("qzat 10:30 pm", &h); PCHECK(heard_has(&h, I_WAIT), "qzat <time>");
+      lang_parse("qzx hello big moon qzy", &h); PCHECK(heard_has(&h, I_WHAT), "<x> over three words");
+      lang_parse("qzx one two three four qzy", &h); PCHECK(!heard_has(&h, I_WHAT), "<x> must not reach four words");
+      lang_parse("qzopt nice", &h); PCHECK(heard_has(&h, I_PRAISE), "qzopt nice"); lang_parse("qzopt very very nice", &h); PCHECK(heard_has(&h, I_PRAISE), "qzopt very very nice");
+      lang_parse("end qzmy self", &h); PCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "a compiled safety pattern is heard first");
+      lang_parse("kill qzmy self please", &h); PCHECK(heard_has(&h, I_SELFHARM), "the safety scan runs compiled patterns inside a longer text");
+      lang_parse("hello there", &h); PCHECK(heard_has(&h, I_GREET), "an old pattern stopped working next to the new rows");
+      uint8_t m[64]; memset(m, 0, sizeof m); lang_highlight("so qzgood evening you", m);
+      PCHECK(m[0] == 0 && m[2] == 0 && m[3] == 1 && m[16] == 1 && m[17] == 0, "highlight of a compiled pattern: %d %d %d %d %d", m[0], m[2], m[3], m[16], m[17]); }
+    { const int *ids; int ns = lang_pat_safety(&ids), want = 0; for (int k = 0; k < PATS_N; k++) if (PATS[k].intent == I_SELFHARM) want++;
+      PCHECK(ns == want + 1, "the safety list has %d patterns (want %d, one of them compiled)", ns, want + 1); }
+
+    /* ---- 4. the index: every surface form of every compiled row finds its row once, and the matcher takes the whole form ---- */
+    { int checked = 0, comp = 0;
+      for (int k = base; k < lang_pat_count(); k++) {
+          const LPat *lp = lang_pat_compiled(k); if (!lp) continue;
+          comp++;
+          FormList f = { 0 }; FormCtx c = { &f, 0 };
+          int nf = lpat_forms(lp, 200, form_add, &c);
+          PCHECK(nf > 0, "[%s] has no surface form", lang_pat(k)->pat);
+          for (int i = 0; i < f.n; i++) {
+              if (strpbrk(f.s[i], "*?$<")) continue;
+              checked++;
+              PatCur cu; lang_pat_cursor(&cu, f.s[i]); int id, seen = 0, rep = 0, last = -1;
+              while ((id = lang_pat_next(&cu)) >= 0) { if (id == k) seen++; if (id <= last) rep = 1; last = id; }
+              PCHECK(seen == 1 && !rep, "[%s] form \"%s\": met %d times, ids ascending without repeats %d", lang_pat(k)->pat, f.s[i], seen, !rep);
+              const char *e = f.s[i]; int pr = 0; lpat_match(lp, f.s[i], f.s[i], &e, &pr);
+              PCHECK((int)(e - f.s[i]) == (int)strlen(f.s[i]), "[%s] form \"%s\": reached %d of %d", lang_pat(k)->pat, f.s[i], (int)(e - f.s[i]), (int)strlen(f.s[i]));
+          }
+          for (int i = 0; i < f.n; i++) free(f.s[i]);
+          free(f.s); free(f.intent);
+      }
+      PCHECK(comp >= 9 && checked >= 30, "only %d compiled rows and %d forms were checked", comp, checked); }
+    { char hs[LPAT_MAXHEADS][4]; int w = 0, h = 0; const char *why;
+      LPat *lp = lpat_compile("[hello|hullo|hi|hey|yo] there", &why); int n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h);
+      PCHECK(n == 5 && !w && !h, "heads of five first words: %d (wild %d huge %d)", n, w, h);
+      lp = lpat_compile("<x> hello", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(w && n == 0, "a pattern that starts with <x> must be filed as wild");
+      lp = lpat_compile("(oh) hello", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(n == 2 && !w, "heads of an optional first word: %d", n);
+      lp = lpat_compile("[he|hel] there", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(n == 2, "heads he and hel: %d", n);
+      lp = lpat_compile("<number> dogs", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(!w && n > 10, "heads of <number> (digits and words): %d wild %d", n, w);
+      lp = lpat_compile("*hello", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(w, "a pattern that starts with * is wild");
+      lp = lpat_compile("<filler> <filler> hello", &why); n = lpat_heads(lp, hs, LPAT_MAXHEADS, &w, &h); PCHECK(n > 5, "heads of a macro first word: %d", n);
+      lp = lpat_compile("<greetword> [a|b|c] (d) <you> <very> <nice> <bad> <rude> <polite> <byeword> x", &why);
+      PCHECK(lp != NULL, "a long pattern with many macros did not compile (%s)", why); }
+    { /* one text meeting a pattern under two heads gets the id once */
+      static const char *const R[] = { "[he|hel] qzthere|greet", 0 };
+      lang_tables_reset(); PCHECK(lang_register_patrows(R) == 0, "register");
+      int id0 = lang_pat_count() - 1; PatCur cu; lang_pat_cursor(&cu, "hel qzthere"); int id, seen = 0; while ((id = lang_pat_next(&cu)) >= 0) if (id == id0) seen++;
+      PCHECK(seen == 1, "the index gave a pattern with two heads %d times (want 1)", seen); }
+
+    /* ---- 5. every old pattern, compiled, against the classic matcher: the same end and the same prefix at every word start of every text we have ---- */
+    lang_tables_reset(); lang_init();
+    { int nt = 0, cmp = 0, diff = 0, ncp = 0;
+      char **texts = malloc(4000 * sizeof *texts);
+      for (int t = 0; t < 4; t++) for (int i = 0; i < *CNT[t] && nt < 3000; i++) { char *c = malloc(420); lang_clean(TAB[t][i].text, c, 420, NULL); texts[nt++] = c; }
+      for (int a = 1; a < argc; a++) {
+          if (argv[a][0] == '-') continue;
+          FILE *fp = fopen(argv[a], "r"); if (!fp) continue; char ln[512];
+          while (fgets(ln, sizeof ln, fp) && nt < 3900) { if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0; char *c = malloc(420); lang_clean(ln, c, 420, NULL); texts[nt++] = c; }
+          fclose(fp);
+      }
+      LPat **cp = malloc((size_t)PATS_N * sizeof *cp);
+      for (int k = 0; k < PATS_N; k++) { const char *why; cp[k] = lpat_compile(PATS[k].pat, &why); if (cp[k]) ncp++; }
+      PCHECK(ncp == PATS_N, "only %d of %d old patterns compile with the v2 compiler", ncp, PATS_N);
+      for (int t = 0; t < nt && diff < 5; t++) {
+          const char *lc = texts[t]; int len = (int)strlen(lc);
+          for (int i = 0; i < len && diff < 5; i++) {
+              if (!(isalnum((unsigned char)lc[i]) || lc[i] == '\'') || (i > 0 && (isalnum((unsigned char)lc[i - 1]) || lc[i - 1] == '\''))) continue;
+              PatCur cu; lang_pat_cursor(&cu, lc + i);
+              for (int k; (k = lang_pat_next(&cu)) >= 0;) {
+                  const char *p = lang_pat(k)->pat; if (k >= PATS_N || !cp[k]) continue;
+                  const char *e1 = lc + i; lang_match_classic(p, lc + i, lc, &e1);
+                  const char *e2 = lc + i; int pr = -1; lpat_match(cp[k], lc + i, lc, &e2, &pr);
+                  cmp++;
+                  int p1 = plen(p);
+                  if (e1 != e2 || (e1 > lc + i && pr != p1 && !strchr(p, '$'))) { printf("BAD PATTERN: [%s] on \"%s\" at %d: classic end %d prefix %d, compiled end %d prefix %d\n", p, lc, i, (int)(e1 - lc), p1, (int)(e2 - lc), pr); diff++; pfail++; break; }
+              }
+          }
+      }
+      pchecks++;
+      printf("  old patterns through the v2 compiler: %d of %d compile, %d (pattern, word start) pairs over %d texts compared, %d differences\n", ncp, PATS_N, cmp, nt, diff);
+      for (int t = 0; t < nt; t++) free(texts[t]);
+      free(texts); free(cp); }
+
+    /* ---- 6. a runaway pattern ends, registering later and reset, the speed ---- */
+    { const char *why; LPat *lp = lpat_compile("[a|a|a|a] *x*x*x*x*x*x*x*x*y", &why);
+      char text[300]; strcpy(text, "a "); for (int i = 0; i < 200; i++) strcat(text, "x");
+      clock_t t0 = clock(); const char *e = text; int pr = 0; int fin = lpat_match(lp, text, text, &e, &pr); double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
+      PCHECK(ms < 200.0, "a runaway pattern took %.1f ms", ms); printf("  runaway pattern: %s after %.2f ms\n", fin ? "finished" : "stopped at the step budget", ms); }
+    lang_tables_reset();
+    PCHECK(lang_pat_count() == PATS_N && lang_pat_error_count() == 0, "after reset %d patterns (want %d), %d errors", lang_pat_count(), PATS_N, lang_pat_error_count());
+    { Heard h; lang_parse("qzgood evening", &h); PCHECK(!heard_has(&h, I_GREET), "reset forgot the registered rows? it still hears qzgood"); }
+    { enum { NR = 2000 };
+      static const char *const W[] = { "moon", "star", "night", "glow", "stone", "river", "ember", "ash", "tower", "gate", "bell", "crow", "salt", "iron", "dust", "mist", "thorn", "bone", "veil", "tide" };
+      char **rows = malloc((NR + 1) * sizeof *rows);
+      for (int i = 0; i < NR; i++) {
+          char r[200]; snprintf(r, sizeof r, "[%s|%s|%s] %s (%s)|greet", W[i % 20], W[(i / 20) % 20], W[(i / 7) % 20], W[(i / 3) % 20], W[(i / 11) % 20]);
+          rows[i] = strdup(r);
+      }
+      rows[NR] = NULL;
+      double t_init0 = lang_init_ms();
+      lang_register_patrows((const char *const *)rows);
+      double t_init = lang_init_ms();
+      char text[210]; text[0] = 0; for (int i = 0; strlen(text) < 195; i++) { strcat(text, W[(i * 7) % 20]); strcat(text, " "); }
+      Heard h; clock_t t0 = clock(); for (int i = 0; i < 1000; i++) lang_parse(text, &h); double per = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 1000.0;
+      printf("  speed with %d v2 rows: init %.1f ms (was %.1f ms without), a parse of %d characters %.4f ms\n", NR, t_init, t_init0, (int)strlen(text), per);
+      #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_UNDEFINED__)
+      per = 0;                                     /* a sanitizer build is several times slower: the speed ceiling is for normal builds */
+#endif
+      PCHECK(per < 2.0, "a parse took %.3f ms with %d v2 rows (a stress test: 20 words only, so every row shares its first words; ceiling 2 ms)", per, NR);
+      PCHECK(lang_pat_count() == PATS_N + NR, "%d patterns after registering (want %d)", lang_pat_count(), PATS_N + NR);
+      lang_tables_reset(); lang_init();
+      for (int i = 0; i < NR; i++) free(rows[i]);
+      free(rows); }
+    printf("pats: %d checks, %d problems\n", pchecks, pfail);
+    return pfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -2058,10 +2342,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clause"))   { rc |= do_clause() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--pats"))     { rc |= do_pats(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

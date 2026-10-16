@@ -5,6 +5,7 @@
 #include "lang_tables.h"
 #include "lang_vocab.h"
 #include "lang.h"
+#include "lang_pat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -12,7 +13,7 @@
 #define MAX_TABLES 128
 
 typedef struct { const Line *t; int n; } LineTab;
-typedef struct { const Pat *t; int n; } PatTab;
+typedef struct { const Pat *t; int n; const char *const *rows; } PatTab;     /* chunk 26: rows != NULL = a table of "pattern|intent|weight" strings */
 static LineTab ltab[MAX_TABLES]; static int nlt;
 static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
@@ -21,11 +22,18 @@ static const char *const *dialtab[MAX_TABLES]; static int ndial_t;     /* chunk 
 static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 24: irregular forms and never-touched words */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
+static const char *const *mactab[MAX_TABLES]; static int nmac_t;        /* chunk 26: pattern macros */
 static int builtin_done, dirty = 1;
 
 static void builtin(void);
 int lang_register_lines(const Line *t, int n) { builtin(); if (nlt >= MAX_TABLES) return -1; ltab[nlt].t = t; ltab[nlt].n = n; nlt++; dirty = 1; return 0; }
-int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; npt++; dirty = 1; return 0; }
+int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; ptab[npt].rows = NULL; npt++; dirty = 1; return 0; }
+int lang_register_patrows(const char *const *rows) {
+    builtin(); if (npt >= MAX_TABLES || !rows) return -1;
+    int n = 0; while (rows[n]) n++;
+    ptab[npt].t = NULL; ptab[npt].n = n; ptab[npt].rows = rows; npt++; dirty = 1; return 0;
+}
+int lang_register_macros(const char *const *rows) { builtin(); if (nmac_t >= MAX_TABLES) return -1; mactab[nmac_t++] = rows; dirty = 1; return 0; }
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
@@ -40,6 +48,7 @@ static void builtin(void) {
     lang_register_lines(LINES_A, LINES_A_N); lang_register_lines(LINES_B, LINES_B_N);
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
     lang_register_pats(PATS, PATS_N);
+    lang_register_macros(MACROS_A);                              /* chunk 26 */
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */
@@ -47,7 +56,7 @@ static void builtin(void) {
     lang_register_names(NAMES_A);
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -98,12 +107,17 @@ int lang_line_count(void) { lang_init(); return nlines; }
 /* ---------- the pattern index ---------- */
 /* a pattern is filed by its HEAD: the literal letters before the first space, * ? $ or the end, at most 3. head 3 -> table 2 keyed by
  * 3 letters, head 2 -> table 1 by 2 letters, head 1 -> table 0 by 1 letter, head 0 (starts with * or ?) -> the wild list, always a candidate.
- * a pattern that starts with $ or a space can never match at a word start (the old scan skipped it too) so it is not filed at all. */
+ * a pattern that starts with $ or a space can never match at a word start (the old scan skipped it too) so it is not filed at all.
+ * chunk 26: a compiled pattern ([a|b] (x) <m>) can have SEVERAL heads (one per possible first word, lpat_heads): it is filed under each of them
+ * (or in the wild list when it can start with anything, or when it has more than LPAT_MAXHEADS), and lang_pat_next skips an id it just gave. */
 #define NB0 256
 #define NB1 1021
 #define NB2 4093
 static const int NB[3] = { NB0, NB1, NB2 };
 static const Pat **pats; static int npats;
+static const LPat **cpat; static unsigned char *pwt;        /* chunk 26: the compiled form (NULL = classic) and the weight of every pattern */
+static Pat *rowpat; static char **rowtxt; static int nrowtxt;   /* chunk 26: the Pat structs and the pattern texts made from string rows */
+static struct { const char *row; const char *why; } perr[64]; static int nperr, nperr_total;
 static int *tbl_start[3], *tbl_ids[3];       /* CSR: bucket b holds ids tbl_ids[tbl_start[b] .. tbl_start[b + 1]) */
 static int *wild, nwild, *safety, nsafety;
 
@@ -119,42 +133,115 @@ static int head_len(const char *p) {
 }
 
 static void free_pats(void) {
-    free(pats); free(wild); free(safety); pats = NULL; wild = safety = NULL; npats = nwild = nsafety = 0;
+    free(pats); free(wild); free(safety); free(cpat); free(pwt); free(rowpat);
+    for (int i = 0; i < nrowtxt; i++) free(rowtxt[i]);
+    free(rowtxt);
+    pats = NULL; wild = safety = NULL; cpat = NULL; pwt = NULL; rowpat = NULL; rowtxt = NULL;
+    npats = nwild = nsafety = nrowtxt = 0;
     for (int t = 0; t < 3; t++) { free(tbl_start[t]); free(tbl_ids[t]); tbl_start[t] = tbl_ids[t] = NULL; }
+}
+
+static void perr_add(const char *row, const char *why) { nperr_total++; if (nperr < 64) { perr[nperr].row = row; perr[nperr].why = why; nperr++; } }
+
+/* "pattern|intent|weight": the first | outside [ ] and ( ) ends the pattern. returns 0 and fills the outputs (the pattern as a new malloc'd string) */
+static int parse_patrow(const char *row, char **pat, int *intent, int *weight, const char **why) {
+    int depth = 0, i = 0, cut = -1;
+    for (; row[i]; i++) {
+        if (row[i] == '[' || row[i] == '(') depth++;
+        else if ((row[i] == ']' || row[i] == ')') && depth > 0) depth--;
+        else if (row[i] == '|' && depth == 0) { cut = i; break; }
+    }
+    if (cut <= 0) { *why = "no pattern or no intent"; return -1; }
+    const char *in = row + cut + 1; int n = 0; while (in[n] && in[n] != '|') n++;
+    char name[48]; if (n < 1 || n > 40) { *why = "bad intent name"; return -1; }
+    memcpy(name, in, (size_t)n); name[n] = 0;
+    int id = lang_intent_by_name(name); if (id < 0) { *why = "unknown intent"; return -1; }
+    int w = 5;
+    if (in[n] == '|') {
+        const char *ws = in + n + 1;
+        if (!ws[0] || ws[1] || ws[0] < '1' || ws[0] > '9') { *why = "bad weight"; return -1; }
+        w = ws[0] - '0';
+    }
+    char *p = malloc((size_t)cut + 1); if (!p) { *why = "out of memory"; return -1; }
+    memcpy(p, row, (size_t)cut); p[cut] = 0;
+    *pat = p; *intent = id; *weight = w;
+    return 0;
 }
 
 static void build_pats(void) {
     free_pats();
-    for (int t = 0; t < npt; t++) npats += ptab[t].n;
-    pats = malloc((size_t)(npats ? npats : 1) * sizeof *pats);
-    wild = malloc((size_t)(npats ? npats : 1) * sizeof *wild);
-    safety = malloc((size_t)(npats ? npats : 1) * sizeof *safety);
+    lpat_reset(); nperr = nperr_total = 0;
+    for (int t = 0; t < nmac_t; t++) for (const char *const *r = mactab[t]; *r; r++) if (lpat_macro_add(*r) < 0) perr_add(*r, "bad macro row");
+    int total = 0;
+    for (int t = 0; t < npt; t++) total += ptab[t].n;
+    size_t cap = (size_t)(total ? total : 1);
+    pats = malloc(cap * sizeof *pats); cpat = calloc(cap, sizeof *cpat); pwt = malloc(cap);
+    wild = malloc(cap * sizeof *wild); safety = malloc(cap * sizeof *safety);
+    rowpat = malloc(cap * sizeof *rowpat); rowtxt = malloc(cap * sizeof *rowtxt);
     int *cnt[3];
     for (int t = 0; t < 3; t++) {
         tbl_start[t] = calloc((size_t)NB[t] + 1, sizeof(int));
-        tbl_ids[t] = malloc((size_t)(npats ? npats : 1) * sizeof(int));
+        tbl_ids[t] = NULL;
         cnt[t] = calloc((size_t)NB[t], sizeof(int));
     }
-    if (!pats || !wild || !safety || !tbl_start[0] || !tbl_start[1] || !tbl_start[2] || !tbl_ids[0] || !tbl_ids[1] || !tbl_ids[2] || !cnt[0] || !cnt[1] || !cnt[2]) {
+    if (!pats || !cpat || !pwt || !wild || !safety || !rowpat || !rowtxt || !tbl_start[0] || !tbl_start[1] || !tbl_start[2] || !cnt[0] || !cnt[1] || !cnt[2]) {
         for (int t = 0; t < 3; t++) free(cnt[t]);
         free_pats(); return;
     }
-    int n = 0;
-    for (int t = 0; t < npt; t++) for (int i = 0; i < ptab[t].n; i++) pats[n++] = &ptab[t].t[i];
-    for (int k = 0; k < n; k++) {                                 /* pass 1: count */
-        const char *p = pats[k]->pat;
-        if (pats[k]->intent == I_SELFHARM) safety[nsafety++] = k;
-        int h = head_len(p);
-        if (h > 0) cnt[h - 1][hb(h - 1, (const unsigned char *)p)]++;
+    int n = 0, nrow = 0;
+    for (int t = 0; t < npt; t++) {
+        if (!ptab[t].rows) {
+            for (int i = 0; i < ptab[t].n; i++) {
+                const Pat *pp = &ptab[t].t[i];
+                if (lpat_is_v2(pp->pat)) {
+                    const char *why; const LPat *lp = lpat_compile(pp->pat, &why);
+                    if (!lp) { perr_add(pp->pat, why); continue; }
+                    cpat[n] = lp;
+                }
+                pats[n] = pp; pwt[n] = 5; n++;
+            }
+        } else {
+            for (int i = 0; i < ptab[t].n; i++) {
+                char *txt; int in, w; const char *why = "";
+                const char *row = ptab[t].rows[i];
+                if (parse_patrow(row, &txt, &in, &w, &why) < 0) { perr_add(row, why); continue; }
+                const LPat *lp = NULL;
+                if (lpat_is_v2(txt)) { lp = lpat_compile(txt, &why); if (!lp) { perr_add(row, why); free(txt); continue; } }
+                rowtxt[nrowtxt++] = txt;
+                rowpat[nrow].pat = txt; rowpat[nrow].intent = in;
+                pats[n] = &rowpat[nrow++]; cpat[n] = lp; pwt[n] = (unsigned char)w; n++;
+            }
+        }
     }
-    for (int t = 0; t < 3; t++) {
-        for (int b = 0; b < NB[t]; b++) { tbl_start[t][b + 1] = tbl_start[t][b] + cnt[t][b]; cnt[t][b] = 0; }
-    }
-    for (int k = 0; k < n; k++) {                                 /* pass 2: fill in ascending id order, so every bucket is ascending */
-        const char *p = pats[k]->pat;
-        int h = head_len(p);
-        if (h > 0) { int b = (int)hb(h - 1, (const unsigned char *)p); tbl_ids[h - 1][tbl_start[h - 1][b] + cnt[h - 1][b]++] = k; }
-        else if (*p == '*' || *p == '?') wild[nwild++] = k;
+    npats = n;
+    /* pass 1: count (and the safety list); pass 2: fill in ascending id order, so every bucket is ascending */
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) {
+            for (int t = 0; t < 3; t++) {
+                for (int b = 0; b < NB[t]; b++) { tbl_start[t][b + 1] = tbl_start[t][b] + cnt[t][b]; cnt[t][b] = 0; }
+                tbl_ids[t] = malloc((size_t)(tbl_start[t][NB[t]] ? tbl_start[t][NB[t]] : 1) * sizeof(int));
+                if (!tbl_ids[t]) { for (int u = 0; u < 3; u++) free(cnt[u]); free_pats(); return; }
+            }
+        }
+        for (int k = 0; k < n; k++) {
+            const char *p = pats[k]->pat;
+            if (pass == 0 && pats[k]->intent == I_SELFHARM) safety[nsafety++] = k;
+            if (!cpat[k]) {
+                int h = head_len(p);
+                if (h > 0) {
+                    int b = (int)hb(h - 1, (const unsigned char *)p);
+                    if (pass == 0) cnt[h - 1][b]++; else tbl_ids[h - 1][tbl_start[h - 1][b] + cnt[h - 1][b]++] = k;
+                } else if (*p == '*' || *p == '?') { if (pass == 1) wild[nwild++] = k; }
+            } else {
+                char hs[LPAT_MAXHEADS][4]; int w = 0, huge = 0, nh = lpat_heads(cpat[k], hs, LPAT_MAXHEADS, &w, &huge);
+                if (w) { if (pass == 1) wild[nwild++] = k; continue; }
+                for (int j = 0; j < nh; j++) {
+                    int h = (int)strlen(hs[j]); if (h < 1 || h > 3) continue;
+                    int b = (int)hb(h - 1, (const unsigned char *)hs[j]);
+                    if (pass == 0) cnt[h - 1][b]++; else tbl_ids[h - 1][tbl_start[h - 1][b] + cnt[h - 1][b]++] = k;
+                }
+            }
+        }
     }
     for (int t = 0; t < 3; t++) free(cnt[t]);
 }
@@ -162,11 +249,16 @@ static void build_pats(void) {
 int lang_pat_count(void) { lang_init(); return npats; }
 const Pat *lang_pat(int id) { return pats[id]; }
 int lang_pat_safety(const int **ids) { lang_init(); *ids = safety; return nsafety; }
+const struct LPat *lang_pat_compiled(int id) { lang_init(); return id >= 0 && id < npats ? cpat[id] : NULL; }
+int lang_pat_weight(int id) { lang_init(); return id >= 0 && id < npats ? pwt[id] : 5; }
+int lang_pat_error_count(void) { lang_init(); return nperr_total; }
+const char *lang_pat_error(int i, const char **why) { lang_init(); if (i < 0 || i >= nperr) return NULL; if (why) *why = perr[i].why; return perr[i].row; }
 
 void lang_pat_cursor(PatCur *c, const char *s) {
     const unsigned char *u = (const unsigned char *)s;
     lang_init();
     for (int i = 0; i < 4; i++) c->l[i] = c->e[i] = NULL;
+    c->last = -1;
     c->l[3] = wild; c->e[3] = wild + nwild;
     if (!u[0] || !tbl_start[0]) return;
     int b = (int)hb(0, u);
@@ -179,12 +271,17 @@ void lang_pat_cursor(PatCur *c, const char *s) {
     c->l[2] = tbl_ids[2] + tbl_start[2][b]; c->e[2] = tbl_ids[2] + tbl_start[2][b + 1];
 }
 
-int lang_pat_next(PatCur *c) {            /* a 4 way merge of ascending lists */
-    int best = -1, bi = -1;
-    for (int i = 0; i < 4; i++)
-        if (c->l[i] && c->l[i] < c->e[i] && (best < 0 || *c->l[i] < best)) { best = *c->l[i]; bi = i; }
-    if (bi >= 0) c->l[bi]++;
-    return best;
+int lang_pat_next(PatCur *c) {            /* a 4 way merge of ascending lists; a pattern filed under several heads can meet the text twice: skip the repeat */
+    for (;;) {
+        int best = -1, bi = -1;
+        for (int i = 0; i < 4; i++)
+            if (c->l[i] && c->l[i] < c->e[i] && (best < 0 || *c->l[i] < best)) { best = *c->l[i]; bi = i; }
+        if (bi < 0) return -1;
+        c->l[bi]++;
+        if (best == c->last) continue;
+        c->last = best;
+        return best;
+    }
 }
 
 /* ---------- the word hashes (lexicon, vocabulary) ---------- */
@@ -275,9 +372,22 @@ static void kw_words(const char *s, unsigned char val) {
         i = j;
     }
 }
+/* the words of a pattern: like kw_words, but a <macro> name is not a word (its alternatives are added from the macro table) */
+static void kw_words_pat(const char *s) {
+    for (int i = 0; s[i];) {
+        if (s[i] == '<') { while (s[i] && s[i] != '>') i++; if (s[i]) i++; continue; }
+        if (!((s[i] >= 'a' && s[i] <= 'z') || s[i] == '\'')) { i++; continue; }
+        int j = i; while ((s[j] >= 'a' && s[j] <= 'z') || s[j] == '\'') j++;
+        int a2 = i, b2 = j; while (a2 < b2 && s[a2] == '\'') a2++; while (b2 > a2 && s[b2 - 1] == '\'') b2--;
+        kw_add(s + a2, b2 - a2, 1);
+        i = j;
+    }
+}
 static void build_known(void) {
     free(kw); kw = NULL; kwcap = kwn = 0;
-    for (int t = 0; t < npt; t++) for (int i = 0; i < ptab[t].n; i++) kw_words(ptab[t].t[i].pat, 1);
+    for (int k = 0; k < npats; k++) kw_words_pat(pats[k]->pat);                       /* chunk 26: the words of the patterns that made it into the tables (string rows too) */
+    /* the words INSIDE macros are not added here on purpose (chunk 26): the starter macros hold text-speak and names (plss, er, alex) that would become spell and glue targets;
+     * chunks 49-51 make most of them vocabulary words, and a pattern's own words are added above */
     for (int t = 0; t < nlex_t; t++) for (const char *const *r = lextab[t]; *r; r++) kw_add(*r, word_len(*r), 1);
     for (int t = 0; t < nvocab_t; t++) for (const char *const *r = vocabtab[t]; *r; r++) kw_add(*r, word_len(*r), 0);
 }

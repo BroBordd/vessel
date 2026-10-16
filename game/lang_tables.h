@@ -18,6 +18,8 @@
 /* ---- registry (each returns 0 on success, -1 if the registry is full) ---- */
 int  lang_register_lines(const Line *t, int n);
 int  lang_register_pats(const Pat *t, int n);
+int  lang_register_patrows(const char *const *rows); /* chunk 26: rows "pattern|intent name|weight" (weight 1-9, optional; [a|b] (x) <m> allowed), the array ends with 0 */
+int  lang_register_macros(const char *const *rows);  /* chunk 26: rows "name|alt|alt|..." (the macros <name> of a pattern), the array ends with 0 */
 int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight", the array ends with 0 */
 int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", the array ends with 0 */
 int  lang_register_irregular(const char *const *rows); /* chunk 24: rows "form|lemma" (an irregular form, its dictionary form; "form|form" = never touched), the array ends with 0 */
@@ -40,10 +42,16 @@ int  lang_line_count(void);                                      /* all rows */
 int  lang_pat_count(void);
 const Pat *lang_pat(int id);
 /* the candidates for a pattern starting at s (a word start of the lowercase text), always in ascending id (= registration) order */
-typedef struct { const int *l[4], *e[4]; } PatCur;
+typedef struct { const int *l[4], *e[4]; int last; } PatCur;
 void lang_pat_cursor(PatCur *c, const char *s);
 int  lang_pat_next(PatCur *c);                           /* next candidate id, or -1 */
 int  lang_pat_safety(const int **ids);                   /* ids of every I_SELFHARM pattern; returns how many */
+/* chunk 26: a pattern with [ ( or < is COMPILED (lang_pat.h); lang_pat_compiled(id) is NULL for a classic pattern (the old matcher runs it).
+ * the weight is 1-9 (5 for every old pattern). a pattern or row that does not compile / parse is left out of the tables and listed here */
+const struct LPat *lang_pat_compiled(int id);
+int  lang_pat_weight(int id);
+int  lang_pat_error_count(void);                          /* how many rows were left out (the first 64 are kept) */
+const char *lang_pat_error(int i, const char **why);      /* the i-th left-out row and the reason, or NULL */
 
 /* ---- words ---- */
 int  lang_lex_find(const char *word, const char **rows, int max);   /* every lexicon row of this word (in registration order) */

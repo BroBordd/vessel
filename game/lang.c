@@ -10,6 +10,7 @@
 #include "lang_spell.h"
 #include "lang_lemma.h"
 #include "lang_clause.h"
+#include "lang_pat.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,6 +165,9 @@ static void mt(const char *p, const char *s, const char *base, const char **best
     }
 }
 
+/* chunk 26: the classic matcher for tools (the equivalence test of langcheck --pats runs every old pattern through both matchers) */
+void lang_match_classic(const char *pat, const char *s, const char *base, const char **best) { mt(pat, s, base, best, pat); }
+
 static int stars(const char *p) { int n = 0; for (; *p; p++) if (*p == '*') n++; return n; }
 static int prefix_len(const char *p);
 static int prefix_len(const char *p) { int n = 0; while (p[n] && p[n] != '*' && p[n] != '$') n++; return n; }
@@ -176,19 +180,23 @@ static int scan(const char *lc, int len, Span *sp, int maxsp) {
     int n = 0, i = 0;
     while (i < len && n < maxsp) {
         if (!is_word((unsigned char)lc[i]) || (i > 0 && is_word((unsigned char)lc[i - 1]))) { i++; continue; }
-        const char *best = lc + i; int bk = -1, bstars = 99;
+        const char *best = lc + i; int bk = -1, bstars = 99, bw = 0, bpref = 0;
         PatCur cur; lang_pat_cursor(&cur, lc + i);               /* chunk 6: only the patterns that can start here, in table order */
         for (int k; (k = lang_pat_next(&cur)) >= 0;) {
             const char *p = lang_pat(k)->pat;
-            if (*p != '*' && *p != '?' && *p != lc[i]) continue;
-            const char *e = lc + i;
-            mt(p, lc + i, lc, &e, p);
+            const LPat *lp = lang_pat_compiled(k);                /* chunk 26: [a|b] (x) <m> patterns are compiled; the old ones go through mt() as before */
+            const char *e = lc + i; int st, pref;
+            if (lp) { pref = 0; lpat_match(lp, lc + i, lc, &e, &pref); st = lpat_stars(lp); }
+            else {
+                if (*p != '*' && *p != '?' && *p != lc[i]) continue;
+                mt(p, lc + i, lc, &e, p); st = stars(p); pref = prefix_len(p);
+            }
             if (e == lc + i) continue;
-            int st = stars(p);
-            if (e > best || (e == best && bk >= 0 && st < bstars)) { best = e; bk = k; bstars = st; }
+            int w = lang_pat_weight(k);                           /* chunk 26: of two patterns that reach the same end the heavier wins (every old pattern weighs 5), then fewer stars, then the first */
+            if (e > best || (e == best && bk >= 0 && (w > bw || (w == bw && st < bstars)))) { best = e; bk = k; bstars = st; bw = w; bpref = pref; }
         }
         if (bk >= 0) {
-            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = lang_pat(bk)->intent; sp[n].prefix = prefix_len(lang_pat(bk)->pat);
+            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = lang_pat(bk)->intent; sp[n].prefix = bpref;
             n++; i = (int)(best - lc);
         } else i++;
     }
@@ -204,8 +212,9 @@ static int safety_scan(const char *lc, int len, Span *out, int maxo) {
         if (!is_word((unsigned char)lc[i]) || (i > 0 && is_word((unsigned char)lc[i - 1]))) continue;
         for (int j = 0; j < nids; j++) {
             const char *p = lang_pat(ids[j])->pat; const char *e = lc + i;
-            if (*p != lc[i]) continue;
-            mt(p, lc + i, lc, &e, p);
+            const LPat *lp = lang_pat_compiled(ids[j]);
+            if (lp) lpat_match(lp, lc + i, lc, &e, NULL);
+            else { if (*p != lc[i]) continue; mt(p, lc + i, lc, &e, p); }
             if (e > lc + i) { out[n].start = i; out[n].end = (int)(e - lc); out[n].intent = I_SELFHARM; out[n].prefix = 0; n++; break; }
         }
     }

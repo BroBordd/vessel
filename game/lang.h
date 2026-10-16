@@ -146,6 +146,7 @@ void lang_parse(const char *text, Heard *h);
 /* mask[i] = 1 for every character of text that belongs to something the npcs understand.
  * returns how many separate phrases were highlighted. mask needs strlen(text)+1 bytes */
 int  lang_highlight(const char *text, uint8_t *mask);
+void lang_match_classic(const char *pat, const char *s, const char *base, const char **best);   /* chunk 26 (tests): the old wildcard matcher */
 void lang_heard_label(const Heard *h, char *out, int cap);   /* "HEARD: HELLO + WHO ARE YOU" */
 
 /* ---- answering ---- */
