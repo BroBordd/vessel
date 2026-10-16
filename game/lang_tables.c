@@ -17,6 +17,7 @@ static LineTab ltab[MAX_TABLES]; static int nlt;
 static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
 static const char *const *tstab[MAX_TABLES]; static int nts_t;       /* chunk 18: text-speak rows */
+static const char *const *dialtab[MAX_TABLES]; static int ndial_t;     /* chunk 22: dialect and phonetic spellings */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
 static int builtin_done, dirty = 1;
@@ -26,6 +27,7 @@ int lang_register_lines(const Line *t, int n) { builtin(); if (nlt >= MAX_TABLES
 int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; npt++; dirty = 1; return 0; }
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
+int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
 int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
 
@@ -37,11 +39,12 @@ static void builtin(void) {
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
     lang_register_pats(PATS, PATS_N);
     lang_register_textspeak(TEXTSPEAK);
+    lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_names(NAMES_A);
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -316,6 +319,42 @@ static void build_textspeak(void) {
 }
 const char *lang_textspeak(const char *w, int n) { lang_init(); return ts_find(w, n); }
 
+/* ---------- the dialect map (chunk 22): a dialect or phonetic spelling -> its standard words ---------- */
+static TS *dlm; static int dlcap, dln;
+static const char *dl_find(const char *w, int n) {
+    if (!dlcap) return NULL;
+    for (unsigned h = whash(w, n) & (unsigned)(dlcap - 1);; h = (h + 1) & (unsigned)(dlcap - 1)) {
+        if (!dlm[h].from) return NULL;
+        if (dlm[h].n == n && !memcmp(dlm[h].from, w, (size_t)n)) return dlm[h].to;
+    }
+}
+static void dl_put(const char *from, int n, const char *to) {
+    for (unsigned h = whash(from, n) & (unsigned)(dlcap - 1);; h = (h + 1) & (unsigned)(dlcap - 1)) {
+        if (!dlm[h].from) { dlm[h].from = from; dlm[h].n = n; dlm[h].to = to; dln++; return; }
+        if (dlm[h].n == n && !memcmp(dlm[h].from, from, (size_t)n)) { dlm[h].to = to; return; }     /* a later row wins */
+    }
+}
+static void build_dialect(void) {
+    free(dlm); dlm = NULL; dlcap = dln = 0;
+    int rows = 0;
+    for (int t = 0; t < ndial_t; t++) for (const char *const *r = dialtab[t]; *r; r++) rows++;
+    if (!rows) return;
+    dlcap = 16; while (dlcap < rows * 2) dlcap *= 2;
+    dlm = calloc((size_t)dlcap, sizeof *dlm);
+    if (!dlm) { dlcap = 0; return; }
+    for (int t = 0; t < ndial_t; t++) for (const char *const *r = dialtab[t]; *r; r++) {
+        const char *bar = strchr(*r, '|');
+        if (bar && bar > *r && bar[1]) dl_put(*r, (int)(bar - *r), bar + 1);
+    }
+}
+const char *lang_dialect(const char *w, int n) { lang_init(); return dl_find(w, n); }
+int lang_dialect_count(void) { lang_init(); return dln; }
+const char *lang_dialect_row(int i) {
+    builtin();
+    for (int t = 0; t < ndial_t; t++) for (const char *const *r = dialtab[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -327,6 +366,7 @@ void lang_init(void) {
     build_widx(&namei, nametab, nname_t);
     build_known();
     build_textspeak();
+    build_dialect();
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
     tables_gen++;

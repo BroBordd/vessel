@@ -30,18 +30,30 @@
 #define SPELL_MAX_FIX   12          /* corrections reported per text */
 #define SPELL_MIN_LEN   3
 #define SPELL_MAX_LEN   24
+#define SPELL_TO_MAX    48          /* a correction may be several words (dialect rows), <= 40 characters */
+
+#define SPELL_EDIT      0           /* SpellFix.kind: the edit repair (chunk 21) */
+#define SPELL_PHONETIC  1           /* chunk 22: the phonetic key found a word */
+#define SPELL_DIALECT   2           /* chunk 22: a row of the dialect table */
 
 typedef struct {
     int a, b;                       /* original bytes [a, b) of the token as typed */
-    char from[SPELL_MAX_LEN + 1], to[SPELL_MAX_LEN + 1];
+    char from[SPELL_MAX_LEN + 1], to[SPELL_TO_MAX];
     int conf;                       /* 0-100 */
-    int dist;                       /* unit edit distance 1 or 2 */
+    int dist;                       /* unit edit distance: 1 or 2 (edit), 1-3 (phonetic), 0 (a dialect row) */
+    int kind;                       /* SPELL_EDIT, SPELL_PHONETIC, SPELL_DIALECT */
 } SpellFix;
 typedef struct { int nfix; int min_conf; SpellFix fix[SPELL_MAX_FIX]; } SpellInfo;
 
 /* the best word for the token w[0..n) (lower case letters), or 0. Writes it to out (SPELL_MAX_LEN + 1 bytes), its confidence to *conf and the
  * unit distance to *dist (both may be NULL). The token is not checked for being protected here: lang_spell_text does that. */
 int  lang_spell_word(const char *w, int n, char *out, int *conf, int *dist);
+/* chunk 22: the phonetic key of a word (any case, letters only are read, others are skipped): lang_phone("what") = lang_phone("wut") = "WT". Writes at
+ * most cap - 1 characters and a NUL, returns the length. */
+int  lang_phone(const char *w, int n, char *out, int cap);
+/* chunk 22: the best word of the phonetic index for the token w[0..n) (lower case letters), or 0; out is SPELL_MAX_LEN + 1 bytes; conf and dist may be NULL.
+ * lang_spell_text calls it only when the edit repair found nothing it trusts. */
+int  lang_spell_phonetic(const char *w, int n, char *out, int *conf, int *dist);
 /* the question lang_spell_text asks first: a word that is never repaired because the engine knows it */
 int  lang_spell_protected(const char *w, int n);
 
@@ -55,6 +67,7 @@ int  lang_spell_text(const char *orig, const char *in, const int *inmap, int sho
 /* tools */
 int  lang_spell_dict_size(void);
 int  lang_spell_index_size(void);
+int  lang_spell_phone_size(void);      /* entries of the phonetic index (the words of the patterns and lexicons) */
 double lang_spell_build_ms(void);      /* forces a rebuild, returns the milliseconds */
 void lang_spell_set(int on);           /* 0 = the repair is off (tests: the superset rule); 1 = on (default) */
 

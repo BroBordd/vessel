@@ -22,6 +22,7 @@ int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight
 int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", the array ends with 0 */
 int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (lower case first names), the array ends with 0 */
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
+int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
 /* ---- init ---- */
@@ -51,6 +52,11 @@ const char *lang_vocab_find(const char *word);                      /* the vocab
 int  lang_known_word(const char *w, int n);
 /* chunk 18: the standard form of the token w[0..n) ("idk" -> "i do not know"), or NULL; lang_init plugs it into lang_clean_set_expand */
 const char *lang_textspeak(const char *w, int n);
+/* chunk 22: the standard words of a dialect or phonetic spelling ("wassup" -> "whats up"), or NULL; the spell repair reads it first. lang_dialect_count = rows
+ * in the map (a later row of the same key wins), lang_dialect_row(i) walks every registered row in order (tools) */
+const char *lang_dialect(const char *w, int n);
+int  lang_dialect_count(void);
+const char *lang_dialect_row(int i);
 /* chunk 21: is w[0..n) a word of a pattern or a lexicon row (the spell repair prefers those); every known word with that flag (the spell dictionary is built
  * from it); a counter that changes whenever the tables were rebuilt (the spell index rebuilds itself when it sees a new number) */
 int  lang_value_word(const char *w, int n);

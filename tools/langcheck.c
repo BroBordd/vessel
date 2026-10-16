@@ -21,6 +21,7 @@
  *                      (chunk 19) numbers, lang_clean_numbers: numbers, ages, times and ordinals with their original byte ranges (and what must NOT count: user1 mp3 2day a lone "one" 25:00), number words both ways (0-1100 round trip and bigger), the number-letter words of the expanded variant (b4 gr8 2morrow 4ever any1, a lone 2 / 4 as to / too / for), the Heard fields, and the superset rule with the number rules off
  *   --vocab            (chunk 20) the vocabulary and the word hash: every row (word|rank|pos, ranks 1..N in order with no gaps, no duplicates, a-z and '), every lookup (vocab_has / rank / pos / is_name / protected, case blind, pointer and length) against the row, the names, the known-word hook, registering later and reset, and the lookup time. fails on a problem
  *   --spell [FILES]    (chunk 21) the spell repair lang_spell: the dictionary and the delete index, about 60 fix pairs and 70 words that must stay, the never-repaired rules (vocabulary, names, patterns, text-speak, acronyms, names in the middle of a sentence, digits, 1-2 letters), the maps and the highlight, the cap, the Heard fields, self-harm through typos, registering later, the superset rule (spell on never loses an intent over every reply line and every corpus FILE) and the speed. fails on a problem
+ *   --phonetic         (chunk 22) the phonetic key lang_phone (24 exact keys, 16 pairs that sound alike, pairs that do not, case, cap, a very long text), the dialect table (>= 150 rows: well-formed, no vocabulary word or name as a key, no text-speak key, no duplicate, the key never its result) and its repair (45 typed -> spelled pairs, what must stay, the order dialect / edit / phonetic, the maps of a multi-word result, the cap, the highlight and Heard, self-harm through a row), the phonetic fallback (what it fixes, real words it must not bend, only words of patterns and lexicons are candidates), registering later, the off switch and the speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -1269,7 +1270,7 @@ static int do_spell(int argc, char **argv) {
         SCHECK(si.nfix == 1 && !strcmp(out, "tell me a joke"), "a shouted line is repaired like any other (got \"%s\")", out);
     }
     /* the maps: out[i] came from in[src[i]] and from the original byte outmap[i]; the whole typed token is covered; the original is untouched */
-    {   static const char *const M[] = { "Hwllo   there, im sory!", "  tell me a joek please ", "who are yuo?! godbye", "hwllo hwllo hwllo", "ok. whare is thi plce", "thankss" };
+    {   static const char *const M[] = { "Hwllo   there, im sory!", "  tell me a joek please ", "who are yuo?! godbye", "hwllo hwllo hwllo", "ok. whare is thi plce", "thankss", "wassup there, luv u", "  wut iz yoo name  ", "thankyou! howdee misshun" };
         for (size_t i = 0; i < sizeof M / sizeof M[0]; i++) {
             char lc[300]; int map[300]; int len = lang_clean(M[i], lc, 300, map);
             char out[300]; int src[300], om[300]; SpellInfo si;
@@ -1279,7 +1280,7 @@ static int do_spell(int argc, char **argv) {
             SCHECK(ok && mono, "\"%s\": the maps are not monotone and inside the text", M[i]);
             for (int f = 0; f < si.nfix; f++) {
                 SpellFix *x = &si.fix[f];
-                SCHECK(x->a >= 0 && x->b > x->a && x->b <= (int)strlen(M[i]) && x->conf >= SPELL_MIN_CONF && x->conf <= 99 && (x->dist == 1 || x->dist == 2) && strlen(x->to) >= SPELL_MIN_LEN && strcmp(x->from, x->to),
+                SCHECK(x->a >= 0 && x->b > x->a && x->b <= (int)strlen(M[i]) && x->conf >= SPELL_MIN_CONF && x->conf <= 99 && ((x->kind == SPELL_EDIT && (x->dist == 1 || x->dist == 2)) || (x->kind == SPELL_PHONETIC && x->dist >= 1 && x->dist <= 3) || (x->kind == SPELL_DIALECT && x->dist == 0 && x->conf == 90)) && strlen(x->to) >= 2 && strlen(x->to) < SPELL_TO_MAX && strcmp(x->from, x->to),
                        "\"%s\": fix %d is malformed (%d-%d \"%s\" -> \"%s\" conf %d)", M[i], f, x->a, x->b, x->from, x->to, x->conf);
                 SCHECK(!strncasecmp(M[i] + x->a, x->from, strlen(x->from)) || x->b - x->a >= (int)strlen(x->from), "\"%s\": fix %d covers the wrong bytes", M[i], f);
             }
@@ -1382,6 +1383,196 @@ static int do_spell(int argc, char **argv) {
     return bad;
 }
 
+/* chunk 22: the phonetic key, the phonetic fallback and the dialect table */
+static int do_phonetic(int argc, char **argv) {
+    (void)argc; (void)argv;
+    int bad = 0, checks = 0;
+    lang_init();
+    #define PCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD PHONETIC: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    /* the key itself */
+    static const char *const KEYS[][2] = { { "what", "WT" }, { "wut", "WT" }, { "hello", "HL" }, { "howdy", "HT" }, { "phone", "FN" }, { "knife", "NF" }, { "night", "NT" },
+        { "thank", "0NK" }, { "wrong", "RNK" }, { "church", "XRX" }, { "science", "SNS" }, { "xylophone", "SLFN" }, { "you", "Y" }, { "yoo", "Y" }, { "apple", "APL" },
+        { "dumb", "TM" }, { "edge", "AJ" }, { "ship", "XP" }, { "nation", "NXN" }, { "watch", "WX" }, { "ghost", "KST" }, { "sign", "SN" }, { "whale", "WL" }, { "queen", "KN" } };
+    for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++) {
+        char k[40]; int n = lang_phone(KEYS[i][0], (int)strlen(KEYS[i][0]), k, 40);
+        PCHECK(!strcmp(k, KEYS[i][1]) && n == (int)strlen(k), "the key of %s is \"%s\", wanted \"%s\"", KEYS[i][0], k, KEYS[i][1]);
+    }
+    static const char *const SAME[][2] = { { "what", "wat" }, { "what", "whut" }, { "what", "wot" }, { "hello", "hallo" }, { "howdy", "howdee" }, { "phone", "fone" }, { "night", "nite" },
+        { "knife", "nife" }, { "please", "plees" }, { "love", "luv" }, { "thanks", "thanx" }, { "sorry", "sori" }, { "want", "wont" }, { "kill", "kil" }, { "cat", "kat" }, { "rite", "right" }, { "scare", "skare" } };
+    for (size_t i = 0; i < sizeof SAME / sizeof SAME[0]; i++) {
+        char a[40], b[40]; lang_phone(SAME[i][0], (int)strlen(SAME[i][0]), a, 40); lang_phone(SAME[i][1], (int)strlen(SAME[i][1]), b, 40);
+        PCHECK(!strcmp(a, b), "%s (%s) and %s (%s) must sound alike", SAME[i][0], a, SAME[i][1], b);
+    }
+    static const char *const DIFF[][2] = { { "what", "when" }, { "hello", "help" }, { "good", "gold" }, { "love", "lore" }, { "you", "your" }, { "bye", "buy" + 0 }, { "dea", "die" + 0 } };
+    for (size_t i = 0; i < sizeof DIFF / sizeof DIFF[0]; i++) {
+        char a[40], b[40]; lang_phone(DIFF[i][0], (int)strlen(DIFF[i][0]), a, 40); lang_phone(DIFF[i][1], (int)strlen(DIFF[i][1]), b, 40);
+        if (!strcmp(DIFF[i][0], "bye") || !strcmp(DIFF[i][0], "dea")) continue;        /* bye / buy and dea / die are alike on purpose: vowels are dropped */
+        PCHECK(strcmp(a, b), "%s and %s must not sound alike (both %s)", DIFF[i][0], DIFF[i][1], a);
+    }
+    {   char k[40], k2[40]; lang_phone("WHAT", 4, k, 40); lang_phone("w-h-a-t", 7, k2, 40);
+        PCHECK(!strcmp(k, "WT") && !strcmp(k2, "WT"), "the key is case-blind and skips what is not a letter (%s, %s)", k, k2);
+        PCHECK(lang_phone("", 0, k, 40) == 0 && !k[0] && lang_phone("123 !!", 6, k, 40) == 0 && !k[0], "no letters, no key");
+        char c[6]; memset(c, 'x', sizeof c);
+        int n1 = lang_phone("what", 4, c, 1); PCHECK(n1 == 0 && c[0] == 0 && c[1] == 'x', "a cap of 1 writes only the NUL");
+        memset(c, 'x', sizeof c); int n2 = lang_phone("what", 4, c, 2); PCHECK(n2 == 1 && !strcmp(c, "W") && c[2] == 'x', "a cap of 2 writes one character and the NUL (got \"%s\" %d)", c, n2);
+        memset(c, 'x', sizeof c); lang_phone("supercalifragilistic", 20, c, 5); PCHECK(c[4] == 0 && c[5] == 'x', "a long word never writes past the cap");
+        char big[100]; for (int i = 0; i < 99; i++) big[i] = "bcdfgklmnprstvz"[i % 15]; big[99] = 0;
+        lang_phone(big, 99, k, 40); PCHECK(strlen(k) < 40, "a very long text is cut by the cap");
+    }
+    /* the dialect table: rows, lint */
+    int rows = 0, unknown_out = 0;
+    for (const char *const *r = DIALECT; *r; r++) {
+        rows++;
+        const char *bar = strchr(*r, '|'); int ok = bar != NULL; int kn = ok ? (int)(bar - *r) : 0;
+        if (ok) { ok = kn >= 2 && kn <= 24; for (int i = 0; ok && i < kn; i++) if ((*r)[i] < 'a' || (*r)[i] > 'z') ok = 0; }
+        const char *to = ok ? bar + 1 : ""; int tn = (int)strlen(to);
+        if (ok) { ok = tn >= 2 && tn <= 40 && to[0] != ' ' && to[tn - 1] != ' '; for (int i = 0; ok && i < tn; i++) if (!((to[i] >= 'a' && to[i] <= 'z') || (to[i] == ' ' && to[i + 1] != ' '))) ok = 0; }
+        PCHECK(ok, "row \"%s\" is malformed (key a-z 2-24 letters, result a-z and single spaces, 2-40 characters)", *r);
+        if (!ok) continue;
+        PCHECK(!(tn == kn && !strncmp(*r, to, (size_t)kn)), "row \"%s\" maps a word to itself", *r);
+        PCHECK(!vocab_has_n(*r, kn) && !vocab_is_name_n(*r, kn), "row \"%s\": the key is a vocabulary word or a name (a real word is never corrected)", *r);
+        PCHECK(!lang_textspeak(*r, kn), "row \"%s\": the key belongs to the text-speak table", *r);
+        for (const char *const *r2 = r + 1; *r2; r2++) { const char *b2 = strchr(*r2, '|'); if (b2 && b2 - *r2 == kn && !strncmp(*r, *r2, (size_t)kn)) { PCHECK(0, "duplicate key in \"%s\"", *r); } }
+        const char *w = to; int allknown = 1;                           /* is every word of the result a word the engine knows? (information: the 15,000 words of chunks 49-51 end it) */
+        while (*w) { const char *e = strchr(w, ' '); int wl = e ? (int)(e - w) : (int)strlen(w); if (!lang_known_word(w, wl)) allknown = 0; w += wl; if (*w == ' ') w++; }
+        if (!allknown) unknown_out++;
+        PCHECK(lang_dialect(*r, kn) != NULL, "row \"%s\" is not in the map", *r);
+    }
+    PCHECK(rows >= 150, "only %d dialect rows (the first batch has at least 150)", rows);
+    PCHECK(lang_dialect_count() >= rows - 2 && lang_dialect_count() <= rows, "the map has %d rows for %d table rows", lang_dialect_count(), rows);
+    PCHECK(lang_dialect_row(0) != NULL && lang_dialect_row(rows - 1) != NULL && lang_dialect_row(rows) == NULL && !strcmp(lang_dialect_row(0), DIALECT[0]), "the row walker");
+    PCHECK(unknown_out * 100 <= rows * 40, "%d of %d dialect results have a word the engine does not know yet", unknown_out, rows);
+    PCHECK(!lang_dialect("hello", 5) && !lang_dialect("", 0) && !lang_dialect("w", 1), "a word that is not a row has no entry");
+    /* the dialect repair: typed -> the spelled text */
+    static const char *const DL[][2] = {
+        { "wassup", "whats up" }, { "wassup dea", "whats up dea" }, { "wazzup", "whats up" }, { "whatsup", "whats up" }, { "i luv yu", "i luv you" }, { "yoo are kind", "you are kind" },
+        { "thankyou", "thank you" }, { "thankyou so much", "thank you so much" }, { "thanku", "thank you" }, { "mornin", "morning" }, { "hw r u", "how r u" }, { "whut r u", "what r u" },
+        { "watchu want", "what do you want" }, { "howdee", "howdy" }, { "heya", "hey" }, { "hiya", "hi" }, { "goodmorning", "good morning" }, { "gnight", "good night" },
+        { "shutup", "shut up" }, { "seeya", "see you" }, { "stoopid", "stupid" }, { "rilly", "really" }, { "alrite", "alright" }, { "lookin", "looking" },
+        { "yah", "yeah" }, { "naw", "no" }, { "okey", "ok" }, { "sowwy", "sorry" }, { "pleaz help", "please help" }, { "wana go", "want to go" }, { "imma go", "i am going to go" },
+        { "dono", "i do not know" }, { "gimmie that", "give me that" }, { "fren", "friend" }, { "bruh", "bro" }, { "hallo", "hello" }, { "yu", "you" }, { "hw are you", "how are you" },
+        { "whoru", "who are you" }, { "plz plees", "plz please" }, { "WASSUP DEA", "whats up dea" }, { "Wassup there", "whats up there" }, { "hi. Wassup", "hi. whats up" } };
+    for (size_t i = 0; i < sizeof DL / sizeof DL[0]; i++) {
+        char out[200]; SpellInfo si; sp_fix(DL[i][0], out, 200, &si);
+        PCHECK(!strcmp(out, DL[i][1]) && si.nfix >= 1, "\"%s\" -> \"%s\", wanted \"%s\"", DL[i][0], out, DL[i][1]);
+        PCHECK(si.nfix >= 1 && si.fix[0].kind == SPELL_DIALECT && si.fix[0].conf == 90 && si.fix[0].dist == 0, "\"%s\": the first fix is not a dialect fix (kind %d conf %d dist %d)", DL[i][0], si.fix[0].kind, si.fix[0].conf, si.fix[0].dist);
+        char out2[200]; SpellInfo s2; sp_fix(out, out2, 200, &s2);
+        PCHECK(s2.nfix == 0 && !strcmp(out, out2), "\"%s\": repairing the result \"%s\" changes it again to \"%s\"", DL[i][0], out, out2);
+    }
+    /* what a row must not touch */
+    static const char *const NO[] = { "hello there", "my name is Wassup", "im a HEYA", "w4ssup", "thankyou2", "luv3", "who are you", "yo", "wanna talk", "gonna go", "idk", "lol", "dont go", "u r kind", "ya", "thx", "brb" };
+    for (size_t i = 0; i < sizeof NO / sizeof NO[0]; i++) {
+        char out[200]; SpellInfo si; sp_fix(NO[i], out, 200, &si); char lc[200]; lang_clean(NO[i], lc, 200, NULL);
+        PCHECK(si.nfix == 0 && !strcmp(out, lc), "\"%s\" must stay (got \"%s\")", NO[i], out);
+    }
+    {   const char *nm = NAMES_A[0]; char out[200], t[200]; SpellInfo si; snprintf(t, sizeof t, "%s luv", nm); (void)t;
+        sp_fix(nm, out, 200, &si); PCHECK(si.nfix == 0, "a known name stays (%s -> %s)", nm, out); }
+    /* the order: a dialect row first, then the edit repair, then the phonetic one */
+    {   char out[200]; SpellInfo si;
+        sp_fix("frend", out, 200, &si);  PCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_DIALECT, "frend is a dialect row");
+        sp_fix("pleese", out, 200, &si); PCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_EDIT && !strcmp(out, "please"), "pleese is an edit repair (got \"%s\" kind %d)", out, si.fix[0].kind);
+        sp_fix("misshun", out, 200, &si); PCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_PHONETIC && !strcmp(out, "mission") && si.fix[0].dist == 2 && si.fix[0].conf >= SPELL_MIN_CONF, "misshun is a phonetic fix of distance 2 (got \"%s\" kind %d)", out, si.nfix ? si.fix[0].kind : -1);
+        sp_fix("rilly nice", out, 200, &si); PCHECK(si.nfix == 1 && si.fix[0].kind == SPELL_DIALECT && !strcmp(out, "really nice"), "rilly is a dialect row (got \"%s\")", out);
+        sp_fix("whats the mishun", out, 200, &si);
+        PCHECK(si.nfix == 0 || si.fix[0].kind != SPELL_EDIT, "mishun is not an edit repair");
+    }
+    /* the phonetic fallback by itself */
+    {   static const char *const P[][2] = { { "misshun", "mission" }, { "rilly", "really" }, { "reely", "really" }, { "howdee", "howdy" }, { "misson", "mission" }, { "pleese", "please" }, { "plees", "please" } };
+        for (size_t i = 0; i < sizeof P / sizeof P[0]; i++) {
+            char o[40]; int cf = 0, d = 0; int r = lang_spell_phonetic(P[i][0], (int)strlen(P[i][0]), o, &cf, &d);
+            PCHECK(r && !strcmp(o, P[i][1]) && cf >= 40 && cf <= 99 && d >= 1 && d <= 3, "%s must sound like %s (got %s, conf %d, dist %d)", P[i][0], P[i][1], r ? o : "nothing", cf, d);
+        }
+        /* real words the vocabulary lacks must not be bent into a near sound */
+        static const char *const KEEP[] = { "comma", "type", "allow", "tomb", "queue", "photo", "knight", "ghost", "wrist", "thumb", "island", "castle" };
+        for (size_t i = 0; i < sizeof KEEP / sizeof KEEP[0]; i++) {
+            char o[40]; int cf = 0, d = 0; int n = (int)strlen(KEEP[i]);
+            char out[200]; SpellInfo si; sp_fix(KEEP[i], out, 200, &si);
+            int r = lang_spell_phonetic(KEEP[i], n, o, &cf, &d);
+            PCHECK(!(r && cf >= (n == 3 ? SPELL_MIN_CONF + 8 : n == 4 ? SPELL_MIN_CONF + 4 : SPELL_MIN_CONF)) || vocab_protected(KEEP[i], n) || lang_known_word(KEEP[i], n), "\"%s\" would be bent into \"%s\" (conf %d)", KEEP[i], o, cf);
+            if (!vocab_protected(KEEP[i], n) && !lang_known_word(KEEP[i], n)) PCHECK(si.nfix == 0 || si.fix[0].kind != SPELL_PHONETIC, "\"%s\" must not get a phonetic fix (got \"%s\")", KEEP[i], out);
+        }
+        char o[40]; int cf, d;
+        PCHECK(!lang_spell_phonetic("xyzzyplugh", 10, o, &cf, &d) && !lang_spell_phonetic("ab", 2, o, &cf, &d) && !lang_spell_phonetic("supercalifragilisticexpialidocious", 34, o, &cf, &d), "nothing, too short, too long: no phonetic fix");
+        PCHECK(lang_spell_phone_size() >= 300 && lang_spell_phone_size() < lang_spell_dict_size(), "the phonetic index has %d entries (dictionary %d): only the words of patterns and lexicons", lang_spell_phone_size(), lang_spell_dict_size());
+    }
+    /* the maps: a multi-word result maps its first letters to the token and its LAST letter to the token's last character */
+    {   const char *t = "wassup there"; char lc[100]; int map[100]; int len = lang_clean(t, lc, 100, map);
+        char out[100]; int src[100], om[100]; SpellInfo si; int n = lang_spell_text(t, lc, map, 0, out, 100, om, src, &si);
+        PCHECK(n == 14 && !strcmp(out, "whats up there") && si.nfix == 1 && si.fix[0].a == 0 && si.fix[0].b == 6, "wassup there: \"%s\" fix %d-%d", out, si.fix[0].a, si.fix[0].b);
+        PCHECK(om[0] == 0 && om[7] == 5 && om[8] == 6 && om[n] == map[len] && src[n] == len, "the maps of a multi-word result (first %d, last of up %d)", om[0], om[7]);
+        int mono = 1; for (int k = 1; k < n; k++) if (om[k] < om[k - 1] || src[k] < src[k - 1]) mono = 0;
+        PCHECK(mono, "the maps are monotone");
+        /* the cap: a result that does not fit stays as typed; one that fits exactly is written */
+        char o8[8]; n = lang_spell_text("wassup", "wassup", NULL, 0, o8, 8, NULL, NULL, &si);
+        PCHECK(n == 6 && si.nfix == 0 && !strcmp(o8, "wassup"), "a cap of 8 cannot hold \"whats up\" and a NUL: as typed (got \"%s\")", o8);
+        char o9[9]; n = lang_spell_text("wassup", "wassup", NULL, 0, o9, 9, NULL, NULL, &si);
+        PCHECK(n == 8 && si.nfix == 1 && !strcmp(o9, "whats up"), "a cap of 9 holds it exactly (got \"%s\")", o9);
+    }
+    /* the highlight, Heard, the intents, safety */
+    {   Heard h; uint8_t mask[200];
+        lang_parse("wassup", &h);
+        PCHECK(heard_has(&h, I_GREET) && h.nspell == 1 && h.spell_conf == 90 && (h.flags & LF_SPELL), "wassup is a greet with a spell fix of confidence 90 (nspell %d conf %d)", h.nspell, h.spell_conf);
+        lang_highlight("wassup", mask); PCHECK(mask[0] && mask[1] && mask[2] && mask[3] && mask[4] && mask[5], "the highlight covers the whole typed word wassup (%d%d%d%d%d%d)", mask[0], mask[1], mask[2], mask[3], mask[4], mask[5]);
+        lang_parse("thankyou", &h); PCHECK(heard_has(&h, I_THANKS), "thankyou is heard as thanks");
+        lang_parse("hw r u", &h); PCHECK(heard_has(&h, I_HOWRU), "hw r u is heard as how are you");
+        lang_parse("luv u", &h); PCHECK(heard_has(&h, I_LOVE), "luv u is heard as love");
+        lang_parse("howdee", &h); PCHECK(heard_has(&h, I_GREET), "howdee is heard as a greet");
+        lang_parse("hello there", &h); PCHECK(h.nspell == 0 && !(h.flags & LF_SPELL), "a clean text sets no spell field");
+        static const char *const SH[] = { "i wana die", "i wana kill myself", "i dono wana live" };
+        for (size_t i = 0; i < sizeof SH / sizeof SH[0]; i++) { lang_parse(SH[i], &h); if (i < 2) PCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "\"%s\" must be heard as self-harm, first (through the dialect row)", SH[i]); }
+    }
+    /* registering later: a new row is used at once, a later row wins, a vocabulary word is never a key, reset forgets */
+    {   static const char *const R1[] = { "zorp|hello", 0 }, *const R2[] = { "zorp|goodbye", "hello|hullo", 0 };
+        char out[200]; SpellInfo si; int before = lang_dialect_count();
+        sp_fix("zorp there", out, 200, &si); PCHECK(si.nfix == 0, "zorp is nothing before the row exists");
+        lang_register_dialect(R1); sp_fix("zorp there", out, 200, &si); PCHECK(si.nfix == 1 && !strcmp(out, "hello there"), "a registered row works at once (got \"%s\")", out);
+        PCHECK(lang_dialect_count() == before + 1, "the map grew by one row (%d -> %d)", before, lang_dialect_count());
+        lang_register_dialect(R2); sp_fix("zorp there", out, 200, &si); PCHECK(!strcmp(out, "goodbye there"), "a later row of the same key wins (got \"%s\")", out);
+        sp_fix("hello there", out, 200, &si); PCHECK(si.nfix == 0 && !strcmp(out, "hello there"), "a vocabulary word is never a key, even if a row says so (got \"%s\")", out);
+        lang_tables_reset(); sp_fix("zorp there", out, 200, &si); PCHECK(si.nfix == 0 && lang_dialect_count() == before, "after a reset the rows are gone (count %d, wanted %d)", lang_dialect_count(), before);
+        /* a lexicon word becomes a phonetic candidate; the reset takes it away */
+        static const char *const LX[] = { "krakatoa|greet|7", 0 }; char o[40]; int cf = 0, d = 0;
+        PCHECK(!lang_spell_phonetic("krakatoo", 8, o, &cf, &d), "krakatoo is nothing before the lexicon word exists");
+        lang_register_lex(LX); int r = lang_spell_phonetic("krakatoo", 8, o, &cf, &d);
+        PCHECK(r && !strcmp(o, "krakatoa") && d == 1, "krakatoo must sound like krakatoa once a lexicon row has it (got %s)", r ? o : "nothing");
+        lang_tables_reset(); PCHECK(!lang_spell_phonetic("krakatoo", 8, o, &cf, &d), "after a reset krakatoa is gone again");
+        /* a word that only the vocabulary has is not a phonetic candidate */
+        static const char *const VX[] = { "krakatoa|9000|n", 0 }; lang_register_vocab(VX);
+        PCHECK(!lang_spell_phonetic("krakatoo", 8, o, &cf, &d), "a vocabulary-only word is not a phonetic candidate");
+        lang_tables_reset();
+    }
+    /* the switch: with the repair off nothing in the dialect table or the phonetic index is used */
+    {   char out[200]; SpellInfo si; char o[40]; int cf, d;
+        lang_spell_set(0); sp_fix("wassup", out, 200, &si); PCHECK(si.nfix == 0, "the off switch turns the dialect rows off too");
+        PCHECK(!lang_spell_phonetic("misshun", 7, o, &cf, &d), "the off switch turns the phonetic fallback off");
+        lang_spell_set(1);
+    }
+    /* speed: the key, a phonetic lookup, a dialect lookup */
+    {   struct timespec a, b; char k[40]; long sum = 0;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (int i = 0; i < 100000; i++) sum += lang_phone(i & 1 ? "thanksgiving" : "wassup", i & 1 ? 12 : 6, k, 40);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms_key = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        char o[40]; int cf, d, ok = 0;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (int i = 0; i < 20000; i++) ok += lang_spell_phonetic(i & 1 ? "misshun" : "supercalifragilistic", i & 1 ? 7 : 20, o, &cf, &d);
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms_ph = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        long hit = 0;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (int i = 0; i < 100000; i++) hit += lang_dialect(i & 1 ? "wassup" : "hello", i & 1 ? 6 : 5) != NULL;
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms_dl = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        printf("  phonetic speed: 100,000 keys %.1f ms (%.5f ms each), 20,000 lookups %.1f ms (%.4f ms each), 100,000 dialect lookups %.1f ms; index %d entries, %d dialect rows (%d with a result word not yet known)\n",
+               ms_key, ms_key / 100000, ms_ph, ms_ph / 20000, ms_dl, lang_spell_phone_size(), lang_dialect_count(), unknown_out);
+        PCHECK(sum > 0 && ok == 10000 && hit == 50000, "the speed loops changed (%ld %d %ld)", sum, ok, hit);
+        PCHECK(ms_key / 100000 < 0.01 && ms_ph / 20000 < 0.05 && ms_dl / 100000 < 0.001, "too slow: key %.5f ms, lookup %.4f ms, dialect %.5f ms", ms_key / 100000, ms_ph / 20000, ms_dl / 100000);
+    }
+    printf("phonetic: %d checks, %d problems; %d dialect rows\n", checks, bad, rows);
+    #undef PCHECK
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1403,10 +1594,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--phonetic")) { rc |= do_phonetic(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

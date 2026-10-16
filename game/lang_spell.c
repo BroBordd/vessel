@@ -1,7 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
- * SPELL REPAIR (docs/convo_plan.md, chunk 21), see lang_spell.h. No SDL. */
+ * SPELL REPAIR (docs/convo_plan.md, chunk 21; the phonetic fallback and the dialect table, chunk 22), see lang_spell.h. No SDL. */
 #include "lang_spell.h"
 #include "lang_tables.h"
 #include "lang_vocab.h"
@@ -15,6 +15,7 @@
 typedef struct { const char *w; int n, rank; int val; } DW;
 static DW *dict; static int ndict, capdict;
 static uint64_t *idx; static int nidx;             /* (hash << 32) | dictionary index, sorted */
+static uint64_t *pidx; static int npidx;           /* chunk 22: (hash of the phonetic key << 32) | dictionary index, the words of patterns and lexicons only */
 static int built_gen = -1, spell_on = 1;
 static int vocab_top;                              /* ranks of words that are not in the vocabulary start after this */
 
@@ -36,8 +37,66 @@ static void idx_add(const char *s, int n, int di, uint64_t **arr, int *cnt, int 
     (*arr)[(*cnt)++] = ((uint64_t)fnv(s, n) << 32) | (uint32_t)di;
 }
 
+/* ---------- the phonetic key (chunk 22): a Metaphone-style sound skeleton ---------- */
+static int pv(char c) { return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u'; }
+int lang_phone(const char *w, int n, char *out, int cap) {
+    char s[2 * SPELL_MAX_LEN + 2]; int m = 0, o = 0, i = 0;
+    for (int k = 0; k < n && m < (int)sizeof s - 1; k++) { char c = w[k]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c >= 'a' && c <= 'z') s[m++] = c; }
+    s[m] = 0;
+#define AT(k) ((k) >= 0 && (k) < m ? s[k] : 0)
+#define EMIT(ch) do { if (o < cap - 1) out[o] = (ch); o++; } while (0)
+    if (m >= 2) {                                                  /* silent or special starts: kn gn pn wr, ae, wh */
+        char a = s[0], b = s[1];
+        if (((a == 'k' || a == 'g' || a == 'p') && b == 'n') || (a == 'w' && b == 'r') || (a == 'a' && b == 'e')) i = 1;
+        else if (a == 'w' && b == 'h') { EMIT('W'); i = 2; }
+    }
+    if (m >= 1 && s[0] == 'x') { EMIT('S'); i = 1; }
+    for (; i < m; i++) {
+        char c = s[i], nx = AT(i + 1), pr = AT(i - 1);
+        if (c == pr && c != 'c') continue;                         /* a doubled letter is one sound */
+        if (pv(c)) { if (i == 0) EMIT('A'); continue; }            /* a vowel counts only at the start of the word */
+        switch (c) {
+        case 'b': if (!(pr == 'm' && i == m - 1)) EMIT('B'); break;                              /* dumb */
+        case 'c':
+            if (nx == 'i' || nx == 'e' || nx == 'y') { if (pr == 's') break; if (nx == 'i' && AT(i + 2) == 'a') EMIT('X'); else EMIT('S'); }
+            else if (nx == 'h') { EMIT('X'); i++; }
+            else if (nx == 'k') { EMIT('K'); i++; }
+            else EMIT('K');
+            break;
+        case 'd': if (nx == 'g' && (AT(i + 2) == 'e' || AT(i + 2) == 'i' || AT(i + 2) == 'y')) { EMIT('J'); i += 2; } else EMIT('T'); break;
+        case 'g':
+            if (nx == 'h') { if (pv(AT(i + 2))) EMIT('K'); i++; }                                 /* night, though: silent; ghost: K */
+            else if (nx == 'n') { if (i + 2 < m) EMIT('K'); }                                     /* sign: silent at the end */
+            else if (nx == 'i' || nx == 'e' || nx == 'y') EMIT('J');
+            else EMIT('K');
+            break;
+        case 'h': if (pv(nx) && pr != 'c' && pr != 's' && pr != 'p' && pr != 't' && pr != 'g') EMIT('H'); break;
+        case 'k': if (pr != 'c') EMIT('K'); break;
+        case 'p': if (nx == 'h') { EMIT('F'); i++; } else EMIT('P'); break;
+        case 'q': EMIT('K'); break;
+        case 's': if (nx == 'h') { EMIT('X'); i++; } else if (nx == 'i' && (AT(i + 2) == 'o' || AT(i + 2) == 'a')) EMIT('X'); else EMIT('S'); break;
+        case 't':
+            if (nx == 'i' && (AT(i + 2) == 'o' || AT(i + 2) == 'a')) EMIT('X');
+            else if (nx == 'h') { EMIT('0'); i++; }
+            else if (nx == 'c' && AT(i + 2) == 'h') { }                                           /* watch */
+            else EMIT('T');
+            break;
+        case 'v': EMIT('F'); break;
+        case 'w': if (pv(nx)) EMIT('W'); break;
+        case 'x': EMIT('K'); EMIT('S'); break;
+        case 'y': if (pv(nx)) EMIT('Y'); break;
+        case 'z': EMIT('S'); break;
+        default: EMIT((char)(c - 32)); break;                       /* f j l m n r */
+        }
+    }
+#undef AT
+#undef EMIT
+    if (cap > 0) out[o < cap ? o : cap - 1] = 0;
+    return o < cap ? o : cap - 1;
+}
+
 static void build(void) {
-    free(dict); free(idx); dict = NULL; idx = NULL; ndict = capdict = nidx = 0;
+    free(dict); free(idx); free(pidx); dict = NULL; idx = NULL; pidx = NULL; ndict = capdict = nidx = npidx = 0;
     lang_known_each(each_cb, NULL);
     vocab_top = vocab_size();
     for (int i = 0; i < ndict; i++) {                                   /* the real rank: a vocabulary word keeps its rank, the others come after it */
@@ -64,6 +123,19 @@ static void build(void) {
         cnt = m;
     }
     idx = arr; nidx = cnt;
+    uint64_t *pa = NULL; int pc = 0, pcap = 0;                           /* chunk 22: the phonetic index, only the words a pattern or a lexicon row knows */
+    for (int i = 0; i < ndict; i++) {
+        if (!dict[i].val) continue;
+        char k[SPELL_MAX_LEN * 2 + 2]; int kl = lang_phone(dict[i].w, dict[i].n, k, (int)sizeof k);
+        if (kl < 2) continue;
+        idx_add(k, kl, i, &pa, &pc, &pcap);
+    }
+    if (pa) {
+        qsort(pa, (size_t)pc, sizeof *pa, cmp64);
+        int m = 0; for (int i = 0; i < pc; i++) if (!m || pa[i] != pa[m - 1]) pa[m++] = pa[i];
+        pc = m;
+    }
+    pidx = pa; npidx = pc;
 }
 static void ensure(void) {
     int g = lang_tables_gen();
@@ -77,6 +149,7 @@ double lang_spell_build_ms(void) {
 }
 int lang_spell_dict_size(void) { ensure(); return ndict; }
 int lang_spell_index_size(void) { ensure(); return nidx; }
+int lang_spell_phone_size(void) { ensure(); return npidx; }
 void lang_spell_set(int on) { spell_on = on; }
 
 /* ---------- the cost ---------- */
@@ -189,6 +262,56 @@ int lang_spell_word(const char *w, int n, char *out, int *conf, int *dist) {
     return 1;
 }
 
+/* the two words end alike: the same last letter, or one ends in a silent e and the other in the letter before it (plees / please) */
+static int tail_ok(const char *w, int n, const char *t, int m) {
+    if (w[n - 1] == t[m - 1]) return 1;
+    if (n < 5 || m < 5) return 0;                                    /* a short word has no room for a silent e (type / tip) */
+    if (t[m - 1] == 'e' && w[n - 1] == t[m - 2]) return 1;
+    if (w[n - 1] == 'e' && t[m - 1] == w[n - 2]) return 1;
+    return 0;
+}
+/* chunk 22: the phonetic fallback. only a word that a pattern or a lexicon row knows, the same key, the same first letter, a unit distance of at most 2
+ * (3 for 8+ letters; from 2 up, and for every word of up to 5 letters, the two words must end alike); ranked like the edit repair; the confidence falls with the distance, with the words that share the key and with a thin margin */
+int lang_spell_phonetic(const char *w, int n, char *out, int *conf, int *dist) {
+    if (!spell_on || n < SPELL_MIN_LEN || n > SPELL_MAX_LEN) return 0;
+    ensure();
+    if (!npidx) return 0;
+    char k[SPELL_MAX_LEN * 2 + 2]; int kl = lang_phone(w, n, k, (int)sizeof k);
+    if (kl < 2) return 0;
+    uint32_t h = fnv(k, kl);
+    int lo = 0, hi = npidx; uint64_t key = (uint64_t)h << 32;
+    while (lo < hi) { int mid = (lo + hi) / 2; if (pidx[mid] < key) lo = mid + 1; else hi = mid; }
+    Cand c[64]; int nc = 0, keep = 0, maxd = n >= 8 ? 3 : 2;      /* a real word the vocabulary lacks must not be bent into a near sound (comma / come): see tail_ok */
+    for (int i = lo; i < npidx && (uint32_t)(pidx[i] >> 32) == h && nc < 64; i++) c[nc++].di = (int)(uint32_t)pidx[i];
+    for (int i = 0; i < nc; i++) {
+        DW *d = &dict[c[i].di];
+        if (d->w[0] != w[0] || (d->n == n && !memcmp(d->w, w, (size_t)n)) || abs(d->n - n) > maxd) continue;
+        char k2[SPELL_MAX_LEN * 2 + 2]; int k2l = lang_phone(d->w, d->n, k2, (int)sizeof k2);
+        if (k2l != kl || memcmp(k, k2, (size_t)kl)) continue;                          /* a hash clash */
+        c[i].cost = wcost(w, n, d->w, d->n, &c[i].ud);
+        if (c[i].ud < 1 || c[i].ud > maxd) continue;
+        if ((c[i].ud >= 3 || n <= 5) && c[i].ud >= 2 && !tail_ok(w, n, d->w, d->n)) continue;        /* a far fix of a short word must end the same way */
+        c[i].score = c[i].cost + 0.06 * log2((double)(d->rank > 0 ? d->rank : 1)) - 0.15;
+        c[keep++] = c[i];
+    }
+    if (!keep) return 0;
+    int b1 = 0; for (int i = 1; i < keep; i++) if (c[i].score < c[b1].score) b1 = i;
+    double s2 = 1e9; for (int i = 0; i < keep; i++) if (i != b1 && c[i].score < s2) s2 = c[i].score;
+    DW *d = &dict[c[b1].di];
+    int cf = 78 - 5 * c[b1].ud;
+    if (keep == 1) cf += 6;
+    if (n == 3) cf -= 16; else if (n == 4) cf -= 7; else if (n == 5) cf -= 2;
+    if (d->rank < 300) cf += 6; else if (d->rank > vocab_top) cf -= 6;
+    double margin = s2 - c[b1].score;
+    if (keep > 1) cf -= margin < 0.10 ? 18 : margin < 0.25 ? 9 : margin < 0.5 ? 3 : 0;
+    if (cf > 99) cf = 99;
+    if (cf < 0) cf = 0;
+    memcpy(out, d->w, (size_t)d->n); out[d->n] = 0;
+    if (conf) *conf = cf;
+    if (dist) *dist = c[b1].ud;
+    return 1;
+}
+
 /* ---------- the protected words and the text ---------- */
 /* the plain inflections of a word the engine knows are not typos (clouds, jokes, dances, appreciated, being, bigger, slowly): the vocabulary is
  * short until chunks 49-51, and the lemma rules of chunk 24 will replace this guard. s es ed d ing er est ly, with a dropped e or a doubled letter */
@@ -234,9 +357,10 @@ int lang_spell_text(const char *orig, const char *in, const int *inmap, int shou
         int a = i, b = j;
         while (a < b && !is_letter(in[a]) && !(in[a] >= '0' && in[a] <= '9')) a++;           /* edge punctuation stays outside the token */
         while (b > a && !is_letter(in[b - 1]) && !(in[b - 1] >= '0' && in[b - 1] <= '9')) b--;
-        int n = b - a, fixed = 0;
-        char fix[SPELL_MAX_LEN + 1]; int cf = 0, dd = 0;
-        if (n >= SPELL_MIN_LEN && n <= SPELL_MAX_LEN && !lang_spell_protected(in + a, n) && spell_on) {
+        int n = b - a, fixed = 0, kind = SPELL_EDIT;
+        char fix[SPELL_TO_MAX]; int cf = 0, dd = 0; fix[0] = 0;
+        int letters = n >= 2 && n <= SPELL_MAX_LEN; for (int q = a; letters && q < b; q++) if (!is_letter(in[q])) letters = 0;
+        if (spell_on && letters) {
             int skip = 0;
             if (orig && inmap) {                                   /* the case the player typed */
                 int oa = inmap[a], ob = inmap[b - 1] + 1, up = 0, lo = 0;
@@ -244,7 +368,14 @@ int lang_spell_text(const char *orig, const char *in, const int *inmap, int shou
                 if (!shout && lo == 0 && up > 0 && n <= 4) skip = 1;                         /* an acronym */
                 if (!shout && up > 0 && orig[oa] >= 'A' && orig[oa] <= 'Z' && !sentence_start) skip = 1;     /* a name in the middle of a sentence */
             }
-            if (!skip && lang_spell_word(in + a, n, fix, &cf, &dd) && cf >= (n == 3 ? SPELL_MIN_CONF + 8 : n == 4 ? SPELL_MIN_CONF + 4 : SPELL_MIN_CONF)) fixed = 1;
+            const char *dl = (!skip && !vocab_protected(in + a, n) && !lang_textspeak(in + a, n)) ? lang_dialect(in + a, n) : NULL;
+            if (dl && strlen(dl) < SPELL_TO_MAX) {                  /* chunk 22: a row of the dialect table (wassup -> whats up) */
+                strcpy(fix, dl); cf = 90; dd = 0; kind = SPELL_DIALECT; fixed = 1;
+            } else if (!skip && n >= SPELL_MIN_LEN && !lang_spell_protected(in + a, n)) {
+                int need = n == 3 ? SPELL_MIN_CONF + 8 : n == 4 ? SPELL_MIN_CONF + 4 : SPELL_MIN_CONF;
+                if (lang_spell_word(in + a, n, fix, &cf, &dd) && cf >= need) fixed = 1;
+                else if (lang_spell_phonetic(in + a, n, fix, &cf, &dd) && cf >= need) { fixed = 1; kind = SPELL_PHONETIC; }   /* chunk 22: only when the edit repair found nothing it trusts */
+            }
         }
         int fl = (int)strlen(fix);
         if (fixed && o + (a - i) + fl + (j - b) > cap - 1) fixed = 0;                         /* does not fit: as typed */
@@ -254,7 +385,7 @@ int lang_spell_text(const char *orig, const char *in, const int *inmap, int shou
             for (int q = 0; q < fl; q++) { int from = (q == fl - 1) ? b - 1 : a + (q < n - 1 ? q : n - 1); PUT(fix[q], from); }
             if (si) {
                 SpellFix *f = &si->fix[si->nfix++];
-                f->a = inmap ? inmap[a] : a; f->b = inmap ? inmap[b - 1] + 1 : b; f->conf = cf; f->dist = dd;
+                f->a = inmap ? inmap[a] : a; f->b = inmap ? inmap[b - 1] + 1 : b; f->conf = cf; f->dist = dd; f->kind = kind;
                 memcpy(f->from, in + a, (size_t)n); f->from[n] = 0; memcpy(f->to, fix, (size_t)fl + 1);
                 if (cf < si->min_conf) si->min_conf = cf;
             }
