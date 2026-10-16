@@ -45,7 +45,12 @@ typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); l
 #define LF_SPACED 128u  /* chunk 17: spaced letters (h e l l o, h.e.l.l.o) were joined */
 #define LF_MASKED 256u  /* chunk 17: a censored word (f*ck) was seen, see TK_MASK */
 #define LF_PUNCT  512u  /* chunk 17: a run of !!! ??? .... was shortened */
+#define LF_NUMBER 2048u    /* chunk 19: a number, an age, a time or an ordinal was captured (see LangNum) */
 #define LF_TEXTSPEAK 1024u  /* chunk 18: text-speak or a contraction (u, idk, dont, im, gonna) has an expanded variant */
+/* chunk 19: what a number in the text is. value: NK_NUMBER the number, NK_AGE the age, NK_TIME minutes after midnight, NK_ORDINAL the position */
+enum { NK_NONE, NK_NUMBER, NK_AGE, NK_TIME, NK_ORDINAL };
+typedef struct { int kind, value, a, b; } LangNum;     /* original bytes [a, b) */
+#define LANG_MAX_NUM 8
 typedef struct {
     unsigned flags;
     int noise;                        /* 0-100: share of the letters that sit in mash / gibberish words */
@@ -53,6 +58,7 @@ typedef struct {
     int letters, caps;                /* letters seen and how many were capitals */
     int laugh;                        /* the longest laugh (letters), 0 = none */
     int stretch, nstretch, nleet, nspaced, npunct, nexpand;   /* chunk 17: longest elongated run, and how many words / runs each rule changed */
+    int nnum; LangNum num[LANG_MAX_NUM];   /* chunk 19: set by lang_clean_numbers */
     int ntok, count[TK_COUNT];        /* tokens kept (the first LANG_MAX_TOK) and how many of each kind were seen */
     LangTok tok[LANG_MAX_TOK];
 } LangInfo;
@@ -92,6 +98,23 @@ int  lang_clean_words(const char *in, const int *inmap, char *out, int cap, int 
 typedef const char *(*LangExpandFn)(const char *w, int n);   /* the standard form of w[0..n), NUL-ended, or NULL */
 void lang_clean_set_expand(LangExpandFn fn);                 /* set by lang_init (the text-speak table); NULL = no expansion */
 int  lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int *outmap, int *src, LangInfo *info);
+
+/* ---- PART 5 (chunk 19): numbers ----
+ *   - lang_clean_numbers(orig, t, map, info) reads the text the matcher sees (t, with its map to the original text orig, both may be NULL) and
+ *     fills info->num / nnum: plain numbers (7, 3.5 -> 3, -5, 10k, twenty one, twenty-one, one hundred and five), AGES (im 12, i am twelve, 12 years old,
+ *     12yo, my age is 12, aged 30; not "i am 3 hours late"), TIMES (3pm, 3 pm, 3:30, 15:30, three oclock, midnight, noon; value = minutes after
+ *     midnight, 3 o'clock = 180) and ORDINALS (1st, 22nd, third, "the first"). Words that only look like numbers (user1, mp3, 2day, 90s, a lone
+ *     "one" as in "the one") are not. Each entry has the ORIGINAL byte range. Sets LF_NUMBER. Returns the count. The text is never changed.
+ *   - lang_num_words(w, n, &v): the whole of w[0..n) as a number in words (spaces or hyphens, "and" after hundred / thousand); 0 up to 999,999,999.
+ *   - lang_num_to_words(v, out, cap): the other way, "one hundred five", "minus twenty one" (0 if it does not fit). lang_num_ordinal: 21 -> "21st".
+ *   - the expanded variant (part 4) also reads number-letter words: b4 gr8 l8r m8 w8 str8 2day 2morrow 2nite 4ever 4get 4u any1 no1 ..., and a lone
+ *     2 or 4 in a word-like place (wait 4 me -> wait for me, want 2 go -> want to go, me 2 -> me too; never i am 4, 1 2 3, i have 2 dogs, 3pm).
+ *   - lang_clean_set_numbers(0) turns the number rules off (tests: the superset rule). */
+int  lang_clean_numbers(const char *orig, const char *t, const int *map, LangInfo *info);
+int  lang_num_words(const char *w, int n, long *v);
+int  lang_num_to_words(long v, char *out, int cap);
+int  lang_num_ordinal(long v, char *out, int cap);
+void lang_clean_set_numbers(int on);
 
 /* the same characters at the same places (same length, same map), but the case kept: for names (the capture of "im Alice") */
 int lang_clean_case(const char *text, char *out, int cap, int *map);

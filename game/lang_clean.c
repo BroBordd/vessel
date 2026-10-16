@@ -5,6 +5,7 @@
  */
 #include "lang_clean.h"
 #include <string.h>
+#include <stdio.h>
 #include <ctype.h>
 
 /* folded spellings of U+00C0..U+00FF and U+0100..U+017F (lower case; " " = a space). made from the Unicode decompositions plus the
@@ -541,6 +542,8 @@ int lang_clean_words(const char *in, const int *inmap, char *out, int cap, int *
     return n;
 }
 
+static const char *numexpand(const char *in, int n, int i, int a, int b, int j);
+
 /* ---- chunk 18: contractions and text-speak (see lang_clean.h) ---- */
 static LangExpandFn EXPAND;
 void lang_clean_set_expand(LangExpandFn fn) { EXPAND = fn; }
@@ -555,7 +558,8 @@ int lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int 
         int a = i, b = j;                                          /* the word without edge apostrophes (a quote, not a letter) */
         while (a < b && in[a] == '\'') a++;
         while (b > a && in[b - 1] == '\'') b--;
-        const char *ex = (EXPAND && b > a) ? EXPAND(in + a, b - a) : NULL;
+        const char *ex = b > a ? numexpand(in, n, i, a, b, j) : NULL;          /* chunk 19: b4 gr8 2morrow 4ever, a lone 2 / 4 */
+        if (!ex && EXPAND && b > a) ex = EXPAND(in + a, b - a);
         int xl = ex ? (int)strlen(ex) : 0;
         if (ex && xl > 0 && o + (a - i) + xl + (j - b) <= cap - 1) {
             for (int q = i; q < a; q++) { out[o] = in[q]; if (src) src[o] = q; o++; }
@@ -570,6 +574,270 @@ int lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int 
     if (outmap && inmap) { for (int k = 0; k < o; k++) outmap[k] = inmap[src[k]]; outmap[o] = inmap[n]; }
     if (info) { info->nexpand = nx; if (nx) info->flags |= LF_TEXTSPEAK; }
     return o;
+}
+
+/* ---- chunk 19: numbers (see lang_clean.h) ---- */
+static int NUMBERS_ON = 1;
+void lang_clean_set_numbers(int on) { NUMBERS_ON = on; }
+
+static const char *const NW_UNIT[] = { "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", NULL };
+static const char *const NW_TEEN[] = { "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", NULL };
+static const char *const NW_TENS[] = { "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", NULL };
+enum { NWK_NONE, NWK_UNIT, NWK_TEEN, NWK_TENS, NWK_HUND, NWK_SCALE, NWK_AND };
+static int weq(const char *w, int n, const char *s) { return (int)strlen(s) == n && !strncmp(w, s, (size_t)n); }
+static int nw_kind(const char *w, int n, long *v) {
+    for (int i = 0; NW_UNIT[i]; i++) if (weq(w, n, NW_UNIT[i])) { *v = i; return NWK_UNIT; }
+    for (int i = 0; NW_TEEN[i]; i++) if (weq(w, n, NW_TEEN[i])) { *v = 10 + i; return NWK_TEEN; }
+    for (int i = 2; i < 10; i++) if (weq(w, n, NW_TENS[i]) || (i == 4 && weq(w, n, "fourty"))) { *v = i * 10; return NWK_TENS; }
+    if (weq(w, n, "hundred")) { *v = 100; return NWK_HUND; }
+    if (weq(w, n, "thousand")) { *v = 1000; return NWK_SCALE; }
+    if (weq(w, n, "million")) { *v = 1000000; return NWK_SCALE; }
+    if (weq(w, n, "and")) { *v = 0; return NWK_AND; }
+    return NWK_NONE;
+}
+/* the state of a number in words being read: last = kind of the last word (7 = closed by a lone zero) */
+typedef struct { long total, cur, scale; int last; } NW;
+static void nw_init(NW *s) { s->total = 0; s->cur = 0; s->scale = 1000000000L; s->last = 0; }
+static int nw_step(NW *s, const char *w, int n) {
+    long v; int k = nw_kind(w, n, &v), L = s->last;
+    switch (k) {
+    case NWK_UNIT:
+        if (v == 0) { if (L != 0) return 0; s->last = 7; return 1; }
+        if (L != 0 && L != 3 && L != 4 && L != 5 && L != 6) return 0;
+        s->cur += v; s->last = 1; return 1;
+    case NWK_TEEN: case NWK_TENS:
+        if (L != 0 && L != 4 && L != 5 && L != 6) return 0;
+        s->cur += v; s->last = k == NWK_TEEN ? 2 : 3; return 1;
+    case NWK_HUND:
+        if (L != 1 || s->cur < 1 || s->cur > 9) return 0;
+        s->cur *= 100; s->last = 4; return 1;
+    case NWK_SCALE:
+        if (s->cur <= 0 || L == 6 || L == 5 || v >= s->scale) return 0;
+        s->total += s->cur * v; s->cur = 0; s->scale = v; s->last = 5; return 1;
+    case NWK_AND:
+        if (L != 4 && L != 5) return 0;
+        s->last = 6; return 1;
+    }
+    return 0;
+}
+static int nw_valid(const NW *s) { return s->last != 0 && s->last != 6; }
+/* a token (letters, maybe with hyphens) as a number word; the state is only changed when every piece is accepted */
+static int nw_token(NW *s, const char *w, int n) {
+    NW c = *s; int i = 0;
+    while (i < n) {
+        int j = i; while (j < n && w[j] != '-' && w[j] != ' ') j++;
+        if (j == i || !nw_step(&c, w + i, j - i)) return 0;
+        i = j + 1;
+    }
+    *s = c; return 1;
+}
+int lang_num_words(const char *w, int n, long *v) {
+    NW s; nw_init(&s);
+    if (n <= 0 || !nw_token(&s, w, n) || !nw_valid(&s)) return 0;
+    if (v) *v = s.total + s.cur;
+    return 1;
+}
+static int put(char *o, int cap, int *n, const char *s) {
+    int l = (int)strlen(s), sp = *n > 0;
+    if (*n + sp + l > cap - 1) return 0;
+    if (sp) o[(*n)++] = ' ';
+    memcpy(o + *n, s, (size_t)l); *n += l; o[*n] = 0; return 1;
+}
+static int words_below_1000(long v, char *o, int cap, int *n) {
+    if (v >= 100) { if (!put(o, cap, n, NW_UNIT[v / 100]) || !put(o, cap, n, "hundred")) return 0; v %= 100; }
+    if (v >= 20) { if (!put(o, cap, n, NW_TENS[v / 10])) return 0; v %= 10; if (v && !put(o, cap, n, NW_UNIT[v])) return 0; }
+    else if (v >= 10) { if (!put(o, cap, n, NW_TEEN[v - 10])) return 0; }
+    else if (v > 0) { if (!put(o, cap, n, NW_UNIT[v])) return 0; }
+    return 1;
+}
+int lang_num_to_words(long v, char *o, int cap) {
+    int n = 0;
+    if (cap < 1) return 0;
+    o[0] = 0;
+    if (v <= -1000000000L || v >= 1000000000L) return 0;
+    if (v < 0) { if (!put(o, cap, &n, "minus")) { o[0] = 0; return 0; } v = -v; }
+    if (v == 0) { if (!put(o, cap, &n, "zero")) { o[0] = 0; return 0; } return n; }
+    if (v >= 1000000) { if (!words_below_1000(v / 1000000, o, cap, &n) || !put(o, cap, &n, "million")) { o[0] = 0; return 0; } v %= 1000000; }
+    if (v >= 1000) { if (!words_below_1000(v / 1000, o, cap, &n) || !put(o, cap, &n, "thousand")) { o[0] = 0; return 0; } v %= 1000; }
+    if (!words_below_1000(v, o, cap, &n)) { o[0] = 0; return 0; }
+    return n;
+}
+int lang_num_ordinal(long v, char *o, int cap) {
+    char b[24]; long a = v < 0 ? -v : v, m = a % 100;
+    const char *s = (m >= 11 && m <= 13) ? "th" : a % 10 == 1 ? "st" : a % 10 == 2 ? "nd" : a % 10 == 3 ? "rd" : "th";
+    int n = snprintf(b, sizeof b, "%ld%s", v, s);
+    if (cap < 1) return 0;
+    if (n >= cap) { o[0] = 0; return 0; }
+    memcpy(o, b, (size_t)n + 1); return n;
+}
+
+typedef struct { int a, b; } Tk;
+#define NTK 160
+static int tk_tokens(const char *t, int n, Tk *tk, int max) {
+    int c = 0;
+    for (int i = 0; i < n && c < max;) {
+        int ch = (unsigned char)t[i];
+        int neg = ch == '-' && i + 1 < n && is_d(t[i + 1]) && (i == 0 || t[i - 1] == ' ');
+        if (!(is_aq(ch) || neg)) { i++; continue; }
+        int j = i + 1;
+        while (j < n) {
+            int d = (unsigned char)t[j];
+            if (is_aq(d)) j++;
+            else if ((d == ':' || d == '.') && j + 1 < n && is_d(t[j - 1]) && is_d(t[j + 1])) j++;
+            else if (d == '-' && j + 1 < n && is_a(t[j - 1]) && is_a(t[j + 1])) j++;
+            else break;
+        }
+        int a = i, b = j;
+        while (a < b && t[a] == '\'') a++;
+        while (b > a && t[b - 1] == '\'') b--;
+        if (a < b) { tk[c].a = a; tk[c].b = b; c++; }
+        i = j;
+    }
+    return c;
+}
+static int teq(const char *t, Tk k, const char *s) { return weq(t + k.a, k.b - k.a, s); }
+static int tin(const char *t, Tk k, const char *const *l) { for (; *l; l++) if (teq(t, k, *l)) return 1; return 0; }
+static int tgap_ok(const char *t, Tk x, Tk y) { for (int i = x.b; i < y.a; i++) if (t[i] != ' ') return 0; return 1; }
+
+static const char *const UNITS_W[] = { "hours", "hour", "minutes", "minute", "mins", "min", "seconds", "second", "secs", "days", "day", "weeks", "week",
+    "months", "month", "times", "time", "feet", "foot", "miles", "mile", "percent", "km", "kg", "lbs", "inches", "inch", "dollars", "bucks", "points", "steps", NULL };
+static const char *const YEARS_W[] = { "years", "year", "yrs", "yr", NULL };
+static const char *const OPS_W[] = { "plus", "minus", "times", "and", "by", "over", "divided", "multiplied", "x", "or", NULL };
+static const char *const ORD_W[] = { "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth", "fourteenth",
+    "fifteenth", "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth", "thirtieth", "fortieth", "fiftieth", "hundredth", "thousandth", NULL };
+static const char *const ORD_OF[] = { "the", "my", "your", "his", "her", "our", "their", NULL };
+
+static int is_numword_tok(const char *t, Tk k) { NW s; nw_init(&s); return nw_token(&s, t + k.a, k.b - k.a); }
+
+static int age_ctx(const char *t, const Tk *tk, int nt, int i, int j, long v) {
+    if (v < 1 || v > 120) return 0;
+    if (j < nt && tgap_ok(t, tk[j - 1], tk[j])) {
+        if (teq(t, tk[j], "yo")) return 1;
+        if (tin(t, tk[j], YEARS_W) && j + 1 < nt && teq(t, tk[j + 1], "old")) return 1;
+        if (tin(t, tk[j], YEARS_W) && j + 2 < nt && teq(t, tk[j + 1], "of") && teq(t, tk[j + 2], "age")) return 1;
+    }
+    int route = 0;
+    if (i >= 1 && tgap_ok(t, tk[i - 1], tk[i])) {
+        Tk p = tk[i - 1];
+        if (teq(t, p, "im") || teq(t, p, "i'm")) route = 1;
+        else if (teq(t, p, "am") && (i == 1 || (i >= 2 && teq(t, tk[i - 2], "i")))) route = 1;
+        else if (teq(t, p, "aged") || teq(t, p, "age") || teq(t, p, "turned") || teq(t, p, "turning")) route = 1;
+        else if (teq(t, p, "is") && i >= 2 && teq(t, tk[i - 2], "age")) route = 1;
+    }
+    if (route && j < nt && tgap_ok(t, tk[j - 1], tk[j]) && tin(t, tk[j], UNITS_W)) route = 0;
+    return route;
+}
+
+static void num_add(LangInfo *f, const char *orig, const int *map, int ta, int tb, int kind, long v) {   /* [ta, tb) in the cleaned text */
+    if (f->nnum >= LANG_MAX_NUM) return;
+    LangNum *n = &f->num[f->nnum++];
+    n->kind = kind; n->value = (int)v;
+    if (map) { n->a = map[ta]; int at = map[tb - 1]; n->b = at + (orig ? lang_clean_orig_len(orig, at) : 1); }
+    else { n->a = ta; n->b = tb; }
+}
+
+int lang_clean_numbers(const char *orig, const char *t, const int *map, LangInfo *info) {
+    Tk tk[NTK]; LangInfo own;
+    int n = (int)strlen(t), nt = tk_tokens(t, n, tk, NTK);
+    if (!info) { memset(&own, 0, sizeof own); info = &own; }
+    info->nnum = 0;
+    if (!NUMBERS_ON) return 0;
+    for (int i = 0; i < nt;) {
+        const char *w = t + tk[i].a; int wl = tk[i].b - tk[i].a, j = i + 1, kind = 0; long val = 0;
+        if (is_d(w[0]) || (w[0] == '-' && wl > 1)) {
+            int p = w[0] == '-', neg = p; long d1 = 0; int nd = 0;
+            while (p < wl && is_d(w[p])) { if (d1 < 100000000L) d1 = d1 * 10 + (w[p] - '0'); p++; nd++; }
+            if (!nd) { i++; continue; }
+            long d2 = -1; int colon = 0, dec = 0;
+            if (p < wl && w[p] == ':') { colon = 1; p++; int c2 = 0; d2 = 0; while (p < wl && is_d(w[p])) { d2 = d2 * 10 + (w[p] - '0'); p++; c2++; } if (c2 != 2) { i++; continue; } }
+            else if (p < wl && w[p] == '.') { dec = 1; p++; while (p < wl && is_d(w[p])) p++; }
+            const char *s = w + p; int sl = wl - p;
+            if (neg) d1 = -d1;
+            if (sl == 0) {
+                if (colon) {
+                    if (neg || d1 > 23 || d2 > 59) { i++; continue; }
+                    kind = NK_TIME; val = d1 * 60 + d2;
+                    if (j < nt && tgap_ok(t, tk[i], tk[j]) && d1 >= 1 && d1 <= 12 && (teq(t, tk[j], "am") || teq(t, tk[j], "pm"))) { val = (d1 % 12 + (teq(t, tk[j], "pm") ? 12 : 0)) * 60 + d2; j++; }   /* 11:59 pm */
+                }
+                else { if (wl == 1 && numexpand(t, n, tk[i].a, tk[i].a, tk[i].b, tk[i].b)) { i++; continue; } kind = NK_NUMBER; val = d1; }   /* a 2 / 4 that reads as to / too / for is not a number */
+            } else if (weq(s, sl, "am") || weq(s, sl, "pm")) {
+                if (neg || dec || d1 < 1 || d1 > 12 || (colon && d2 > 59)) { i++; continue; }
+                kind = NK_TIME; val = (d1 % 12 + (s[0] == 'p' ? 12 : 0)) * 60 + (colon ? d2 : 0);
+            } else if (!colon && !dec && (weq(s, sl, "st") || weq(s, sl, "nd") || weq(s, sl, "rd") || weq(s, sl, "th")) && !neg) { kind = NK_ORDINAL; val = d1; }
+            else if (!colon && !dec && weq(s, sl, "k") && !neg && d1 < 1000000) { kind = NK_NUMBER; val = d1 * 1000; }
+            else if (!colon && !dec && weq(s, sl, "yo") && d1 >= 1 && d1 <= 120) { kind = NK_AGE; val = d1; }
+            else { i++; continue; }                                  /* user1 mp3 3d 2day 90s: not numbers */
+            if (kind == NK_NUMBER) {                                 /* "3 pm", "3 o'clock", "im 12" */
+                if (j < nt && tgap_ok(t, tk[i], tk[j]) && val >= 1 && val <= 12 && (teq(t, tk[j], "am") || teq(t, tk[j], "pm"))) { kind = NK_TIME; val = (val % 12 + (teq(t, tk[j], "pm") ? 12 : 0)) * 60; j++; }
+                else if (j < nt && tgap_ok(t, tk[i], tk[j]) && val >= 1 && val <= 12 && (teq(t, tk[j], "oclock") || teq(t, tk[j], "o'clock"))) { kind = NK_TIME; val = val * 60; j++; }
+                else if (age_ctx(t, tk, nt, i, j, val)) kind = NK_AGE;
+            }
+        } else if (weq(w, wl, "midnight")) { kind = NK_TIME; val = 0; }
+        else if (weq(w, wl, "noon") || weq(w, wl, "midday")) { kind = NK_TIME; val = 720; }
+        else if ((weq(w, wl, "first") || weq(w, wl, "second")) && i >= 1 && tgap_ok(t, tk[i - 1], tk[i]) && tin(t, tk[i - 1], ORD_OF)) { kind = NK_ORDINAL; val = weq(w, wl, "first") ? 1 : 2; }
+        else if (tin(t, tk[i], ORD_W)) {
+            kind = NK_ORDINAL;
+            for (int q = 0; ORD_W[q]; q++) if (weq(w, wl, ORD_W[q])) { static const int OV[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 40, 50, 100, 1000 }; val = OV[q]; }
+        } else {                                                     /* number words: the longest valid run */
+            NW s; nw_init(&s); int best = -1; long bv = 0, v2;
+            for (int k = i; k < nt; k++) {
+                if (k > i && !tgap_ok(t, tk[k - 1], tk[k])) break;
+                if (!nw_token(&s, t + tk[k].a, tk[k].b - tk[k].a)) break;
+                if (nw_valid(&s)) { best = k + 1; bv = s.total + s.cur; }
+            }
+            if (best < 0) { i++; continue; }
+            j = best; val = bv; kind = NK_NUMBER; (void)v2;
+            if (j == i + 1 && weq(w, wl, "one")) {                  /* a lone "one" is a pronoun unless the numbers around it say otherwise */
+                int ok = nt == 1 || (nt == 2 && i == 0);
+                if (i > 0 && tgap_ok(t, tk[i - 1], tk[i]) && (tin(t, tk[i - 1], OPS_W) || is_d(t[tk[i - 1].a]) || is_numword_tok(t, tk[i - 1]))) ok = 1;
+                if (j < nt && tgap_ok(t, tk[i], tk[j]) && (tin(t, tk[j], OPS_W) || is_d(t[tk[j].a]) || is_numword_tok(t, tk[j]))) ok = 1;
+                if (!ok) { i++; continue; }
+            }
+            if (j < nt && tgap_ok(t, tk[j - 1], tk[j]) && val >= 1 && val <= 12 && (teq(t, tk[j], "am") || teq(t, tk[j], "pm"))) { kind = NK_TIME; val = (val % 12 + (teq(t, tk[j], "pm") ? 12 : 0)) * 60; j++; }
+            else if (j < nt && tgap_ok(t, tk[j - 1], tk[j]) && val >= 1 && val <= 12 && (teq(t, tk[j], "oclock") || teq(t, tk[j], "o'clock"))) { kind = NK_TIME; val = val * 60; j++; }
+            else if (age_ctx(t, tk, nt, i, j, val)) kind = NK_AGE;
+        }
+        num_add(info, orig, map, tk[i].a, tk[j - 1].b, kind, val);
+        i = j;
+    }
+    if (info->nnum) info->flags |= LF_NUMBER;
+    return info->nnum;
+}
+
+/* ---- chunk 19: number-letter words in the expanded variant (b4 gr8 l8r 2morrow 4ever any1) and a lone 2 / 4 in a word-like place ---- */
+static const char *const NLW[][2] = {
+    { "b4", "before" }, { "b4n", "bye for now" }, { "gr8", "great" }, { "l8r", "later" }, { "l8", "late" }, { "m8", "mate" }, { "w8", "wait" }, { "w84", "wait for" },
+    { "str8", "straight" }, { "h8", "hate" }, { "d8", "date" }, { "g8", "gate" }, { "f8", "fate" }, { "sk8", "skate" }, { "cr8", "create" },
+    { "2day", "today" }, { "2moro", "tomorrow" }, { "2morro", "tomorrow" }, { "2morow", "tomorrow" }, { "2mrw", "tomorrow" }, { "2mro", "tomorrow" }, { "2morrow", "tomorrow" },
+    { "2nite", "tonight" }, { "2night", "tonight" }, { "2gether", "together" }, { "2b", "to be" }, { "2u", "to you" }, { "2late", "too late" }, { "2much", "too much" },
+    { "4ever", "forever" }, { "4eva", "forever" }, { "4get", "forget" }, { "4got", "forgot" }, { "4give", "forgive" }, { "4u", "for you" }, { "4real", "for real" },
+    { "any1", "anyone" }, { "ne1", "anyone" }, { "every1", "everyone" }, { "some1", "someone" }, { "no1", "no one" }, { NULL, NULL } };
+static const char *const TO_NEXT[] = { "be", "go", "see", "get", "do", "have", "know", "say", "tell", "find", "make", "take", "give", "come", "leave", "play", "help", "ask", "talk",
+    "speak", "meet", "die", "live", "stay", "run", "kill", "hurt", "save", "stop", "try", "look", "hear", "feel", "think", "want", "learn", "read", "write", "sleep", "eat", "fight",
+    "win", "lose", "escape", "fly", "swim", "sing", "dance", "hide", "kiss", "love", "like", "you", "u", "me", "him", "her", "us", "them", "it", "the", "a", "an", "my", "your", "ur",
+    "our", "his", "their", "this", "that", "those", "these", NULL };
+static const char *const FOR_NEXT[] = { "me", "you", "u", "ya", "him", "her", "us", "them", "it", "the", "a", "an", "my", "your", "ur", "our", "his", "their", "this", "that",
+    "now", "once", "real", "sure", "ever", "good", "free", "fun", "life", NULL };
+static const char *const TOO_PREV[] = { "me", "u", "you", "ya", "him", "her", "us", "them", "it", "i", "we", "they", "he", "she", "same", "so", NULL };
+static int wlist(const char *w, int n, const char *const *l) { for (; *l; l++) if (weq(w, n, *l)) return 1; return 0; }
+static const char *numexpand(const char *in, int n, int i, int a, int b, int j) {
+    int wl = b - a; const char *w = in + a;
+    if (!NUMBERS_ON) return NULL;
+    for (int k = 0; NLW[k][0]; k++) if (weq(w, wl, NLW[k][0])) return NLW[k][1];
+    if (!(wl == 1 && (w[0] == '2' || w[0] == '4'))) return NULL;
+    int p = i - 1; while (p >= 0 && in[p] == ' ') p--;                 /* the word before */
+    int pe = (p >= 0 && is_aq(in[p])) ? p + 1 : 0, ps = pe; while (ps > 0 && is_aq(in[ps - 1])) ps--;
+    int q = j; while (q < n && in[q] == ' ') q++;                      /* the word after */
+    int qs = (q < n && is_aq(in[q])) ? q : -1, qe = qs; while (qe >= 0 && qe < n && is_aq(in[qe])) qe++;
+    long nv;
+    if (pe > ps && (is_d(in[ps]) || nw_kind(in + ps, pe - ps, &nv) != NWK_NONE || weq(in + ps, pe - ps, "im") || weq(in + ps, pe - ps, "i'm") || weq(in + ps, pe - ps, "am") ||
+                    weq(in + ps, pe - ps, "age") || weq(in + ps, pe - ps, "aged") || weq(in + ps, pe - ps, "turned") || weq(in + ps, pe - ps, "turning") || weq(in + ps, pe - ps, "number"))) return NULL;
+    if (qs >= 0 && is_d(in[qs])) return NULL;
+    if (w[0] == '2') {
+        if (qs >= 0 && wlist(in + qs, qe - qs, TO_NEXT)) return "to";
+        if (qs < 0 && pe > ps && wlist(in + ps, pe - ps, TOO_PREV)) return "too";
+    } else if (qs >= 0 && wlist(in + qs, qe - qs, FOR_NEXT)) return "for";
+    return NULL;
 }
 
 int lang_clean(const char *text, char *out, int cap, int *map)      { return clean(text, out, cap, map, 1, NULL); }

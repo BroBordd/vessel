@@ -18,6 +18,7 @@
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
  *                      (chunk 17) part 3, lang_clean_words: about 230 before/after pairs (elongation, leet, spaced letters, censor masks, repeated punctuation, and the shapes that must NOT change: 3pm 1st b4 gr8 2day mp3 user1 a number a url), the maps (monotone, inside the text, the stretch of a final run), flags and TK_MASK ranges, highlight and name capture through it, leet self-harm, no dictionary, idempotence, and how many reply lines / patterns / corpus lines it changes
  *                      (chunk 18) text-speak and contractions, lang_clean_expand: the table (>= 150 well-formed rows, no duplicates), about 100 before/after pairs, the maps (a highlight covers the whole typed token), the cap, no hook, and the superset rule: everything the text as typed heard is still heard
+ *                      (chunk 19) numbers, lang_clean_numbers: numbers, ages, times and ordinals with their original byte ranges (and what must NOT count: user1 mp3 2day a lone "one" 25:00), number words both ways (0-1100 round trip and bigger), the number-letter words of the expanded variant (b4 gr8 2morrow 4ever any1, a lone 2 / 4 as to / too / for), the Heard fields, and the superset rule with the number rules off
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -885,7 +886,7 @@ static int do_textspeak(int argc, char **argv) {
         { "'u'", "'you'" }, { "(idk)", "(i do not know)" }, { "idk!", "i do not know!" }, { "idk, u?", "i do not know, you?" },
         /* what must stay */
         { "hello there", "hello there" }, { "you are cool", "you are cool" }, { "i do not know", "i do not know" }, { "do not", "do not" }, { "what is your name", "what is your name" },
-        { "ok", "ok" }, { "see you", "see you" }, { "", "" }, { "3pm", "3pm" }, { "gr8", "gr8" }, { "2day", "2day" }, { "b4", "b4" }, { "bob", "bob" }, { "ur", "your" },
+        { "ok", "ok" }, { "see you", "see you" }, { "", "" }, { "3pm", "3pm" }, { "gr8", "great" }, { "2day", "today" }, { "b4", "before" }, { "bob", "bob" }, { "ur", "your" },
         { "dont dont dont", "do not do not do not" }, { "idk idk", "i do not know i do not know" },
     };
     for (unsigned i = 0; i < sizeof P / sizeof *P; i++) {
@@ -953,6 +954,132 @@ static int do_textspeak(int argc, char **argv) {
     return bad;
 }
 
+/* chunk 19: numbers. the detector (numbers, ages, times, ordinals) with the original byte ranges, number words both ways, the number-letter words of the
+ * expanded variant, and the superset rule with the number rules turned off */
+static int do_numbers(int argc, char **argv) {
+    int bad = 0, npairs = 0;
+    lang_init();
+    /* number words both ways */
+    {   int rt = 0;
+        for (long v = 0; v <= 1100; v++) {
+            char w[96], o[24]; long b = -1;
+            if (!lang_num_to_words(v, w, sizeof w) || !lang_num_words(w, (int)strlen(w), &b) || b != v) { if (bad < 8) printf("BAD NUMBERS: %ld -> \"%s\" -> %ld\n", v, w, b); bad++; }
+            if (!lang_num_ordinal(v, o, sizeof o)) { printf("BAD NUMBERS: ordinal %ld\n", v); bad++; }
+            rt++;
+        }
+        static const long BIG[] = { 1999, 2000, 2026, 10000, 12345, 99999, 100000, 100001, 999999, 1000000, 1000001, 12345678, 999999999 };
+        for (unsigned i = 0; i < sizeof BIG / sizeof *BIG; i++) {
+            char w[160]; long b = -1;
+            if (!lang_num_to_words(BIG[i], w, sizeof w) || !lang_num_words(w, (int)strlen(w), &b) || b != BIG[i]) { printf("BAD NUMBERS: %ld -> \"%s\" -> %ld\n", BIG[i], w, b); bad++; }
+            rt++;
+        }
+        static const struct { const char *w; long v; } W[] = { { "twenty one", 21 }, { "twenty-one", 21 }, { "one hundred and five", 105 }, { "two thousand twenty six", 2026 }, { "one million", 1000000 },
+            { "nineteen", 19 }, { "zero", 0 }, { "forty two", 42 }, { "fourty two", 42 }, { "three hundred sixty five", 365 }, { "two thousand and one", 2001 }, { "ninety-nine", 99 } };
+        for (unsigned i = 0; i < sizeof W / sizeof *W; i++) { long b = -1; if (!lang_num_words(W[i].w, (int)strlen(W[i].w), &b) || b != W[i].v) { printf("BAD NUMBERS: \"%s\" -> %ld (wanted %ld)\n", W[i].w, b, W[i].v); bad++; } rt++; }
+        static const char *const NO[] = { "one two", "twenty twenty", "twenty ten", "and five", "hundred", "thousand", "five hundred and", "one and", "zero one", "five five", "", "hello", "twenty one hello", "one thousand thousand", "ten five" };
+        for (unsigned i = 0; i < sizeof NO / sizeof *NO; i++) { long b; if (lang_num_words(NO[i], (int)strlen(NO[i]), &b)) { printf("BAD NUMBERS: \"%s\" is not a number in words\n", NO[i]); bad++; } rt++; }
+        static const struct { long v; const char *o; } OR[] = { { 1, "1st" }, { 2, "2nd" }, { 3, "3rd" }, { 4, "4th" }, { 11, "11th" }, { 12, "12th" }, { 13, "13th" }, { 21, "21st" }, { 22, "22nd" }, { 23, "23rd" }, { 101, "101st" }, { 111, "111th" }, { 112, "112th" } };
+        for (unsigned i = 0; i < sizeof OR / sizeof *OR; i++) { char o[24]; lang_num_ordinal(OR[i].v, o, sizeof o); if (strcmp(o, OR[i].o)) { printf("BAD NUMBERS: ordinal %ld -> %s\n", OR[i].v, o); bad++; } rt++; }
+        char t[6]; if (lang_num_to_words(123, t, sizeof t) || t[0]) { printf("BAD NUMBERS: to_words ignored the cap\n"); bad++; }
+        printf("numbers: %d words <-> digits checks\n", rt);
+    }
+    /* the detector: A age, N number, T time (minutes), O ordinal */
+    static const struct { const char *t, *want; } D[] = {
+        { "i am 12", "A12" }, { "im twelve", "A12" }, { "i'm 12", "A12" }, { "im 12 years old", "A12" }, { "twelve years old", "A12" }, { "12 years old", "A12" }, { "12yo", "A12" }, { "my age is 12", "A12" },
+        { "i turned 30", "A30" }, { "i am twenty", "A20" }, { "i am twenty five", "A25" }, { "aged 9", "A9" }, { "im 3 years old and i like cats", "A3" }, { "im 20 minutes late", "N20" }, { "i am 3 hours late", "N3" },
+        { "i have 3 dogs", "N3" }, { "i have three dogs", "N3" }, { "i am 200", "N200" }, { "i am 0", "N0" }, { "twenty one", "N21" }, { "twenty-one", "N21" }, { "one hundred and five", "N105" }, { "two thousand twenty six", "N2026" },
+        { "7 times 8", "N7,N8" }, { "one plus one", "N1,N1" }, { "one two three", "N1,N2,N3" }, { "10k", "N10000" }, { "-5 degrees", "N-5" }, { "3.5", "N3" }, { "1,2", "N1,N2" }, { "i have 12 and 14", "N12,N14" },
+        { "see you at 3pm", "T900" }, { "3 pm", "T900" }, { "3:30", "T210" }, { "15:30", "T930" }, { "3:30pm", "T930" }, { "12am", "T0" }, { "12 pm", "T720" }, { "11:59 pm", "T1439" }, { "midnight", "T0" }, { "noon", "T720" },
+        { "at three oclock", "T180" }, { "3 o'clock", "T180" }, { "at 10 am", "T600" }, { "meet me at noon", "T720" },
+        { "the 1st time", "O1" }, { "my 22nd birthday", "O22" }, { "the third door", "O3" }, { "the first", "O1" }, { "your second try", "O2" }, { "the 3rd and the 4th", "O3,O4" }, { "11th", "O11" },
+        /* what is not a number */
+        { "first of all", "" }, { "second chance", "" }, { "i am the one", "" }, { "no one", "" }, { "which one", "" }, { "one of us", "" }, { "user1", "" }, { "mp3", "" }, { "2day", "" }, { "gr8", "" }, { "b4", "" }, { "ps5", "" },
+        { "25:00", "" }, { "13pm", "" }, { "0am", "" }, { "90s", "" }, { "hello there", "" }, { "", "" }, { "wait 4 me", "" }, { "want 2 go", "" }, { "me 2", "" }, { "4 u", "" }, { "u 2", "" }, { "2 be or not 2 be", "" }, { "a hundred", "" },
+    };
+    for (unsigned i = 0; i < sizeof D / sizeof *D; i++) {
+        char t[420]; int m[420]; LangInfo f; memset(&f, 0, sizeof f);
+        lang_clean_info(D[i].t, t, 420, m, &f);
+        char w[420]; int wm[420];
+        lang_clean_words(t, m, w, 420, wm, NULL, &f);
+        lang_clean_numbers(D[i].t, w, wm, &f); npairs++;
+        char got[160]; int g = 0; got[0] = 0;
+        for (int k = 0; k < f.nnum; k++) g += snprintf(got + g, sizeof got - (size_t)g, "%s%c%d", k ? "," : "", "?NATO"[f.num[k].kind], f.num[k].value);
+        if (strcmp(got, D[i].want)) { printf("BAD NUMBERS: \"%s\" -> \"%s\" (wanted \"%s\")\n", D[i].t, got, D[i].want); bad++; }
+        if (!!f.nnum != !!(f.flags & LF_NUMBER)) { printf("BAD NUMBERS: flag for \"%s\"\n", D[i].t); bad++; }
+        int tot = (int)strlen(D[i].t);
+        for (int k = 0; k < f.nnum; k++) if (f.num[k].a < 0 || f.num[k].b > tot || f.num[k].a >= f.num[k].b || (k && f.num[k].a < f.num[k - 1].a)) { printf("BAD NUMBERS RANGE: \"%s\" entry %d [%d,%d)\n", D[i].t, k, f.num[k].a, f.num[k].b); bad++; }
+    }
+    /* the original byte ranges, also behind folded accents, emoji and doubled spaces */
+    {   static const struct { const char *t; int a, b; } R[] = { { "i am 12 now", 5, 7 }, { "\xc3\xa9 i am 12", 8, 10 }, { "ok \xf0\x9f\x98\x80  im   twenty one", 14, 24 }, { "see you at 3:30 pm", 11, 18 }, { "the 22nd", 4, 8 }, { "ta\xc3\xaf" " 3pm", 5, 8 } };
+        for (unsigned i = 0; i < sizeof R / sizeof *R; i++) {
+            char t[420]; int m[420]; LangInfo f; memset(&f, 0, sizeof f); lang_clean_info(R[i].t, t, 420, m, &f);
+            char w[420]; int wm[420]; lang_clean_words(t, m, w, 420, wm, NULL, &f); lang_clean_numbers(R[i].t, w, wm, &f); npairs++;
+            if (f.nnum < 1 || f.num[0].a != R[i].a || f.num[0].b != R[i].b) { printf("BAD NUMBERS RANGE: \"%s\" wanted [%d,%d) got [%d,%d)\n", R[i].t, R[i].a, R[i].b, f.nnum ? f.num[0].a : -1, f.nnum ? f.num[0].b : -1); bad++; }
+        }
+    }
+    /* no map: the range is in the text itself; no info: nothing breaks; the cleaned text is never changed */
+    {   LangInfo f; memset(&f, 0, sizeof f); int n = lang_clean_numbers(NULL, "i am 12", NULL, &f); if (n != 1 || f.num[0].a != 5 || f.num[0].b != 7) { printf("BAD NUMBERS: no map\n"); bad++; }
+        if (lang_clean_numbers(NULL, "i am 12", NULL, NULL) != 1) { printf("BAD NUMBERS: no info\n"); bad++; }
+        char big[2000]; for (int i = 0; i < 1990; i += 2) { big[i] = '7'; big[i + 1] = ' '; } big[1990] = 0;
+        memset(&f, 0, sizeof f); n = lang_clean_numbers(NULL, big, NULL, &f); if (n != LANG_MAX_NUM) { printf("BAD NUMBERS: cap %d\n", n); bad++; } }
+    /* the expanded variant: number-letter words and a lone 2 / 4 */
+    {   static const struct { const char *in, *out; } P[] = {
+            { "see you 2morrow", "see you tomorrow" }, { "wait 4 me", "wait for me" }, { "i want 2 go", "i want to go" }, { "me 2", "me too" }, { "u 2", "you too" }, { "gr8 job", "great job" },
+            { "b4 you go", "before you go" }, { "l8r", "later" }, { "4ever", "forever" }, { "2 be or not 2 be", "to be or not to be" }, { "4 u", "for you" }, { "w8 4 me", "wait for me" },
+            { "any1 there?", "anyone there?" }, { "no1", "no one" }, { "i luv u 2", "i love you too" }, { "str8 up", "straight up" }, { "m8", "mate" }, { "2nite?", "tonight?" }, { "i cant 4get", "i cannot forget" },
+            /* what must stay */
+            { "i am 12", "i am 12" }, { "im 4", "i am 4" }, { "i have 2 dogs", "i have 2 dogs" }, { "1 2 3", "1 2 3" }, { "3pm", "3pm" }, { "2", "2" }, { "4", "4" }, { "i am 2", "i am 2" }, { "room 2", "room 2" },
+            { "one 2 three", "one 2 three" }, { "gr8t", "gr8t" }, { "user4", "user4" }, { "12 2 go", "12 2 go" }, { "age 4 me", "age 4 me" } };
+        for (unsigned i = 0; i < sizeof P / sizeof *P; i++) {
+            char o[410]; int map[410], src[410]; LangInfo f; int n = xp(P[i].in, o, 410, map, src, &f); npairs++;
+            if (strcmp(o, P[i].out)) { printf("BAD NUMBERS: expand \"%s\" -> \"%s\" (wanted \"%s\")\n", P[i].in, o, P[i].out); bad++; }
+            int tot = (int)strlen(P[i].in), ok = map[n] == tot;
+            for (int k = 0; ok && k < n; k++) if (map[k] < 0 || map[k] >= tot || (k && map[k] < map[k - 1])) ok = 0;
+            if (!ok) { printf("BAD NUMBERS MAP: expand \"%s\"\n", P[i].in); bad++; }
+        }
+        char o[410]; int map[410], src[410]; LangInfo f;
+        xp("see you 2morrow ok", o, 410, map, src, &f);
+        { int last = -1; for (int k = 0; o[k]; k++) if (!strncmp(o + k, "tomorrow", 8)) last = k + 7; if (last < 0 || map[last] != 14) { printf("BAD NUMBERS MAP: the end of 2morrow maps to %d, not 14\n", last < 0 ? -1 : map[last]); bad++; } }
+        lang_clean_set_numbers(0); xp("gr8 wait 4 me", o, 410, NULL, NULL, &f); if (strcmp(o, "gr8 wait 4 me") || f.nexpand) { printf("BAD NUMBERS: expanded with the rules off\n"); bad++; } lang_clean_set_numbers(1);
+    }
+    /* heard: the numbers and the age reach the Heard; plain text has none */
+    {   Heard h; lang_parse("i am 12", &h); if (h.age != 12 || h.nnum != 1 || h.num[0].kind != NK_AGE || !(h.flags & LF_NUMBER)) { printf("BAD HEARD: i am 12 -> age %d nnum %d\n", h.age, h.nnum); bad++; }
+        lang_parse("see you at 3pm, the 2nd door, 7 and 8, 9, 10", &h); if (h.nnum != HEARD_NUM || h.num[0].kind != NK_TIME || h.num[1].kind != NK_ORDINAL || h.age) { printf("BAD HEARD: several numbers (nnum %d)\n", h.nnum); bad++; }
+        lang_parse("hello there", &h); if (h.nnum || h.age || (h.flags & LF_NUMBER)) { printf("BAD HEARD: plain text has numbers\n"); bad++; }
+        lang_parse("see you 2morrow", &h); if (h.nnum || !(h.flags & LF_TEXTSPEAK)) { printf("BAD HEARD: 2morrow (nnum %d)\n", h.nnum); bad++; }
+        lang_parse("my name is Bob and im 12", &h); if (strcmp(h.capture, "Bob") && strcmp(h.capture, "Bob and im 12")) { printf("note: capture \"%s\"\n", h.capture); } }
+    /* the superset rule: with the number rules off, every intent heard is still heard with them on */
+    {   int lost = 0, gained = 0, lines = 0, withnum = 0;
+        char **txt = NULL; int nt = 0, ct = 0;
+        #define ADDT(str) do { if (nt == ct) { ct = ct ? ct * 2 : 4096; txt = realloc(txt, (size_t)ct * sizeof *txt); } txt[nt++] = strdup(str); } while (0)
+        EACH(l) ADDT(l->text);
+        for (int i = 0; i < lang_pat_count(); i++) ADDT(lang_pat(i)->pat);
+        for (int a_ = 1; a_ < argc; a_++) {
+            if (argv[a_][0] == '-' || !strstr(argv[a_], ".tsv")) continue;
+            FILE *fp = fopen(argv[a_], "r"); if (!fp) continue; char ln[1024];
+            while (fgets(ln, sizeof ln, fp)) { if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0; ADDT(ln); }
+            fclose(fp);
+        }
+        for (int i = 0; i < nt; i++) {
+            Heard a, b;
+            lang_clean_set_numbers(0); lang_parse(txt[i], &a);
+            lang_clean_set_numbers(1); lang_parse(txt[i], &b);
+            lines++; if (b.nnum) withnum++;
+            if (a.nnum) { printf("BAD NUMBERS: numbers found with the rules off\n"); bad++; }
+            for (int in = 0; in < I_COUNT; in++) {
+                if (heard_has(&a, in) && !heard_has(&b, in)) { if (lost < 5) printf("  lost %s on \"%s\"\n", lang_intent_name(in), txt[i]); lost++; }
+                if (!heard_has(&a, in) && heard_has(&b, in)) gained++;
+            }
+            free(txt[i]);
+        }
+        free(txt);
+        printf("numbers over %d texts (reply lines, patterns, corpus): %d carry a number, %d intents gained, %d lost\n", lines, withnum, gained, lost);
+        if (lost) { printf("BAD NUMBERS: the number rules must never take a heard intent away (%d)\n", lost); bad++; }
+    }
+    printf("numbers: %d detector / range / expansion checks and the checks around them. %s\n", npairs, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -971,11 +1098,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--tables"))   { rc |= do_tables() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

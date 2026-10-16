@@ -278,13 +278,16 @@ static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *
 
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
-    char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT]; LangInfo info;
-    int len = prepare3(text, lc, NULL, src, t1, &info);
+    char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
+    int len = prepare3(text, lc, map, src, t1, &info);
+    lang_clean_numbers(text, lc, map, &info);                  /* chunk 19: numbers, ages, times, ordinals */
     char lx[MAX_TEXT]; int xs[MAX_TEXT], xsrc[MAX_TEXT];       /* chunk 18: the expanded variant (u -> you, idk -> i do not know, dont -> do not) */
     int lenx = lang_clean_expand(lc, NULL, lx, MAX_TEXT, NULL, xs, &info);
     int has_x = info.nexpand > 0;
     h->flags = info.flags; h->noise = (uint8_t)info.noise; h->excl = (uint8_t)info.excl; h->quest = (uint8_t)info.quest; h->laugh = (uint8_t)(info.laugh > 255 ? 255 : info.laugh);
     h->stretch = (uint8_t)(info.stretch > 255 ? 255 : info.stretch);
+    h->nnum = (uint8_t)(info.nnum > HEARD_NUM ? HEARD_NUM : info.nnum);
+    for (int k = 0; k < info.nnum; k++) { if (k < HEARD_NUM) h->num[k] = info.num[k]; if (info.num[k].kind == NK_AGE && !h->age) h->age = (int16_t)info.num[k].value; }
     for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
     Case cs; cs.text = text; cs.t1 = t1; cs.have = 0;
     Span sp[MAX_SPANS];

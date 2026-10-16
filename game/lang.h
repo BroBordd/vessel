@@ -74,6 +74,7 @@ typedef struct {
 #define LEAN(t) (1u << (t))
 
 #define HEARD_MAX 512   /* intents that fit in a Heard (a 512 bit set; chunk 12: 380 intents) */
+#define HEARD_NUM 4     /* numbers kept in a Heard (chunk 19) */
 #define HEARD_ORDER 24  /* intents remembered in the order they were said */
 typedef struct {
     uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only (the old `mask` name is gone since chunk 12) */
@@ -87,6 +88,10 @@ typedef struct {
     uint8_t excl, quest;   /* number of ! and ? */
     uint8_t laugh;      /* the longest laugh in letters (a long laugh is more amused), 0 = none */
     uint8_t tok[TK_COUNT];   /* tokens seen per kind: emoticons, emoji, laughs, censored words (a run of the same emoji counts once) */
+    /* chunk 19: numbers (see lang_clean.h). none of it changes which intents are heard */
+    uint8_t nnum;       /* numbers captured (at most HEARD_NUM kept) */
+    int16_t age;        /* the age the player said (1-120), 0 = none */
+    LangNum num[HEARD_NUM];
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
