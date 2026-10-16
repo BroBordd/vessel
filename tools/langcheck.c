@@ -19,12 +19,14 @@
  *                      (chunk 17) part 3, lang_clean_words: about 230 before/after pairs (elongation, leet, spaced letters, censor masks, repeated punctuation, and the shapes that must NOT change: 3pm 1st b4 gr8 2day mp3 user1 a number a url), the maps (monotone, inside the text, the stretch of a final run), flags and TK_MASK ranges, highlight and name capture through it, leet self-harm, no dictionary, idempotence, and how many reply lines / patterns / corpus lines it changes
  *                      (chunk 18) text-speak and contractions, lang_clean_expand: the table (>= 150 well-formed rows, no duplicates), about 100 before/after pairs, the maps (a highlight covers the whole typed token), the cap, no hook, and the superset rule: everything the text as typed heard is still heard
  *                      (chunk 19) numbers, lang_clean_numbers: numbers, ages, times and ordinals with their original byte ranges (and what must NOT count: user1 mp3 2day a lone "one" 25:00), number words both ways (0-1100 round trip and bigger), the number-letter words of the expanded variant (b4 gr8 2morrow 4ever any1, a lone 2 / 4 as to / too / for), the Heard fields, and the superset rule with the number rules off
+ *   --vocab            (chunk 20) the vocabulary and the word hash: every row (word|rank|pos, ranks 1..N in order with no gaps, no duplicates, a-z and '), every lookup (vocab_has / rank / pos / is_name / protected, case blind, pointer and length) against the row, the names, the known-word hook, registering later and reset, and the lookup time. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
 #include "lang_tables.h"
 #include "lang_voice.h"
 #include "lang_clean.h"
+#include "lang_vocab.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -271,7 +273,7 @@ keys_done:;
     { PatCur c; lang_pat_cursor(&c, "qqqq"); int n = 0; while (lang_pat_next(&c) >= 0) n++; TCHECK(n <= 3, "a word nothing starts with met %d candidates", n); }
 
     /* 3. registering later: the indexes rebuild and the old answers stay */
-    int lines0 = lang_line_count(), pats0 = lang_pat_count(), greet0; { const Line *const *r; greet0 = lang_key_rows("r.greet", &r); }
+    int lines0 = lang_line_count(), pats0 = lang_pat_count(), lex0 = lang_lex_count(), voc0 = lang_vocab_count(), greet0; { const Line *const *r; greet0 = lang_key_rows("r.greet", &r); }
     TCHECK(lang_register_lines(T6_LINES, 3) == 0 && lang_register_pats(T6_PATS, 2) == 0, "register failed");
     TCHECK(lang_register_lex(T6_LEX) == 0 && lang_register_vocab(T6_VOCAB) == 0, "register lex/vocab failed");
     { const Line *const *r; int n = lang_key_rows("t6.key", &r), g = lang_key_rows("r.greet", &r);
@@ -284,14 +286,14 @@ keys_done:;
       TCHECK(n == 2 && !strcmp(rows[0], "adore|love|4") && !strcmp(rows[1], "adore|praise|2"), "lex find adore: %d rows, registration order", n);
       TCHECK(lang_lex_find("adored", rows, 4) == 0 && lang_lex_find("ador", rows, 4) == 0 && lang_lex_find("", rows, 4) == 0, "lex find matched a non word");
       TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
-      TCHECK(lang_lex_count() == 4 && lang_vocab_count() == 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
+      TCHECK(lang_lex_count() == lex0 + 4 && lang_vocab_count() == voc0 + 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
       const char *v = lang_vocab_find("wraith"); TCHECK(v && !strcmp(v, "wraith|9001|n"), "vocab find wraith");
       TCHECK(!lang_vocab_find("wrait") && !lang_vocab_find("adore"), "vocab find matched a word it does not have"); }
     TCHECK(lang_init_ms() >= 0.0 && lang_line_count() == lines0 + 3, "a forced rebuild changed the counts");
 
     /* 4. reset: back to the built-in tables only, and nothing about the test is left */
     lang_tables_reset();
-    { const Line *const *r; TCHECK(lang_line_count() == lines0 && lang_pat_count() == pats0 && lang_key_rows("t6.key", &r) == 0 && lang_lex_count() == 0 && lang_vocab_count() == 0, "reset did not restore the built-in tables"); }
+    { const Line *const *r; TCHECK(lang_line_count() == lines0 && lang_pat_count() == pats0 && lang_key_rows("t6.key", &r) == 0 && lang_lex_count() == lex0 && lang_vocab_count() == voc0, "reset did not restore the built-in tables"); }
     printf("tables: %d lines in %d keys, %d patterns, registry and indexes %s\n", total, nk, np, tfail ? "FAIL" : "ok");
     return tfail;
 }
@@ -1080,6 +1082,106 @@ static int do_numbers(int argc, char **argv) {
     return bad;
 }
 
+/* chunk 20: the vocabulary and the word hash. the rows (format, ranks 1..N in order, no duplicates), every lookup against a plain walk of the tables,
+ * the names, the (w, n) and case-blind forms, "never corrected" (vocab_protected), the known-word hook, registering later and reset */
+static int cmp_str(const void *a, const void *b) { return strcmp(*(const char *const *)a, *(const char *const *)b); }
+static int do_vocab(void) {
+    int bad = 0, checks = 0;
+    lang_init();
+    #define VCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD VOCAB: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    int nv = vocab_size(), nn = vocab_name_count();
+    VCHECK(nv >= 600, "only %d vocabulary words, the first batch has at least 600", nv);
+    VCHECK(nn >= 100, "only %d names", nn);
+    /* the rows */
+    {   const char **w = malloc((size_t)(nv + 1) * sizeof *w); int prev = 0, rows = 0, last = 0;
+        for (int i = 0; i < nv; i++) {
+            const char *r = lang_vocab_at(i); if (!r) { VCHECK(0, "row %d missing", i); continue; }
+            const char *b1 = strchr(r, '|'); int wl = b1 ? (int)(b1 - r) : 0, ok = b1 && wl >= 1 && wl <= 24;
+            for (int k = 0; ok && k < wl; k++) if (!((r[k] >= 'a' && r[k] <= 'z') || r[k] == '\'')) ok = 0;
+            if (ok && r[0] == '\'') ok = 0;
+            const char *p = b1 ? b1 + 1 : ""; int rank = 0, nd = 0;
+            while (*p >= '0' && *p <= '9') { rank = rank * 10 + (*p - '0'); p++; nd++; }
+            if (!nd || nd > 6 || rank < 1) ok = 0;
+            if (*p == '|') { if (!(p[1] && strchr("nvarx", p[1]) && !p[2])) ok = 0; } else if (*p) ok = 0;
+            VCHECK(ok, "row \"%s\" is not word|rank or word|rank|pos (a-z and ', rank >= 1, pos n v a r x)", r);
+            if (ok) { VCHECK(rank > prev, "rank %d of \"%s\" does not follow %d (ranks go up one by one)", rank, r, prev); VCHECK(rank == prev + 1 || !prev, "rank %d of \"%s\" skips (ranks have no gaps)", rank, r); prev = rank; last = rank; }
+            w[rows++] = r;
+        }
+        VCHECK(rows && last == nv, "last rank %d, rows %d", last, nv);
+        char **ws = malloc((size_t)(nv + 1) * sizeof *ws);       /* duplicates: sort the words, compare neighbours */
+        for (int i = 0; i < nv; i++) { const char *bar = strchr(w[i], '|'); size_t l = bar ? (size_t)(bar - w[i]) : strlen(w[i]); ws[i] = malloc(l + 1); memcpy(ws[i], w[i], l); ws[i][l] = 0; }
+        qsort(ws, (size_t)nv, sizeof *ws, cmp_str);
+        for (int i = 1; i < nv; i++) VCHECK(strcmp(ws[i], ws[i - 1]), "\"%s\" is twice in the vocabulary", ws[i]);
+        for (int i = 0; i < nv; i++) free(ws[i]);
+        free(ws);
+        /* every lookup against the row itself (a plain walk: no hash) */
+        int direct = 0; for (const char *const *r = VOCAB_A; *r; r++) direct++;
+        VCHECK(direct <= nv, "VOCAB_A has %d rows but the registry only %d", direct, nv);
+        for (int i = 0; i < nv; i++) {
+            const char *r = w[i], *b1 = strchr(r, '|'); if (!b1) continue;
+            char wd[48]; int wl = (int)(b1 - r); memcpy(wd, r, (size_t)wl); wd[wl] = 0;
+            int rank = atoi(b1 + 1); const char *b2 = strchr(b1 + 1, '|'); char pos = b2 ? b2[1] : 'x';
+            if (!vocab_has(wd) || vocab_rank(wd) != rank || vocab_pos(wd) != pos || !vocab_has_n(wd, wl) || !lang_known_word(wd, wl) || !vocab_protected(wd, wl)) {
+                VCHECK(0, "lookup of \"%s\": has %d rank %d (want %d) pos %c (want %c) known %d", wd, vocab_has(wd), vocab_rank(wd), rank, vocab_pos(wd) ? vocab_pos(wd) : '0', pos, lang_known_word(wd, wl));
+            } else checks++;
+        }
+        free(w);
+    }
+    /* names */
+    {   const char **w = malloc((size_t)(nn + 1) * sizeof *w);
+        for (int i = 0; i < nn; i++) {
+            const char *r = lang_name_at(i); w[i] = r;
+            int ok = r && r[0]; for (const char *p = r; ok && *p; p++) if (!(*p >= 'a' && *p <= 'z')) ok = 0;
+            VCHECK(ok && strlen(r) <= 20, "name row \"%s\" is not a lower case name of letters", r ? r : "(null)");
+            if (ok) VCHECK(vocab_is_name(r) && vocab_is_name_n(r, (int)strlen(r)) && vocab_protected(r, (int)strlen(r)), "name \"%s\" is not found", r);
+        }
+        qsort(w, (size_t)nn, sizeof *w, cmp_str);
+        for (int i = 1; i < nn; i++) VCHECK(strcmp(w[i], w[i - 1]), "name \"%s\" is twice", w[i]);
+        free(w);
+    }
+    /* what a lookup must say */
+    {   static const struct { const char *w; int rank; char pos; } K[] = { { "the", 1, 'x' }, { "i", 0, 'x' }, { "hello", 0, 'x' }, { "dog", 0, 'n' }, { "run", 0, 'v' }, { "good", 0, 'a' }, { "very", 0, 'r' }, { "don't", 0, 'v' }, { "dont", 0, 'v' }, { "lol", 0, 'x' } };
+        for (unsigned i = 0; i < sizeof K / sizeof *K; i++) {
+            VCHECK(vocab_has(K[i].w), "\"%s\" should be a vocabulary word", K[i].w);
+            VCHECK(vocab_pos(K[i].w) == K[i].pos, "pos of \"%s\" is %c, wanted %c", K[i].w, vocab_pos(K[i].w) ? vocab_pos(K[i].w) : '0', K[i].pos);
+            if (K[i].rank) VCHECK(vocab_rank(K[i].w) == K[i].rank, "rank of \"%s\" is %d, wanted %d", K[i].w, vocab_rank(K[i].w), K[i].rank);
+        }
+        VCHECK(vocab_rank("the") < vocab_rank("please") && vocab_rank("be") < vocab_rank("monster"), "frequency order");
+        static const char *const NOT[] = { "hwllo", "zzzqx", "", "h3llo", "123", "the cat", "dog!", "xyzzy", "heello", "thee", NULL };
+        for (const char *const *p = NOT; *p; p++) VCHECK(!vocab_has(*p) && vocab_rank(*p) == 0 && vocab_pos(*p) == 0 && !vocab_protected(*p, (int)strlen(*p)), "\"%s\" must not be found", *p);
+        VCHECK(!vocab_has(NULL) && !vocab_rank(NULL) && !vocab_pos(NULL) && !vocab_is_name(NULL) && !vocab_has_n(NULL, 3) && !vocab_has_n("the", 0) && !vocab_has_n("the", -1), "NULL / empty");
+        VCHECK(vocab_has("The") && vocab_has("HELLO") && vocab_rank("THE") == 1 && vocab_is_name("DEA") && vocab_is_name("Alex"), "case blind");
+        VCHECK(vocab_has_n("the cat", 3) && !vocab_has_n("the cat", 4) && vocab_has_n("dogs!", 3) && vocab_has_n("i'm so", 3), "pointer and length");
+        VCHECK(vocab_is_name("dea") && vocab_is_name("alex") && vocab_is_name("mia") && !vocab_is_name("hello") && !vocab_is_name("") && !vocab_is_name("zzzqx"), "names");
+        VCHECK(vocab_protected("hello", 5) && vocab_protected("dea", 3) && !vocab_protected("hwllo", 5), "protected");
+        char l39[40], l40[41]; memset(l39, 'a', 39); l39[39] = 0; memset(l40, 'a', 40); l40[40] = 0;
+        VCHECK(!vocab_has(l39) && !vocab_has(l40) && !vocab_is_name(l40), "long words");
+    }
+    /* registering later, and reset */
+    {   static const char *const TV[] = { "zorp|9001|n", "blarg|9002", 0 };
+        static const char *const TN[] = { "zaphod", 0 };
+        int v0 = vocab_size(), n0 = vocab_name_count();
+        VCHECK(!vocab_has("zorp") && !vocab_is_name("zaphod"), "test words are there before they are registered");
+        VCHECK(lang_register_vocab(TV) == 0 && lang_register_names(TN) == 0, "register failed");
+        VCHECK(vocab_has("zorp") && vocab_rank("zorp") == 9001 && vocab_pos("zorp") == 'n' && vocab_pos("blarg") == 'x' && vocab_rank("blarg") == 9002 && vocab_is_name("zaphod") && !vocab_has("zaphod"), "registered words");
+        VCHECK(vocab_size() == v0 + 2 && vocab_name_count() == n0 + 1 && vocab_rank("the") == 1 && vocab_is_name("dea"), "counts after registering");
+        VCHECK(lang_known_word("zorp", 4) && !lang_known_word("zaphod", 6), "known words: vocabulary yes, names stay out of it");
+        lang_tables_reset(); lang_init();
+        VCHECK(!vocab_has("zorp") && !vocab_is_name("zaphod") && vocab_size() == v0 && vocab_name_count() == n0 && vocab_has("the") && vocab_is_name("dea"), "reset restores the built-in vocabulary");
+    }
+    /* time: the hash should not care about the size */
+    {   struct timespec a, b; volatile int sink = 0; static const char *const Q[] = { "the", "monster", "hwllo", "dea", "zzzqx", "don't", "Please", NULL };
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (int i = 0; i < 200000; i++) { const char *q = Q[i % 7]; sink += vocab_has(q) + vocab_rank(q) + vocab_is_name(q); }
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6; (void)sink;
+        printf("vocab: %d words, %d names; 600,000 lookups in %.1f ms (%.0f ns each)\n", vocab_size(), vocab_name_count(), ms, ms * 1e6 / 600000.0);
+        VCHECK(ms < 2000, "lookups are too slow (%.0f ms)", ms);
+    }
+    printf("vocab: %d checks (rows, ranks, lookups, names, registering, reset). %s\n", checks, bad ? "PROBLEMS" : "ok");
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1099,10 +1201,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--moods"))    { rc |= do_moods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

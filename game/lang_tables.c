@@ -3,6 +3,7 @@
  *
  * the registry and the indexes. see lang_tables.h */
 #include "lang_tables.h"
+#include "lang_vocab.h"
 #include "lang.h"
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
 static const char *const *tstab[MAX_TABLES]; static int nts_t;       /* chunk 18: text-speak rows */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
+static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
 static int builtin_done, dirty = 1;
 
 static void builtin(void);
@@ -24,6 +26,7 @@ int lang_register_lines(const Line *t, int n) { builtin(); if (nlt >= MAX_TABLES
 int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; npt++; dirty = 1; return 0; }
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
+int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
 
 /* the old tables, in the order the engine always walked them. they always come first, whatever registers first */
@@ -34,9 +37,11 @@ static void builtin(void) {
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
     lang_register_pats(PATS, PATS_N);
     lang_register_textspeak(TEXTSPEAK);
+    lang_register_vocab(VOCAB_A);                                /* chunk 20 */
+    lang_register_names(NAMES_A);
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -179,7 +184,7 @@ int lang_pat_next(PatCur *c) {            /* a 4 way merge of ascending lists */
 /* ---------- the word hashes (lexicon, vocabulary) ---------- */
 typedef struct { const char *row; int next; } WEnt;
 typedef struct { int *head; int nhead; WEnt *e; int n; } WIdx;
-static WIdx lexi, vocabi;
+static WIdx lexi, vocabi, namei;
 
 static int word_len(const char *row) { const char *b = strchr(row, '|'); return b ? (int)(b - row) : (int)strlen(row); }
 static unsigned whash(const char *w, int len) { unsigned h = 2166136261u; for (int i = 0; i < len; i++) h = (h ^ (unsigned char)w[i]) * 16777619u; return h; }
@@ -218,6 +223,10 @@ static int widx_find(const WIdx *x, const char *word, const char **out, int max)
 
 int lang_lex_find(const char *word, const char **rows, int max) { lang_init(); return widx_find(&lexi, word, rows, max); }
 const char *lang_vocab_find(const char *word) { lang_init(); const char *r[1]; return widx_find(&vocabi, word, r, 1) ? r[0] : NULL; }
+const char *lang_name_find(const char *word) { lang_init(); const char *r[1]; return widx_find(&namei, word, r, 1) ? r[0] : NULL; }
+int lang_name_count(void) { lang_init(); return namei.n; }
+const char *lang_vocab_at(int i) { lang_init(); return i >= 0 && i < vocabi.n ? vocabi.e[i].row : NULL; }
+const char *lang_name_at(int i) { lang_init(); return i >= 0 && i < namei.n ? namei.e[i].row : NULL; }
 int lang_lex_count(void) { lang_init(); return lexi.n; }
 int lang_vocab_count(void) { lang_init(); return vocabi.n; }
 
@@ -304,6 +313,7 @@ void lang_init(void) {
     build_pats();
     build_widx(&lexi, lextab, nlex_t);
     build_widx(&vocabi, vocabtab, nvocab_t);
+    build_widx(&namei, nametab, nname_t);
     build_known();
     build_textspeak();
     lang_clean_set_known(lang_known_word);

@@ -20,6 +20,7 @@ int  lang_register_lines(const Line *t, int n);
 int  lang_register_pats(const Pat *t, int n);
 int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight", the array ends with 0 */
 int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", the array ends with 0 */
+int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (lower case first names), the array ends with 0 */
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
@@ -52,5 +53,10 @@ int  lang_known_word(const char *w, int n);
 const char *lang_textspeak(const char *w, int n);
 int  lang_lex_count(void);
 int  lang_vocab_count(void);
+/* chunk 20: the names, and the i-th row of the vocabulary / the names in registration order (tools: the lint walks them); NULL past the end */
+const char *lang_name_find(const char *name);
+int  lang_name_count(void);
+const char *lang_vocab_at(int i);
+const char *lang_name_at(int i);
 
 #endif
