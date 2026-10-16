@@ -25,6 +25,7 @@
  *   --lemma [FILES]    (chunk 24) the lemmas: the irregular table (well formed, no chains), 270 inflected forms that must resolve (and be stable), 130 words that must stay, odd inputs, the lemma text (maps, replaced marks, past and aux forms left alone), what the matcher hears through a lemma, the superset rule over the corpus FILES, self-harm unchanged on ordinary sentences, speed, registering a table
  *   --clause           (chunk 25) clauses, negation scope, contrast and intensity: 63 negation / contrast / intensity cases through lang_parse (Heard.clauses, positive, negative, intensity), lang_clauses (splits, the cap, the boost count), lang_neg_count (the 4 word scope, punctuation, a clause start, two negators), odd and long texts
  *   --pats             (chunk 26) pattern syntax v2 and the macro library: the report of the tables (rows, compiled rows, macros, expanded surface forms capped at 200 per row, the longest row, rows with a huge or wild first word set, ambiguous rows = one surface form mapped to two intents), then the tests: 60 match cases ([a|b] (x) <m> <x> <number> <time> <npc> * ? $), the compile errors, string rows (weights, errors), the weight tie break, a capture and a highlight through a compiled pattern, the safety scan, the index (every form of every row finds its row, a row with several first words is met once), every old pattern compiled and run against the classic matcher over every reply line and corpus FILE (the same end and prefix), a runaway pattern, registering later and reset, and the speed with 2,000 rows. fails on a problem
+ *   --lex [FILES]      (chunk 27) the lexicon layer: the rows of lang_lex_core.c (well formed, a known intent, weight 1-9, no duplicate, every old intent has rows and a strong word), lang_lex_scan on 40 cases (a strong word alone, two weak words adding up, the position rule, negation, very / a bit, a covered word, a lemma, clauses, the threshold), Heard.src / Heard.conf (phrase 85-100, lexicon 35-69, never a lexicon safety hit), rows that are not intents are ignored, registering later and reset, the superset rule over every reply line and corpus FILE (the lexicon only ADDS intents), and the speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -36,6 +37,7 @@
 #include "lang_lemma.h"
 #include "lang_clause.h"
 #include "lang_pat.h"
+#include "lang_lex.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -292,7 +294,7 @@ keys_done:;
     { PatCur c; lang_pat_cursor(&c, "zzqx hello"); int id, a = 0, b = 0; while ((id = lang_pat_next(&c)) >= 0) { if (id == pats0) a = 1; if (id == pats0 + 1) b = 1; }
       TCHECK(a && b, "the registered patterns are not candidates (%d %d)", a, b); }
     { const char *rows[4]; int n = lang_lex_find("adore", rows, 4);
-      TCHECK(n == 2 && !strcmp(rows[0], "adore|love|4") && !strcmp(rows[1], "adore|praise|2"), "lex find adore: %d rows, registration order", n);
+      TCHECK(n == 3 && !strcmp(rows[0], "adore|love|6") && !strcmp(rows[1], "adore|love|4") && !strcmp(rows[2], "adore|praise|2"), "lex find adore: %d rows (the core row first, then the registered ones in registration order)", n);   /* chunk 27: lang_lex_core.c has adore too */
       TCHECK(lang_lex_find("adored", rows, 4) == 0 && lang_lex_find("ador", rows, 4) == 0 && lang_lex_find("", rows, 4) == 0, "lex find matched a non word");
       TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
       TCHECK(lang_lex_count() == lex0 + 4 && lang_vocab_count() == voc0 + 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
@@ -2317,6 +2319,130 @@ static int do_pats(int argc, char **argv) {
     return pfail;
 }
 
+
+/* ---- chunk 27: the lexicon layer ---- */
+static int lfail, lchecks;
+#define LCHECK(c, ...) do { lchecks++; if (!(c)) { printf("BAD LEX: " __VA_ARGS__); printf("\n"); lfail++; } } while (0)
+
+static int lex_hit(const char *text, int intent, int *neg, int *score) {
+    char lc[420]; lang_clean(text, lc, 420, NULL);
+    LexHit h[LEX_MAXHITS]; int n = lang_lex_scan(lc, (int)strlen(lc), NULL, h, LEX_MAXHITS);
+    for (int i = 0; i < n; i++) if (h[i].intent == intent) { if (neg) *neg = h[i].neg; if (score) *score = h[i].score; return 1; }
+    return 0;
+}
+static const char *const LX_ROWS[] = { "zzqword|insult|9", "zzqmild|insult|3", "zzqmild2|insult|3", "zzqtopic|topic.moon|9", "zzqpos|pos|9", "zzqself|selfharm|9", 0 };
+
+static int do_lex(int argc, char **argv) {
+    lfail = lchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* ---- the rows ---- */
+    int nrows = 0, per[I_COUNT] = {0}, strong[I_COUNT] = {0};
+    for (const char *const *r = LEX_CORE; *r; r++) {
+        nrows++;
+        const char *a = strchr(*r, '|'), *b = a ? strchr(a + 1, '|') : NULL;
+        LCHECK(a && b && a > *r, "row [%s] is not word|intent|weight", *r);
+        if (!a || !b) continue;
+        for (const char *c = *r; c < a; c++) LCHECK(islower((unsigned char)*c) || *c == '\'', "row [%s]: the word holds a character that is not a lower case letter", *r);
+        char name[48]; int n = (int)(b - a - 1); if (n > 40) n = 40; memcpy(name, a + 1, (size_t)n); name[n] = 0;
+        int in = lang_intent_by_name(name), w = atoi(b + 1);
+        LCHECK(in >= 0, "row [%s]: unknown intent %s", *r, name);
+        LCHECK(in != I_SELFHARM && in != I_POS && in != I_NEG, "row [%s]: the lexicon of chunk 27 does not carry %s", *r, name);
+        LCHECK(w >= 1 && w <= 9 && strlen(b + 1) == 1, "row [%s]: weight %s is not 1-9", *r, b + 1);
+        if (in >= 0 && in < I_COUNT) { per[in]++; if (w >= 6) strong[in]++; }
+        for (const char *const *q = *r ? r + 1 : r; *q && q < r + 3000; q++) { if (!strcmp(*q, *r)) { LCHECK(0, "row [%s] appears twice", *r); break; } }
+    }
+    LCHECK(nrows >= 300, "only %d rows", nrows);
+    for (int i = 0; i < I_OLD_COUNT; i++) {
+        if (i == I_SELFHARM || i == I_POS || i == I_NEG) continue;
+        LCHECK(per[i] >= 6, "intent %s has %d rows (want >= 6)", lang_intent_name(i), per[i]);
+        if (i != I_HOWRU && i != I_WHORU && i != I_WHOAMI && i != I_INTRO)      /* these four are sentences, not words: phrases only */
+            LCHECK(strong[i] >= 1, "intent %s has no row of weight 6 or more", lang_intent_name(i));
+    }
+    printf("lex: %d rows (registered %d), %d intents with rows\n", nrows, lang_lex_count(), (int)(sizeof per / sizeof per[0]) ? ({ int c = 0; for (int i = 0; i < I_COUNT; i++) if (per[i]) c++; c; }) : 0);
+
+    /* ---- the scan ---- */
+    struct { const char *text; int intent, want, neg; } C[] = {
+        { "stupid", I_INSULT, 1, 0 }, { "you are stupid", I_INSULT, 1, 0 }, { "i think you are stupid and worthless", I_INSULT, 1, 0 },
+        { "not stupid", I_INSULT, 1, 1 }, { "you are not stupid", I_INSULT, 1, 1 }, { "i do not think you are stupid", I_INSULT, 1, 1 },
+        { "whereabouts of the shrine", I_WHERE, 1, 0 },                       /* a strong word counts in full even early in the text */
+        { "upset", I_ANGRY, 0, 0 }, { "mad upset", I_ANGRY, 1, 0 }, { "upset and bitter", I_ANGRY, 1, 0 },   /* weak words add up (4 + 3) */
+        { "mad", I_ANGRY, 0, 0 }, { "very mad", I_ANGRY, 1, 0 }, { "so mad", I_ANGRY, 1, 0 }, { "kinda mad", I_ANGRY, 0, 0 }, { "a bit sad", I_SAD, 1, 0 },
+        { "adored", I_LOVE, 1, 0 }, { "scared", I_SCARED, 1, 0 }, { "terrifying", I_SCARED, 0, 0 },
+        { "stupid. hello", I_INSULT, 1, 0 }, { "hello. stupid", I_INSULT, 1, 0 }, { "good but stupid", I_INSULT, 1, 0 },
+        { "banana", I_INSULT, 0, 0 }, { "the weather", I_SKY, 0, 0 }, { "", I_INSULT, 0, 0 }, { "   ", I_INSULT, 0, 0 },
+        { "stupid stupid stupid", I_INSULT, 1, 0 }, { "dumbbell", I_INSULT, 0, 0 }, { "xstupid", I_INSULT, 0, 0 },
+        { "STUPID", I_INSULT, 1, 0 },
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        int neg = 0, sc = 0, got = lex_hit(C[i].text, C[i].intent, &neg, &sc);
+        LCHECK(got == C[i].want, "\"%s\" -> %s: hit %d (score %d), wanted %d", C[i].text, lang_intent_name(C[i].intent), got, sc, C[i].want);
+        if (got && C[i].want) LCHECK(neg == C[i].neg, "\"%s\": negated %d, wanted %d", C[i].text, neg, C[i].neg);
+    }
+    { int sc = 0; lex_hit("so mad", I_ANGRY, NULL, &sc); LCHECK(sc == 6, "so mad scores %d (5 + 1 = 6)", sc); }
+    { char lc[] = "you stupid fool"; unsigned char cov[32]; memset(cov, 0, sizeof cov); for (int i = 4; i < 10; i++) cov[i] = 1;
+      LexHit h[LEX_MAXHITS]; int n = lang_lex_scan(lc, (int)strlen(lc), cov, h, LEX_MAXHITS); int ins = 0; for (int i = 0; i < n; i++) if (h[i].intent == I_INSULT) ins = h[i].score;
+      LCHECK(ins == 6, "a covered word must not count: insult score %d (fool 6 alone)", ins);
+      memset(cov, 1, sizeof cov); n = lang_lex_scan(lc, (int)strlen(lc), cov, h, LEX_MAXHITS); LCHECK(n == 0, "everything covered must give no hit, got %d", n); }
+    { lang_lex_set_threshold(3); LCHECK(lex_hit("upset", I_ANGRY, NULL, NULL), "threshold 3: upset must hit"); lang_lex_set_threshold(0);
+      LCHECK(lang_lex_threshold() == LEX_THRESHOLD && !lex_hit("upset", I_ANGRY, NULL, NULL), "the threshold did not come back"); }
+    { LexHit h[2]; char lc[] = "stupid idiot moron hello"; LCHECK(lang_lex_scan(lc, (int)strlen(lc), NULL, h, 1) == 1, "max 1 must give 1 hit"); }
+
+    /* ---- Heard: sources and confidence ---- */
+    { Heard h;
+      lang_parse("hello", &h); LCHECK(h.n >= 1 && h.order[0] == I_GREET && h.src[0] == SRC_PHRASE && h.conf[0] >= 85, "hello: src %d conf %d", h.src[0], h.conf[0]);
+      lang_parse("ciao amigo", &h); { int ok = 0; for (int j = 0; j < h.n; j++) if (h.order[j] == I_BYE && h.src[j] == SRC_LEX && h.conf[j] >= 35 && h.conf[j] <= 69) ok = 1; LCHECK(ok, "ciao amigo: not heard by the lexicon with a confidence of 35-69"); }
+      lang_parse("hwllo", &h); LCHECK(h.n >= 1 && h.order[0] == I_GREET && h.src[0] == SRC_FUZZY && h.conf[0] >= 30 && h.conf[0] <= 80, "hwllo: src %d conf %d", h.src[0], h.conf[0]);
+      lang_parse("i want to kill myself", &h); LCHECK(h.order[0] == I_SELFHARM && h.src[0] == SRC_PHRASE && h.conf[0] == 100, "self-harm: src %d conf %d", h.src[0], h.conf[0]);
+      lang_parse("you are not stupid", &h); LCHECK(!heard_has(&h, I_INSULT), "a negated lexicon hit must not be heard as the intent itself");
+      lang_parse("you are brilliant", &h); LCHECK(heard_has(&h, I_PRAISE), "brilliant must be praise");
+      lang_parse("hello stupid", &h); { int g = -1, ins = -1; for (int j = 0; j < h.n; j++) { if (h.order[j] == I_GREET) g = h.src[j]; if (h.order[j] == I_INSULT) ins = h.src[j]; }
+        LCHECK(g == SRC_PHRASE && ins >= 0, "hello stupid: greet src %d insult src %d", g, ins); }
+      lang_parse("i hate you stupid idiot", &h); { int ok = 1; for (int j = 0; j < h.n; j++) if (h.src[j] == SRC_LEX && h.conf[j] > 69) ok = 0; LCHECK(ok, "a lexicon confidence is above 69"); }
+      lang_parse("", &h); LCHECK(h.n == 0, "empty text heard %d intents", h.n);
+      LCHECK(lang_intent_by_name("selfharm") == I_SELFHARM, "intent name"); }
+
+    /* ---- registering later: rows that are not intents are ignored; reset ---- */
+    { lang_register_lex(LX_ROWS);
+      LCHECK(lex_hit("zzqword", I_INSULT, NULL, NULL), "a registered row of weight 9 must hit");
+      LCHECK(lex_hit("zzqmild zzqmild2", I_INSULT, NULL, NULL) && !lex_hit("zzqmild", I_INSULT, NULL, NULL), "two rows of weight 3 add up, one does not");
+      { char lc[] = "zzqtopic zzqpos zzqself"; LexHit h[LEX_MAXHITS]; LCHECK(lang_lex_scan(lc, (int)strlen(lc), NULL, h, LEX_MAXHITS) == 0, "topic, pos and selfharm rows must be ignored by the scan"); }
+      Heard h; lang_parse("zzqself", &h); LCHECK(!heard_has(&h, I_SELFHARM), "a lexicon row must never make self-harm heard");
+      lang_tables_reset(); LCHECK(!lex_hit("zzqword", I_INSULT, NULL, NULL) && lex_hit("stupid", I_INSULT, NULL, NULL), "reset must forget the registered rows and keep the core rows"); }
+
+    /* ---- the superset rule: the lexicon only adds ---- */
+    { int nt = 0, gained = 0, lost = 0, texts_n = 0;
+      char **texts = malloc(4000 * sizeof *texts);
+      for (int t = 0; t < 4; t++) for (int i = 0; i < *CNT[t] && nt < 3000; i++) texts[nt++] = strdup(TAB[t][i].text);
+      for (int a = 1; a < argc; a++) {
+          if (argv[a][0] == '-') continue;
+          FILE *fp = fopen(argv[a], "r"); if (!fp) continue; char ln[512];
+          while (fgets(ln, sizeof ln, fp) && nt < 3900) { if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0; texts[nt++] = strdup(ln); }
+          fclose(fp);
+      }
+      texts_n = nt;
+      for (int t = 0; t < nt; t++) {
+          Heard on, off;
+          lang_lex_set_threshold(99); lang_parse(texts[t], &off);
+          lang_lex_set_threshold(0); lang_parse(texts[t], &on);
+          for (int i = 0; i < I_COUNT; i++) { if (heard_has(&off, i) && !heard_has(&on, i)) lost++; if (!heard_has(&off, i) && heard_has(&on, i)) gained++; }
+      }
+      LCHECK(lost == 0, "the lexicon made %d intents disappear", lost);
+      printf("  superset rule: %d texts, %d intents lost, %d intents gained by the lexicon\n", texts_n, lost, gained);
+      for (int t = 0; t < nt; t++) free(texts[t]);
+      free(texts); }
+
+    /* ---- speed ---- */
+    { Heard h; const char *t = "you are such a stupid worthless idiot and i am terrified of the dark abyss under the clouds so tell me your secrets please now";
+      clock_t t0 = clock(); for (int i = 0; i < 2000; i++) lang_parse(t, &h); double per_ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 2000.0;
+      printf("  speed: a parse of %d characters %.4f ms (with the lexicon)\n", (int)strlen(t), per_ms);
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_UNDEFINED__)
+      per_ms = 0;
+#endif
+      LCHECK(per_ms < 1.0, "a parse took %.3f ms (budget 1 ms)", per_ms); }
+    printf("lex: %d checks, %d problems\n", lchecks, lfail);
+    return lfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -2343,10 +2469,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clause"))   { rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--pats"))     { rc |= do_pats(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--lex"))      { rc |= do_lex(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

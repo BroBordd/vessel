@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     lang_seed(1);
     int exp_n[I_COUNT] = {0}, hit[I_COUNT] = {0}, pred[I_COUNT] = {0}, ok_pred[I_COUNT] = {0};
     int scored = 0, unknown = 0, exact = 0, none_n = 0, none_ok = 0, missed_rows = 0;
-    int shown = 0;
+    int shown = 0, src_hit[8] = {0}, src_heard[8] = {0}, src_conf[8] = {0};     /* chunk 27: by where the intent came from (SRC_*) */
     printf("=== misses (first %d) ===\n", nmiss);
     for (int r = 0; r < nrows; r++) {
         Row *w = &rows[r];
@@ -218,7 +218,8 @@ int main(int argc, char **argv) {
             if (s_eq(&cmp_got, &cmp_exp)) exact++;
             for (int i = 0; i < I_COUNT; i++) {
                 if (sh(&w->exp, i)) { exp_n[i]++; if (sh(&got, i)) hit[i]++; else miss = 1; }
-                if (sh(&got, i)) { pred[i]++; if (sh(&w->exp, i)) ok_pred[i]++; }
+                if (sh(&got, i)) { pred[i]++; if (sh(&w->exp, i)) ok_pred[i]++;
+                    for (int j = 0; j < h.n; j++) if (h.order[j] == i && h.src[j] < 8) { src_heard[h.src[j]]++; src_conf[h.src[j]] += h.conf[j]; if (sh(&w->exp, i)) src_hit[h.src[j]]++; } }
             }
         }
         if (w->none) for (int i = 0; i < I_COUNT; i++) if (sh(&got, i)) pred[i]++;
@@ -241,6 +242,10 @@ int main(int argc, char **argv) {
     double overall = te ? 100.0 * th / te : 0;
     printf("\nlines scored %d | overall recall %.1f%% (%d/%d labels) | exact-set %.1f%% | unknown rate %.1f%% (%d lines heard nothing)\n",
            scored, overall, th, te, scored - none_n ? 100.0 * exact / (scored - none_n) : 0, scored ? 100.0 * unknown / scored : 0, unknown);
+    { static const char *const SN[] = { "none", "phrase", "lexicon", "frame", "fuzzy" };
+      printf("by source (labels heard rightly / intents heard, mean confidence):");
+      for (int k = 1; k < 5; k++) if (src_heard[k]) printf("  %s %d/%d (%.0f%% right, conf %d)", SN[k], src_hit[k], src_heard[k], 100.0 * src_hit[k] / src_heard[k], src_conf[k] / src_heard[k]);
+      printf("\n"); }
     if (none_n) printf("none-lines (should be heard as nothing): %d/%d correct\n", none_ok, none_n);
     printf("lines with at least one miss or false hit on a none line: %d\n", missed_rows);
     int rc = 0;

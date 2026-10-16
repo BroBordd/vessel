@@ -75,6 +75,8 @@ typedef struct {
 
 #define HEARD_MAX 512   /* intents that fit in a Heard (a 512 bit set; chunk 12: 380 intents) */
 #define HEARD_NUM 4     /* numbers kept in a Heard (chunk 19) */
+/* chunk 27: where a heard intent came from: a PHRASE (a pattern, 85-100), the LEXICON (a word score, 35-69: weaker than any phrase), a sentence FRAME (chunk 30), a FUZZY reading (a spelled or lemma variant, 30-80) */
+enum { SRC_NONE, SRC_PHRASE, SRC_LEX, SRC_FRAME, SRC_FUZZY };
 #define HEARD_ORDER 24  /* intents remembered in the order they were said */
 #define HEARD_CLAUSES 8     /* clauses kept in a Heard (chunk 25) */
 /* chunk 25: one clause of the text as typed. a, b = bytes [a, b) of the CLEANED text (lower case, spaces folded: not the typed bytes) */
@@ -106,6 +108,7 @@ typedef struct {
     uint8_t nclauses, intensity;   /* chunk 25: clauses[0..nclauses) and the overall intensity 0-3 (the last clause that has a feeling, else the strongest) */
     HeardClause clauses[HEARD_CLAUSES];
     uint8_t nlemma;     /* chunk 24: words of the text as typed that have a lemma (loved -> love); flags says LF_LEMMA. the lemma variant only adds intents */
+    uint8_t src[HEARD_ORDER], conf[HEARD_ORDER];   /* chunk 27: for each intent of order[]: where it came from (SRC_*) and how sure the engine is (0-100) */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 

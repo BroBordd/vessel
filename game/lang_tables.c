@@ -49,6 +49,7 @@ static void builtin(void) {
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
     lang_register_pats(PATS, PATS_N);
     lang_register_macros(MACROS_A);                              /* chunk 26 */
+    lang_register_lex(LEX_CORE);                                 /* chunk 27 */
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */

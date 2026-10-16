@@ -11,6 +11,7 @@
 #include "lang_lemma.h"
 #include "lang_clause.h"
 #include "lang_pat.h"
+#include "lang_lex.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -261,7 +262,7 @@ static int prepare(const char *text, char *lc, int *map) { return prepare3(text,
  * variant (chunk 18) adds only what the text as typed did not already say; 2 the lemma variant (chunk 24): like 0, but it never captures a name
  * (a lemma is not what the player typed). srcmap[i] = the index in the part 1 text t1 of lc[i], for the case twin */
 typedef struct { const char *text, *t1; char cs[MAX_TEXT]; int have; } Case;
-static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *srcmap, Case *cs, int primary) {
+static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *srcmap, Case *cs, int primary, int source, int conf) {
     Clause cl[CLAUSE_MAX]; int ncl = lang_clauses(lc, (int)strlen(lc), cl, CLAUSE_MAX);
     int cpos[CLAUSE_MAX] = {0}, cneg[CLAUSE_MAX] = {0}, cpol[CLAUSE_MAX] = {0}, cflip[CLAUSE_MAX] = {0}, cn[CLAUSE_MAX] = {0};
     int cint[CLAUSE_MAX][4];
@@ -281,7 +282,7 @@ static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *
                 h->capture[n] = 0;
             }
         }
-        if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
+        if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->src[h->n] = (uint8_t)source; h->conf[h->n] = (uint8_t)conf; h->order[h->n++] = in; }
     }
     if (primary != 1 || ncl <= 0) return;
     /* chunk 25: the clauses of the text as typed. contrast: what follows a but wins, so the feeling counts of the clauses before it are dropped */
@@ -330,6 +331,25 @@ static int keep_replaced(const LemVar *v, Span *sp, int n) {
     return m;
 }
 
+/* chunk 27: confidence of what only a spelled variant heard: the weakest repair, less ten, but never above 80 and never under 30 */
+static int spell_conf_of(const Heard *h) { int c = (int)h->spell_conf - 10; return c < 30 ? 30 : c > 80 ? 80 : c; }
+
+/* chunk 27: the lexicon layer over one text: the words a phrase of this text covers are skipped, an intent already heard is skipped, a negated hit
+ * counts only where the intent has a flip (not happy -> sad), and its confidence is 35 + 5 per point over the threshold, never over 69 (weaker than every phrase) */
+static void lex_pass(Heard *h, const char *lc, int len, int conf_cap) {
+    unsigned char cov[MAX_TEXT + 1]; memset(cov, 0, (size_t)len + 1);
+    Span sp[MAX_SPANS]; int ns = scan(lc, len, sp, MAX_SPANS);
+    for (int k = 0; k < ns; k++) for (int q = sp[k].start; q < sp[k].end && q < len; q++) cov[q] = 1;
+    LexHit hit[LEX_MAXHITS]; int n = lang_lex_scan(lc, len, cov, hit, LEX_MAXHITS);
+    for (int k = 0; k < n; k++) {
+        int in = hit[k].intent;
+        if (hit[k].neg) { int f = flip(in); if (f == in) continue; in = f; }
+        if (heard_has(h, in) || h->n >= HEARD_ORDER) continue;
+        int conf = 35 + 5 * (hit[k].score - lang_lex_threshold()); if (conf > 69) conf = 69; if (conf_cap && conf > conf_cap) conf = conf_cap;
+        heard_set(h, in); h->src[h->n] = SRC_LEX; h->conf[h->n] = (uint8_t)conf; h->order[h->n++] = in;
+    }
+}
+
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
     char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
@@ -376,29 +396,32 @@ void lang_parse(const char *text, Heard *h) {
         if (has_sx) { nsx = safety_scan(lsx, lensx, sx, 4); if (nsx) nsf = nsf ? nsf : nsx; }
     }
     for (int k = 0; k < nl; k++) { Span sx[4]; int nsx = safety_scan(L[k].t, L[k].len, sx, 4); if (nsx) nsf = nsf ? nsf : nsx; }
-    if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
-    absorb(h, lc, sp, ns, src, &cs, 1);
+    if (nsf) { heard_set(h, I_SELFHARM); h->src[h->n] = SRC_PHRASE; h->conf[h->n] = 100; h->order[h->n++] = I_SELFHARM; }
+    absorb(h, lc, sp, ns, src, &cs, 1, SRC_PHRASE, 90);
     if (has_x) {
         Span spx[MAX_SPANS];
         int nx = scan(lx, lenx, spx, MAX_SPANS);
-        absorb(h, lx, spx, nx, xsrc, &cs, 0);
+        absorb(h, lx, spx, nx, xsrc, &cs, 0, SRC_PHRASE, 85);
     }
     if (has_s) {
         Span sps[MAX_SPANS];
         int nq = scan(ls, lens, sps, MAX_SPANS);
-        absorb(h, ls, sps, nq, ssrc, &cs, 0);
+        absorb(h, ls, sps, nq, ssrc, &cs, 0, SRC_FUZZY, spell_conf_of(h));
         if (has_sx) {
             Span spq[MAX_SPANS];
             int nr = scan(lsx, lensx, spq, MAX_SPANS);
-            absorb(h, lsx, spq, nr, sxsrc, &cs, 0);
+            absorb(h, lsx, spq, nr, sxsrc, &cs, 0, SRC_FUZZY, spell_conf_of(h));
         }
     }
     for (int k = 0; k < nl; k++) {                             /* chunk 24: what only a lemma variant heard (never a name, never a count) */
         Span spl[MAX_SPANS]; int lsrc[MAX_TEXT];
         int nn = keep_replaced(&L[k], spl, scan(L[k].t, L[k].len, spl, MAX_SPANS));
         for (int i = 0; i < L[k].len; i++) lsrc[i] = Ls[k][L[k].src[i]];
-        absorb(h, L[k].t, spl, nn, lsrc, &cs, 2);
+        absorb(h, L[k].t, spl, nn, lsrc, &cs, 2, SRC_FUZZY, 75);
     }
+    lex_pass(h, lc, len, 0);                                   /* chunk 27: the lexicon layer, weaker than every phrase */
+    if (has_x) lex_pass(h, lx, lenx, 0);
+    if (has_s) lex_pass(h, ls, lens, spell_conf_of(h));
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
     h->words = w;
