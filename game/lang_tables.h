@@ -20,6 +20,7 @@ int  lang_register_lines(const Line *t, int n);
 int  lang_register_pats(const Pat *t, int n);
 int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight", the array ends with 0 */
 int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", the array ends with 0 */
+int  lang_register_irregular(const char *const *rows); /* chunk 24: rows "form|lemma" (an irregular form, its dictionary form; "form|form" = never touched), the array ends with 0 */
 int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (lower case first names), the array ends with 0 */
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
@@ -55,6 +56,9 @@ const char *lang_textspeak(const char *w, int n);
 /* chunk 22: the standard words of a dialect or phonetic spelling ("wassup" -> "whats up"), or NULL; the spell repair reads it first. lang_dialect_count = rows
  * in the map (a later row of the same key wins), lang_dialect_row(i) walks every registered row in order (tools) */
 const char *lang_dialect(const char *w, int n);
+const char *lang_irregular(const char *w, int n);    /* chunk 24: the row's lemma for w[0..n), or NULL */
+int  lang_irregular_count(void);
+const char *lang_irregular_row(int i);
 int  lang_dialect_count(void);
 const char *lang_dialect_row(int i);
 /* chunk 21: is w[0..n) a word of a pattern or a lexicon row (the spell repair prefers those); every known word with that flag (the spell dictionary is built

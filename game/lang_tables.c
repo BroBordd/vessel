@@ -18,6 +18,7 @@ static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
 static const char *const *tstab[MAX_TABLES]; static int nts_t;       /* chunk 18: text-speak rows */
 static const char *const *dialtab[MAX_TABLES]; static int ndial_t;     /* chunk 22: dialect and phonetic spellings */
+static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 24: irregular forms and never-touched words */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
 static int builtin_done, dirty = 1;
@@ -28,6 +29,7 @@ int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
+int lang_register_irregular(const char *const *rows) { builtin(); if (nirr_t >= MAX_TABLES) return -1; irrtab[nirr_t++] = rows; dirty = 1; return 0; }
 int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
 
@@ -40,11 +42,12 @@ static void builtin(void) {
     lang_register_pats(PATS, PATS_N);
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
+    lang_register_irregular(IRREGULAR);                          /* chunk 24 */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_names(NAMES_A);
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -355,6 +358,42 @@ const char *lang_dialect_row(int i) {
     return NULL;
 }
 
+/* ---------- the irregular forms (chunk 24): "form|lemma"; "form|form" = never lemmatised ---------- */
+static TS *irm; static int ircap, irn;
+static const char *ir_find(const char *w, int n) {
+    if (!ircap) return NULL;
+    for (unsigned h = whash(w, n) & (unsigned)(ircap - 1);; h = (h + 1) & (unsigned)(ircap - 1)) {
+        if (!irm[h].from) return NULL;
+        if (irm[h].n == n && !memcmp(irm[h].from, w, (size_t)n)) return irm[h].to;
+    }
+}
+static void ir_put(const char *from, int n, const char *to) {
+    for (unsigned h = whash(from, n) & (unsigned)(ircap - 1);; h = (h + 1) & (unsigned)(ircap - 1)) {
+        if (!irm[h].from) { irm[h].from = from; irm[h].n = n; irm[h].to = to; irn++; return; }
+        if (irm[h].n == n && !memcmp(irm[h].from, from, (size_t)n)) { irm[h].to = to; return; }     /* a later row wins */
+    }
+}
+static void build_irregular(void) {
+    free(irm); irm = NULL; ircap = irn = 0;
+    int rows = 0;
+    for (int t = 0; t < nirr_t; t++) for (const char *const *r = irrtab[t]; *r; r++) rows++;
+    if (!rows) return;
+    ircap = 16; while (ircap < rows * 2) ircap *= 2;
+    irm = calloc((size_t)ircap, sizeof *irm);
+    if (!irm) { ircap = 0; return; }
+    for (int t = 0; t < nirr_t; t++) for (const char *const *r = irrtab[t]; *r; r++) {
+        const char *bar = strchr(*r, '|');
+        if (bar && bar > *r && bar[1]) ir_put(*r, (int)(bar - *r), bar + 1);
+    }
+}
+const char *lang_irregular(const char *w, int n) { lang_init(); return ir_find(w, n); }
+int lang_irregular_count(void) { lang_init(); return irn; }
+const char *lang_irregular_row(int i) {
+    builtin();
+    for (int t = 0; t < nirr_t; t++) for (const char *const *r = irrtab[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -367,6 +406,7 @@ void lang_init(void) {
     build_known();
     build_textspeak();
     build_dialect();
+    build_irregular();
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
     tables_gen++;

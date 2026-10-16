@@ -47,6 +47,7 @@ typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); l
 #define LF_PUNCT  512u  /* chunk 17: a run of !!! ??? .... was shortened */
 #define LF_NUMBER 2048u    /* chunk 19: a number, an age, a time or an ordinal was captured (see LangNum) */
 #define LF_SPELL  4096u    /* chunk 21: a misspelled word was repaired in the spelled variant (see lang_spell.h) */
+#define LF_LEMMA  8192u     /* chunk 24: an inflected word (loved, children, went) has a lemma variant (see lang_lemma.h) */
 #define LF_TEXTSPEAK 1024u  /* chunk 18: text-speak or a contraction (u, idk, dont, im, gonna) has an expanded variant */
 /* chunk 19: what a number in the text is. value: NK_NUMBER the number, NK_AGE the age, NK_TIME minutes after midnight, NK_ORDINAL the position */
 enum { NK_NONE, NK_NUMBER, NK_AGE, NK_TIME, NK_ORDINAL };

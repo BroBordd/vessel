@@ -8,6 +8,7 @@
 #include "lang_voice.h"
 #include "lang_clean.h"
 #include "lang_spell.h"
+#include "lang_lemma.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -255,15 +256,16 @@ static int prepare3(const char *text, char *lc, int *map, int *src, char *t1, La
 }
 static int prepare(const char *text, char *lc, int *map) { return prepare3(text, lc, map, NULL, NULL, NULL); }
 
-/* one text's matches into the Heard. primary = the text as typed (counts positive / negative and takes the name capture); the expanded variant
- * (chunk 18) adds only what the text as typed did not already say. srcmap[i] = the index in the part 1 text t1 of lc[i], for the case twin */
+/* one text's matches into the Heard. primary = 1 the text as typed (counts positive / negative and takes the name capture); 0 a variant: the expanded
+ * variant (chunk 18) adds only what the text as typed did not already say; 2 the lemma variant (chunk 24): like 0, but it never captures a name
+ * (a lemma is not what the player typed). srcmap[i] = the index in the part 1 text t1 of lc[i], for the case twin */
 typedef struct { const char *text, *t1; char cs[MAX_TEXT]; int have; } Case;
 static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *srcmap, Case *cs, int primary) {
     for (int k = 0; k < ns; k++) {
         int in = sp[k].intent;
         if (negated(lc, sp[k].start)) in = flip(in);
-        if (primary || !heard_has(h, in)) { if (in == I_POS) h->positive++; else if (in == I_NEG) h->negative++; }
-        if (in == I_INTRO && !h->capture[0]) {
+        if (primary == 1 || !heard_has(h, in)) { if (in == I_POS) h->positive++; else if (in == I_NEG) h->negative++; }
+        if (in == I_INTRO && !h->capture[0] && primary != 2) {
             int a = sp[k].start + sp[k].prefix, b = sp[k].end;
             while (a < b && lc[a] == ' ') a++;
             int n = b - a; if (n > 22) n = 22;
@@ -275,6 +277,28 @@ static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *
         }
         if (!heard_has(h, in) && h->n < HEARD_ORDER) { heard_set(h, in); h->order[h->n++] = in; }
     }
+}
+
+/* chunk 24: the lemma variant of one text (every inflected word replaced by its lemma) */
+typedef struct { char t[MAX_TEXT]; int src[MAX_TEXT]; uint8_t rep[MAX_TEXT], cov[MAX_TEXT]; int len, n; } LemVar;
+static int lemma_variant(LemVar *v, const char *text) {
+    LemmaInfo li;
+    v->len = lang_lemma_text(text, v->t, MAX_TEXT, v->src, v->rep, &li);
+    v->n = li.nlemma;
+    if (v->n > 0) {                                           /* cov: the bytes of the base text that a phrase of the base text already covers */
+        Span sp[MAX_SPANS]; int ns = scan(text, (int)strlen(text), sp, MAX_SPANS);
+        memset(v->cov, 0, sizeof v->cov);
+        for (int k = 0; k < ns; k++) for (int i = sp[k].start; i < sp[k].end && i < MAX_TEXT; i++) v->cov[i] = 1;
+    }
+    return v->n > 0;
+}
+/* only the spans that cover a replaced word the base text did not already cover are the lemma variant's own: the others are what the base text
+ * said already, and a lemma can break a longer phrase of the base text ("who are you" -> "who be you" would hear the lone word who,
+ * "no thanks" -> "no thank" would hear a thanks) */
+static int keep_replaced(const LemVar *v, Span *sp, int n) {
+    int m = 0;
+    for (int k = 0; k < n; k++) for (int i = sp[k].start; i < sp[k].end; i++) if (v->rep[i] && !v->cov[v->src[i]]) { sp[m++] = sp[k]; break; }
+    return m;
 }
 
 void lang_parse(const char *text, Heard *h) {
@@ -305,6 +329,13 @@ void lang_parse(const char *text, Heard *h) {
         has_sx = se.nexpand > 0;
         h->flags = info.flags;
     }
+    if (has_x) for (int i = 0; i < lenx; i++) xsrc[i] = src[xs[i]];
+    if (has_s) { for (int i = 0; i < lens; i++) ssrc[i] = src[ss[i]]; if (has_sx) for (int i = 0; i < lensx; i++) sxsrc[i] = ssrc[sxs[i]]; }
+    LemVar L[4]; const int *Ls[4]; int nl = 0;                 /* chunk 24: the lemma variants (loved -> love) of the typed text and of each other variant */
+    if (lemma_variant(&L[nl], lc)) { h->nlemma = (uint8_t)(L[nl].n > 255 ? 255 : L[nl].n); h->flags |= LF_LEMMA; Ls[nl++] = src; }
+    if (has_x && lemma_variant(&L[nl], lx)) Ls[nl++] = xsrc;
+    if (has_s && lemma_variant(&L[nl], ls)) Ls[nl++] = ssrc;
+    if (has_sx && lemma_variant(&L[nl], lsx)) Ls[nl++] = sxsrc;
     Span sf[4]; int nsf = safety_scan(lc, len, sf, 4);
     if (has_x) {                                               /* the safety words are looked for in every variant */
         Span sx[4]; int nsx = safety_scan(lx, lenx, sx, 4);
@@ -315,25 +346,29 @@ void lang_parse(const char *text, Heard *h) {
         if (nsx) nsf = nsf ? nsf : nsx;
         if (has_sx) { nsx = safety_scan(lsx, lensx, sx, 4); if (nsx) nsf = nsf ? nsf : nsx; }
     }
+    for (int k = 0; k < nl; k++) { Span sx[4]; int nsx = safety_scan(L[k].t, L[k].len, sx, 4); if (nsx) nsf = nsf ? nsf : nsx; }
     if (nsf) { heard_set(h, I_SELFHARM); h->order[h->n++] = I_SELFHARM; }
     absorb(h, lc, sp, ns, src, &cs, 1);
     if (has_x) {
         Span spx[MAX_SPANS];
         int nx = scan(lx, lenx, spx, MAX_SPANS);
-        for (int i = 0; i < lenx; i++) xsrc[i] = src[xs[i]];
         absorb(h, lx, spx, nx, xsrc, &cs, 0);
     }
     if (has_s) {
         Span sps[MAX_SPANS];
         int nq = scan(ls, lens, sps, MAX_SPANS);
-        for (int i = 0; i < lens; i++) ssrc[i] = src[ss[i]];
         absorb(h, ls, sps, nq, ssrc, &cs, 0);
         if (has_sx) {
             Span spq[MAX_SPANS];
             int nr = scan(lsx, lensx, spq, MAX_SPANS);
-            for (int i = 0; i < lensx; i++) sxsrc[i] = ssrc[sxs[i]];
             absorb(h, lsx, spq, nr, sxsrc, &cs, 0);
         }
+    }
+    for (int k = 0; k < nl; k++) {                             /* chunk 24: what only a lemma variant heard (never a name, never a count) */
+        Span spl[MAX_SPANS]; int lsrc[MAX_TEXT];
+        int nn = keep_replaced(&L[k], spl, scan(L[k].t, L[k].len, spl, MAX_SPANS));
+        for (int i = 0; i < L[k].len; i++) lsrc[i] = Ls[k][L[k].src[i]];
+        absorb(h, L[k].t, spl, nn, lsrc, &cs, 2);
     }
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
@@ -382,7 +417,7 @@ int lang_highlight(const char *text, uint8_t *mask) {
         ns += nx; nsf += nsx;
     }
     char ls[MAX_TEXT], lsx[MAX_TEXT]; int ms[MAX_TEXT], msx[MAX_TEXT]; SpellInfo spi;      /* chunk 21: what only the spelled variant heard lights up the whole typed word */
-    int lens = lang_spell_text(text, lc, map, 0, ls, MAX_TEXT, ms, NULL, &spi);
+    int lens = lang_spell_text(text, lc, map, 0, ls, MAX_TEXT, ms, NULL, &spi), lensx = 0, has_sx = 0;
     if (spi.nfix) {
         Span sps[MAX_SPANS];
         int nq = scan(ls, lens, sps, MAX_SPANS);
@@ -391,7 +426,8 @@ int lang_highlight(const char *text, uint8_t *mask) {
         for (int k = 0; k < nsq; k++) mark(text, ms, total, sq[k].start, sq[k].end, mask);
         ns += nq; nsf += nsq;
         LangInfo se; memset(&se, 0, sizeof se);
-        int lensx = lang_clean_expand(ls, ms, lsx, MAX_TEXT, msx, NULL, &se);
+        lensx = lang_clean_expand(ls, ms, lsx, MAX_TEXT, msx, NULL, &se);
+        has_sx = se.nexpand > 0;
         if (se.nexpand) {
             Span spq[MAX_SPANS];
             int nr = scan(lsx, lensx, spq, MAX_SPANS);
@@ -399,6 +435,21 @@ int lang_highlight(const char *text, uint8_t *mask) {
             Span sr[4]; int nsr = safety_scan(lsx, lensx, sr, 4);
             for (int k = 0; k < nsr; k++) mark(text, msx, total, sr[k].start, sr[k].end, mask);
             ns += nr; nsf += nsr;
+        }
+    }
+    {   /* chunk 24: what only a lemma variant heard lights up the whole typed word too */
+        const char *base[4] = { lc, lx, ls, lsx }; const int *bmap[4] = { map, mx, ms, msx };
+        int use[4] = { 1, ex.nexpand > 0, spi.nfix > 0, spi.nfix > 0 && has_sx };
+        for (int b = 0; b < 4; b++) {
+            LemVar v; int lm[MAX_TEXT];
+            if (!use[b] || !lemma_variant(&v, base[b])) continue;
+            for (int i = 0; i < v.len; i++) lm[i] = bmap[b][v.src[i]];
+            Span spl[MAX_SPANS];
+            int nn = keep_replaced(&v, spl, scan(v.t, v.len, spl, MAX_SPANS));
+            for (int k = 0; k < nn; k++) mark(text, lm, total, spl[k].start, spl[k].end, mask);
+            Span sl[4]; int nsl = safety_scan(v.t, v.len, sl, 4);
+            for (int k = 0; k < nsl; k++) mark(text, lm, total, sl[k].start, sl[k].end, mask);
+            ns += nn; nsf += nsl;
         }
     }
     return ns + nsf;

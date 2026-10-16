@@ -22,6 +22,7 @@
  *   --vocab            (chunk 20) the vocabulary and the word hash: every row (word|rank|pos, ranks 1..N in order with no gaps, no duplicates, a-z and '), every lookup (vocab_has / rank / pos / is_name / protected, case blind, pointer and length) against the row, the names, the known-word hook, registering later and reset, and the lookup time. fails on a problem
  *   --spell [FILES]    (chunk 21) the spell repair lang_spell: the dictionary and the delete index, about 60 fix pairs and 70 words that must stay, the never-repaired rules (vocabulary, names, patterns, text-speak, acronyms, names in the middle of a sentence, digits, 1-2 letters), the maps and the highlight, the cap, the Heard fields, self-harm through typos, registering later, the superset rule (spell on never loses an intent over every reply line and every corpus FILE) and the speed. fails on a problem
  *   --phonetic         (chunk 22) the phonetic key lang_phone (24 exact keys, 16 pairs that sound alike, pairs that do not, case, cap, a very long text), the dialect table (>= 150 rows: well-formed, no vocabulary word or name as a key, no text-speak key, no duplicate, the key never its result) and its repair (45 typed -> spelled pairs, what must stay, the order dialect / edit / phonetic, the maps of a multi-word result, the cap, the highlight and Heard, self-harm through a row), the phonetic fallback (what it fixes, real words it must not bend, only words of patterns and lexicons are candidates), registering later, the off switch and the speed. fails on a problem
+ *   --lemma [FILES]    (chunk 24) the lemmas: the irregular table (well formed, no chains), 270 inflected forms that must resolve (and be stable), 130 words that must stay, odd inputs, the lemma text (maps, replaced marks, past and aux forms left alone), what the matcher hears through a lemma, the superset rule over the corpus FILES, self-harm unchanged on ordinary sentences, speed, registering a table
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -30,6 +31,7 @@
 #include "lang_clean.h"
 #include "lang_vocab.h"
 #include "lang_spell.h"
+#include "lang_lemma.h"
 #include <time.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -1720,6 +1722,183 @@ static int do_glue(int argc, char **argv) {
     return bad;
 }
 
+/* ---------- chunk 24: lemmas ---------- */
+static int do_lemma(int argc, char **argv) {
+    int bad = 0, checks = 0;
+    lang_init();
+    #define LCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD LEMMA: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
+    /* the irregular table: well formed, no duplicate key, no chains */
+    int nir = lang_irregular_count();
+    LCHECK(nir >= 300, "the irregular table has only %d rows", nir);
+    for (int i = 0; i < nir; i++) {
+        const char *r = lang_irregular_row(i); if (!r) break;
+        const char *bar = strchr(r, '|');
+        int ok = bar && bar > r && bar[1];
+        for (const char *c = r; ok && c < bar; c++) if (*c < 'a' || *c > 'z') ok = 0;
+        const char *e = ok ? strchr(bar + 1, '|') : NULL;
+        if (ok) for (const char *c = bar + 1; *c && c != e; c++) if (*c < 'a' || *c > 'z') ok = 0;
+        if (ok && e && strcmp(e, "|p")) ok = 0;
+        LCHECK(ok, "row %d \"%s\" is not form|lemma or form|lemma|p (lower case letters)", i, r);
+        if (!ok) continue;
+        char key[40]; int kl = (int)(bar - r); memcpy(key, r, (size_t)kl); key[kl] = 0;
+        const char *got = lang_irregular(key, kl);
+        LCHECK(got && got == bar + 1, "row \"%s\": a later row has the same key", r);
+        char lem[40]; int ll = e ? (int)(e - bar - 1) : (int)strlen(bar + 1); memcpy(lem, bar + 1, (size_t)ll); lem[ll] = 0;
+        const char *ch = lang_irregular(lem, ll);
+        LCHECK(!ch || !strncmp(ch, lem, (size_t)ll), "row \"%s\": the lemma %s is itself an irregular form (a chain)", r, lem);
+    }
+    /* inflected form -> lemma: every one must resolve */
+    static const char *const F[][2] = {
+        {"loves","love"},{"hates","hate"},{"kills","kill"},{"helps","help"},{"plays","play"},{"wants","want"},{"needs","need"},{"tells","tell"},{"asks","ask"},
+        {"thinks","think"},{"feels","feel"},{"knows","know"},{"dies","die"},{"lives","live"},{"friends","friend"},{"hopes","hope"},{"hurts","hurt"},
+        {"breaks","break"},{"fears","fear"},{"worries","worry"},{"cries","cry"},{"laughs","laugh"},{"smiles","smile"},{"jokes","joke"},{"songs","song"},
+        {"doors","door"},{"lights","light"},{"names","name"},{"faces","face"},{"eyes","eye"},{"hands","hand"},{"stars","star"},{"moons","moon"},{"clouds","cloud"},
+        {"trees","tree"},{"words","word"},{"dreams","dream"},{"follows","follow"},{"listens","listen"},{"speaks","speak"},{"stops","stop"},{"starts","start"},
+        {"waits","wait"},{"tries","try"},{"uses","use"},{"makes","make"},{"gives","give"},{"takes","take"},{"shows","show"},{"hides","hide"},{"finds","find"},
+        {"opens","open"},{"believes","believe"},{"trusts","trust"},{"dances","dance"},{"walks","walk"},{"talks","talk"},{"calls","call"},{"carries","carry"},
+        {"keeps","keep"},{"ghosts","ghost"},{"spirits","spirit"},{"souls","soul"},{"gods","god"},{"bones","bone"},{"dogs","dog"},{"houses","house"},{"thanks","thank"},
+        {"loving","love"},{"hating","hate"},{"killing","kill"},{"helping","help"},{"playing","play"},{"wanting","want"},{"needing","need"},{"telling","tell"},
+        {"asking","ask"},{"thinking","think"},{"feeling","feel"},{"knowing","know"},{"seeing","see"},{"dying","die"},{"living","live"},{"hoping","hope"},
+        {"hurting","hurt"},{"breaking","break"},{"fearing","fear"},{"worrying","worry"},{"crying","cry"},{"laughing","laugh"},{"smiling","smile"},{"joking","joke"},
+        {"following","follow"},{"listening","listen"},{"speaking","speak"},{"stopping","stop"},{"starting","start"},{"waiting","wait"},{"trying","try"},
+        {"using","use"},{"making","make"},{"giving","give"},{"taking","take"},{"showing","show"},{"hiding","hide"},{"finding","find"},{"opening","open"},
+        {"believing","believe"},{"lying","lie"},{"dancing","dance"},{"walking","walk"},{"running","run"},{"talking","talk"},{"calling","call"},
+        {"carrying","carry"},{"keeping","keep"},{"singing","sing"},{"sleeping","sleep"},{"dreaming","dream"},
+        {"loved","love"},{"hated","hate"},{"killed","kill"},{"helped","help"},{"played","play"},{"wanted","want"},{"asked","ask"},{"hoped","hope"},{"feared","fear"},
+        {"worried","worry"},{"cried","cry"},{"laughed","laugh"},{"smiled","smile"},{"followed","follow"},{"listened","listen"},{"stopped","stop"},{"started","start"},
+        {"waited","wait"},{"tried","try"},{"showed","show"},{"opened","open"},{"believed","believe"},{"trusted","trust"},{"lied","lie"},{"danced","dance"},
+        {"walked","walk"},{"talked","talk"},{"called","call"},{"carried","carry"},{"thanked","thank"},
+        {"stronger","strong"},{"strongest","strong"},{"sadder","sad"},{"saddest","sad"},{"happier","happy"},{"happiest","happy"},{"angrier","angry"},
+        {"kinder","kind"},{"louder","loud"},{"colder","cold"},{"slower","slow"},{"slowest","slow"},{"better","good"},{"worse","bad"},{"farther","far"},{"oldest","old"},
+        {"sadly","sad"},{"kindly","kind"},{"slowly","slow"},{"loudly","loud"},{"happily","happy"},{"angrily","angry"},{"cruelly","cruel"},{"truly","true"},
+        {"quietly","quiet"},{"coldly","cold"},{"strongly","strong"},
+        {"sadness","sad"},{"kindness","kind"},{"happiness","happy"},{"loneliness","lonely"},{"darkness","dark"},{"coldness","cold"},{"weakness","weak"},{"loudness","loud"},
+        {"was","be"},{"were","be"},{"been","be"},{"being","be"},{"am","be"},{"is","be"},{"are","be"},{"had","have"},{"has","have"},{"did","do"},{"done","do"},
+        {"does","do"},{"went","go"},{"gone","go"},{"goes","go"},{"said","say"},{"made","make"},{"took","take"},{"taken","take"},{"gave","give"},{"given","give"},
+        {"came","come"},{"got","get"},{"knew","know"},{"known","know"},{"thought","think"},{"told","tell"},{"felt","feel"},{"kept","keep"},{"held","hold"},
+        {"brought","bring"},{"lost","lose"},{"sat","sit"},{"ran","run"},{"ate","eat"},{"eaten","eat"},{"fell","fall"},{"spoke","speak"},{"spoken","speak"},
+        {"broke","break"},{"broken","break"},{"wrote","write"},{"children","child"},{"men","man"},{"women","woman"},{"feet","foot"},{"teeth","tooth"},{"mice","mouse"},
+        {"wolves","wolf"},{"knives","knife"},{"wives","wife"},
+    };
+    int nf = (int)(sizeof F / sizeof F[0]), nok = 0;
+    LCHECK(nf >= 100, "only %d test forms", nf);
+    for (int i = 0; i < nf; i++) {
+        char out[40]; int n = (int)strlen(F[i][0]);
+        int r = lang_lemma(F[i][0], n, out, 40);
+        if (r && !strcmp(out, F[i][1])) { nok++; char o2[40]; LCHECK(!lang_lemma(out, (int)strlen(out), o2, 40), "%s -> %s: the lemma of the lemma is %s (not stable)", F[i][0], out, o2); }
+        else printf("  (not resolved: %s -> %s, wanted %s)\n", F[i][0], r ? out : "-", F[i][1]);
+    }
+    LCHECK(nok == nf, "%d of %d inflected forms resolved", nok, nf);
+    /* words that must NOT change: nouns that look like an inflection, function words, negations, short words */
+    static const char *const KEEP[] = {
+        "this","thus","its","his","yes","news","number","mother","father","brother","sister","daughter","water","never","ever","over","under","other","after","another",
+        "together","whether","either","rather","morning","evening","ceiling","forest","honest","interest","early","family","only","daily","always","perhaps","sometimes",
+        "seed","need","indeed","speed","feed","bed","red","king","ring","thing","bring","sing","string","spring","hammer","finger","power","tower","flower","master",
+        "monster","corner","dinner","letter","summer","winter","river","silver","paper","answer","wonder","thunder","anger","danger","stranger","shadow","super","user",
+        "hardly","barely","nothing","nobody","without","hello","hey","yeah","okay","please","sorry","love","hate","kill","help","good","bad","lovely","friendly","lonely",
+        "ghostly","deadly","hundred","bus","gas","class","kiss","focus","virus","lens","chaos","glass","dress","hers","ours","yours","theirs","saw","left","found","rose",
+    };
+    for (size_t i = 0; i < sizeof KEEP / sizeof KEEP[0]; i++) {
+        char out[40]; int r = lang_lemma(KEEP[i], (int)strlen(KEEP[i]), out, 40);
+        LCHECK(!r && !strcmp(out, KEEP[i]), "\"%s\" must stay (got \"%s\")", KEEP[i], out);
+    }
+    /* the odd inputs */
+    {   char out[40];
+        LCHECK(!lang_lemma("don't", 5, out, 40) && !lang_lemma("l0ves", 5, out, 40) && !lang_lemma("a", 1, out, 40) && !lang_lemma("", 0, out, 40), "digits, apostrophes and 1 letter are left alone");
+        LCHECK(lang_lemma("LOVES", 5, out, 40) && !strcmp(out, "love"), "capitals are folded (got %s)", out);
+        LCHECK(!lang_lemma("abcdefghijklmnopqrstuvwxyzs", 27, out, 40), "27 letters are left alone");
+        char tiny[4]; int r = lang_lemma("children", 8, tiny, 4); LCHECK(!r && strlen(tiny) <= 3, "a lemma that does not fit leaves the word (got %d \"%s\")", r, tiny);
+        LCHECK(lang_lemma("hates", 5, NULL, 0), "no output buffer is fine");
+        int past = 0; lang_lemma_ex("went", 4, out, 40, &past); LCHECK(past == 1, "went is a past form"); lang_lemma_ex("loved", 5, out, 40, &past); LCHECK(past == 1, "loved is a past form");
+        lang_lemma_ex("loves", 5, out, 40, &past); LCHECK(past == 0, "loves is not"); lang_lemma_ex("children", 8, out, 40, &past); LCHECK(past == 0, "children is not");
+        lang_lemma_ex("hiding", 6, out, 40, &past); LCHECK(past == 0, "hiding is not");
+        lang_lemma_set(0); LCHECK(!lang_lemma("loves", 5, out, 40), "lang_lemma_set(0) turns it off"); lang_lemma_set(1);
+        Heard h; lang_parse("my name is Hopes", &h); LCHECK(!strcmp(h.capture, "Hopes"), "the name is captured as typed (got \"%s\")", h.capture);
+    }
+    /* the text: replaced words, the aux and past forms left alone, the maps and the replaced marks */
+    {   static const char *const T[][2] = {
+            { "you are hiding something", "you are hide something" }, { "the children are scared", "the child are scared" }, { "you were kind", "you were kind" },
+            { "he went home", "he went home" }, { "you never answered me", "you never answered me" }, { "stop lying to me", "stop lie to me" },
+            { "my friends and the stars", "my friend and the star" }, { "i am sad. you are dying.", "i am sad. you are die." }, { "don't hide", "don't hide" },
+            { "", "" }, { "  ", "  " }, { "tell me hows it going", "tell me hows it going" } };
+        for (size_t i = 0; i < sizeof T / sizeof T[0]; i++) {
+            char out[200]; int src[200]; uint8_t rep[200]; LemmaInfo li;
+            int n = lang_lemma_text(T[i][0], out, 200, src, rep, &li);
+            LCHECK(!strcmp(out, T[i][1]) && n == (int)strlen(out), "\"%s\" -> \"%s\", wanted \"%s\"", T[i][0], out, T[i][1]);
+            int mono = src[n] == (int)strlen(T[i][0]);
+            for (int k = 0; k < n; k++) { if (src[k] < 0 || src[k] >= (int)strlen(T[i][0]) || (k && src[k] < src[k - 1])) mono = 0; if (rep[k] > 1) mono = 0; }
+            LCHECK(mono, "\"%s\": the maps are not monotone and inside the text", T[i][0]);
+            int nrep = 0; for (int k = 0; k < n; k++) nrep += rep[k] ? 1 : 0;
+            LCHECK((li.nlemma == 0) == (nrep == 0) && li.nlog <= LEMMA_MAX_LOG, "\"%s\": %d words, %d marked characters", T[i][0], li.nlemma, nrep);
+            if (!li.nlemma) LCHECK(!strcmp(out, T[i][0]), "nothing replaced, but the text changed");
+        }
+        char out[8]; int n = lang_lemma_text("friends and children", out, 8, NULL, NULL, NULL);
+        LCHECK(n <= 7 && out[n] == 0, "a small cap never overflows (n %d)", n);
+        char big[2000], res[400]; big[0] = 0; for (int i = 0; i < 100; i++) strcat(big, "loves hates ");
+        LemmaInfo li; n = lang_lemma_text(big, res, 400, NULL, NULL, &li);
+        LCHECK(n < 400 && li.nlog <= LEMMA_MAX_LOG && li.nlemma >= LEMMA_MAX_LOG, "a long text: %d words replaced, %d logged", li.nlemma, li.nlog);
+    }
+    /* the matcher: a word the patterns know in another form is heard; the superset rule; names; the highlight */
+    {   Heard h;
+        lang_parse("what are you hiding", &h);  LCHECK(heard_has(&h, I_SECRET) && h.nlemma >= 1 && (h.flags & LF_LEMMA), "hiding must be heard through hide (nlemma %d)", h.nlemma);
+        lang_parse("are you hiding something", &h); LCHECK(heard_has(&h, I_SECRET), "are you hiding something -> secret");
+        lang_parse("who are you", &h);  LCHECK(heard_has(&h, I_WHORU) && !heard_has(&h, I_WHAT) && !(h.flags & LF_LEMMA), "who are you: no lemma, no lone who (flags %u)", h.flags);
+        lang_parse("hows it going", &h); LCHECK(!heard_has(&h, I_HOW), "hows is text-speak, not the plural of how");
+        lang_parse("you never answered me", &h); LCHECK(!heard_has(&h, I_DEMAND), "a past form does not hear a command");
+        lang_parse("you are nice", &h); LCHECK(!heard_has(&h, I_CALLOUT), "you are nice must not hear the pattern be nice");
+        uint8_t mask[200]; const char *t = "are you hiding something"; lang_highlight(t, mask);
+        LCHECK(mask[8] && mask[13] && !mask[0], "the highlight covers the whole typed word hiding (bytes %d%d%d)", mask[0], mask[8], mask[13]);
+        /* self-harm words: more of them are heard, never a new alarm on an ordinary sentence */
+        static const char *const OK[] = { "my goldfish died", "the flowers are dying", "the lights were dying", "he killed the lights", "she lives in the sky", "i love my friends",
+            "we are playing a game", "the children are playing", "stop lying to me", "dying embers", "time is running out", "i am tired of waiting", "you are killing the mood",
+            "the stars are shining", "my hands are cold", "the moons are bright", "hiding in the grass", "the dead are walking" };
+        for (size_t i = 0; i < sizeof OK / sizeof OK[0]; i++) {
+            lang_lemma_set(0); lang_parse(OK[i], &h); int off = heard_has(&h, I_SELFHARM);
+            lang_lemma_set(1); lang_parse(OK[i], &h); int on = heard_has(&h, I_SELFHARM);
+            LCHECK(on == off, "\"%s\": the lemma step changed the self-harm alarm (%d -> %d)", OK[i], off, on);
+        }
+        static const char *const SH[] = { "i am dying to end it", "i want to die", "i am killing myself", "i am hurting myself" };
+        for (size_t i = 0; i < sizeof SH / sizeof SH[0]; i++) { lang_lemma_set(0); lang_parse(SH[i], &h); int off = heard_has(&h, I_SELFHARM); lang_lemma_set(1); lang_parse(SH[i], &h); LCHECK(!off || heard_has(&h, I_SELFHARM), "\"%s\": a self-harm line heard before must still be heard", SH[i]); }
+    }
+    /* the superset rule over the corpus files: every intent heard without the lemma step is still heard with it, and the capture is the same */
+    {   int lines = 0, gained = 0;
+        for (int a = 1; a < argc; a++) {
+            if (argv[a][0] == '-') continue;
+            FILE *f = fopen(argv[a], "r"); if (!f) continue;
+            char line[1000];
+            while (fgets(line, sizeof line, f)) {
+                if (line[0] == '#' || line[0] == '\n') continue;
+                char *tab = strchr(line, '\t'); if (!tab) continue; *tab = 0;
+                Heard h0, h1; lang_lemma_set(0); lang_parse(line, &h0); lang_lemma_set(1); lang_parse(line, &h1);
+                lines++;
+                int lost = 0; for (int i = 0; i < I_COUNT; i++) if (heard_has(&h0, i) && !heard_has(&h1, i)) lost = 1;
+                LCHECK(!lost && !strcmp(h0.capture, h1.capture), "\"%s\": the lemma step lost an intent or changed the capture", line);
+                int g = 0; for (int i = 0; i < I_COUNT; i++) if (!heard_has(&h0, i) && heard_has(&h1, i)) g = 1;
+                if (g) { gained++; printf("  (gains: %s)\n", line); }
+            }
+            fclose(f);
+        }
+        printf("lemma superset rule: %d corpus lines, %d gain an intent\n", lines, gained);
+    }
+    /* speed */
+    {   char big[300]; big[0] = 0; while (strlen(big) < 190) strcat(big, "she was hiding the children and loving the stars ");
+        Heard h; clock_t t0 = clock(); for (int i = 0; i < 2000; i++) lang_parse(big, &h);
+        double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 2000;
+        LCHECK(ms < 1.0, "parse of a 190 character inflected line takes %.4f ms (budget 1)", ms);
+    }
+    /* registering a table */
+    {   static const char *const X[] = { "zzfoo|zzbar", "zzbaz|zzbaz", 0 };
+        lang_register_irregular(X);
+        LCHECK(lang_irregular("zzfoo", 5) && !strcmp(lang_irregular("zzfoo", 5), "zzbar"), "a registered row is found");
+        char out[40]; LCHECK(lang_lemma("zzfoo", 5, out, 40) && !strcmp(out, "zzbar") && !lang_lemma("zzbaz", 5, out, 40), "a registered row is used, form|form is never touched");
+        lang_tables_reset(); lang_init();
+        LCHECK(!lang_irregular("zzfoo", 5) && lang_irregular_count() >= 300, "a reset forgets the extra table and keeps the built-in one");
+    }
+    printf("lemma: %d checks, %d problems; %d irregular rows, %d of %d forms resolved\n", checks, bad, nir, nok, nf);
+    #undef LCHECK
+    return bad;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -1742,11 +1921,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--phonetic")) { rc |= do_phonetic(argc, argv) ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }
