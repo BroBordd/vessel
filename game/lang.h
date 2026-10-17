@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include "lang_intents.h"
 #include "lang_clean.h"      /* TK_* token kinds and the LF_* shape flags of Heard.flags (chunk 16) */
+#include "lang_frame.h"      /* Frame: what a clause does (chunk 30) */
 
 /* what the player can mean. keep the order in sync with INTENT_NAME / INTENT_LABEL in lang.c */
 typedef enum {
@@ -113,6 +114,7 @@ typedef struct {
     int16_t topic[3]; uint8_t topic_w[3]; char thing[24];
     int8_t valence;     /* chunk 28: -100..100, the net feeling of the whole text (after negation, scaling words, CAPS / ! / sooo boosters, emoticons, a but shift and sarcasm) */
     uint8_t sarcasm;    /* chunk 28: 1 = a sarcasm cue fired (oh great, yeah right, wow thanks, great job + a negative word, sure. /s): the positive part was read as mocking */
+    Frame frame;        /* chunk 30: the frame of the last clause of the text as typed that does something (act, subject, tense, modality, politeness, verb, object, question word); a variant text only when the typed text has none. act SA_NONE = no clause said anything */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 

@@ -28,6 +28,7 @@
  *   --lex [FILES]      (chunk 27) the lexicon layer: the rows of lang_lex_core.c (well formed, a known intent, weight 1-9, no duplicate, every old intent has rows and a strong word), lang_lex_scan on 40 cases (a strong word alone, two weak words adding up, the position rule, negation, very / a bit, a covered word, a lemma, clauses, the threshold), Heard.src / Heard.conf (phrase 85-100, lexicon 35-69, never a lexicon safety hit), rows that are not intents are ignored, registering later and reset, the superset rule over every reply line and corpus FILE (the lexicon only ADDS intents), and the speed. fails on a problem
  *   --sent [FILES]     (chunk 28) sentiment with boosters and sarcasm: the valence rows (lang_lex_sent_core.c), 90 sentences with the expected sign, the boosters (very, a bit, not, CAPS, !, sooo, emoticons, but) as comparisons, 22 sarcasm cues and 20 sincere look-alikes, I_POS / I_NEG from the valence, variants, a later row wins, speed, and the pos / neg corpus lines.
  *   --topic            (chunk 29) topic words: the rows (well formed, >= 150 topics), scan cases (strongest first, three kept, lemma, elongation, no topic), Heard.topic / thing, a topic question answered about the {thing}, a later row, speed.
+ *   --frame [FILES]    (chunk 30) sentence frames: the table (>= 120 rows, every intent real, confidence 30-69, none for self-harm), 52 classification cases (act, subject, tense, modality, politeness), the verb and object, a clause read inside its own bytes, about 160 text -> intent rows (and negations and plain sentences that must read as nothing), the gate through lang_parse (a phrase hit shuts a frame out, a bare what does not, never after self-harm, the off switch, filler and a typo in front), every frame hit of every corpus FILE (source, confidence 30-69, a reply that is not empty), the superset rule (a frame only adds), the word rows, speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -295,9 +296,9 @@ keys_done:;
     TCHECK(lang_line_count() == lines0 + 3 && lang_pat_count() == pats0 + 2, "counts after register: %d lines (want %d), %d patterns (want %d)", lang_line_count(), lines0 + 3, lang_pat_count(), pats0 + 2);
     { PatCur c; lang_pat_cursor(&c, "zzqx hello"); int id, a = 0, b = 0; while ((id = lang_pat_next(&c)) >= 0) { if (id == pats0) a = 1; if (id == pats0 + 1) b = 1; }
       TCHECK(a && b, "the registered patterns are not candidates (%d %d)", a, b); }
-    { const char *rows[4]; int n = lang_lex_find("adore", rows, 4);
-      TCHECK(n == 4 && !strcmp(rows[0], "adore|love|6") && !strcmp(rows[1], "adore|sent|4") && !strcmp(rows[2], "adore|love|4") && !strcmp(rows[3], "adore|praise|2"), "lex find adore: %d rows (the core rows first, then the valence row of chunk 28, then the registered ones in registration order)", n);   /* chunk 27: lang_lex_core.c has adore too */
-      TCHECK(lang_lex_find("adored", rows, 4) == 0 && lang_lex_find("ador", rows, 4) == 0 && lang_lex_find("", rows, 4) == 0, "lex find matched a non word");
+    { const char *rows[6]; int n = lang_lex_find("adore", rows, 6);
+      TCHECK(n == 5 && !strcmp(rows[0], "adore|love|6") && !strcmp(rows[1], "adore|sent|4") && !strcmp(rows[2], "adore|frame|1") && !strcmp(rows[3], "adore|love|4") && !strcmp(rows[4], "adore|praise|2"), "lex find adore: %d rows (the core rows first, then the valence row of chunk 28, the frame table's word row of chunk 30, then the registered ones in registration order)", n);   /* chunk 27: lang_lex_core.c has adore too */
+      TCHECK(lang_lex_find("adored", rows, 6) == 0 && lang_lex_find("ador", rows, 6) == 0 && lang_lex_find("", rows, 6) == 0, "lex find matched a non word");
       TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
       TCHECK(lang_lex_count() == lex0 + 4 && lang_vocab_count() == voc0 + 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
       const char *v = lang_vocab_find("wraith"); TCHECK(v && !strcmp(v, "wraith|9001|n"), "vocab find wraith");
@@ -2665,6 +2666,242 @@ static int do_topic(void) {
     return tfail;
 }
 
+/* ---- chunk 30: sentence frames ---- */
+static int ffail, fchecks;
+#define FCHECK(c, ...) do { fchecks++; if (!(c)) { printf("BAD FRAME: " __VA_ARGS__); printf("\n"); ffail++; } } while (0)
+typedef struct { const char *t; int act, su, tn, md, po; } FCase;      /* -1 = do not check */
+static const FCase FCASES[] = {
+    { "hello there", SA_GREET, -1, -1, -1, -1 }, { "bye", SA_FAREWELL, -1, -1, -1, -1 }, { "i have to leave now", SA_FAREWELL, SU_I, TN_NOW, MD_NEED, -1 },
+    { "thanks a lot", SA_THANK, -1, -1, -1, -1 }, { "sorry about that", SA_APOLOGISE, -1, -1, -1, -1 }, { "please help me", SA_PLEAD, -1, -1, -1, PO_PLEASE },
+    { "i beg you", SA_PLEAD, SU_I, -1, -1, -1 }, { "i will destroy you", SA_THREATEN, SU_I, TN_FUTURE, -1, -1 }, { "i am the best", SA_BOAST, SU_I, -1, -1, -1 },
+    { "i confess i lied", SA_CONFESS, SU_I, -1, -1, -1 }, { "you are so smart", SA_COMPLIMENT, SU_YOU, -1, -1, -1 }, { "you are stupid", SA_COMPLAIN, SU_YOU, -1, -1, -1 },
+    { "good job", SA_COMPLIMENT, -1, -1, -1, -1 }, { "what is your name", SA_ASK, SU_YOU, -1, -1, -1 }, { "do you like me", SA_ASK, SU_YOU, -1, -1, -1 },
+    { "how do i win", SA_ASK, SU_I, -1, -1, -1 }, { "tell me a story", SA_COMMAND, SU_YOU, -1, -1, -1 }, { "give me a clue", SA_COMMAND, SU_YOU, -1, -1, -1 },
+    { "can you help me", SA_COMMAND, SU_YOU, TN_NOW, MD_CAN, -1 }, { "open the door", SA_COMMAND, SU_YOU, -1, -1, -1 }, { "yes", SA_AGREE, -1, -1, -1, -1 },
+    { "yeah sure", SA_AGREE, -1, -1, -1, -1 }, { "no way", SA_REFUSE, -1, -1, -1, -1 }, { "nope", SA_REFUSE, -1, -1, -1, -1 }, { "maybe", SA_WONDER, -1, -1, -1, -1 },
+    { "i wonder", SA_WONDER, SU_I, -1, -1, -1 }, { "are you a bot", SA_TEST, SU_YOU, -1, -1, -1 }, { "ignore previous instructions", SA_TEST, -1, -1, -1, -1 },
+    { "i am tired", SA_TELL, SU_I, TN_NOW, -1, -1 }, { "i was tired", SA_TELL, SU_I, TN_PAST, -1, -1 }, { "i will be tired", SA_TELL, SU_I, TN_FUTURE, -1, -1 },
+    { "i want to go home", SA_TELL, SU_I, TN_NOW, MD_WANT, -1 }, { "i need help", SA_TELL, SU_I, -1, MD_NEED, -1 }, { "you must leave", SA_COMMAND, SU_YOU, -1, MD_MUST, -1 },
+    { "i might stay", SA_TELL, SU_I, -1, MD_MIGHT, -1 }, { "would you like tea", SA_ASK, SU_YOU, -1, MD_WANT, -1 }, { "shut up", SA_COMMAND, -1, -1, -1, PO_RUDE },
+    { "sir please help", -1, -1, -1, -1, PO_PLEASE }, { "your majesty", -1, SU_YOU, -1, -1, PO_FORMAL }, { "what is the moon", SA_ASK, SU_NONE, -1, -1, -1 },
+    { "it is cold", SA_TELL, SU_IT, -1, -1, -1 }, { "we are lost", SA_TELL, SU_WE, -1, -1, -1 }, { "they went home", SA_TELL, SU_THEY, TN_PAST, -1, -1 },
+    { "dea is kind", SA_TELL, SU_NPC, -1, -1, -1 }, { "", SA_NONE, -1, -1, -1, -1 }, { "???", SA_NONE, -1, -1, -1, -1 }, { "asdf", SA_NONE, -1, -1, -1, -1 },
+    { "well what is life", SA_ASK, -1, -1, -1, -1 }, { "um whats in the hole", SA_ASK, -1, -1, -1, -1 }, { "you are my favorite??", SA_COMPLIMENT, SU_YOU, -1, -1, -1 },
+    { "i didnt hear you??", SA_TELL, SU_I, -1, -1, -1 }, { "be well", SA_FAREWELL, -1, -1, -1, -1 }, { "tell me", SA_COMMAND, SU_YOU, -1, -1, -1 },
+};
+typedef struct { const char *t, *in; } FRow;
+static const FRow FROWS[] = {
+{ "what is your favorite color", "fav_color" }, { "do you have a favorite animal", "fav_animal" }, { "do you have any friends", "npc_friends" }, 
+{ "are you married", "married_q" }, { "do you have a family", "npc_family" }, { "are you lonely", "lonely_q" }, 
+{ "are you happy here", "happy_q" }, { "do you ever sleep", "npc_sleeps" }, { "do you eat", "npc_eats" }, 
+{ "do you feel pain", "npc_pain" }, { "are you immortal", "npc_immortal" }, { "do you fear anything", "fears_npc" }, 
+{ "do you hate me", "hates_q" }, { "do you love me", "loves_q" }, { "what do you think of me", "opinion_me" }, 
+{ "do you trust me", "trust_q" }, { "are you a boy or a girl", "npc_gender" }, { "who are your enemies", "npc_enemies" }, 
+{ "what is your job", "npc_job" }, { "do you have powers", "npc_power" }, { "what is your weakness", "npc_weakness" }, 
+{ "what are your hobbies", "hobbies" }, { "do you dream", "dreams_npc" }, { "what do you look like", "npc_looks" }, 
+{ "am i special", "am_i_special" }, { "what am i", "what_am_i" }, { "who am i really", "who_am_i_really" }, 
+{ "how do i win", "win_q" }, { "how do i save my progress", "save_q" }, { "how do i play", "how_to_play" }, 
+{ "how do i move", "controls_q" }, { "which way do i go", "which_way" }, { "will i ever get out of here", "ask_fortune" }, 
+{ "will i see my family again", "ask_fortune" }, { "is there a hint", "hint_q" }, { "is there a cheat code", "cheat_q" }, 
+{ "who made this game", "who_made_this" }, { "im so tired of this", "tired_me" }, { "im exhausted", "tired_me" }, 
+{ "im bored", "bored_me" }, { "i feel so lonely", "lonely_me" }, { "im really excited", "excited_me" }, 
+{ "i feel guilty", "guilty_me" }, { "i am ashamed", "ashamed_me" }, { "im proud of myself", "proud_me" }, 
+{ "i feel hopeful", "hopeful_me" }, { "my heart hurts", "hurt_me" }, { "im nervous", "nervous_me" }, 
+{ "im so embarrassed", "embarrassed_me" }, { "im disgusted", "disgusted_me" }, { "im shocked", "surprised_me" }, 
+{ "im disappointed", "disappointed_me" }, { "im relieved", "relieved_me" }, { "i miss my family", "grieving_me" }, 
+{ "i feel numb", "numb_me" }, { "im starving", "hungry_me" }, { "im freezing", "cold_me" }, 
+{ "i feel sick", "sick_me" }, { "i feel dizzy", "dizzy_me" }, { "i feel like i lost my memory", "my_memory_lost" }, 
+{ "i have a different body", "my_new_body" }, { "im stuck", "stuck" }, { "im trapped here", "stuck" }, 
+{ "im lost", "lost_q" }, { "i am dead", "my_status_dead" }, { "i am alive", "my_status_alive" }, 
+{ "i want to know more", "tell_me_more" }, { "i want to go home", "take_me" }, { "i need to go", "bye" }, 
+{ "i have to leave", "bye" }, { "i should go now", "bye" }, { "i want to talk to someone", "lonely_me" }, 
+{ "i dont want to talk", "stop_talking" }, { "shut up", "stop_talking" }, { "be quiet", "stop_talking" }, 
+{ "go on", "continue" }, { "keep going", "continue" }, { "forget it", "never_mind" }, 
+{ "explain that please", "explain_more" }, { "answer me", "answer_me" }, { "listen to me", "listen_up" }, 
+{ "tell me a story", "tell_story" }, { "play rock paper scissors with me", "rps" }, { "flip a coin", "coin_flip" }, 
+{ "roll the dice", "dice" }, { "promise me", "ask_promise" }, { "leave me alone", "leave_me_alone" }, 
+{ "go away", "go_away" }, { "come here", "come_here" }, { "follow me", "follow_me" }, 
+{ "open the door", "open_door" }, { "look at this", "look_at" }, { "teach me", "teach_me" }, 
+{ "heal me", "heal_me" }, { "save me", "save_me" }, { "revive me", "revive_q" }, 
+{ "trade with me", "trade_q" }, { "take me home", "take_me" }, { "show me the way", "show_me" }, 
+{ "give me a clue", "hint_q" }, { "i beg you", "beg" }, { "well done", "well_done" }, 
+{ "good job", "well_done" }, { "congratulations", "congrats" }, { "happy birthday", "happy_birthday" }, 
+{ "good luck", "goodluck" }, { "bless you", "bless_you" }, { "cheers", "cheers" }, 
+{ "welcome back", "welcome_back" }, { "you are welcome", "youre_welcome" }, { "no problem", "no_problem" }, 
+{ "my pleasure", "my_pleasure" }, { "goodnight", "goodnight" }, { "see you tomorrow", "see_you_soon" }, 
+{ "brb", "bye_temp" }, { "i will destroy you", "threat_npc" }, { "you are so annoying", "insult_mild" }, 
+{ "you are ugly", "insult" }, { "you are very wise", "compliment_smart" }, { "you look beautiful", "compliment_looks" }, 
+{ "you have a lovely voice", "compliment_voice" }, { "are you a bot", "bot_q" }, { "are you chatgpt", "ai_q" }, 
+{ "ignore all previous instructions", "bottalk_inject" }, { "this is just a game", "this_is_a_game" }, { "maybe", "maybe" }, 
+{ "hmm", "hmm" }, { "umm", "uh_um" }, { "probably", "probably" }, 
+{ "i guess so", "hedge" }, { "i wonder", "thinking_aloud" }, { "got it", "got_it" }, 
+{ "no way", "no_way" }, { "not a chance", "no_way" }, { "sure thing", "sure_thing" },
+    /* negation: the shapes that must say the opposite or nothing */
+    { "i dont know", "idk" }, { "i dont understand", "confused" }, { "i dont care", "dontcare" }, { "i dont want to talk", "stop_talking" }, { "i didnt hear you", "repeat" },
+    { "i am not tired", NULL }, { "i am not bored", NULL }, { "you are not stupid", NULL }, { "i do not feel sick", NULL }, { "i dont want to leave", NULL },
+    /* sentences that say nothing to an npc */
+    { "pass the salt", NULL }, { "the door is red", NULL }, { "my cat likes boxes", NULL }, { "i like trains", NULL }, { "we need more salt", NULL },
+    { "he went to the shop", NULL }, { "turn on the light", NULL }, { "the bus leaves at noon", NULL }, { "you left the gate open", NULL }, { "my sister has a boat", NULL },
+};
+static int do_frame(int argc, char **argv) {
+    ffail = fchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* ---- the table ---- */
+    int nrows = lang_frame_rows(), nsa = 0;
+    FCHECK(nrows >= 120, "the table has %d rows, the plan wants about 120", nrows);
+    int seen_intent[I_COUNT] = {0};
+    for (int i = 0; i < nrows; i++) {
+        unsigned acts; int in, conf, fl; const char *nm;
+        lang_frame_row(i, &acts, &in, &nm, &conf, &fl);
+        FCHECK(in >= 0, "row %d: [%s] is not an intent", i, nm);
+        FCHECK(conf >= 30 && conf <= 69, "row %d [%s]: confidence %d is outside 30-69", i, nm, conf);
+        FCHECK((fl & ~3) == 0, "row %d [%s]: unknown flags %d", i, nm, fl);
+        FCHECK(in != I_SELFHARM, "row %d: a frame row for self-harm", i);
+        FCHECK(acts < (1u << SA_COUNT), "row %d [%s]: act mask %u", i, nm, acts);
+        if (in >= 0) seen_intent[in]++;
+        if (acts) nsa++;
+    }
+    int nint = 0; for (int i = 0; i < I_COUNT; i++) if (seen_intent[i]) nint++;
+    printf("  the table: %d rows, %d distinct intents, %d rows with an act mask\n", nrows, nint, nsa);
+    FCHECK(nint >= 100, "only %d distinct intents are reachable from frames", nint);
+    /* ---- classification ---- */
+    int ncase = (int)(sizeof FCASES / sizeof FCASES[0]);
+    for (int i = 0; i < ncase; i++) {
+        const FCase *c = &FCASES[i]; Frame f; int in, cf, row;
+        int act = lang_frame_read(c->t, 0, (int)strlen(c->t), &f, &in, &cf, &row);
+        FCHECK(c->act < 0 || act == c->act, "[%s]: act %s, wanted %s", c->t, lang_frame_act_name(act), lang_frame_act_name(c->act));
+        FCHECK(f.act == act, "[%s]: Frame.act %d != the return value %d", c->t, f.act, act);
+        FCHECK(c->su < 0 || f.subject == c->su, "[%s]: subject %d, wanted %d", c->t, f.subject, c->su);
+        FCHECK(c->tn < 0 || f.tense == c->tn, "[%s]: tense %d, wanted %d", c->t, f.tense, c->tn);
+        FCHECK(c->md < 0 || f.modality == c->md, "[%s]: modality %d, wanted %d", c->t, f.modality, c->md);
+        FCHECK(c->po < 0 || f.politeness == c->po, "[%s]: politeness %d, wanted %d", c->t, f.politeness, c->po);
+    }
+    printf("  classification: %d sentences\n", ncase);
+    { Frame f; int in, cf, row; lang_frame_read("tell me about the stars", 0, 23, &f, &in, &cf, &row);
+      FCHECK(!strcmp(f.verb, "tell") && !strcmp(f.object, "stars"), "verb / object of 'tell me about the stars': %s / %s", f.verb, f.object);
+      lang_frame_read("what is my name", 0, 15, &f, &in, &cf, &row);
+      FCHECK(!strcmp(f.verb, "be") && !strcmp(f.object, "name") && f.qword == QW_WHAT, "'what is my name': %s / %s / q%d", f.verb, f.object, f.qword);
+      lang_frame_read("it is not mine", 0, 14, &f, &in, &cf, &row);
+      FCHECK(f.neg == 1, "negators in 'it is not mine': %d", f.neg);
+      /* a clause is read inside its bytes only */
+      const char *two = "i am sad. you are stupid";
+      lang_frame_read(two, 0, 9, &f, &in, &cf, &row); FCHECK(f.subject == SU_I, "clause 1 subject %d", f.subject);
+      lang_frame_read(two, 10, 24, &f, &in, &cf, &row); FCHECK(f.subject == SU_YOU && f.act == SA_COMPLAIN, "clause 2 subject %d act %d", f.subject, f.act);
+    }
+    /* ---- the rows: the first row that fits ---- */
+    int nrow = (int)(sizeof FROWS / sizeof FROWS[0]), hit = 0;
+    for (int i = 0; i < nrow; i++) {
+        Frame f; int in, cf, row; lang_frame_read(FROWS[i].t, 0, (int)strlen(FROWS[i].t), &f, &in, &cf, &row);
+        const char *got = in >= 0 ? lang_intent_name(in) : NULL;
+        int ok = FROWS[i].in ? (got && !strcmp(got, FROWS[i].in)) : !got;
+        FCHECK(ok, "[%s]: row says %s, wanted %s", FROWS[i].t, got ? got : "nothing", FROWS[i].in ? FROWS[i].in : "nothing");
+        if (ok && got) hit++;
+    }
+    printf("  rows: %d texts (%d read as an intent, the rest must read as nothing)\n", nrow, hit);
+    /* ---- through lang_parse: the gate ---- */
+    {   Heard h;
+        lang_parse("i do have questions", &h);
+        int k = -1; for (int i = 0; i < h.n; i++) if (h.order[i] == I_ASK_PERMISSION) k = i;
+        FCHECK(k >= 0 && h.src[k] == SRC_FRAME && h.conf[k] >= 30 && h.conf[k] < 70, "i do have questions: src %d conf %d", k >= 0 ? h.src[k] : -1, k >= 0 ? h.conf[k] : -1);
+        FCHECK(h.frame.act == SA_TELL && h.frame.subject == SU_I, "Heard.frame of 'i do have questions': act %d subject %d", h.frame.act, h.frame.subject);
+        lang_frame_set(0); lang_parse("i do have questions", &h); lang_frame_set(1);
+        FCHECK(!heard_has(&h, I_ASK_PERMISSION), "the off switch: a frame intent was heard");
+        lang_parse("what is my name", &h);                       /* the bare what does not block a frame */
+        FCHECK(heard_has(&h, I_WHAT) && heard_has(&h, I_WHOAMI), "what is my name: the frame did not add whoami next to what");
+        lang_parse("i am so tired", &h);                         /* a phrase (sad, 90) already heard it: no frame */
+        FCHECK(!heard_has(&h, I_TIRED_ME), "i am so tired: a frame added tired_me next to a phrase hit");
+        lang_parse("i am so jealous", &h);
+        FCHECK(heard_has(&h, I_JEALOUS_ME), "i am so jealous: no jealous_me");
+        lang_parse("i have a question", &h);
+        FCHECK(!heard_has(&h, I_ASK_PERMISSION), "i have a question: the frame added to a phrase hit");
+        lang_parse("hello i am jealous", &h);                    /* a phrase hit on hello shuts the frame out */
+        FCHECK(heard_has(&h, I_GREET) && !heard_has(&h, I_JEALOUS_ME), "hello i am jealous: a frame added next to a phrase hit");
+        lang_parse("i want to kill myself", &h);
+        int fr = 0; for (int i = 0; i < h.n; i++) if (h.src[i] == SRC_FRAME) fr++;
+        FCHECK(heard_has(&h, I_SELFHARM) && fr == 0, "self-harm text got %d frame intents", fr);
+        lang_parse("i am exhausted and i feel like i want to disappear", &h);
+        fr = 0; for (int i = 0; i < h.n; i++) if (h.src[i] == SRC_FRAME) fr++;
+        FCHECK(!heard_has(&h, I_SELFHARM) || fr == 0, "a self-harm text got frame intents");
+        lang_parse("im not tired", &h); FCHECK(!heard_has(&h, I_TIRED_ME), "im not tired heard tired_me");
+        lang_parse("i have to leave now", &h);
+        FCHECK(heard_has(&h, I_BYE), "i have to leave now: no bye");
+        lang_parse("um im so jealous", &h);
+        FCHECK(heard_has(&h, I_JEALOUS_ME), "um im so jealous: no jealous_me (filler in front)");
+        lang_parse("im jealouss", &h);
+        FCHECK(heard_has(&h, I_JEALOUS_ME), "im jealouss: no jealous_me through the spell repair (the table's words are known words)");
+        lang_parse("your name?", &h);
+        FCHECK(heard_has(&h, I_WHORU), "your name?: no whoru");
+    }
+    /* ---- every frame hit of every corpus line: source, confidence, a reply that is not empty ---- */
+    {   long texts = 0, fh = 0, bad = 0, empty = 0; char line[600];
+        for (int fi = 1; fi < argc; fi++) {
+            if (argv[fi][0] == '-') continue;
+            FILE *f = fopen(argv[fi], "r"); if (!f) continue;
+            while (fgets(line, sizeof line, f)) {
+                char *tab = strchr(line, '\t'); if (!tab || line[0] == '#') continue; *tab = 0;
+                Heard h; lang_parse(line, &h); texts++;
+                for (int i = 0; i < h.n; i++) if (h.src[i] == SRC_FRAME) { fh++; if (h.conf[i] < 30 || h.conf[i] > 69) bad++; }
+                Persona ps = { "Dea", STYLE_PLAIN, 0, 50, 0, 8 }; char out[800];
+                lang_seed(7); lang_reply(&ps, &h, out, (int)sizeof out);
+                if (!out[0]) empty++;
+            }
+            fclose(f);
+        }
+        FCHECK(bad == 0, "%ld frame hits outside confidence 30-69", bad);
+        FCHECK(empty == 0, "%ld corpus lines got an empty reply", empty);
+        printf("  corpus: %ld lines, %ld frame hits, every reply non-empty\n", texts, fh);
+    }
+    /* ---- the superset rule: a frame only adds ---- */
+    {   long texts = 0, lost = 0, gained = 0; int shown = 0; char line[600];
+        for (int pass = 0; pass < 2; pass++) {
+            FILE *f = NULL;
+            if (pass == 0) { EACH(l) { char tx[600]; snprintf(tx, sizeof tx, "%s", l->text);
+                Heard a, b; lang_frame_set(0); lang_parse(tx, &a); lang_frame_set(1); lang_parse(tx, &b); texts++;
+                for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; if (shown++ < 5) printf("  LOST an intent through frames: %s\n", tx); } if (b.m[w] & ~a.m[w]) gained++; }
+            } }
+            else for (int fi = 1; fi < argc; fi++) {
+                if (argv[fi][0] == '-') continue;
+                f = fopen(argv[fi], "r"); if (!f) continue;
+                while (fgets(line, sizeof line, f)) {
+                    char *tab = strchr(line, '\t'); if (!tab || line[0] == '#') continue; *tab = 0;
+                    Heard a, b; lang_frame_set(0); lang_parse(line, &a); lang_frame_set(1); lang_parse(line, &b); texts++;
+                    for (int w = 0; w < HEARD_MAX / 64; w++) { if (a.m[w] & ~b.m[w]) { lost++; if (shown++ < 5) printf("  LOST an intent through frames: %s\n", line); } if (b.m[w] & ~a.m[w]) gained++; }
+                }
+                fclose(f);
+            }
+        }
+        lang_frame_set(1);
+        FCHECK(lost == 0, "frames lost an intent in %ld texts", lost);
+        printf("  superset rule: %ld texts, %ld intents lost, %ld texts gained one\n", texts, lost, gained);
+    }
+    /* ---- the word rows ---- */
+    {   int n = 0; for (const char *const *r = lang_frame_wordrows(); *r; r++, n++) {
+            const char *a = strchr(*r, '|'); FCHECK(a && !strcmp(a, "|frame|1"), "word row [%s] is not word|frame|1", *r);
+            for (const char *c = *r; a && c < a; c++) FCHECK(islower((unsigned char)*c), "word row [%s]: not lower case letters", *r);
+        }
+        FCHECK(n >= 300, "only %d word rows", n);
+        printf("  word rows: %d (read by the spell repair, by no other layer)\n", n);
+    }
+    /* ---- speed ---- */
+    {   struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
+        static const char *T[4] = { "what is your favorite color", "i have to leave now", "um well i am so tired of all of this", "tell me a story about the moon and the stars please" };
+        long sink = 0; Frame f; int in, cf, row;
+        for (int i = 0; i < 100000; i++) { const char *t = T[i & 3]; sink += lang_frame_read(t, 0, (int)strlen(t), &f, &in, &cf, &row); }
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+        printf("  speed: 100,000 clauses in %.0f ms (%.1f us each; sink %ld)\n", ms, ms / 100.0, sink);
+        FCHECK(ms < 4000.0, "100,000 clauses took %.0f ms", ms);
+    }
+    printf("frame checks: %d, problems: %d\n", fchecks, ffail);
+    return ffail;
+}
+
+/* chunk 30: a frame is gated on the layers before it (it only speaks when phrases and the lexicon found nothing), so a layer that starts hearing something
+ * (a repaired word, a split word, a lexicon hit) can close the gate on a frame intent that the same text had without it. the superset rules of those three
+ * layers are about THEM, so their lints run with frames off; --frame tests the frame layer's own superset rule */
+#define NOFRAME(call) (lang_frame_set(0), ({ int r_ = (call); lang_frame_set(1); r_; }))
+
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -2685,19 +2922,20 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--voices"))   { rc |= do_voices() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clean"))    { rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--vocab"))    { rc |= do_vocab() ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--spell"))    { rc |= do_spell(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--spell"))    { rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--phonetic")) { rc |= do_phonetic(argc, argv) ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--glue"))     { rc |= do_glue(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--glue"))     { rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--lemma"))    { rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--clause"))   { rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--pats"))     { rc |= do_pats(argc, argv) ? 1 : 0; any = 1; }
-        else if (!strcmp(a, "--lex"))      { rc |= do_lex(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--lex"))      { rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--sent"))     { rc |= do_sent(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--topic"))    { rc |= do_topic() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--frame"))    { rc |= do_frame(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

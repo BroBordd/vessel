@@ -12,6 +12,7 @@
 #include "lang_clause.h"
 #include "lang_pat.h"
 #include "lang_lex.h"
+#include "lang_frame.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -405,6 +406,32 @@ static void sent_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
     }
 }
 
+
+/* ---- chunk 30: sentence frames (lang_frame.c) ----
+ * every clause is read as a frame (act, subject, tense, modality ...); Heard.frame keeps the last clause of the typed text that does something.
+ * the frame table turns a frame into an intent, but only when phrases and the lexicon found nothing: the gate is "no intent other than the
+ * sentiment words I_POS / I_NEG and the bare I_WHAT / I_HOW / I_WHY with a confidence of 40 or more", and never when self-harm was heard. (the bare question words I_WHAT / I_HOW / I_WHY do not count: they are answered only when nothing better was said, and their patterns are the loosest of the old set, so a frame that finds the real question must not be shut out by them. yes / no / ok / please / wait still block: a fine twin of those would only duplicate them) at most two intents are added, with the
+ * row's confidence (SRC_FRAME, 30-69: under every phrase). the typed text decides; a variant (expanded, spelled) is read only when the typed
+ * text gave no intent, and a spelled one is capped by its spell confidence. a frame only ever ADDS */
+static void frame_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
+    if (!lang_frame_enabled()) return;
+    int gate = !heard_has(h, I_SELFHARM);
+    for (int i = 0; i < h->n; i++) if (h->order[i] != I_POS && h->order[i] != I_NEG && h->order[i] != I_WHAT && h->order[i] != I_HOW && h->order[i] != I_WHY && h->conf[i] >= 40) gate = 0;      /* the bare question words never block a frame */
+    int have = 0, added = 0;
+    for (int k = 0; k < nt && !added; k++) {
+        if (!tx[k]) continue;
+        Clause cl[CLAUSE_MAX]; int ncl = lang_clauses(tx[k], tl[k], cl, CLAUSE_MAX);
+        for (int c = 0; c < ncl; c++) {
+            Frame f; int in, cf, row;
+            int act = lang_frame_read(tx[k], cl[c].a, cl[c].b, &f, &in, &cf, &row);
+            if (act != SA_NONE && (k == 0 || !have)) { h->frame = f; have = 1; }
+            if (!gate || in < 0 || added >= 2 || heard_has(h, in)) continue;
+            if (k >= 2 && cf > spell_conf_of(h)) cf = spell_conf_of(h);
+            heard_add(h, in, SRC_FRAME, cf); added++;
+        }
+    }
+}
+
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
     char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
@@ -484,6 +511,7 @@ void lang_parse(const char *text, Heard *h) {
           for (int q = 0; q < nt; q++) { h->topic[q] = (int16_t)th[q].id; h->topic_w[q] = (uint8_t)(th[q].score > 255 ? 255 : th[q].score); }
           h->ntopic = (uint8_t)nt; if (nt) snprintf(h->thing, sizeof h->thing, "%s", th[0].word);
       } }
+    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; frame_pass(h, tx, tl, 4); }      /* chunk 30 */
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
     h->words = w;
@@ -916,6 +944,33 @@ static void cat(char *dst, int cap, const char *src) {
     snprintf(dst + d, (size_t)(cap - d), "%s", src);
 }
 
+/* the lines for up to two intents, joined; returns how many intents got a line */
+static int say_picks(const Persona *ps, const int *pickd, int np, Tone tone, char *body, int cap) {
+    int answered = 0;
+    for (int a = 0; a < np; a++) {
+        int in = pickd[a];
+        Tone tt = tone;
+        if (in == I_SAD || in == I_SCARED || in == I_CONFUSED || in == I_HELP) {      /* even toxic gods do not kick a crying player */
+            if (tt == TONE_HOSTILE || tt == TONE_SARCASTIC || tt == TONE_SMUG || tt == TONE_SULKY) tt = TONE_COLD;
+            else if (tt == TONE_BORED) tt = TONE_NEUTRAL;
+        }
+        g_tone = (int)tt;
+        char key[40], one[200];
+        lang_intent_key(in, key, (int)sizeof key);
+        const Line *l = pick(ps, key, (int)tt);
+        if (!l) continue;
+        int pass = g_pass;
+        remember(l);
+        fmt(ps, l->text, one, (int)sizeof one, 0);
+        voice_line(ps, key, l, pass, (int)tt, one, (int)sizeof one);
+        if (a == 1 && (int)strlen(body) + (int)strlen(one) > 150) break;   /* keep it readable on a phone */
+        cat(body, cap, one);
+        answered++;
+        if ((int)strlen(body) > 90) break;
+    }
+    return answered;
+}
+
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0;
     g_topic = h->capture; g_thing = h->thing;
@@ -941,27 +996,12 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */      /* a long question we have no answer for */
     char body[600]; body[0] = 0;       /* chunk 5: was 400 (cut to a readable length in chunk 42) */
-    int answered = 0;
-    for (int a = 0; a < np; a++) {
-        int in = pickd[a];
-        Tone tt = tone;
-        if (in == I_SAD || in == I_SCARED || in == I_CONFUSED || in == I_HELP) {      /* even toxic gods do not kick a crying player */
-            if (tt == TONE_HOSTILE || tt == TONE_SARCASTIC || tt == TONE_SMUG || tt == TONE_SULKY) tt = TONE_COLD;
-            else if (tt == TONE_BORED) tt = TONE_NEUTRAL;
-        }
-        g_tone = (int)tt;
-        char key[40], one[200];
-        lang_intent_key(in, key, (int)sizeof key);
-        const Line *l = pick(ps, key, (int)tt);
-        if (!l) continue;
-        int pass = g_pass;
-        remember(l);
-        fmt(ps, l->text, one, (int)sizeof one, 0);
-        voice_line(ps, key, l, pass, (int)tt, one, (int)sizeof one);
-        if (a == 1 && (int)strlen(body) + (int)strlen(one) > 150) break;   /* keep it readable on a phone */
-        cat(body, (int)sizeof body, one);
-        answered++;
-        if ((int)strlen(body) > 90) break;
+    int answered = say_picks(ps, pickd, np, tone, body, (int)sizeof body);
+    if (!answered && np > 0 && rank_of(pickd[0]) != 99) {            /* chunk 30: the strong intents had no line (a fine intent whose group has no lines yet): the catch-alls answer after all */
+        int wk[HEARD_ORDER], nw = 0;
+        for (int i = 0; i < h->n && nw < 2; i++) { int in = h->order[i]; if (in != I_POS && in != I_NEG && rank_of(in) == 99) wk[nw++] = in; }
+        if (nw == 1 && wk[0] == I_WHAT && (h->words >= 5 || h->ntopic)) nw = 0;       /* the same rule as above: a topic question is r.topic_q */
+        answered = say_picks(ps, wk, nw, tone, body, (int)sizeof body);
     }
 
     if (!answered) {                                                   /* never leave the player hanging */

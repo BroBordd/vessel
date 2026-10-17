@@ -3,6 +3,7 @@
  *
  * the registry and the indexes. see lang_tables.h */
 #include "lang_tables.h"
+#include "lang_frame.h"
 #include "lang_vocab.h"
 #include "lang.h"
 #include "lang_pat.h"
@@ -52,6 +53,7 @@ static void builtin(void) {
     lang_register_lex(LEX_CORE);                                 /* chunk 27 */
     lang_register_lex(SENT_CORE);                                /* chunk 28 */
     lang_register_lex(TOPIC_CORE);                               /* chunk 29 */
+    lang_register_lex(lang_frame_wordrows());                    /* chunk 30: the words of the frame table (rows "word|frame|1", read by no layer, known to the spell repair) */
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */
