@@ -48,5 +48,25 @@ const Line LINES_E[] = {
     {"r.repeat_after_me", NEUT, ALLS, "I will not repeat after you."}, {"r.repeat_after_me", NEUT, ALLS, "No echoes here. Talk to me."}, {"r.repeat_after_me", NEUT, ALLS, "Say what you mean and I will reply."},
     {"r.repeat_after_me", COLD, ALLS, "No."}, {"r.repeat_after_me", COLD, ALLS, "I am not a mirror."}, {"r.repeat_after_me", COLD, ALLS, "Echoes are for caves."},
     {"r.repeat_after_me", HOST, ALLS, "Repeat after you? Never."}, {"r.repeat_after_me", HOST, ALLS, "Find a parrot."}, {"r.repeat_after_me", HOST, ALLS, "I am no copy of yours."},
+    /* ---- r.choice_q (chunk 32) ---- */
+    {"r.choice_q", WARM, ALLS, "I would say {pick}, {pet}."}, {"r.choice_q", WARM, ALLS, "{opt1} or {opt2}? My heart says {pick}."}, {"r.choice_q", WARM, ALLS, "Hm. {pick}. Yes, {pick}, I think."},
+    {"r.choice_q", NEUT, ALLS, "{opt1} or {opt2}. I pick {pick}."}, {"r.choice_q", NEUT, ALLS, "I would go with {pick}."}, {"r.choice_q", NEUT, ALLS, "If I must choose, {pick}."},
+    {"r.choice_q", COLD, ALLS, "{pick}. Do not ask me twice."}, {"r.choice_q", COLD, ALLS, "Choose yourself. Fine, {pick}."}, {"r.choice_q", COLD, ALLS, "{pick}. Happy now?"},
+    {"r.choice_q", HOST, ALLS, "{pick}, and be grateful."}, {"r.choice_q", HOST, ALLS, "{opt1} or {opt2}? Your choices bore me. {pick}."}, {"r.choice_q", HOST, ALLS, "Do I look like your adviser? {pick}."},
+    /* ---- r.rhetorical_q (chunk 32) ---- */
+    {"r.rhetorical_q", WARM, ALLS, "That was not really a question, was it, {pet}?"}, {"r.rhetorical_q", WARM, ALLS, "Oh, {pet}. You already know the answer to that."}, {"r.rhetorical_q", WARM, ALLS, "Some questions are only sighs. I heard it."},
+    {"r.rhetorical_q", NEUT, ALLS, "That sounded rhetorical."}, {"r.rhetorical_q", NEUT, ALLS, "You are not asking me. You are telling me."}, {"r.rhetorical_q", NEUT, ALLS, "I will let that one hang in the air."},
+    {"r.rhetorical_q", COLD, ALLS, "Rhetorical. I will not answer."}, {"r.rhetorical_q", COLD, ALLS, "Ask a real one."}, {"r.rhetorical_q", COLD, ALLS, "Hm. Not a question."},
+    {"r.rhetorical_q", HOST, ALLS, "Do not ask what you do not want answered."}, {"r.rhetorical_q", HOST, ALLS, "A question for the wind, not me."}, {"r.rhetorical_q", HOST, ALLS, "You talk to hear yourself."},
+    /* ---- r.cast_q (chunk 32) ---- */
+    {"r.cast_q", WARM, ALLS, "{topic}? Ah, {pet}. Why do you ask about {topic}?"}, {"r.cast_q", WARM, ALLS, "You are curious about {topic}. So am I, sometimes."}, {"r.cast_q", WARM, ALLS, "{topic}. Say what you want to know, {pet}."},
+    {"r.cast_q", NEUT, ALLS, "{topic}. What about {topic}?"}, {"r.cast_q", NEUT, ALLS, "You ask about {topic}. Ask it plainly."}, {"r.cast_q", NEUT, ALLS, "{topic}, yes. What do you want to know?"},
+    {"r.cast_q", COLD, ALLS, "{topic}? Why would I tell you?"}, {"r.cast_q", COLD, ALLS, "Keep {topic} out of your mouth for now."}, {"r.cast_q", COLD, ALLS, "I do not discuss {topic} with strangers."},
+    {"r.cast_q", HOST, ALLS, "{topic}? None of your business."}, {"r.cast_q", HOST, ALLS, "Ask about {topic} again and regret it."}, {"r.cast_q", HOST, ALLS, "Why do you care about {topic}, fool?"},
+    /* ---- r.ask_fortune (chunk 32) ---- */
+    {"r.ask_fortune", WARM, ALLS, "I see a road, {pet}. It bends, but it goes on."}, {"r.ask_fortune", WARM, ALLS, "Yes, I think you will. Hope is not foolish."}, {"r.ask_fortune", WARM, ALLS, "The clouds say maybe. I say try."},
+    {"r.ask_fortune", NEUT, ALLS, "Hard to say. The future is not mine to read."}, {"r.ask_fortune", NEUT, ALLS, "Maybe. It depends on what you do next."}, {"r.ask_fortune", NEUT, ALLS, "I cannot see that far."},
+    {"r.ask_fortune", COLD, ALLS, "Ask the wind. It lies less than I do."}, {"r.ask_fortune", COLD, ALLS, "The future owes you nothing."}, {"r.ask_fortune", COLD, ALLS, "Do not ask me what you can make yourself."},
+    {"r.ask_fortune", HOST, ALLS, "Your future? A long walk and a short memory."}, {"r.ask_fortune", HOST, ALLS, "Fortune tellers charge. You cannot afford me."}, {"r.ask_fortune", HOST, ALLS, "Probably not, with that attitude."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

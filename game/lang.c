@@ -414,17 +414,21 @@ static void sent_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
  * row's confidence (SRC_FRAME, 30-69: under every phrase). the typed text decides; a variant (expanded, spelled) is read only when the typed
  * text gave no intent, and a spelled one is capped by its spell confidence. a frame only ever ADDS */
 static void frame_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
-    if (!lang_frame_enabled()) return;
+    if (!lang_frame_enabled()) return;      /* (the question typing of chunk 32 is part of the same switch) */
     int gate = !heard_has(h, I_SELFHARM);
     for (int i = 0; i < h->n; i++) if (h->order[i] != I_POS && h->order[i] != I_NEG && h->order[i] != I_WHAT && h->order[i] != I_HOW && h->order[i] != I_WHY && h->conf[i] >= 40) gate = 0;      /* the bare question words never block a frame */
-    int have = 0, added = 0;
+    int have = 0, added = 0, qhave = 0;
     for (int k = 0; k < nt && !added; k++) {
         if (!tx[k]) continue;
         Clause cl[CLAUSE_MAX]; int ncl = lang_clauses(tx[k], tl[k], cl, CLAUSE_MAX);
         for (int c = 0; c < ncl; c++) {
-            Frame f; int in, cf, row;
+            Frame f; int in, cf, row; Question qu;
             int act = lang_frame_read(tx[k], cl[c].a, cl[c].b, &f, &in, &cf, &row);
+            if (lang_question(tx[k], cl[c].a, cl[c].b, &qu) != QT_NONE && (k == 0 || !qhave)) {         /* chunk 32: the last clause that asks something */
+                h->qtype = qu.type; snprintf(h->focus, sizeof h->focus, "%s", qu.focus); snprintf(h->opt1, sizeof h->opt1, "%s", qu.opt1); snprintf(h->opt2, sizeof h->opt2, "%s", qu.opt2); qhave = 1;
+            }
             if (act != SA_NONE && (k == 0 || !have)) { h->frame = f; have = 1; }
+            if (k == 0 && !heard_has(h, I_SELFHARM) && !heard_has(h, I_ASK_FORTUNE) && lang_frame_fortune(tx[k], cl[c].a, cl[c].b)) heard_add(h, I_ASK_FORTUNE, SRC_FRAME, 60);      /* chunk 32 */
             if (!gate || in < 0 || added >= 2 || heard_has(h, in)) continue;
             if (k >= 2 && cf > spell_conf_of(h)) cf = spell_conf_of(h);
             heard_add(h, in, SRC_FRAME, cf); added++;
@@ -897,6 +901,8 @@ static int tone_rude(Tone t) { return (int)((RUDE >> t) & 1u); }   /* cold, host
 
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
 static const char *g_topic = "";
+static const char *g_opt1 = "", *g_opt2 = "";      /* chunk 32: the two options of a choice question, and the pick (0 first, 1 second, 2 both, 3 neither) */
+static int g_pick;
 static const char *g_thing = "";     /* chunk 29: {thing} = the strongest topic word of the text (moon), "that" if none */
 static int g_tone;
 
@@ -914,6 +920,9 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
         else if (!strcmp(name, "npc")) rep = ps->name;
         else if (!strcmp(name, "topic")) rep = g_topic[0] ? g_topic : "that";
         else if (!strcmp(name, "thing")) rep = g_thing[0] ? g_thing : "that";
+        else if (!strcmp(name, "opt1")) rep = g_opt1[0] ? g_opt1 : "the first";
+        else if (!strcmp(name, "opt2")) rep = g_opt2[0] ? g_opt2 : "the second";
+        else if (!strcmp(name, "pick")) rep = g_pick == 0 ? (g_opt1[0] ? g_opt1 : "the first") : g_pick == 1 ? (g_opt2[0] ? g_opt2 : "the second") : g_pick == 2 ? "both" : "neither";
         else if (!strcmp(name, "pet") && voice_first(ps->style) == STYLE_MACHINE) rep = "USER";      /* chunk 11 */
         else if (depth < 4) {
             char key[24]; snprintf(key, sizeof key, "p.%s", name);
@@ -974,6 +983,10 @@ static int say_picks(const Persona *ps, const int *pickd, int np, Tone tone, cha
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0;
     g_topic = h->capture; g_thing = h->thing;
+    g_opt1 = ""; g_opt2 = ""; g_pick = 0;
+    if (!h->capture[0] && (h->qtype == QT_WHO || h->qtype == QT_WHAT || h->qtype == QT_WHICH) && h->focus[0] && lang_safe_echo(h->focus)) g_topic = h->focus;       /* chunk 32: who is alex / what is the moon */
+    int choice_safe = h->qtype == QT_CHOICE && lang_safe_echo(h->opt1) && lang_safe_echo(h->opt2);
+    if (choice_safe) { g_opt1 = h->opt1; g_opt2 = h->opt2; }
     /* a real person might be behind these words: step out of character, whoever is talking */
     if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
 
@@ -987,6 +1000,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         for (int i = 0; i < h->n; i++) {
             int in = h->order[i];
             if (in == I_POS || in == I_NEG) continue;
+            if (h->qtype == QT_RHETORICAL && (in == I_WHAT || in == I_HOW || in == I_WHY || in == I_ASK_ADVICE || in == I_ASK_OPINION)) continue;      /* chunk 32: a rhetorical question is not answered as a real one */
             if ((rank_of(in) == 99) == (pass == 1)) cand[nc++] = in;
         }
         for (int a = 0; a < nc; a++)                                   /* tiny sort by rank */
@@ -1007,7 +1021,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (!answered) {                                                   /* never leave the player hanging */
         if (gibberish_flip(ps, h)) tone = lang_mood_now(ps);
         const char *key = "r.unknown";
-        if (h->ntopic && h->is_question && h->words >= 2) key = "r.topic_q";      /* chunk 29: a question about a thing we know a word for */
+        if (h->qtype == QT_CHOICE && h->opt1[0] && h->opt2[0]) { g_pick = lang_choice_pick(tone_rude(tone), rn(100)); key = "r.choice_q"; }      /* {pick} / {opt1} / {opt2} say "the first" and "the second" when the options are not safe to echo */      /* chunk 32 */
+        else if (h->qtype == QT_RHETORICAL) key = "r.rhetorical_q";
+        else if ((h->qtype == QT_WHO || h->qtype == QT_WHAT) && g_topic[0] && g_topic == h->focus && lang_is_cast(h->focus)) key = "r.cast_q";
+        else if (h->ntopic && h->is_question && h->words >= 2) key = "r.topic_q";      /* chunk 29: a question about a thing we know a word for */
         else if (h->is_question && h->words >= 2) key = "r.unknown_q";
         else if (h->negative > h->positive) key = "r.unknown_neg";
         else if (h->positive > h->negative) key = "r.unknown_pos";

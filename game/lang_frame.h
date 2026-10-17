@@ -55,4 +55,18 @@ const char *const *lang_frame_wordrows(void);   /* the table's words as lexicon 
 void lang_frame_set(int on);                    /* 0 = frames off (tests: the superset rule); 1 = on (default) */
 int  lang_frame_enabled(void);
 
+/* ---- question typing (chunk 32) ----
+ * every clause that asks something gets a type and a focus word. A choice question ("tea or coffee?") keeps its two options; a rhetorical one
+ * ("why would i?") is not answered like a real question; a tag ("you like it, don't you?") is a statement with a request for agreement.
+ * the focus and the options are what the PLAYER typed: they may only be echoed into a reply when lang_safe_echo says yes (a cast name, a topic
+ * word of the lexicon, or a short word of a curated list), never anything else. */
+enum { QT_NONE, QT_WHO, QT_WHAT, QT_WHERE, QT_WHEN, QT_WHY, QT_HOW, QT_WHICH, QT_HOWMUCH, QT_YESNO, QT_TAG, QT_CHOICE, QT_RHETORICAL, QT_COUNT };
+typedef struct { uint8_t type; char focus[24], opt1[24], opt2[24]; } Question;
+int  lang_question(const char *lc, int a, int b, Question *q);      /* reads bytes [a, b) as one clause; returns q->type (QT_NONE if it asks nothing) */
+const char *lang_question_name(int type);                             /* "who" ... "choice" ... */
+int  lang_safe_echo(const char *word);                                /* 1 = may be echoed into a reply: a cast name, a topic word, a word of the curated list */
+int  lang_frame_fortune(const char *lc, int a, int b);               /* 1 for will i X / am i going to X / am i gonna X / shall i X (never a clause about death) */
+int  lang_is_cast(const char *word);                                  /* dea dia alex aonia doia tria vas */
+int  lang_choice_pick(int rude, int roll);                            /* roll 0-99 -> 0 first option, 1 second, 2 both, 3 neither (a rude mood leans to neither) */
+
 #endif

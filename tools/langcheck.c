@@ -30,6 +30,7 @@
  *   --topic            (chunk 29) topic words: the rows (well formed, >= 150 topics), scan cases (strongest first, three kept, lemma, elongation, no topic), Heard.topic / thing, a topic question answered about the {thing}, a later row, speed.
  *   --frame [FILES]    (chunk 30) sentence frames: the table (>= 120 rows, every intent real, confidence 30-69, none for self-harm), 52 classification cases (act, subject, tense, modality, politeness), the verb and object, a clause read inside its own bytes, about 160 text -> intent rows (and negations and plain sentences that must read as nothing), the gate through lang_parse (a phrase hit shuts a frame out, a bare what does not, never after self-harm, the off switch, filler and a typo in front), every frame hit of every corpus FILE (source, confidence 30-69, a reply that is not empty), the superset rule (a frame only adds), the word rows, speed. fails on a problem
  *   --fourth           (chunk 31) the fourth wall: the eight r.* keys of lines_e.c (12+ lines, 3+ per old mood, no {topic} / {thing}, no real product, nothing that steps out of the game), 32 sentences -> intent (bot, ai, what can i say, injections, game, who is playing, say, repeat), say / repeat / type never echo the player in any voice over 40 seeds, an injection moves no mood and never answers empty, self-harm wins inside an injection and after say, look-alike sentences hear nothing. fails on a problem
+ *   --question         (chunk 32) question typing: about 55 sentences -> who / what / where / when / why / how / which / howmuch / yesno / tag / choice / rhetorical or none, with the focus word and the two options of a choice, a clause read inside its own bytes, Heard.qtype / focus / opt1 / opt2 and the off switch, fortune questions (will i / am i going to; never a clause about death), can you X is a request, do you X reads the G04-G05 intent by its verb, the four keys of this chunk (12 lines, 3 per old mood, the right slots), the echo rule (an unsafe word typed as an option or a focus never comes back in 40 seeds x every voice; safe ones do), rhetorical answers never empty, the pick split, speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -2977,6 +2978,93 @@ static int do_fourth(void) {
     return wfail;
 }
 
+/* ---- chunk 32: question typing ---- */
+static int qfail, qchecks;
+#define QCHECK(c, ...) do { qchecks++; if (!(c)) { printf("BAD QUESTION: " __VA_ARGS__); printf("\n"); qfail++; } } while (0)
+static int do_question(int argc, char **argv) {
+    (void)argc; (void)argv;
+    qfail = qchecks = 0;
+    lang_tables_reset(); lang_init();
+    static const struct { const char *t; int qt; const char *focus, *o1, *o2; } C[] = {
+        { "who is alex", QT_WHO, "alex", "", "" }, { "who are you", QT_WHO, NULL, "", "" }, { "whos there", QT_WHO, NULL, "", "" }, { "what is the moon", QT_WHAT, "moon", "", "" },
+        { "what is a goddess", QT_WHAT, "goddess", "", "" }, { "whats your name", QT_WHAT, "name", "", "" }, { "where is the exit", QT_WHERE, "exit", "", "" }, { "where am i", QT_WHERE, NULL, "", "" },
+        { "when do you sleep", QT_WHEN, "sleep", "", "" }, { "why is the sky red", QT_WHY, "red", "", "" }, { "how do i win", QT_HOW, "win", "", "" }, { "how does it work", QT_HOW, "work", "", "" },
+        { "which way is north", QT_WHICH, "north", "", "" }, { "which one", QT_WHICH, NULL, "", "" }, { "how much is it", QT_HOWMUCH, NULL, "", "" }, { "how many stars are there", QT_HOWMUCH, "stars", "", "" },
+        { "do you like me", QT_YESNO, "like", "", "" }, { "is it real", QT_YESNO, "real", "", "" }, { "can you help me", QT_YESNO, "help", "", "" }, { "are you there", QT_YESNO, NULL, "", "" },
+        { "will i ever get out of here", QT_YESNO, NULL, "", "" }, { "your name?", QT_YESNO, "name", "", "" }, { "really?", QT_YESNO, NULL, "", "" },
+        { "do you like tea or coffee", QT_CHOICE, NULL, "tea", "coffee" }, { "is it day or night", QT_CHOICE, NULL, "day", "night" }, { "cats or dogs?", QT_CHOICE, NULL, "cats", "dogs" },
+        { "are you good or evil", QT_CHOICE, NULL, "good", "evil" }, { "red or blue", QT_NONE, NULL, "", "" }, { "do you want to stay or a leave", QT_CHOICE, NULL, "stay", "leave" },
+        { "should i go left or right", QT_CHOICE, NULL, "left", "right" }, { "is it yes or no", QT_CHOICE, NULL, "yes", "no" }, { "do you like cats or what", QT_YESNO, NULL, "", "" },
+        { "do you like cats or not", QT_YESNO, NULL, "", "" }, { "do you want something or anything", QT_YESNO, NULL, "", "" },
+        { "why would i", QT_RHETORICAL, NULL, "", "" }, { "who cares", QT_RHETORICAL, NULL, "", "" }, { "why should i tell you", QT_RHETORICAL, NULL, "", "" }, { "how should i know", QT_RHETORICAL, NULL, "", "" },
+        { "whats the point", QT_RHETORICAL, NULL, "", "" }, { "do i look like i care", QT_RHETORICAL, NULL, "", "" }, { "who asked you", QT_RHETORICAL, NULL, "", "" },
+        { "you like it dont you", QT_TAG, NULL, "", "" }, { "this is nice isnt it", QT_TAG, NULL, "", "" }, { "you are a goddess arent you", QT_TAG, NULL, "", "" },
+        { "you are a bot right?", QT_TAG, NULL, "", "" }, { "it is late innit", QT_TAG, NULL, "", "" },
+        { "i am tired", QT_NONE, NULL, "", "" }, { "the sky is red", QT_NONE, NULL, "", "" }, { "tell me a story", QT_NONE, NULL, "", "" }, { "hello", QT_NONE, NULL, "", "" }, { "", QT_NONE, NULL, "", "" },
+        { "to whom do i speak", QT_WHO, NULL, "", "" }, { "so what is the moon", QT_WHAT, "moon", "", "" }, { "well um where is it", QT_WHERE, NULL, "", "" }, { "in what way", QT_WHAT, "way", "", "" },
+    };
+    for (unsigned i = 0; i < sizeof C / sizeof C[0]; i++) {
+        Question q; int t = lang_question(C[i].t, 0, (int)strlen(C[i].t), &q);
+        QCHECK(t == C[i].qt && q.type == t, "[%s]: %s, wanted %s", C[i].t, lang_question_name(t), lang_question_name(C[i].qt));
+        if (C[i].focus) QCHECK(!strcmp(q.focus, C[i].focus), "[%s]: focus [%s], wanted [%s]", C[i].t, q.focus, C[i].focus);
+        QCHECK(!strcmp(q.opt1, C[i].o1) && !strcmp(q.opt2, C[i].o2), "[%s]: options [%s] [%s], wanted [%s] [%s]", C[i].t, q.opt1, q.opt2, C[i].o1, C[i].o2);
+    }
+    printf("  typing: %d sentences\n", (int)(sizeof C / sizeof C[0]));
+    { const char *two = "i am sad. who is alex"; Question q; QCHECK(lang_question(two, 0, 9, &q) == QT_NONE, "clause 1 of a two clause text asked something");
+      QCHECK(lang_question(two, 10, 21, &q) == QT_WHO && !strcmp(q.focus, "alex"), "clause 2 is not who is alex"); }
+    /* through lang_parse: Heard.qtype and the off switch */
+    { Heard h; lang_parse("do you like tea or coffee", &h); QCHECK(h.qtype == QT_CHOICE && !strcmp(h.opt1, "tea") && !strcmp(h.opt2, "coffee") && !strcmp(h.focus, "coffee"), "Heard of a choice: %d %s %s", h.qtype, h.opt1, h.opt2);
+      lang_parse("i am sad. who is alex?", &h); QCHECK(h.qtype == QT_WHO && !strcmp(h.focus, "alex"), "the last clause that asks: %d %s", h.qtype, h.focus);
+      lang_parse("hello", &h); QCHECK(h.qtype == QT_NONE && !h.focus[0] && !h.opt1[0], "hello has a question type");
+      lang_frame_set(0); lang_parse("do you like tea or coffee", &h); lang_frame_set(1); QCHECK(h.qtype == QT_NONE, "the off switch left a question type"); }
+    /* fortune: will i / am i going to, never a clause about death */
+    { static const char *const Y[] = { "will i ever get out of here", "will i see my family again", "am i going to win", "am i gonna find it", "shall i ever see home", "will i be ok", "so will i win" };
+      static const char *const N[] = { "will i die", "am i gonna die", "am i going to kill myself", "will you help me", "do i win", "i will win" };
+      for (unsigned i = 0; i < sizeof Y / sizeof Y[0]; i++) { Heard h; lang_parse(Y[i], &h); QCHECK(heard_has(&h, I_ASK_FORTUNE), "[%s] is not a fortune question", Y[i]); }
+      for (unsigned i = 0; i < sizeof N / sizeof N[0]; i++) { Heard h; lang_parse(N[i], &h); QCHECK(!heard_has(&h, I_ASK_FORTUNE), "[%s] heard a fortune question", N[i]); } }
+    /* can you X is a request; do you X asks about the npc (the verb picks the key) */
+    { static const struct { const char *t; int act; } R[] = { { "can you help me", SA_COMMAND }, { "could you open the door", SA_COMMAND }, { "would you sing me a song", SA_COMMAND }, { "can you hear me", SA_ASK }, { "do you like me", SA_ASK } };
+      for (unsigned i = 0; i < sizeof R / sizeof R[0]; i++) { Frame f; int in, cf, row; int a = lang_frame_read(R[i].t, 0, (int)strlen(R[i].t), &f, &in, &cf, &row); QCHECK(a == R[i].act, "[%s]: act %s", R[i].t, lang_frame_act_name(a)); }
+      static const struct { const char *t, *in; } D[] = { { "do you love me", "loves_q" }, { "do you hate me", "hates_q" }, { "do you have any friends", "npc_friends" }, { "do you ever sleep", "npc_sleeps" },
+          { "do you eat", "npc_eats" }, { "do you fear anything", "fears_npc" }, { "do you dream", "dreams_npc" }, { "do you have powers", "npc_power" } };
+      for (unsigned i = 0; i < sizeof D / sizeof D[0]; i++) { Frame f; int in, cf, row; lang_frame_read(D[i].t, 0, (int)strlen(D[i].t), &f, &in, &cf, &row);
+          QCHECK(in >= 0 && !strcmp(lang_intent_name(in), D[i].in), "[%s]: row says %s, wanted %s", D[i].t, in >= 0 ? lang_intent_name(in) : "nothing", D[i].in); } }
+    /* lines: the four keys of this chunk, three per old mood, the right slots */
+    { static const char *const K[] = { "r.choice_q", "r.rhetorical_q", "r.cast_q", "r.ask_fortune", 0 };
+      for (int k = 0; K[k]; k++) { const Line *const *l = NULL; int rows = lang_key_rows(K[k], &l); int moods[4] = {0};
+          QCHECK(rows >= 12, "%s has %d lines (want 12)", K[k], rows);
+          for (int i = 0; i < rows; i++) { const char *t = l[i]->text; for (int m = 0; m < 4; m++) if (l[i]->tones & (1u << m)) moods[m]++;
+              QCHECK(!strstr(t, "{thing}") && (k == 2 || !strstr(t, "{topic}")), "%s line has a slot it should not: %s", K[k], t);
+              QCHECK(k == 0 || (!strstr(t, "{pick}") && !strstr(t, "{opt1}") && !strstr(t, "{opt2}")), "%s line has a choice slot: %s", K[k], t);
+              QCHECK(k != 0 || strstr(t, "{pick}") || (strstr(t, "{opt1}") && strstr(t, "{opt2}")), "r.choice_q line without {pick}: %s", t); }
+          for (int m = 0; m < 4; m++) QCHECK(moods[m] >= 3, "%s: %d lines for old mood %d", K[k], moods[m], m); } }
+    /* the echo rule: an option or a focus the player typed comes back only when it is safe */
+    { static const struct { const char *t, *marker; int expect; } E[] = { { "do you like tea or qzxv", "qzxv", 0 }, { "do you like qzxv or tea", "qzxv", 0 }, { "who is qzxv", "qzxv", 0 }, { "what is qzxv", "qzxv", 0 },
+          { "which is better qzxv or zzkq", "qzxv", 0 }, { "is it qzxv or zzkq", "zzkq", 0 }, { "do you like tea or coffee", "coffee", 1 }, { "is it day or night", "night", 1 } };
+      for (unsigned i = 0; i < sizeof E / sizeof E[0]; i++) { long rep = 0, seen = 0;
+          for (int v = 0; v < STYLE_COUNT; v++) for (int seed = 1; seed <= 40; seed++) {
+              Persona ps = { "Dea", 1 << v, 0, 50, 0, 8 }; Heard h; char out[800]; lang_parse(E[i].t, &h); lang_seed((unsigned)seed); lang_reply(&ps, &h, out, (int)sizeof out);
+              rep++; if (strstr(out, E[i].marker)) seen++; }
+          if (E[i].expect) QCHECK(seen > 0, "[%s]: a safe option was never echoed in %ld replies", E[i].t, rep);
+          else QCHECK(seen == 0, "[%s]: the unsafe word came back in %ld of %ld replies", E[i].t, seen, rep); }
+      QCHECK(lang_safe_echo("tea") && lang_safe_echo("alex") && lang_safe_echo("moon") && !lang_safe_echo("qzxv") && !lang_safe_echo("") && !lang_safe_echo("a") && !lang_safe_echo("tea1") && !lang_safe_echo("averyveryverylongwordhere"), "lang_safe_echo"); }
+    /* rhetorical and choice answers come from their own keys */
+    { Persona ps = { "Dea", STYLE_PLAIN, 0, 50, 0, 8 }; Heard h; char out[800]; long n = 0, bad = 0;
+      for (int seed = 1; seed <= 60; seed++) { lang_parse("why would i", &h); lang_seed((unsigned)seed); lang_reply(&ps, &h, out, (int)sizeof out); n++; if (!out[0]) bad++; }
+      QCHECK(bad == 0, "%ld of %ld rhetorical answers were empty", bad, n);
+      int picks[4] = {0}; for (int r = 0; r < 100; r++) picks[lang_choice_pick(0, r)]++;
+      QCHECK(picks[0] > 30 && picks[1] > 30 && picks[2] > 5 && picks[3] > 0, "the pick split is %d %d %d %d", picks[0], picks[1], picks[2], picks[3]);
+      int rude[4] = {0}; for (int r = 0; r < 100; r++) rude[lang_choice_pick(1, r)]++;
+      QCHECK(rude[3] > picks[3], "a rude mood does not lean to neither (%d vs %d)", rude[3], picks[3]); }
+    /* speed */
+    { struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a); long sink = 0; Question q; static const char *T[3] = { "do you like tea or coffee", "what is the moon", "um well i am so tired of all of this" };
+      for (int i = 0; i < 100000; i++) { const char *t = T[i % 3]; sink += lang_question(t, 0, (int)strlen(t), &q); }
+      clock_gettime(CLOCK_MONOTONIC, &b); double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+      printf("  speed: 100,000 clauses in %.0f ms (%.1f us each; sink %ld)\n", ms, ms / 100.0, sink); QCHECK(ms < 4000.0, "100,000 clauses took %.0f ms", ms); }
+    printf("question checks: %d, problems: %d\n", qchecks, qfail);
+    return qfail;
+}
+
 /* chunk 30: a frame is gated on the layers before it (it only speaks when phrases and the lexicon found nothing), so a layer that starts hearing something
  * (a repaired word, a split word, a lexicon hit) can close the gate on a frame intent that the same text had without it. the superset rules of those three
  * layers are about THEM, so their lints run with frames off; --frame tests the frame layer's own superset rule */
@@ -3014,10 +3102,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--topic"))    { rc |= do_topic() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--frame"))    { rc |= do_frame(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--fourth"))   { rc |= do_fourth() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--question")) { rc |= do_question(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

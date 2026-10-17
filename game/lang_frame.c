@@ -181,6 +181,96 @@ const char *const *lang_frame_wordrows(void) {
     return wr_rows;
 }
 
+/* ================= question typing (chunk 32) ================= */
+static const char *const DETS = "the|a|an|this|that|these|those|your|my|our|his|her|their|some|any|one|to";
+static const char *const SAFE_ECHO = "yes|no|day|night|sun|moon|stars|sky|sea|rain|snow|wind|fire|ice|water|wine|tea|coffee|bread|milk|cake|soup|apple|cats|dogs|cat|dog|bird|birds|horse|"
+    "summer|winter|spring|autumn|morning|evening|left|right|up|down|east|west|north|south|red|blue|green|black|white|gold|silver|sweet|sour|hot|cold|big|small|old|new|fast|slow|"
+    "sword|shield|bow|book|books|song|songs|dance|dream|dreams|light|dark|love|hope|peace|war|life|death|time|truth|magic|music|garden|river|mountain|forest|city|home|house|castle|"
+    "king|queen|hero|ghost|dragon|wolf|bear|fish|tree|flower|stone|gold|jewel|ring|crown|key|door|road|bridge|boat|ship|star|world|heaven|earth|orb|hole|goddess|angel";
+static const char *const CAST = "dea|dia|alex|aonia|doia|tria|vas";
+int lang_safe_echo(const char *w) {
+    int n = (int)strlen(w);
+    if (n < 2 || n > 16) return 0;
+    for (int i = 0; i < n; i++) if (w[i] < 'a' || w[i] > 'z') return 0;
+    if (str_in(w, CAST) || str_in(w, SAFE_ECHO)) return 1;
+    TopicHit th[TOPIC_MAX];
+    return lang_topic_scan(w, n, th, TOPIC_MAX) > 0;
+}
+int lang_is_cast(const char *w) { return str_in(w, CAST); }
+int lang_choice_pick(int rude, int roll) {
+    int a = rude ? 30 : 42, b = a, c = rude ? 5 : 12;            /* first, second, both; the rest is neither */
+    if (roll < a) return 0;
+    if (roll < a + b) return 1;
+    if (roll < a + b + c) return 2;
+    return 3;
+}
+static const char *const QT_NAME[QT_COUNT] = { "none", "who", "what", "where", "when", "why", "how", "which", "howmuch", "yesno", "tag", "choice", "rhetorical" };
+const char *lang_question_name(int t) { return t >= 0 && t < QT_COUNT ? QT_NAME[t] : "?"; }
+
+static void focus_of(const W *w, int n, int from, char *out) {
+    out[0] = 0;
+    for (int i = n - 1; i >= from; i--) {
+        if (is_stop(&w[i]) || word_is(&w[i], DETS) || word_is(&w[i], "who|whos|whom|whose|what|whats|where|wheres|when|whens|why|whys|how|hows|which|much|many|often|long|far|old")) continue;
+        snprintf(out, 24, "%s", w[i].w);
+        return;
+    }
+}
+
+int lang_question(const char *lc, int a, int b, Question *q) {
+    memset(q, 0, sizeof *q);
+    W w[FRAME_MAX_WORDS]; int qmark, n = tokenize(lc, a, b, w, FRAME_MAX_WORDS, &qmark);
+    if (n == 0) return QT_NONE;
+    int s = 0; while (s < n - 1 && word_is(&w[s], FILLER)) s++;
+    int t = s;                                                    /* "to whom", "in what": the wh word after a preposition */
+    if (n - s >= 2 && word_is(&w[s], "to|in|at|for|on|with|from|about|of|by|into") && word_is(&w[s + 1], "who|whom|what|which|where|when|why|how")) t = s + 1;
+    int wh = word_is(&w[t], "who|whos|whom|whose|what|whats|where|wheres|when|whens|why|whys|how|hows|which");
+    int aux = word_is(&w[s], "do|does|did|is|are|am|was|were|can|could|will|would|should|have|has|had|shall|may|isnt|arent|dont|doesnt|didnt|cant|wont|wouldnt|shouldnt");
+    int type = QT_NONE;
+    /* rhetorical: a question that wants no answer */
+    if (HAS("why&would&i|why&would&you|why&should&i|why&should&you|why&would&anyone|why&would&anybody|who&cares|who&asked|who&said&that|what&difference|whats&the&point|what&is&the&point|"
+            "how&should&i&know|how&would&i&know|how&am&i&supposed|do&i&look&like|am&i&supposed|who&am&i&to|whats&the&use|why&bother|why&even")) type = QT_RHETORICAL;
+    /* tag: a statement that asks for agreement */
+    else if (!wh && !aux && n >= 3 && (HAS("isnt&it|arent&you|arent&they|dont&you|doesnt&it|doesnt&he|doesnt&she|wont&you|wouldnt&you|didnt&you|didnt&it|cant&you|shouldnt&you|havent&you|isnt&that&so|innit") ||
+             (qmark && word_is(&w[n - 1], "right|eh|huh|correct|yeah|no|yes|okay|ok")))) type = QT_TAG;
+    /* choice: A or B */
+    else if ((wh || aux || qmark) && n >= 3) {
+        int io = -1; for (int i = 1; i < n - 1; i++) if (!strcmp(w[i].w, "or")) { io = i; break; }
+        if (io > 0) {
+            int j = io + 1; while (j < n - 1 && word_is(&w[j], DETS)) j++;
+            int o1 = io - 1;
+            if (!is_stop(&w[o1]) || word_is(&w[o1], "yes|no")) {
+                if (!word_is(&w[j], "something|anything|what|whatever|not|so|else|never|maybe|perhaps|nothing|whichever|who|why|how|where|when") && !is_stop(&w[j])) {
+                    snprintf(q->opt1, 24, "%s", w[o1].w); snprintf(q->opt2, 24, "%s", w[j].w); type = QT_CHOICE;
+                } else if (word_is(&w[j], "no") && word_is(&w[o1], "yes")) { snprintf(q->opt1, 24, "yes"); snprintf(q->opt2, 24, "no"); type = QT_CHOICE; }
+            }
+        }
+    }
+    if (type == QT_NONE) {
+        if (wh) {
+            static const struct { const char *set; int t; } WT[] = { { "who|whos|whom|whose", QT_WHO }, { "what|whats", QT_WHAT }, { "where|wheres", QT_WHERE }, { "when|whens", QT_WHEN },
+                { "why|whys", QT_WHY }, { "how|hows", QT_HOW }, { "which", QT_WHICH }, { 0, 0 } };
+            for (int k = 0; WT[k].set; k++) if (word_is(&w[t], WT[k].set)) { type = WT[k].t; break; }
+            if (type == QT_HOW && t + 1 < n && word_is(&w[t + 1], "much|many")) type = QT_HOWMUCH;
+        } else if (aux && (n >= 2 || qmark)) type = QT_YESNO;
+        else if (qmark && n <= 4) type = QT_YESNO;
+    }
+    q->type = (uint8_t)type;
+    if (type != QT_NONE) focus_of(w, n, 0, q->focus);
+    return type;
+}
+
+/* "will i X", "am i going to X", "am i gonna X", "shall i X": a fortune question, whatever else was heard (never when the clause names death: that is not a fortune) */
+int lang_frame_fortune(const char *lc, int a, int b) {
+    W w[FRAME_MAX_WORDS]; int qmark, n = tokenize(lc, a, b, w, FRAME_MAX_WORDS, &qmark);
+    if (n < 3) return 0;
+    int s = 0; while (s < n - 2 && word_is(&w[s], FILLER)) s++;
+    if (HAS("die|dead|death|dying|kill|suicide|suicidal|murder|hurt&myself")) return 0;
+    if (s + 2 < n + 0 && !strcmp(w[s].w, "will") && !strcmp(w[s + 1].w, "i")) return 1;
+    if (s + 3 < n && !strcmp(w[s].w, "am") && !strcmp(w[s + 1].w, "i") && (!strcmp(w[s + 2].w, "gonna") || (!strcmp(w[s + 2].w, "going") && !strcmp(w[s + 3].w, "to")))) return 1;
+    if (s + 2 < n + 0 && !strcmp(w[s].w, "shall") && !strcmp(w[s + 1].w, "i") && word_is(&w[s + 2], "ever|find|see|meet|win|get|be")) return 1;
+    return 0;
+}
+
 static const char *const ACT_NAME[SA_COUNT] = { "none", "greet", "farewell", "ask", "tell", "command", "plead", "offer", "threaten", "joke", "confess", "compliment",
     "complain", "boast", "apologise", "thank", "agree", "refuse", "wonder", "test" };
 const char *lang_frame_act_name(int act) { return act >= 0 && act < SA_COUNT ? ACT_NAME[act] : "?"; }

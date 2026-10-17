@@ -144,6 +144,7 @@ static const Row ROWS[] = {
     { ASKY, S(SU_I), 0, 0, "*", "dead|died|dying|ghost|corpse|deceased", "am_i_dead_q", 50, 0, 0 },
     { ASKY, S(SU_I), 0, 0, "*", "name|called|who|someone|anybody|nobody", "whoami", 52, 0, 0 },
     { ASKY, S(SU_I), 0, 0, "*", "mission|goal|task|purpose|quest|supposed|duty", "mission", 52, 0, 0 },
+    { ASKY, S(SU_I), 0, 0, "*", "will|going&to|gonna|ever|someday|eventually|shall", "ask_fortune", 42, 0, 0 },
     { ASKY, S(SU_I), 0, 0, "win|finish|beat|complete|end|escape", "*", "win_q", 45, 0, 0 },
     { ASKY, S(SU_I), 0, 0, "save|store|load", "game|progress|file|savegame", "save_q", 45, 0, 0 },
     { ASKY, S(SU_I), 0, 0, "move|jump|press|tap|click|control|walk|run|turn", "*", "controls_q", 45, 0, 0 },
@@ -152,7 +153,6 @@ static const Row ROWS[] = {
     { ASKY, S(SU_I), 0, 0, "do|try|start|begin|say|ask", "*", "what_to_do", 45, 0, 0 },
     { ASKY, S(SU_I), M(MD_CAN), 0, "*", "*", "ask_permission", 42, 0, 0 },
     { ASKY, S(SU_I), M(MD_MUST) | M(MD_WOULD), 0, "*", "*", "ask_advice", 42, 0, 0 },
-    { ASKY, S(SU_I), 0, 0, "*", "will|going|gonna|ever|someday|eventually|shall", "ask_fortune", 42, 0, 0 },
 
     /* ---- asking about the world and the game ---- */
     { ASKCMD, ANY, 0, 0, "*", "cheat|cheats|hack|hacks|glitch|skip|noclip|godmode", "cheat_q", 50, 0, 0 },
