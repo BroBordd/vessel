@@ -91,7 +91,7 @@ typedef struct {
 typedef struct {
     uint64_t m[HEARD_MAX / 64];   /* bit per Intent: use heard_has / heard_set / heard_only (the old `mask` name is gone since chunk 12) */
     int order[HEARD_ORDER], n;   /* intents in the order they were said */
-    int positive, negative;
+    int positive, negative;     /* chunk 28: WEIGHTS 0-9 of the positive and the negative feeling in the text (valence lexicon, negation, boosters, but), no longer counts */
     int is_question, words;
     char capture[24];   /* "my name is X" -> X */
     /* chunk 16: what the text carries besides words (see lang_clean.h). none of it changes which intents are heard yet */
@@ -109,6 +109,8 @@ typedef struct {
     HeardClause clauses[HEARD_CLAUSES];
     uint8_t nlemma;     /* chunk 24: words of the text as typed that have a lemma (loved -> love); flags says LF_LEMMA. the lemma variant only adds intents */
     uint8_t src[HEARD_ORDER], conf[HEARD_ORDER];   /* chunk 27: for each intent of order[]: where it came from (SRC_*) and how sure the engine is (0-100) */
+    int8_t valence;     /* chunk 28: -100..100, the net feeling of the whole text (after negation, scaling words, CAPS / ! / sooo boosters, emoticons, a but shift and sarcasm) */
+    uint8_t sarcasm;    /* chunk 28: 1 = a sarcasm cue fired (oh great, yeah right, wow thanks, great job + a negative word, sure. /s): the positive part was read as mocking */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 

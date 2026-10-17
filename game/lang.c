@@ -350,6 +350,61 @@ static void lex_pass(Heard *h, const char *lc, int len, int conf_cap) {
     }
 }
 
+
+/* ---- chunk 28: sentiment with boosters (lang_lex.c: lang_sent_scan) ---- */
+static void heard_add(Heard *h, int in, int src, int conf) {
+    if (heard_has(h, in) || h->n >= HEARD_ORDER) return;
+    heard_set(h, in); h->src[h->n] = (uint8_t)src; h->conf[h->n] = (uint8_t)conf; h->order[h->n++] = in;
+}
+/* an intent the text was read as is replaced by its mocking twin (I_POS -> I_NEG); if the twin is already heard the old one just goes */
+static void heard_swap(Heard *h, int from, int to) {
+    if (!heard_has(h, from)) return;
+    int i = 0; while (i < h->n && h->order[i] != from) i++;
+    if (i >= h->n) return;
+    h->m[from >> 6] &= ~(1ull << (from & 63));
+    if (heard_has(h, to)) { for (int k = i; k + 1 < h->n; k++) { h->order[k] = h->order[k + 1]; h->src[k] = h->src[k + 1]; h->conf[k] = h->conf[k + 1]; } h->n--; return; }
+    h->order[i] = to; heard_set(h, to); if (h->conf[i] > 80) h->conf[i] = 80;
+}
+/* ctx: a praise-shaped cue (great job + idiot) mocks the npc, so praise becomes an insult; oh great, nice... only complains, so praise becomes plain bad */
+static void sarcastic_intents(Heard *h, int to, int ctx) {
+    heard_swap(h, I_POS, I_NEG); heard_swap(h, I_PRAISE, ctx ? I_INSULT : I_NEG); heard_swap(h, I_THANKS, I_THANKS_SARCASTIC);
+    if (to == I_NO_WAY || to == I_FINE_WHATEVER) { heard_swap(h, I_YES, to); heard_swap(h, I_AGREE, to); heard_swap(h, I_OK, to); }
+    if (to >= 0) heard_add(h, to, SRC_PHRASE, 80);
+}
+/* the valence of the typed text, or of a variant when the typed text carries no feeling at all (wow thx, terribel): a variant must not outvote the typed
+ * text, because text-speak invents words (kinda -> kind of would add a kind +3) and drops the scaling words. a sarcasm cue in any variant wins (wow thx
+ * is only a cue once it is read as wow thanks); among variants the one with the most feeling wins. then the weights, the valence, the sarcasm and,
+ * when nothing else was heard, I_POS or I_NEG from the valence */
+static void sent_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
+    SentInfo best = {0}; int have = 0, bscore = 0;
+    for (int k = 0; k < nt; k++) {
+        if (!tx[k]) continue;
+        SentInfo si; lang_sent_scan(tx[k], tl[k], h->flags, h->excl, h->stretch, h->tok, &si);
+        int score = si.evidence + (si.sarcasm ? 1000 : 0);
+        if (k == 0) { best = si; bscore = score; have = 1; continue; }         /* the typed text is the default */
+        if (bscore == 0 && score > 0) { best = si; bscore = score; }          /* a variant only speaks when the typed text said nothing */
+        else if (score >= 1000 && bscore < 1000) { best = si; bscore = score; }
+    }
+    if (!have) return;
+    int op = h->positive, on = h->negative;                      /* the pattern hits of I_POS / I_NEG: a floor of 2 each, for a feeling word the lexicon lacks */
+    if (best.sarcasm) { on += op; op = 0; }
+    int fp = op * 2 > 9 ? 9 : op * 2, fn = on * 2 > 9 ? 9 : on * 2;
+    h->positive = best.pos > fp ? best.pos : fp;
+    h->negative = best.neg > fn ? best.neg : fn;
+    int v = best.evidence || best.sarcasm ? best.valence : (h->positive - h->negative) * 15;
+    h->valence = (int8_t)(v > 100 ? 100 : v < -100 ? -100 : v);
+    h->sarcasm = (uint8_t)best.sarcasm;
+    if (best.sarcasm && !heard_has(h, I_SELFHARM)) sarcastic_intents(h, best.to, best.ctx);
+    if (h->intensity && h->intensity < 3 && ((h->flags & LF_SHOUT) || h->excl >= 2 || h->stretch >= 3)) h->intensity++;
+    int other = 0;
+    for (int i = 0; i < h->n; i++) if (h->order[i] != I_POS && h->order[i] != I_NEG) other = 1;
+    int av = h->valence < 0 ? -h->valence : h->valence;
+    if (!other && !heard_has(h, I_POS) && !heard_has(h, I_NEG) && av >= SENT_FIRE) {
+        int conf = 30 + av / 3; if (conf > 69) conf = 69;
+        heard_add(h, h->valence > 0 ? I_POS : I_NEG, SRC_LEX, conf);
+    }
+}
+
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
     char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
@@ -422,6 +477,7 @@ void lang_parse(const char *text, Heard *h) {
     lex_pass(h, lc, len, 0);                                   /* chunk 27: the lexicon layer, weaker than every phrase */
     if (has_x) lex_pass(h, lx, lenx, 0);
     if (has_s) lex_pass(h, ls, lens, spell_conf_of(h));
+    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; sent_pass(h, tx, tl, 4); }      /* chunk 28 */
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
     h->words = w;

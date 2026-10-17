@@ -26,6 +26,7 @@
  *   --clause           (chunk 25) clauses, negation scope, contrast and intensity: 63 negation / contrast / intensity cases through lang_parse (Heard.clauses, positive, negative, intensity), lang_clauses (splits, the cap, the boost count), lang_neg_count (the 4 word scope, punctuation, a clause start, two negators), odd and long texts
  *   --pats             (chunk 26) pattern syntax v2 and the macro library: the report of the tables (rows, compiled rows, macros, expanded surface forms capped at 200 per row, the longest row, rows with a huge or wild first word set, ambiguous rows = one surface form mapped to two intents), then the tests: 60 match cases ([a|b] (x) <m> <x> <number> <time> <npc> * ? $), the compile errors, string rows (weights, errors), the weight tie break, a capture and a highlight through a compiled pattern, the safety scan, the index (every form of every row finds its row, a row with several first words is met once), every old pattern compiled and run against the classic matcher over every reply line and corpus FILE (the same end and prefix), a runaway pattern, registering later and reset, and the speed with 2,000 rows. fails on a problem
  *   --lex [FILES]      (chunk 27) the lexicon layer: the rows of lang_lex_core.c (well formed, a known intent, weight 1-9, no duplicate, every old intent has rows and a strong word), lang_lex_scan on 40 cases (a strong word alone, two weak words adding up, the position rule, negation, very / a bit, a covered word, a lemma, clauses, the threshold), Heard.src / Heard.conf (phrase 85-100, lexicon 35-69, never a lexicon safety hit), rows that are not intents are ignored, registering later and reset, the superset rule over every reply line and corpus FILE (the lexicon only ADDS intents), and the speed. fails on a problem
+ *   --sent [FILES]     (chunk 28) sentiment with boosters and sarcasm: the valence rows (lang_lex_sent_core.c), 90 sentences with the expected sign, the boosters (very, a bit, not, CAPS, !, sooo, emoticons, but) as comparisons, 22 sarcasm cues and 20 sincere look-alikes, I_POS / I_NEG from the valence, variants, a later row wins, speed, and the pos / neg corpus lines.
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -294,7 +295,7 @@ keys_done:;
     { PatCur c; lang_pat_cursor(&c, "zzqx hello"); int id, a = 0, b = 0; while ((id = lang_pat_next(&c)) >= 0) { if (id == pats0) a = 1; if (id == pats0 + 1) b = 1; }
       TCHECK(a && b, "the registered patterns are not candidates (%d %d)", a, b); }
     { const char *rows[4]; int n = lang_lex_find("adore", rows, 4);
-      TCHECK(n == 3 && !strcmp(rows[0], "adore|love|6") && !strcmp(rows[1], "adore|love|4") && !strcmp(rows[2], "adore|praise|2"), "lex find adore: %d rows (the core row first, then the registered ones in registration order)", n);   /* chunk 27: lang_lex_core.c has adore too */
+      TCHECK(n == 4 && !strcmp(rows[0], "adore|love|6") && !strcmp(rows[1], "adore|sent|4") && !strcmp(rows[2], "adore|love|4") && !strcmp(rows[3], "adore|praise|2"), "lex find adore: %d rows (the core rows first, then the valence row of chunk 28, then the registered ones in registration order)", n);   /* chunk 27: lang_lex_core.c has adore too */
       TCHECK(lang_lex_find("adored", rows, 4) == 0 && lang_lex_find("ador", rows, 4) == 0 && lang_lex_find("", rows, 4) == 0, "lex find matched a non word");
       TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
       TCHECK(lang_lex_count() == lex0 + 4 && lang_vocab_count() == voc0 + 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
@@ -1985,8 +1986,9 @@ static int do_clause(void) {
         KCHECK(h.nclauses == c->ncl, "\"%s\": %d clauses, wanted %d", c->t, h.nclauses, c->ncl);
         if (c->must >= 0) KCHECK(heard_has(&h, c->must), "\"%s\": must hear %s", c->t, lang_intent_name(c->must));
         if (c->mustnot >= 0) KCHECK(!heard_has(&h, c->mustnot), "\"%s\": must not hear %s", c->t, lang_intent_name(c->mustnot));
-        if (c->pos >= 0) KCHECK(h.positive == c->pos, "\"%s\": positive %d, wanted %d", c->t, h.positive, c->pos);
-        if (c->neg >= 0) KCHECK(h.negative == c->neg, "\"%s\": negative %d, wanted %d", c->t, h.negative, c->neg);
+        /* chunk 28: positive / negative are weights 0-9 now (the cases still say 0 = none, 1 = some) */
+        if (c->pos >= 0) KCHECK((h.positive > 0) == (c->pos > 0) && h.positive <= 9, "\"%s\": positive %d, wanted %s", c->t, h.positive, c->pos ? "some" : "none");
+        if (c->neg >= 0) KCHECK((h.negative > 0) == (c->neg > 0) && h.negative <= 9, "\"%s\": negative %d, wanted %s", c->t, h.negative, c->neg ? "some" : "none");
         if (c->inten >= 0) KCHECK(h.intensity == c->inten, "\"%s\": intensity %d, wanted %d", c->t, h.intensity, c->inten);
         if (c->win != -9 && c->win != -1) { int last = 0; for (int k = 0; k < h.nclauses; k++) if (h.clauses[k].polarity) last = h.clauses[k].polarity; KCHECK((last > 0) - (last < 0) == c->win, "\"%s\": the winning clause has polarity %d, wanted %d", c->t, last, c->win); }
         if (c->win == -1) { int last = 0; for (int k = 0; k < h.nclauses; k++) if (h.clauses[k].polarity) last = h.clauses[k].polarity; KCHECK(last <= 0, "\"%s\": the winning clause is positive (%d)", c->t, last); }
@@ -2424,7 +2426,11 @@ static int do_lex(int argc, char **argv) {
           Heard on, off;
           lang_lex_set_threshold(99); lang_parse(texts[t], &off);
           lang_lex_set_threshold(0); lang_parse(texts[t], &on);
-          for (int i = 0; i < I_COUNT; i++) { if (heard_has(&off, i) && !heard_has(&on, i)) lost++; if (!heard_has(&off, i) && heard_has(&on, i)) gained++; }
+          for (int i = 0; i < I_COUNT; i++) {
+              if (i == I_POS || i == I_NEG) continue;           /* chunk 28: pos / neg fire from the valence only when nothing else was heard, so a lexicon hit may retire them */
+              if (heard_has(&off, i) && !heard_has(&on, i)) { lost++; printf("  lost %s <- %s\n", lang_intent_name(i), texts[t]); }
+              if (!heard_has(&off, i) && heard_has(&on, i)) gained++;
+          }
       }
       LCHECK(lost == 0, "the lexicon made %d intents disappear", lost);
       printf("  superset rule: %d texts, %d intents lost, %d intents gained by the lexicon\n", texts_n, lost, gained);
@@ -2441,6 +2447,159 @@ static int do_lex(int argc, char **argv) {
       LCHECK(per_ms < 1.0, "a parse took %.3f ms (budget 1 ms)", per_ms); }
     printf("lex: %d checks, %d problems\n", lchecks, lfail);
     return lfail;
+}
+
+/* ---------- chunk 28: sentiment with boosters, sarcasm ---------- */
+static int sfail, schecks;
+#define SCHECK(c, ...) do { schecks++; if (!(c)) { printf("BAD SENT: " __VA_ARGS__); printf("\n"); sfail++; } } while (0)
+static int sval(const char *t) { Heard h; lang_parse(t, &h); return h.valence; }
+static int ssar(const char *t) { Heard h; lang_parse(t, &h); return h.sarcasm; }
+static int sheard(const char *t, int in) { Heard h; lang_parse(t, &h); return heard_has(&h, in); }
+static int do_sent(int argc, char **argv) {
+    sfail = schecks = 0;
+    lang_tables_reset(); lang_init();
+    /* ---- the rows ---- */
+    int nrows = 0, npos = 0, nneg = 0;
+    for (const char *const *r = SENT_CORE; *r; r++) {
+        nrows++;
+        const char *a = strchr(*r, '|');
+        SCHECK(a && !strncmp(a + 1, "sent|", 5), "row [%s] is not word|sent|N", *r);
+        if (!a) continue;
+        for (const char *c = *r; c < a; c++) SCHECK(islower((unsigned char)*c) || *c == '\'' || *c == '-', "row [%s]: the word holds a character that is not a lower case letter", *r);
+        int v = atoi(a + 6);
+        SCHECK(v >= -5 && v <= 5 && v != 0, "row [%s]: the valence must be -5..5 and not 0", *r);
+        if (v > 0) npos++; else nneg++;
+        for (const char *const *q = r + 1; *q; q++) { const char *b = strchr(*q, '|'); SCHECK(!(b && b - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r))), "row [%s] is there twice", *r); }
+    }
+    SCHECK(nrows >= 300 && npos >= 100 && nneg >= 100, "only %d rows (%d positive, %d negative)", nrows, npos, nneg);
+    /* every word of the old I_POS / I_NEG patterns has a valence of the right sign (the pattern hits only floor the weights now) */
+    { static const char *const P[] = { "good", "happy", "glad", "fun", "sweet", "best", "yay", "wow", "excited", "hope", "like", "enjoy", "neat", "fine", "safe", "calm", "peace", "smile", "brave", NULL };
+      static const char *const N[] = { "bad", "worst", "awful", "terrible", "horrible", "evil", "disgusting", "weird", "creepy", "hell", "curse", "blame", "sick", "ew", "ugh", "nasty", NULL };
+      for (int k = 0; P[k]; k++) { int v = 0; SCHECK(lang_sent_value(P[k], (int)strlen(P[k]), &v) && v > 0, "old positive word %s has no positive valence row", P[k]); }
+      for (int k = 0; N[k]; k++) { int v = 0; SCHECK(lang_sent_value(N[k], (int)strlen(N[k]), &v) && v < 0, "old negative word %s has no negative valence row", N[k]); } }
+    /* the lemma finds a row: loved -> love, hated -> hate, terrified is its own row */
+    { int v = 0; SCHECK(lang_sent_value("loved", 5, &v) && v > 0, "loved has no valence through its lemma"); SCHECK(lang_sent_value("hated", 5, &v) && v < 0, "hated has no valence through its lemma");
+      SCHECK(!lang_sent_value("table", 5, &v) && !lang_sent_value("", 0, &v), "a word with no row has a valence"); }
+
+    /* ---- 80+ sentences with the expected sign: 1 positive, -1 negative, 0 neutral (|valence| < 15) ---- */
+    static const struct { const char *t; int sign; } S[] = {
+        { "i am happy", 1 }, { "this is great", 1 }, { "you are wonderful", 1 }, { "i love you", 1 }, { "that was awesome", 1 }, { "what a beautiful day", 1 },
+        { "thank you so much", 1 }, { "i am so glad", 1 }, { "this place is lovely", 1 }, { "you are very kind", 1 }, { "i like it", 1 }, { "you are brave", 1 },
+        { "that is amazing", 1 }, { "i feel safe here", 1 }, { "you are funny", 1 }, { "i am proud of you", 1 }, { "i enjoy this", 1 }, { "such a gentle voice", 1 },
+        { "i am delighted", 1 }, { "it is perfect", 1 }, { "i feel hopeful", 1 }, { "you are smart and kind", 1 }, { "not bad", 1 }, { "not terrible", 1 },
+        { "i dont hate you", 1 }, { "you are not stupid", 1 }, { "this is not bad at all", 1 }, { "hooray", 1 }, { "yay", 1 }, { "i am so excited", 1 },
+        { "what a lovely surprise", 1 }, { "you are a good friend", 1 }, { "i adore this", 1 }, { "everything is wonderful", 1 }, { "you make me smile", 1 }, { "i am glad you are here", 1 },
+        { "i hate you", -1 }, { "this is terrible", -1 }, { "you are stupid", -1 }, { "i am so sad", -1 }, { "i am scared", -1 }, { "that was awful", -1 },
+        { "what a horrible place", -1 }, { "i feel lonely", -1 }, { "you are an idiot", -1 }, { "i am afraid", -1 }, { "this is the worst", -1 }, { "i am very angry", -1 },
+        { "you are ugly", -1 }, { "what a nasty smell", -1 }, { "i am terrified", -1 }, { "i am tired and sad", -1 }, { "this is boring", -1 }, { "i feel sick", -1 },
+        { "you are a liar", -1 }, { "i despise you", -1 }, { "so much pain", -1 }, { "not good", -1 }, { "not happy", -1 }, { "not nice", -1 },
+        { "i dont love you", -1 }, { "i am not glad", -1 }, { "this is not good at all", -1 }, { "you are a pathetic fool", -1 }, { "i am miserable", -1 }, { "what a disgusting thing", -1 },
+        { "everything is broken", -1 }, { "i am so ashamed", -1 }, { "this is a nightmare", -1 }, { "you are worthless", -1 }, { "i feel hopeless", -1 }, { "that was cruel", -1 },
+        { "hello", 0 }, { "what is your name", 0 }, { "where am i", 0 }, { "how old are you", 0 }, { "open the door", 0 }, { "the sky is blue", 0 },
+        { "tell me a story", 0 }, { "xyzzy plugh", 0 }, { "i went to the shop", 0 }, { "good. bad.", 0 }, { "who are you", 0 }, { "what time is it", 0 },
+        { "it was bad but it was good", 1 }, { "it was good but it was bad", -1 }, { "i hate you but i love you", 1 }, { "i love you but i hate you", -1 },
+        { "good but not bad", 1 }, { "bad but whatever", -1 },
+    };
+    int ns = (int)(sizeof S / sizeof S[0]);
+    SCHECK(ns >= 80, "only %d sentences", ns);
+    for (int i = 0; i < ns; i++) {
+        Heard h; lang_parse(S[i].t, &h);
+        int v = h.valence, ok = S[i].sign > 0 ? v >= 15 : S[i].sign < 0 ? v <= -15 : (v > -15 && v < 15);
+        SCHECK(ok, "\"%s\": valence %d, wanted %s", S[i].t, v, S[i].sign > 0 ? "positive" : S[i].sign < 0 ? "negative" : "neutral");
+        SCHECK(h.positive >= 0 && h.positive <= 9 && h.negative >= 0 && h.negative <= 9 && v >= -100 && v <= 100, "\"%s\": weights %d / %d valence %d out of range", S[i].t, h.positive, h.negative, v);
+        if (S[i].sign > 0) SCHECK(h.positive > h.negative, "\"%s\": positive %d is not above negative %d", S[i].t, h.positive, h.negative);
+        if (S[i].sign < 0) SCHECK(h.negative > h.positive, "\"%s\": negative %d is not above positive %d", S[i].t, h.negative, h.positive);
+        if (S[i].sign == 0) SCHECK((h.positive == 0 && h.negative == 0) || h.positive == h.negative, "\"%s\": a neutral text has weights %d / %d", S[i].t, h.positive, h.negative);
+    }
+
+    /* ---- the boosters, as comparisons ---- */
+    SCHECK(sval("very good") > sval("good"), "very good (%d) is not above good (%d)", sval("very good"), sval("good"));
+    SCHECK(sval("so sad") < sval("sad"), "so sad is not below sad");
+    SCHECK(sval("a bit sad") > sval("sad") && sval("a bit sad") < 0, "a bit sad is not a milder sad (%d vs %d)", sval("a bit sad"), sval("sad"));
+    SCHECK(sval("kinda good") < sval("good") && sval("kinda good") > 0, "kinda good is not a milder good");
+    SCHECK(sval("GOOD") > sval("good"), "capitals (%d) do not raise good (%d)", sval("GOOD"), sval("good"));
+    SCHECK(sval("good!!!") > sval("good!") && sval("good!") > sval("good"), "! does not raise good");
+    SCHECK(sval("sooooo good") > sval("good"), "a stretch does not raise good");
+    SCHECK(sval("bad!!!") < sval("bad"), "! does not deepen bad");
+    SCHECK(sval("not very good") < 0 && sval("not good") < 0 && sval("not bad") > 0 && sval("not bad") < sval("good"), "not good / not bad / not very good: %d %d %d", sval("not good"), sval("not bad"), sval("not very good"));
+    SCHECK(sval("not not good") > 0 && sval("i do not not love you") > 0, "double negation does not cancel");
+    SCHECK(sval("i am not very very sad") > 0 || sval("i am not very very sad") > sval("i am very very sad"), "not very very sad");
+    SCHECK(sval("i dont hate you") > 0 && sval("i never hate you") > 0, "dont hate / never hate are not positive");
+    /* the clause scope: a negator does not reach across a clause (not today. good) */
+    SCHECK(sval("no. good") > 0 && sval("not sad but happy") > 0, "a negator crossed a clause");
+    /* emoticons, emoji, laughs and masked words count */
+    SCHECK(sval(":)") >= SENT_FIRE && sval(":(") <= -SENT_FIRE && sval("<3") > 0 && sval(":D") > 0 && sval("T_T") < 0 && sval(">:(") < 0, "emoticons: :) %d :( %d <3 %d :D %d T_T %d >:( %d", sval(":)"), sval(":("), sval("<3"), sval(":D"), sval("T_T"), sval(">:("));
+    SCHECK(sval("i hate this :(") < sval("i hate this") && sval("i like this :)") > sval("i like this"), "an emoticon does not add to the words");
+    SCHECK(sval("you f*ck") < 0 && sval("haha") > 0 && sval("lol") > 0, "a masked word or a laugh has no valence");
+    SCHECK(sval("\xF0\x9F\x98\xA2") < 0 && sval("\xF0\x9F\x98\x8A") > 0, "an emoji has no valence");
+
+    /* ---- sarcasm ---- */
+    static const char *const SAR[] = { "oh great", "oh joy", "yeah right", "wow thanks", "gee thanks", "thanks for nothing", "as if", "as if you care", "great job idiot", "thanks a lot you jerk",
+        "nice going you fool", "this is great /s", "sure.", "great.", "nice...", "wonderful...", "wow thx", "OH GREAT", "oh great.", "just great", "nice job you broke it", "well done you idiot", NULL };
+    static const char *const SIN[] = { "great job", "thanks a lot", "good job you are kind", "i love you...", "so good...", "this is good...", "thanks...", "nice job :(", "thank you so much :(", "oh great goddess", "oh wonderful one", "yeah sure thing", "yeah sure", "well done", "i am great",
+        "thank you so much", "nice", "bravo friend", "sure thing", "as it were", "i am happy...", "great", "oh great dea", "thanks a lot dea", "i said as if", NULL };
+    for (int i = 0; SAR[i]; i++) { Heard h; lang_parse(SAR[i], &h); SCHECK(h.sarcasm && h.valence < 0, "\"%s\": sarcasm %d, valence %d (wanted sarcasm and negative)", SAR[i], h.sarcasm, h.valence); }
+    for (int i = 0; SIN[i]; i++) { Heard h; lang_parse(SIN[i], &h); SCHECK(!h.sarcasm, "\"%s\": read as sarcasm", SIN[i]); }
+    SCHECK(sheard("wow thanks", I_THANKS_SARCASTIC) && !sheard("wow thanks", I_THANKS), "wow thanks is not the sarcastic thanks");
+    SCHECK(sheard("thanks a lot", I_THANKS) && !sheard("thanks a lot", I_THANKS_SARCASTIC), "a plain thanks a lot is sarcastic");
+    SCHECK(sheard("thanks a lot you jerk", I_THANKS_SARCASTIC) && !sheard("thanks a lot you jerk", I_THANKS), "thanks a lot you jerk is not the sarcastic thanks");
+    SCHECK(sheard("yeah right", I_NO_WAY) && sheard("as if you care", I_NO_WAY) && sheard("sure.", I_FINE_WHATEVER), "no way / fine whatever were not heard");
+    SCHECK(sheard("great job idiot", I_INSULT) && !sheard("great job idiot", I_PRAISE), "great job idiot is praise");
+    SCHECK(sheard("great job", I_PRAISE) && !sheard("great job", I_INSULT), "a plain great job is not praise");
+    SCHECK(!sheard("oh great", I_PRAISE) && !sheard("oh great", I_POS) && sheard("oh great", I_NEG), "oh great is not read as bad");
+    SCHECK(!ssar("oh great goddess") && !sheard("oh great goddess", I_INSULT) && !sheard("oh great goddess", I_NEG), "oh great goddess was read as a mockery");
+    SCHECK(ssar("wow thx") && sheard("wow thx", I_THANKS_SARCASTIC), "wow thx (text-speak) is not read through its expansion");
+    /* safety first: a cue never touches the safety words or hides them */
+    { Heard h; lang_parse("oh great i want to die", &h); SCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "self-harm lost after a sarcasm cue");
+      lang_parse("wow thanks i want to kill myself", &h); SCHECK(heard_has(&h, I_SELFHARM) && !heard_has(&h, I_THANKS_SARCASTIC), "a cue changed the intents of a self-harm text"); }
+
+    /* ---- I_POS / I_NEG from the valence, only when nothing else was heard ---- */
+    { Heard h; lang_parse("delightful", &h); SCHECK(h.n == 1 && heard_has(&h, I_POS) && h.src[0] == SRC_LEX && h.conf[0] >= 40 && h.conf[0] <= 69, "delightful alone does not hear I_POS as a lexicon hit (n %d)", h.n);
+      lang_parse("dreadful", &h); SCHECK(h.n == 1 && heard_has(&h, I_NEG), "dreadful alone does not hear I_NEG");
+      lang_parse(":(", &h); SCHECK(h.n == 1 && heard_has(&h, I_NEG), ":( alone does not hear I_NEG");
+      lang_parse(":)", &h); SCHECK(h.n == 1 && heard_has(&h, I_POS), ":) alone does not hear I_POS");
+      lang_parse("hello delightful", &h); SCHECK(heard_has(&h, I_GREET) && !heard_has(&h, I_POS), "I_POS fired next to another intent");
+      lang_parse("gloomy", &h); SCHECK(!heard_has(&h, I_NEG), "a weak word (-1) fired I_NEG");
+      lang_parse("xyzzy plugh", &h); SCHECK(h.n == 0 && h.valence == 0 && !h.sarcasm, "nonsense has a feeling"); }
+    /* the pattern words (good, bad ...) still count when the lexicon would not: the floor of 2 per hit */
+    { Heard h; lang_parse("good", &h); SCHECK(h.positive >= 2 && heard_has(&h, I_POS), "good: positive %d", h.positive); lang_parse("bad", &h); SCHECK(h.negative >= 2 && heard_has(&h, I_NEG), "bad: negative %d", h.negative); }
+    /* the reply side: a pure feeling text still gets the positive / negative unknown line, never an empty reply */
+    { Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 }; char out[400]; Heard h; lang_parse("delightful", &h); int a = lang_reply(&dea, &h, out, sizeof out);
+      SCHECK(out[0] && !a, "a lone feeling word got no reply (answered %d, \"%s\")", a, out); }
+    /* a variant reads feeling too: a typo and text-speak */
+    SCHECK(sval("you are terribel") < 0 && sval("ur terrible") < 0 && sval("u r awsome") > 0, "variants: terribel %d, ur terrible %d, u r awsome %d", sval("you are terribel"), sval("ur terrible"), sval("u r awsome"));
+    /* a later row wins, and a reset forgets it */
+    { static const char *const T[] = { "zzqjoy|sent|4", "zzqmeh|sent|-3", "good|sent|-4", 0 };
+      lang_register_lex(T);
+      SCHECK(sval("zzqjoy") > 0 && sval("zzqmeh") < 0 && sval("good") < 0, "a registered valence row is not read (zzqjoy %d, zzqmeh %d, good %d)", sval("zzqjoy"), sval("zzqmeh"), sval("good"));
+      lang_tables_reset(); SCHECK(sval("zzqjoy") == 0 && sval("good") > 0, "a reset kept a registered valence row"); }
+    /* the cue table */
+    SCHECK(lang_sent_cue_count() >= 40 && lang_sent_cue_name(0) && !lang_sent_cue_name(-1) && !lang_sent_cue_name(lang_sent_cue_count()), "the cue table");
+    /* speed */
+    { Heard h; const char *t = "oh great, you are such a stupid worthless idiot and i am terrified, thanks a lot :( but i still love you so much!!!";
+      clock_t t0 = clock(); for (int i = 0; i < 2000; i++) lang_parse(t, &h); double per_ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 2000.0;
+      printf("  speed: a parse of %d characters %.4f ms (with the sentiment pass)\n", (int)strlen(t), per_ms);
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_UNDEFINED__)
+      per_ms = 0;
+#endif
+      SCHECK(per_ms < 1.0, "a parse took %.3f ms (budget 1 ms)", per_ms); }
+    /* the corpus: a line labelled pos must not read as clearly negative and the other way round (sarcasm is the one exception) */
+    { int lines = 0, viol = 0;
+      for (int a = 1; a < argc; a++) {
+          if (argv[a][0] == '-') continue;
+          FILE *fp = fopen(argv[a], "r"); if (!fp) continue; char ln[512];
+          while (fgets(ln, sizeof ln, fp)) {
+              if (ln[0] == '#' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (!tab) continue; *tab = 0; char *lab = tab + 1; lab[strcspn(lab, "\n")] = 0;
+              int wp = strcmp(lab, "pos") == 0, wn = strcmp(lab, "neg") == 0; if (!wp && !wn) continue;
+              Heard h; lang_parse(ln, &h); lines++;
+              if ((wp && h.valence <= -15) || (wn && h.valence >= 15)) { viol++; printf("  corpus: \"%s\" labelled %s has valence %d\n", ln, lab, h.valence); }
+          }
+          fclose(fp);
+      }
+      SCHECK(viol == 0, "%d of %d pos / neg corpus lines read with the wrong sign", viol, lines);
+      printf("  corpus: %d lines labelled only pos or neg, %d with the wrong sign\n", lines, viol); }
+    printf("sent: %d checks, %d problems; %d valence rows (%d positive, %d negative), %d sarcasm cues\n", schecks, sfail, nrows, npos, nneg, lang_sent_cue_count());
+    return sfail;
 }
 
 int main(int argc, char **argv) {
@@ -2470,10 +2629,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--clause"))   { rc |= do_clause() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--pats"))     { rc |= do_pats(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--lex"))      { rc |= do_lex(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--sent"))     { rc |= do_sent(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

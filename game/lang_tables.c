@@ -50,6 +50,7 @@ static void builtin(void) {
     lang_register_pats(PATS, PATS_N);
     lang_register_macros(MACROS_A);                              /* chunk 26 */
     lang_register_lex(LEX_CORE);                                 /* chunk 27 */
+    lang_register_lex(SENT_CORE);                                /* chunk 28 */
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */
