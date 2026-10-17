@@ -165,7 +165,7 @@ static int check_voices(const Line *const *T, const int *N) {
         }
     }
     printf("voices: %ld transforms checked; lines changed per voice (of %d x 20 moods x 3 seeds, every third mood): elder %ld child %ld formal %ld beast %ld machine %ld ghost %ld poet %ld\n",
-           runs, LINES_A_N + LINES_B_N + LINES_C_N + LINES_D_N, changed[3], changed[4], changed[5], changed[6], changed[7], changed[8], changed[9]);
+           runs, LINES_A_N + LINES_B_N + LINES_C_N + LINES_D_N + LINES_E_N, changed[3], changed[4], changed[5], changed[6], changed[7], changed[8], changed[9]);
     /* the old voices and PLAIN are not transformed, and a seed changes the output */
     { char a[300]; if (voice_apply(STYLE_PLAIN, 0, "Hello there.", a, sizeof a) || voice_apply(STYLE_DIVINE, 0, "Hello there.", a, sizeof a) ||
                       voice_apply(STYLE_STREET, 0, "Hello there.", a, sizeof a) || voice_apply(0, 0, "Hello there.", a, sizeof a)) { printf("VOICE: an old voice was transformed\n"); bad++; } }
@@ -215,11 +215,11 @@ static int check_voices(const Line *const *T, const int *N) {
 }
 
 static int check(void) {
-    const Line *T[4] = { LINES_A, LINES_B, LINES_C, LINES_D };
-    const int   N[4] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N };
+    const Line *T[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E };
+    const int   N[5] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N };
     int bad = 0, total = 0, maxlen = 0;
     int per_tone[4] = {0}, per_style[3] = {0};
-    for (int t = 0; t < 4; t++)
+    for (int t = 0; t < 5; t++)
         for (int i = 0; i < N[t]; i++) {
             const Line *l = &T[t][i]; total++;
             int len = (int)strlen(l->text); if (len > maxlen) maxlen = len;

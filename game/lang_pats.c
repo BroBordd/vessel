@@ -60,7 +60,7 @@ const Pat PATS[] = {
     {"who dis", I_WHORU}, {"tell me about yourself", I_WHORU}, {"introduce yourself", I_WHORU}, {"are you god*", I_WHORU},
     {"are you a god*", I_WHORU}, {"are you the goddess", I_WHORU}, {"you a goddess", I_WHORU}, {"who exactly are you", I_WHORU},
     {"are you real", I_REAL}, {"is this real", I_REAL}, {"is this a game", I_REAL}, {"am i dreaming", I_REAL},
-    {"dream*", I_REAL}, {"simulation", I_REAL}, {"is this a dream", I_REAL}, {"are you an ai", I_REAL}, {"are you a bot", I_REAL},
+    {"dream*", I_REAL}, {"simulation", I_REAL}, {"is this a dream", I_REAL},
     {"how old*", I_AGE}, {"your age", I_AGE}, {"how long have you*", I_AGE}, {"are you old", I_AGE},
     {"where am i", I_WHERE}, {"where are we", I_WHERE}, {"where is this*", I_WHERE}, {"where is here", I_WHERE},
     {"what is this place", I_WHERE}, {"what place is this", I_WHERE}, {"what's this place", I_WHERE}, {"whats this place", I_WHERE},

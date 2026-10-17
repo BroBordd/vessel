@@ -48,7 +48,9 @@ static void builtin(void) {
     builtin_done = 1;
     lang_register_lines(LINES_A, LINES_A_N); lang_register_lines(LINES_B, LINES_B_N);
     lang_register_lines(LINES_C, LINES_C_N); lang_register_lines(LINES_D, LINES_D_N);
+    lang_register_lines(LINES_E, LINES_E_N);                     /* chunk 31 */
     lang_register_pats(PATS, PATS_N);
+    lang_register_patrows(PATROWS_G15);                          /* chunk 31 */
     lang_register_macros(MACROS_A);                              /* chunk 26 */
     lang_register_lex(LEX_CORE);                                 /* chunk 27 */
     lang_register_lex(SENT_CORE);                                /* chunk 28 */

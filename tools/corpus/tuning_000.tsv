@@ -291,8 +291,8 @@ you look old	age
 are you real	real
 is this real	real
 is this a dream	real
-are you a bot	real
-are you an ai	real
+are you a bot	bot_q
+are you an ai	ai_q
 is this a game	real
 are you alive	real
 dea	address
