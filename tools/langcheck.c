@@ -27,6 +27,7 @@
  *   --pats             (chunk 26) pattern syntax v2 and the macro library: the report of the tables (rows, compiled rows, macros, expanded surface forms capped at 200 per row, the longest row, rows with a huge or wild first word set, ambiguous rows = one surface form mapped to two intents), then the tests: 60 match cases ([a|b] (x) <m> <x> <number> <time> <npc> * ? $), the compile errors, string rows (weights, errors), the weight tie break, a capture and a highlight through a compiled pattern, the safety scan, the index (every form of every row finds its row, a row with several first words is met once), every old pattern compiled and run against the classic matcher over every reply line and corpus FILE (the same end and prefix), a runaway pattern, registering later and reset, and the speed with 2,000 rows. fails on a problem
  *   --lex [FILES]      (chunk 27) the lexicon layer: the rows of lang_lex_core.c (well formed, a known intent, weight 1-9, no duplicate, every old intent has rows and a strong word), lang_lex_scan on 40 cases (a strong word alone, two weak words adding up, the position rule, negation, very / a bit, a covered word, a lemma, clauses, the threshold), Heard.src / Heard.conf (phrase 85-100, lexicon 35-69, never a lexicon safety hit), rows that are not intents are ignored, registering later and reset, the superset rule over every reply line and corpus FILE (the lexicon only ADDS intents), and the speed. fails on a problem
  *   --sent [FILES]     (chunk 28) sentiment with boosters and sarcasm: the valence rows (lang_lex_sent_core.c), 90 sentences with the expected sign, the boosters (very, a bit, not, CAPS, !, sooo, emoticons, but) as comparisons, 22 sarcasm cues and 20 sincere look-alikes, I_POS / I_NEG from the valence, variants, a later row wins, speed, and the pos / neg corpus lines.
+ *   --topic            (chunk 29) topic words: the rows (well formed, >= 150 topics), scan cases (strongest first, three kept, lemma, elongation, no topic), Heard.topic / thing, a topic question answered about the {thing}, a later row, speed.
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
 #include "lang_data.h"
@@ -2602,6 +2603,68 @@ static int do_sent(int argc, char **argv) {
     return sfail;
 }
 
+/* ---------- chunk 29: topic words ---------- */
+static int tfail, tchecks2;
+#define OCHECK(c, ...) do { tchecks2++; if (!(c)) { printf("BAD TOPIC: " __VA_ARGS__); printf("\n"); tfail++; } } while (0)
+static const char *top0(const char *t, Heard *h) { lang_parse(t, h); return h->ntopic ? lang_topic_name(h->topic[0]) : NULL; }
+static int do_topic(void) {
+    tfail = tchecks2 = 0;
+    lang_tables_reset(); lang_init();
+    int nrows = 0; char names[400][20]; int nn = 0;
+    for (const char *const *r = TOPIC_CORE; *r; r++) {
+        nrows++;
+        const char *a = strchr(*r, '|'), *b = a ? strchr(a + 1, '|') : NULL;
+        OCHECK(a && b && !strncmp(a + 1, "topic.", 6), "row [%s] is not word|topic.name|weight", *r);
+        if (!a || !b) continue;
+        for (const char *c = *r; c < a; c++) OCHECK(islower((unsigned char)*c), "row [%s]: the word is not lower case letters", *r);
+        int w = atoi(b + 1); OCHECK(w >= 1 && w <= 9, "row [%s]: weight %d", *r, w);
+        char nm[20]; int n = (int)(b - a - 7); if (n < 1 || n > 19) { OCHECK(0, "row [%s]: bad topic name", *r); continue; } memcpy(nm, a + 7, (size_t)n); nm[n] = 0;
+        int f = 0; for (int i = 0; i < nn; i++) if (!strcmp(names[i], nm)) f = 1;
+        if (!f && nn < 400) strcpy(names[nn++], nm);
+        for (const char *const *q = r + 1; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r)) && !strncmp(b2 + 1, "topic.", 6)), "row [%s] is there twice", *r); }
+    }
+    OCHECK(nrows >= 400 && nn >= 150, "only %d rows over %d topics", nrows, nn);
+    Heard h;
+    static const struct { const char *t, *topic, *thing; } C[] = {
+        { "what about the moon", "moon", "moon" }, { "tell me about the stars", "stars", "stars" }, { "i saw a dragon", "dragon", "dragon" }, { "the shrine is old", "shrine", "shrine" },
+        { "do you like dogs", "dog", "dogs" }, { "i dreamed of fire", "dream", "dreamed" }, { "where is the orb", "orb", "orb" }, { "the cloud is dark", "clouds", "cloud" },
+        { "my brother is a knight", NULL, NULL }, { "the sword", "sword", "sword" }, { "i love the sea", "sea", "sea" }, { "talk about death", "death", "death" },
+    };
+    for (int i = 0; i < (int)(sizeof C / sizeof C[0]); i++) {
+        const char *t = top0(C[i].t, &h);
+        if (!C[i].topic) { OCHECK(h.ntopic >= 1, "\"%s\": no topic", C[i].t); continue; }
+        OCHECK(t && !strcmp(t, C[i].topic), "\"%s\": topic %s, wanted %s", C[i].t, t ? t : "none", C[i].topic);
+        OCHECK(!strcmp(h.thing, C[i].thing), "\"%s\": thing \"%s\", wanted \"%s\"", C[i].t, h.thing, C[i].thing);
+    }
+    top0("hello there", &h); OCHECK(h.ntopic == 0 && !h.thing[0], "hello there has a topic");
+    top0("xyzzy plugh", &h); OCHECK(h.ntopic == 0, "nonsense has a topic");
+    top0("the moon moon and the sun and the stars", &h); OCHECK(h.ntopic == 3 && !strcmp(lang_topic_name(h.topic[0]), "moon") && h.topic_w[0] >= h.topic_w[1] && h.topic_w[1] >= h.topic_w[2], "ordering of three topics (%d)", h.ntopic);
+    top0("moon sun stars clouds rain night", &h); OCHECK(h.ntopic == 3, "more than three topics kept (%d)", h.ntopic);
+    top0("the moooon", &h); OCHECK(h.ntopic == 1 && !strcmp(lang_topic_name(h.topic[0]), "moon"), "an elongated topic word");
+    top0("the moin", &h); OCHECK(h.ntopic <= 1, "a typo gave several topics");
+    OCHECK(lang_topic_id("moon") >= 0 && lang_topic_id("zzznope") < 0 && !lang_topic_name(-1) && !lang_topic_name(9999), "topic ids");
+    /* a topic never changes which intents are heard: topic scan is a side channel */
+    { Heard a; lang_parse("hello moon", &a); OCHECK(heard_has(&a, I_GREET) && a.ntopic == 1, "a topic hid an intent"); }
+    /* a question about a topic with no phrase is answered about the thing; a statement is not */
+    { Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 }; char out[400]; lang_seed(3);
+      int seen = 0; for (int i = 0; i < 30; i++) { lang_parse(i % 2 ? "what about the moon" : "can dragons fly", &h); lang_reply(&dea, &h, out, sizeof out); if (strstr(out, "moon") || strstr(out, "dragons")) seen++; OCHECK(out[0], "empty reply"); }
+      OCHECK(seen >= 5, "topic questions named their thing only %d of 30 times", seen); }
+    { char out[200]; Persona al = { "Alex", STYLE_STREET, 10, 70, 5, 12 }; lang_seed(4); lang_parse("what is a dragon", &h); lang_reply(&al, &h, out, sizeof out); OCHECK(out[0] && !strstr(out, "{"), "an open slot: %s", out); }
+    /* later rows, reset */
+    { static const char *const T[] = { "zzqthing|topic.zzqt|6", 0 }; lang_register_lex(T); top0("the zzqthing", &h);
+      OCHECK(h.ntopic == 1 && !strcmp(lang_topic_name(h.topic[0]), "zzqt"), "a registered topic row is not read");
+      lang_tables_reset(); top0("the zzqthing", &h); OCHECK(h.ntopic == 0, "a reset kept a topic row"); }
+    { const char *t = "tell me about the moon and the stars, the sea, my dog and the old shrine in the dark forest by the river";
+      clock_t t0 = clock(); for (int i = 0; i < 2000; i++) lang_parse(t, &h); double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 2000.0;
+      printf("  speed: a parse of %d characters %.4f ms (with topics)\n", (int)strlen(t), ms);
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_UNDEFINED__)
+      ms = 0;
+#endif
+      OCHECK(ms < 1.0, "a parse took %.3f ms", ms); }
+    printf("topic: %d checks, %d problems; %d rows over %d topics\n", tchecks2, tfail, nrows, nn);
+    return tfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -2630,10 +2693,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--pats"))     { rc |= do_pats(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--lex"))      { rc |= do_lex(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--sent"))     { rc |= do_sent(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--topic"))    { rc |= do_topic() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= do_spell(argc, argv) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= do_glue(argc, argv) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= do_lex(argc, argv) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

@@ -48,4 +48,12 @@ int  lang_sent_value(const char *word, int n, int *val);     /* the valence row 
 int  lang_sent_cue_count(void);
 const char *lang_sent_cue_name(int i);
 
+/* ---- chunk 29: topic words. rows "word|topic.<n>|weight" ---- */
+#define TOPIC_MIN 4         /* score a topic needs to count */
+#define TOPIC_MAX 3         /* topics kept in a Heard */
+typedef struct { int id, score; char word[24]; } TopicHit;     /* id: lang_topic_name(id) is "moon"; word: the strongest word of the text for it */
+int  lang_topic_scan(const char *lc, int len, TopicHit *out, int max);   /* strongest first; returns how many reached TOPIC_MIN */
+const char *lang_topic_name(int id);                           /* the name without the topic. prefix, NULL if unknown */
+int  lang_topic_id(const char *name);                          /* -1 if no row ever named it */
+
 #endif

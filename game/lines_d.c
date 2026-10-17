@@ -102,5 +102,12 @@ const Line LINES_D[] = {
     {"r.demand", COLD, ALLS, "You demand? From me? Cute."}, {"r.demand", COLD, ALLS, "Tone down the orders, {pet}."}, {"r.demand", HOST, ALLS, "Do not give me orders, you fool."},
     {"r.demand", NEUT, DIVINE, "A vessel does not order a goddess. Ask properly."}, {"r.demand", COLD, DIVINE, "Demanding, mortal? I give. You do not take."}, {"r.demand", HOST, DIVINE, "Orders? From a worm? I will laugh. Then I will punish."},
     {"r.demand", WARM, DIVINE, "Such fire, little one. Ask softly and I may grant it."}, {"r.demand", COLD, STREET, "Who died and made you boss, rookie?"},
+    /* ---- r.topic_q (chunk 29): a question about a thing the topic lexicon knows, with no phrase to answer it. {thing} is the topic word ---- */
+    {"r.topic_q", WARM, ALLS, "The {thing}? I like that you ask, {pet}. What do you want to know?"}, {"r.topic_q", WARM, ALLS, "Ah, the {thing}. Tell me what you are wondering."},
+    {"r.topic_q", WARM, ALLS, "You are curious about the {thing}. So am I, sometimes."}, {"r.topic_q", NEUT, ALLS, "The {thing}. What about it?"},
+    {"r.topic_q", NEUT, ALLS, "Hm. The {thing}. Ask it plainly."}, {"r.topic_q", NEUT, ALLS, "You mention the {thing}. Say what you mean."},
+    {"r.topic_q", COLD, ALLS, "The {thing}? Why would I tell you about that?"}, {"r.topic_q", COLD, ALLS, "Ask about the {thing} again when you ask better."},
+    {"r.topic_q", COLD, ALLS, "I do not discuss the {thing} with strangers."}, {"r.topic_q", HOST, ALLS, "The {thing}? Your question is as empty as your head."},
+    {"r.topic_q", HOST, ALLS, "Do not waste my time with the {thing}."}, {"r.topic_q", HOST, ALLS, "Ask about the {thing} again and regret it."},
 };
 const int LINES_D_N = (int)(sizeof LINES_D / sizeof LINES_D[0]);

@@ -477,7 +477,13 @@ void lang_parse(const char *text, Heard *h) {
     lex_pass(h, lc, len, 0);                                   /* chunk 27: the lexicon layer, weaker than every phrase */
     if (has_x) lex_pass(h, lx, lenx, 0);
     if (has_s) lex_pass(h, ls, lens, spell_conf_of(h));
-    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; sent_pass(h, tx, tl, 4); }      /* chunk 28 */
+    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; sent_pass(h, tx, tl, 4);      /* chunk 28 */
+      for (int k = 0; k < 4 && !h->ntopic; k++) {                /* chunk 29: the topics of the typed text, or of a variant when the typed text has none */
+          if (!tx[k]) continue;
+          TopicHit th[TOPIC_MAX]; int nt = lang_topic_scan(tx[k], tl[k], th, TOPIC_MAX);
+          for (int q = 0; q < nt; q++) { h->topic[q] = (int16_t)th[q].id; h->topic_w[q] = (uint8_t)(th[q].score > 255 ? 255 : th[q].score); }
+          h->ntopic = (uint8_t)nt; if (nt) snprintf(h->thing, sizeof h->thing, "%s", th[0].word);
+      } }
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
     h->words = w;
@@ -863,6 +869,7 @@ static int tone_rude(Tone t) { return (int)((RUDE >> t) & 1u); }   /* cold, host
 
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
 static const char *g_topic = "";
+static const char *g_thing = "";     /* chunk 29: {thing} = the strongest topic word of the text (moon), "that" if none */
 static int g_tone;
 
 static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int depth) {
@@ -878,6 +885,7 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
         if (!strcmp(name, "player")) rep = player_name;
         else if (!strcmp(name, "npc")) rep = ps->name;
         else if (!strcmp(name, "topic")) rep = g_topic[0] ? g_topic : "that";
+        else if (!strcmp(name, "thing")) rep = g_thing[0] ? g_thing : "that";
         else if (!strcmp(name, "pet") && voice_first(ps->style) == STYLE_MACHINE) rep = "USER";      /* chunk 11 */
         else if (depth < 4) {
             char key[24]; snprintf(key, sizeof key, "p.%s", name);
@@ -910,7 +918,7 @@ static void cat(char *dst, int cap, const char *src) {
 
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0;
-    g_topic = h->capture;
+    g_topic = h->capture; g_thing = h->thing;
     /* a real person might be behind these words: step out of character, whoever is talking */
     if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
 
@@ -931,7 +939,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
     }
 
-    if (np == 1 && pickd[0] == I_WHAT && h->words >= 5) np = 0;      /* a long question we have no answer for */
+    if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */      /* a long question we have no answer for */
     char body[600]; body[0] = 0;       /* chunk 5: was 400 (cut to a readable length in chunk 42) */
     int answered = 0;
     for (int a = 0; a < np; a++) {
@@ -959,7 +967,8 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (!answered) {                                                   /* never leave the player hanging */
         if (gibberish_flip(ps, h)) tone = lang_mood_now(ps);
         const char *key = "r.unknown";
-        if (h->is_question && h->words >= 2) key = "r.unknown_q";
+        if (h->ntopic && h->is_question && h->words >= 2) key = "r.topic_q";      /* chunk 29: a question about a thing we know a word for */
+        else if (h->is_question && h->words >= 2) key = "r.unknown_q";
         else if (h->negative > h->positive) key = "r.unknown_neg";
         else if (h->positive > h->negative) key = "r.unknown_pos";
         else if (h->words <= 1) key = "r.unknown_short";

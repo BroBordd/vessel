@@ -57,6 +57,7 @@ extern const int  LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N;
 extern const Pat  PATS[];
 extern const char *const DIALECT[];     /* chunk 22: rows "from|to" (a dialect or phonetic spelling, the standard words), game/lang_lex_dialect.c */
 extern const char *const LEX_CORE[];      /* chunk 27: rows "word|intent|weight", game/lang_lex_core.c */
+extern const char *const TOPIC_CORE[];     /* chunk 29: rows "word|topic.<n>|weight", game/lang_lex_topic_core.c */
 extern const char *const SENT_CORE[];      /* chunk 28: rows "word|sent|N" (-5..5), game/lang_lex_sent_core.c */
 extern const char *const MACROS_A[];    /* chunk 26: rows "name|alt|alt|..." (the pattern macros <name>), game/lang_pats_macros.c */
 extern const char *const IRREGULAR[];  /* chunk 24: rows "form|lemma" ("form|form" = never touched), game/lang_lex_irregular.c */

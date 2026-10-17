@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 static int threshold = LEX_THRESHOLD;
 void lang_lex_set_threshold(int t) { threshold = t > 0 ? t : LEX_THRESHOLD; }
@@ -232,4 +233,59 @@ int lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretc
     int v = (P - N) * 3 / 2;                                                    /* one word of 3 is 45, two strong words reach 100 */
     si->valence = v > 100 ? 100 : v < -100 ? -100 : v;
     return si->valence;
+}
+
+/* ================= chunk 29: topic words ================= */
+#define TOPIC_NAMES 400
+static char tnames[TOPIC_NAMES][20]; static int ntn;
+const char *lang_topic_name(int id) { return id >= 0 && id < ntn ? tnames[id] : NULL; }
+int lang_topic_id(const char *name) { for (int i = 0; i < ntn; i++) if (!strcmp(tnames[i], name)) return i; return -1; }
+static int topic_intern(const char *name, int n) {
+    if (n < 1 || n > 19) return -1;
+    char b[20]; memcpy(b, name, (size_t)n); b[n] = 0;
+    int id = lang_topic_id(b); if (id >= 0) return id;
+    if (ntn >= TOPIC_NAMES) return -1;
+    memcpy(tnames[ntn], b, (size_t)n + 1); return ntn++;
+}
+/* the topic rows of a word: calls back with (topic id, weight); 0 rows = none */
+static int topic_rows(const char *w, int *ids, int *wts, int max) {
+    const char *rows[16]; int nr = lang_lex_find(w, rows, 16), k = 0;
+    for (int r = 0; r < nr && k < max; r++) {
+        const char *a = strchr(rows[r], '|');
+        if (!a || strncmp(a + 1, "topic.", 6)) continue;
+        const char *b = strchr(a + 7, '|'); if (!b) continue;
+        int id = topic_intern(a + 7, (int)(b - a - 7)); if (id < 0) continue;
+        ids[k] = id; wts[k] = atoi(b + 1); k++;
+    }
+    return k;
+}
+int lang_topic_scan(const char *lc, int len, TopicHit *out, int max) {
+    int score[TOPIC_NAMES + 1] = {0}, best[TOPIC_NAMES + 1] = {0}, touched[64], nt = 0;
+    static char word[TOPIC_NAMES + 1][24];
+    for (int i = 0; i < len;) {
+        if (!is_word((unsigned char)lc[i])) { i++; continue; }
+        int j = i; while (j < len && is_word((unsigned char)lc[j])) j++;
+        int n = j - i;
+        if (n >= 2 && n <= 23) {
+            char w[32]; memcpy(w, lc + i, (size_t)n); w[n] = 0;
+            int ids[8], wts[8], k = topic_rows(w, ids, wts, 8);
+            if (!k) { char lem[32]; if (lang_lemma(w, n, lem, sizeof lem) && strcmp(lem, w)) k = topic_rows(lem, ids, wts, 8); }
+            for (int q = 0; q < k; q++) {
+                int id = ids[q];
+                if (!score[id] && nt < 64) touched[nt++] = id;
+                score[id] += wts[q];
+                if (wts[q] > best[id]) { best[id] = wts[q]; memcpy(word[id], w, (size_t)n + 1); }
+            }
+        }
+        i = j;
+    }
+    int no = 0;                                                  /* the strongest max topics that reach the minimum (ties: the one met first) */
+    for (int r = 0; r < max; r++) {
+        int bi = -1;
+        for (int t = 0; t < nt; t++) { int id = touched[t]; if (score[id] >= TOPIC_MIN && (bi < 0 || score[id] > score[bi])) bi = id; }
+        if (bi < 0) break;
+        out[no].id = bi; out[no].score = score[bi]; snprintf(out[no].word, sizeof out[no].word, "%s", word[bi]); no++;
+        score[bi] = 0;
+    }
+    return no;
 }
