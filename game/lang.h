@@ -22,6 +22,7 @@
 #include "lang_intents.h"
 #include "lang_clean.h"      /* TK_* token kinds and the LF_* shape flags of Heard.flags (chunk 16) */
 #include "lang_frame.h"      /* Frame: what a clause does (chunk 30) */
+#include "lang_capture.h"    /* Capture: facts the player told (chunk 33) */
 
 /* what the player can mean. keep the order in sync with INTENT_NAME / INTENT_LABEL in lang.c */
 typedef enum {
@@ -117,6 +118,8 @@ typedef struct {
     uint8_t qtype;      /* chunk 32: QT_* of the last clause of the text that asks something (QT_NONE = it asks nothing); focus = its last content word (moon), opt1 / opt2 = the two options of a QT_CHOICE ("tea or coffee?"); all lower case letters, typed by the player: echo only through lang_safe_echo */
     char focus[24], opt1[24], opt2[24];
     Frame frame;        /* chunk 30: the frame of the last clause of the text as typed that does something (act, subject, tense, modality, politeness, verb, object, question word); a variant text only when the typed text has none. act SA_NONE = no clause said anything */
+    uint8_t ncap;       /* chunk 33: facts captured (0-6): cap[] of kind CAP_NAME / AGE / PLACE / LIKE / DISLIKE / THING / NUMBER / TIME / FEELING, text as typed (a name keeps its capitals, the rest is lower case). a blocked name is never captured: it is heard as I_NAME_SWEAR_NAME */
+    Capture cap[HEARD_CAPS];
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
@@ -158,6 +161,8 @@ void lang_parse(const char *text, Heard *h);
  * returns how many separate phrases were highlighted. mask needs strlen(text)+1 bytes */
 int  lang_highlight(const char *text, uint8_t *mask);
 void lang_match_classic(const char *pat, const char *s, const char *base, const char **best);   /* chunk 26 (tests): the old wildcard matcher */
+const Capture *lang_heard_capture(const Heard *h, int type, int nth);   /* chunk 33: the nth (0 = first) capture of a kind, NULL if none */
+void lang_set_heard_slots(const Heard *h);       /* chunk 33: what {name} {age} {likes} {dislikes} {thing} {topic} turn into for lang_line; lang_reply calls it itself */
 void lang_heard_label(const Heard *h, char *out, int cap);   /* "HEARD: HELLO + WHO ARE YOU" */
 
 /* ---- answering ---- */

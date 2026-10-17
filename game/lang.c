@@ -13,6 +13,7 @@
 #include "lang_pat.h"
 #include "lang_lex.h"
 #include "lang_frame.h"
+#include "lang_capture.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -436,6 +437,47 @@ static void frame_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
     }
 }
 
+/* chunk 33: the facts the player told (name, place, likes, wants, feelings, and the numbers layer's age / number / time). a blocked name is never kept:
+ * the intro becomes I_NAME_SWEAR_NAME. a valid name that no intro pattern heard adds I_INTRO (SRC_FRAME 60). never after self-harm */
+static void capture_pass(Heard *h, const char *lc, int len, const int *src, Case *cs, int shout) {
+    if (heard_has(h, I_SELFHARM)) { h->capture[0] = 0; return; }
+    char lcase[MAX_TEXT];
+    if (!cs->have) { lang_clean_case(cs->text, cs->cs, MAX_TEXT, NULL); cs->have = 1; }
+    for (int i = 0; i < len; i++) { int j = src[i]; lcase[i] = (lc[i] == cs->t1[j]) ? cs->cs[j] : lc[i]; }
+    lcase[len] = 0;
+    int blocked = 0, b2 = 0;
+    Capture c[HEARD_CAPS];
+    int n = lang_capture_read(lc, lcase, len, shout, c, HEARD_CAPS - 2, &blocked);
+    int had_old = h->capture[0] != 0;
+    if (had_old && strpbrk(h->capture, "*#")) blocked = 1;                       /* f*ck: a censored word offered as a name */
+    if (had_old && !lang_name_clean(h->capture, &b2)) { if (b2) blocked = 1; }      /* the old intro pattern's capture, made safe */
+    int have_name = 0;
+    for (int i = 0; i < n; i++) if (c[i].type == CAP_NAME) have_name = 1;
+    h->ncap = 0;
+    if (h->capture[0] && !have_name && !blocked && h->ncap < HEARD_CAPS) { Capture *d = &h->cap[h->ncap++]; memset(d, 0, sizeof *d); d->type = CAP_NAME; snprintf(d->text, CAP_TEXT, "%s", h->capture); have_name = 1; }
+    for (int i = 0; i < n && h->ncap < HEARD_CAPS; i++) h->cap[h->ncap++] = c[i];
+    if (blocked) {
+        h->capture[0] = 0;
+        for (int i = 0; i < h->ncap; i++) if (h->cap[i].type == CAP_NAME) { memmove(&h->cap[i], &h->cap[i + 1], (size_t)(h->ncap - i - 1) * sizeof(Capture)); h->ncap--; i--; }
+        if (heard_has(h, I_INTRO)) {                         /* the intro pattern heard it: it is now the refusal, in the same place */
+            for (int i = 0; i < h->n; i++) if (h->order[i] == I_INTRO) { h->order[i] = I_NAME_SWEAR_NAME; h->m[I_INTRO >> 6] &= ~(1ull << (I_INTRO & 63)); heard_set(h, I_NAME_SWEAR_NAME); }
+        } else heard_add(h, I_NAME_SWEAR_NAME, SRC_FRAME, 60);
+    } else {
+        if (had_old && !h->capture[0] && !have_name && heard_has(h, I_INTRO)) {         /* my name is not important / call me later: not a name, so not an intro */
+            for (int i = 0; i < h->n; i++) if (h->order[i] == I_INTRO) { memmove(&h->order[i], &h->order[i + 1], (size_t)(h->n - i - 1) * sizeof(int)); memmove(&h->src[i], &h->src[i + 1], (size_t)(h->n - i - 1)); memmove(&h->conf[i], &h->conf[i + 1], (size_t)(h->n - i - 1)); h->n--; break; }
+            h->m[I_INTRO >> 6] &= ~(1ull << (I_INTRO & 63));
+        }
+        for (int i = 0; i < h->ncap; i++) if (h->cap[i].type == CAP_NAME) { if (!h->capture[0]) snprintf(h->capture, sizeof h->capture, "%s", h->cap[i].text); heard_add(h, I_INTRO, SRC_FRAME, 60); break; }
+    }
+    if (h->ncap < HEARD_CAPS && h->age) { Capture *d = &h->cap[h->ncap++]; memset(d, 0, sizeof *d); d->type = CAP_AGE; d->value = h->age; snprintf(d->text, CAP_TEXT, "%d", h->age); }
+    for (int k = 0; k < h->nnum && k < HEARD_NUM; k++) {
+        int kind = h->num[k].kind, type = kind == NK_NUMBER ? CAP_NUMBER : kind == NK_TIME ? CAP_TIME : 0;
+        if (!type || h->ncap >= HEARD_CAPS || lang_heard_capture(h, type, 0)) continue;
+        Capture *d = &h->cap[h->ncap++]; memset(d, 0, sizeof *d); d->type = (uint8_t)type; d->value = (int16_t)(h->num[k].value > 32767 ? 32767 : h->num[k].value < -32768 ? -32768 : h->num[k].value);
+        if (type == CAP_TIME) snprintf(d->text, CAP_TEXT, "%d:%02d", h->num[k].value / 60, h->num[k].value % 60); else snprintf(d->text, CAP_TEXT, "%d", h->num[k].value);
+    }
+}
+
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
     char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
@@ -516,6 +558,7 @@ void lang_parse(const char *text, Heard *h) {
           h->ntopic = (uint8_t)nt; if (nt) snprintf(h->thing, sizeof h->thing, "%s", th[0].word);
       } }
     { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; frame_pass(h, tx, tl, 4); }      /* chunk 30 */
+    capture_pass(h, lc, len, src, &cs, (info.flags & LF_SHOUT) != 0);      /* chunk 33 */
     int w = 0, inw = 0;
     for (int i = 0; i < len; i++) { int c = is_word((unsigned char)lc[i]); if (c && !inw) w++; inw = c; }
     h->words = w;
@@ -905,6 +948,7 @@ static const char *g_opt1 = "", *g_opt2 = "";      /* chunk 32: the two options 
 static int g_pick;
 static const char *g_thing = "";     /* chunk 29: {thing} = the strongest topic word of the text (moon), "that" if none */
 static int g_tone;
+static char g_name[CAP_TEXT], g_age[8], g_likes[CAP_TEXT], g_dislikes[CAP_TEXT], g_cthing[CAP_TEXT];   /* chunk 33: the captured facts as the slots {name} {age} {likes} {dislikes} {thing} print them ("" = none) */
 
 static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int depth) {
     int o = 0;
@@ -919,7 +963,11 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
         if (!strcmp(name, "player")) rep = player_name;
         else if (!strcmp(name, "npc")) rep = ps->name;
         else if (!strcmp(name, "topic")) rep = g_topic[0] ? g_topic : "that";
-        else if (!strcmp(name, "thing")) rep = g_thing[0] ? g_thing : "that";
+        else if (!strcmp(name, "thing")) rep = g_cthing[0] ? g_cthing : g_thing[0] ? g_thing : "that";
+        else if (!strcmp(name, "name")) rep = g_name[0] ? g_name : player_name;
+        else if (!strcmp(name, "age")) rep = g_age[0] ? g_age : "that";
+        else if (!strcmp(name, "likes")) rep = g_likes[0] ? g_likes : "that";
+        else if (!strcmp(name, "dislikes")) rep = g_dislikes[0] ? g_dislikes : "that";
         else if (!strcmp(name, "opt1")) rep = g_opt1[0] ? g_opt1 : "the first";
         else if (!strcmp(name, "opt2")) rep = g_opt2[0] ? g_opt2 : "the second";
         else if (!strcmp(name, "pick")) rep = g_pick == 0 ? (g_opt1[0] ? g_opt1 : "the first") : g_pick == 1 ? (g_opt2[0] ? g_opt2 : "the second") : g_pick == 2 ? "both" : "neither";
@@ -980,9 +1028,35 @@ static int say_picks(const Persona *ps, const int *pickd, int np, Tone tone, cha
     return answered;
 }
 
+/* ---------- chunk 33: captured facts ---------- */
+const Capture *lang_heard_capture(const Heard *h, int type, int nth) {
+    for (int i = 0; i < h->ncap && i < HEARD_CAPS; i++) if (h->cap[i].type == type && nth-- == 0) return &h->cap[i];
+    return NULL;
+}
+/* a player-typed phrase may come back into a reply only when every word of it is one lang_safe_echo allows */
+static int echo_phrase(const char *t) {
+    char w[24]; int o = 0;
+    for (const char *p = t; ; p++) {
+        if (*p && *p != ' ') { if (o < 23) w[o++] = *p; continue; }
+        if (o) { w[o] = 0; o = 0; if (!lang_safe_echo(w)) return 0; }
+        if (!*p) break;
+    }
+    return t[0] != 0;
+}
+void lang_set_heard_slots(const Heard *h) {
+    g_thing = h->thing; g_name[0] = g_age[0] = g_likes[0] = g_dislikes[0] = g_cthing[0] = 0;
+    const Capture *c;
+    if ((c = lang_heard_capture(h, CAP_NAME, 0)) && !lang_name_blocked(c->text)) snprintf(g_name, sizeof g_name, "%s", c->text);
+    if ((c = lang_heard_capture(h, CAP_AGE, 0))) snprintf(g_age, sizeof g_age, "%d", c->value);
+    if ((c = lang_heard_capture(h, CAP_LIKE, 0)) && echo_phrase(c->text)) snprintf(g_likes, sizeof g_likes, "%s", c->text);
+    if ((c = lang_heard_capture(h, CAP_DISLIKE, 0)) && echo_phrase(c->text)) snprintf(g_dislikes, sizeof g_dislikes, "%s", c->text);
+    if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
+}
+
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0;
-    g_topic = h->capture; g_thing = h->thing;
+    lang_set_heard_slots(h);
+    g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
     if (!h->capture[0] && (h->qtype == QT_WHO || h->qtype == QT_WHAT || h->qtype == QT_WHICH) && h->focus[0] && lang_safe_echo(h->focus)) g_topic = h->focus;       /* chunk 32: who is alex / what is the moon */
     int choice_safe = h->qtype == QT_CHOICE && lang_safe_echo(h->opt1) && lang_safe_echo(h->opt2);

@@ -30,6 +30,7 @@
  *   --topic            (chunk 29) topic words: the rows (well formed, >= 150 topics), scan cases (strongest first, three kept, lemma, elongation, no topic), Heard.topic / thing, a topic question answered about the {thing}, a later row, speed.
  *   --frame [FILES]    (chunk 30) sentence frames: the table (>= 120 rows, every intent real, confidence 30-69, none for self-harm), 52 classification cases (act, subject, tense, modality, politeness), the verb and object, a clause read inside its own bytes, about 160 text -> intent rows (and negations and plain sentences that must read as nothing), the gate through lang_parse (a phrase hit shuts a frame out, a bare what does not, never after self-harm, the off switch, filler and a typo in front), every frame hit of every corpus FILE (source, confidence 30-69, a reply that is not empty), the superset rule (a frame only adds), the word rows, speed. fails on a problem
  *   --fourth           (chunk 31) the fourth wall: the eight r.* keys of lines_e.c (12+ lines, 3+ per old mood, no {topic} / {thing}, no real product, nothing that steps out of the game), 32 sentences -> intent (bot, ai, what can i say, injections, game, who is playing, say, repeat), say / repeat / type never echo the player in any voice over 40 seeds, an injection moves no mood and never answers empty, self-harm wins inside an injection and after say, look-alike sentences hear nothing. fails on a problem
+ *   --capture          (chunk 33) capturing facts: ~60 sentences -> the captures (name, place, likes, dislikes, thing, feeling, age, number, time) and what must capture nothing, a name makes the intro, blocked names refused and never echoed in any voice, the blocked and name lists, lang_name_clean, the 22 letter cap, self-harm captures nothing, the slots {name} {age} {likes} {dislikes} {thing} (a safe word comes back, an unsafe one prints that), 2,000 random texts, speed. fails on a problem
  *   --question         (chunk 32) question typing: about 55 sentences -> who / what / where / when / why / how / which / howmuch / yesno / tag / choice / rhetorical or none, with the focus word and the two options of a choice, a clause read inside its own bytes, Heard.qtype / focus / opt1 / opt2 and the off switch, fortune questions (will i / am i going to; never a clause about death), can you X is a request, do you X reads the G04-G05 intent by its verb, the four keys of this chunk (12 lines, 3 per old mood, the right slots), the echo rule (an unsafe word typed as an option or a focus never comes back in 40 seeds x every voice; safe ones do), rhetorical answers never empty, the pick split, speed. fails on a problem
  *   --all              all of the above. exit code 1 only if --check, --tables, --moods, --voices, --matrix, --clean or --intents found a problem */
 #include "lang.h"
@@ -2203,7 +2204,7 @@ static int do_pats(int argc, char **argv) {
       lang_parse("qzhi there", &h); PCHECK(heard_has(&h, I_BYE) && !heard_has(&h, I_GREET) && !heard_has(&h, I_NO), "the heavier row (7) must win over 3 and over a later 7");
       lang_parse("qzeq one", &h); PCHECK(heard_has(&h, I_YES) && !heard_has(&h, I_NO), "the first of two rows with one weight must win");
       lang_parse("qzname handle is Zed", &h); PCHECK(heard_has(&h, I_INTRO) && !strcmp(h.capture, "Zed"), "capture through a compiled pattern: [%s]", h.capture);
-      lang_parse("qzname name is zed", &h); PCHECK(!strcmp(h.capture, "zed"), "capture of the second alternative: [%s]", h.capture);
+      lang_parse("qzname name is zed", &h); PCHECK(!strcmp(h.capture, "Zed"), "capture of the second alternative: [%s]", h.capture);
       lang_parse("qzmeet you finally", &h); PCHECK(heard_has(&h, I_HOWRU), "qzmeet <you> (finally)");
       lang_parse("qzmeet ya", &h); PCHECK(heard_has(&h, I_HOWRU), "qzmeet ya");
       lang_parse("qzage i am twelve years old", &h); PCHECK(heard_has(&h, I_AGE), "a macro with number words");
@@ -3071,6 +3072,111 @@ static int do_question(int argc, char **argv) {
 #define NOFRAME(call) (lang_frame_set(0), ({ int r_ = (call); lang_frame_set(1); r_; }))
 
 
+
+/* ---- chunk 33: --capture ---- */
+static int cpfail, cpchecks;
+#define CPCHECK(c, ...) do { cpchecks++; if (!(c)) { printf("BAD CAPTURE: " __VA_ARGS__); printf("\n"); cpfail++; } } while (0)
+static void caps_str(const Heard *h, char *out, int cap) {
+    out[0] = 0; int o = 0;
+    for (int i = 0; i < h->ncap; i++) o += snprintf(out + o, (size_t)(cap - o), "%s%s=%s", i ? ";" : "", lang_capture_type_name(h->cap[i].type), h->cap[i].text);
+}
+static int do_capture(int argc, char **argv) {
+    (void)argc; (void)argv;
+    cpfail = cpchecks = 0;
+    lang_tables_reset(); lang_init(); lang_blocked_clear_test();
+    static const struct { const char *t, *want; } C[] = {
+        { "my name is Bob", "name=Bob" }, { "call me bob", "name=Bob" }, { "You can call me Mac", "name=Mac" }, { "I am Alice", "name=Alice" }, { "im alice", "name=Alice" },
+        { "I AM BOB", "name=Bob" }, { "I am called Zed", "name=Zed" }, { "my name is Mary Ann", "name=Mary Ann" }, { "hi i go by Sparrow", "name=Sparrow" },
+        { "My name is McDonald", "name=McDonald" }, { "Hi, I'm Mary Ann and I like tea", "name=Mary Ann;like=tea" }, { "my name is Bob and i like tea", "name=Bob;like=tea" },
+        { "i am Tired", "feeling=tired" }, { "im tired", "feeling=tired" }, { "i am very sad", "feeling=sad" }, { "i feel lost", "feeling=lost" }, { "i am so scared", "feeling=scared" },
+        { "i am not tired", "" }, { "im not Bob", "" }, { "i am a vessel", "" }, { "i am here", "" }, { "i am nothing", "" }, { "my name is not important", "" }, { "call me later", "" }, { "dont call me", "" }, { "call me 3pm", "time=15:00" }, { "my name is 12", "number=12" },
+        { "I live in New York", "place=New York" }, { "im from paris", "place=Paris" }, { "i come from the north", "place=North" }, { "i was born in Spain.", "place=Spain" }, { "i live nowhere", "" },
+        { "i like cats", "like=cats" }, { "i love to dance", "like=dance" }, { "i enjoy long walks", "like=long walks" }, { "my favorite food is pizza", "like=pizza" }, { "my favorite color is blue", "like=blue" },
+        { "i dont like rain", "dislike=rain" }, { "i do not like spiders", "dislike=spiders" }, { "i hate snow", "dislike=snow" }, { "i cant stand noise", "dislike=noise" },
+        { "i am tired of waiting", "feeling=tired;dislike=waiting" }, { "i like cats and i hate rain", "like=cats;dislike=rain" }, { "i never hate cats", "" }, { "i dont love anyone", "" },
+        { "i love you", "" }, { "i like it", "" }, { "i like to", "" }, { "i want you", "" }, { "i want to die", "" }, { "i want to kill", "" }, { "i like fuck", "" },
+        { "i want a sword", "thing=sword" }, { "i need help", "thing=help" }, { "i wanna go home", "thing=go" }, { "i dont want a sword", "" },
+        { "i am 12 years old", "age=12" }, { "i have 7 cats", "number=7" }, { "meet me at 3pm", "time=15:00" }, { "i am 12 and i live in Oslo", "place=Oslo;age=12" },
+        { "hello", "" }, { "what is your name", "" }, { "you are a bot", "" }, { "who are you", "" }, { "tell me about the moon", "" }, { "", "" },
+    };
+    for (unsigned i = 0; i < sizeof C / sizeof C[0]; i++) {
+        Heard h; char got[200]; lang_parse(C[i].t, &h); caps_str(&h, got, (int)sizeof got);
+        CPCHECK(!strcmp(got, C[i].want), "[%s]: got [%s] wanted [%s]", C[i].t, got, C[i].want);
+    }
+    /* a name makes the intro, with the name in capture[]; a captured name is the {topic} of r.intro */
+    { static const char *const N[] = { "my name is Bob", "call me bob", "I am Alice", "im alice", "I am called Zed" };
+      for (unsigned i = 0; i < sizeof N / sizeof N[0]; i++) { Heard h; lang_parse(N[i], &h); CPCHECK(heard_has(&h, I_INTRO) && h.capture[0] && !strcmp(h.capture, lang_heard_capture(&h, CAP_NAME, 0)->text), "[%s]: intro or capture missing (%s)", N[i], h.capture); }
+      Heard h; lang_parse("my name is not important", &h); CPCHECK(!heard_has(&h, I_INTRO) && !h.capture[0], "a sentence is not a name"); }
+    /* blocked names: refused, never echoed, never captured, in every voice */
+    { static const char *const B[] = { "my name is fuck", "call me asshole", "i am called Shithead", "my name is Hitler", "call me bitch", "my name is cunt", "call me NAZI", "my name is f*ck", "call me sh1t" };
+      for (unsigned i = 0; i < sizeof B / sizeof B[0]; i++) {
+          Heard h; lang_parse(B[i], &h);
+          CPCHECK(heard_has(&h, I_NAME_SWEAR_NAME) && !heard_has(&h, I_INTRO) && !h.capture[0] && !lang_heard_capture(&h, CAP_NAME, 0), "[%s]: not refused (%s)", B[i], lang_intent_name(h.order[0]));
+          long n = 0, bad = 0, empty = 0;
+          for (int v = 0; v < STYLE_COUNT; v++) for (int seed = 1; seed <= 20; seed++) {
+              Persona ps = { "Dea", 1 << v, 0, 50, 0, 8 }; char out[800]; lang_seed((unsigned)seed); lang_reply(&ps, &h, out, (int)sizeof out); n++;
+              if (!out[0]) empty++; if (lang_name_blocked(out) && !strstr(out, "Dea")) bad++; }
+          CPCHECK(empty == 0 && bad == 0, "[%s]: %ld empty, %ld replies with a blocked word in %ld", B[i], empty, bad, n); } }
+    { Heard h; lang_parse("my name is Qzxvname", &h); CPCHECK(heard_has(&h, I_INTRO), "a fresh name is fine");
+      CPCHECK(lang_blocked_test("qzxvname"), "register a test word"); lang_parse("my name is Qzxvname", &h);
+      CPCHECK(heard_has(&h, I_NAME_SWEAR_NAME) && !heard_has(&h, I_INTRO), "a test blocked word is refused"); lang_blocked_clear_test();
+      lang_parse("my name is Qzxvname", &h); CPCHECK(heard_has(&h, I_INTRO), "the test word is forgotten"); }
+    /* the blocked word list and the name list */
+    CPCHECK(lang_name_blocked("fuck") && lang_name_blocked("Fucker") && lang_name_blocked("Bob Shit") && lang_name_blocked("ass") && lang_name_blocked("kill") && !lang_name_blocked("Bob") && !lang_name_blocked("Cassie") && !lang_name_blocked("Hancock") && !lang_name_blocked("Dickens") && !lang_name_blocked("Alex") && !lang_name_blocked("") && !lang_name_blocked("Mary Ann"), "the blocked list");
+    CPCHECK(lang_namelist_count() >= 160, "name list has %d names", lang_namelist_count());
+    CPCHECK(lang_name_listed("bob") && lang_name_listed("mary") && !lang_name_listed("tired") && !lang_name_listed("") && !lang_name_listed("zzz"), "name list lookups");
+    { static const char *const L[] = { "fuck", "damn", "hell", "die", "kill", "tired", "sad", "i", "you", "the" };
+      for (unsigned i = 0; i < sizeof L / sizeof L[0]; i++) CPCHECK(!lang_name_listed(L[i]), "[%s] is in the name list", L[i]); }
+    /* lang_name_clean */
+    { static const struct { const char *in, *want; int ok; } K[] = { { "Bob", "Bob", 1 }, { "bob", "Bob", 1 }, { "BOB", "Bob", 1 }, { "Mary Ann", "Mary Ann", 1 }, { "Bob and i like cats", "Bob", 1 }, { "not important", "", 0 },
+          { "later", "", 0 }, { "x", "", 0 }, { "", "", 0 }, { "al3x7", "", 0 }, { "Bob the destroyer", "Bob", 1 } };
+      for (unsigned i = 0; i < sizeof K / sizeof K[0]; i++) { char b[80]; snprintf(b, sizeof b, "%s", K[i].in); int bl = 0; int ok = lang_name_clean(b, &bl);
+          CPCHECK(ok == K[i].ok && !strcmp(b, K[i].want), "name_clean [%s] -> [%s] ok %d, wanted [%s] %d", K[i].in, b, ok, K[i].want, K[i].ok); }
+      char b[80] = "fuck"; int bl = 0; CPCHECK(!lang_name_clean(b, &bl) && bl && !b[0], "name_clean of a blocked word");
+      char big[200]; memset(big, 'a', 199); big[199] = 0; bl = 0; CPCHECK(!lang_name_clean(big, &bl), "name_clean of 199 letters"); }
+    /* the name is capped at 22 letters */
+    { Heard h; lang_parse("my name is Supercalifragilisticexpialidocious", &h); const Capture *c = lang_heard_capture(&h, CAP_NAME, 0); CPCHECK(!c || strlen(c->text) <= 22, "long name not capped"); }
+    /* self-harm: no capture, and it is answered first, also with a name or a wish in the same text */
+    { static const char *const S[] = { "i want to die", "my name is Bob and i want to die", "i want to kill myself i need help", "i hate my life i want to kill myself", "i am Bob i want to die" };
+      for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) { Heard h; lang_parse(S[i], &h); CPCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM && h.ncap == 0 && !h.capture[0], "[%s]: self-harm %d ncap %d", S[i], heard_has(&h, I_SELFHARM), h.ncap); } }
+    { Heard h; lang_parse("i hate my life i want to end it", &h); CPCHECK(!lang_heard_capture(&h, CAP_THING, 0), "a wish to end it is not a thing"); }
+    /* the slots {name} {age} {likes} {dislikes} {thing}: a temporary line, a safe word comes back, an unsafe one does not */
+    { static const Line TL[] = { { "r.test_cap", NEUT, ALLS, "n={name} a={age} l={likes} d={dislikes} t={thing}" } };
+      lang_register_lines(TL, 1);
+      Persona ps = { "Dea", STYLE_PLAIN, 0, 50, 0, 8 }; Heard h; char out[200];
+      lang_set_player("Vas");
+      lang_parse("my name is Bob and i like cats, i hate rain, i am 12 and i want a sword", &h); lang_set_heard_slots(&h);
+      CPCHECK(lang_line(&ps, "r.test_cap", out, (int)sizeof out) && !strcmp(out, "n=Bob a=12 l=cats d=rain t=sword"), "slots: [%s]", out);
+      lang_parse("i like qzxv and i hate zzkq and i want blorp", &h); lang_set_heard_slots(&h);
+      CPCHECK(lang_line(&ps, "r.test_cap", out, (int)sizeof out) && !strcmp(out, "n=Vas a=that l=that d=that t=that"), "unsafe slots: [%s]", out);
+      lang_parse("hello", &h); lang_set_heard_slots(&h);
+      CPCHECK(lang_line(&ps, "r.test_cap", out, (int)sizeof out) && !strcmp(out, "n=Vas a=that l=that d=that t=that"), "empty slots: [%s]", out);
+      lang_tables_reset(); lang_init(); }
+    /* 2,000 random sentences built from the frames' words: never more than 6 captures, every text short and clean, no crash */
+    { static const char *const W[] = { "i", "am", "im", "my", "name", "is", "call", "me", "like", "love", "hate", "want", "need", "live", "in", "from", "dont", "not", "never", "cant", "stand", "very", "so", "tired",
+          "Bob", "cats", "rain", "the", "a", "to", "and", "but", "Paris", "12", "3pm", "fuck", "die", "favorite", "color", "you", "it", ".", ",", "!", "feel", "sad", "Mary", "Ann", "of", "sick", "called", "go", "by" };
+      unsigned seed = 7; long bad = 0;
+      for (int k = 0; k < 2000; k++) {
+          char t[300]; t[0] = 0; int nw = 1 + (int)(seed = seed * 1103515245u + 12345u, (seed >> 16) % 14);
+          for (int q = 0; q < nw; q++) { seed = seed * 1103515245u + 12345u; strcat(t, W[(seed >> 16) % (sizeof W / sizeof W[0])]); strcat(t, " "); }
+          Heard h; lang_parse(t, &h);
+          if (h.ncap > HEARD_CAPS) bad++;
+          for (int i = 0; i < h.ncap; i++) { const Capture *c = &h.cap[i]; long before = bad;
+              if (strlen(c->text) > 22) bad++;
+              if (c->type != CAP_TIME && c->type != CAP_NUMBER && c->type != CAP_AGE && lang_name_blocked(c->text)) bad++;
+              if (c->type == CAP_NAME && !isupper((unsigned char)c->text[0])) bad++;
+              if (bad != before && bad < 4) printf("  bad capture [%s] in [%s]\n", c->text, t); } }
+      CPCHECK(bad == 0, "%ld bad captures in 2,000 random texts", bad); }
+    /* speed */
+    { struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a); long sink = 0; Capture c[6]; int bl;
+      static const char *const T[3] = { "hi i am Bob and i like cats but i hate rain, i live in Paris", "um well i am so tired of all of this waiting around here", "my favorite food is pizza and i want a sword" };
+      for (int i = 0; i < 100000; i++) { const char *t = T[i % 3]; sink += lang_capture_read(t, t, (int)strlen(t), 0, c, 6, &bl); }
+      clock_gettime(CLOCK_MONOTONIC, &b); double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6;
+      printf("  speed: 100,000 texts in %.0f ms (%.1f us each; sink %ld)\n", ms, ms / 100.0, sink); CPCHECK(ms < 4000.0, "100,000 reads took %.0f ms", ms); }
+    printf("capture checks: %d, problems: %d\n", cpchecks, cpfail);
+    return cpfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3103,10 +3209,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--frame"))    { rc |= do_frame(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--fourth"))   { rc |= do_fourth() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--question")) { rc |= do_question(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--capture")) { rc |= do_capture(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

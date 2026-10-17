@@ -68,5 +68,10 @@ const Line LINES_E[] = {
     {"r.ask_fortune", NEUT, ALLS, "Hard to say. The future is not mine to read."}, {"r.ask_fortune", NEUT, ALLS, "Maybe. It depends on what you do next."}, {"r.ask_fortune", NEUT, ALLS, "I cannot see that far."},
     {"r.ask_fortune", COLD, ALLS, "Ask the wind. It lies less than I do."}, {"r.ask_fortune", COLD, ALLS, "The future owes you nothing."}, {"r.ask_fortune", COLD, ALLS, "Do not ask me what you can make yourself."},
     {"r.ask_fortune", HOST, ALLS, "Your future? A long walk and a short memory."}, {"r.ask_fortune", HOST, ALLS, "Fortune tellers charge. You cannot afford me."}, {"r.ask_fortune", HOST, ALLS, "Probably not, with that attitude."},
+    /* ---- r.name_swear_name (chunk 33): the player gave a rude or blocked word as a name. nothing is echoed ---- */
+    {"r.name_swear_name", WARM, ALLS, "That is not a name, {pet}. Try again, and kindly."}, {"r.name_swear_name", WARM, ALLS, "I will not call you that. Pick a gentler name."}, {"r.name_swear_name", WARM, ALLS, "Oh, {pet}. You can do better than that. What is your real name?"},
+    {"r.name_swear_name", NEUT, ALLS, "No. Give me a name I can say out loud."}, {"r.name_swear_name", NEUT, ALLS, "That is not a name. Try again."}, {"r.name_swear_name", NEUT, ALLS, "I do not use that word. Choose another name."},
+    {"r.name_swear_name", COLD, ALLS, "Cute. I will keep calling you {player}."}, {"r.name_swear_name", COLD, ALLS, "I will not say that. You stay {player}."}, {"r.name_swear_name", COLD, ALLS, "Try a name that is not an insult to the ears."},
+    {"r.name_swear_name", HOST, ALLS, "Say that again and I will find you a worse name."}, {"r.name_swear_name", HOST, ALLS, "Is that the best you have? I will call you {player}."}, {"r.name_swear_name", HOST, ALLS, "I will not wear that word in my mouth. Fool."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

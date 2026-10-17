@@ -1,0 +1,16 @@
+# chunk 33: names, and what is not a name (labels are intents; none = heard as nothing)
+my name is Bob	intro
+call me Bob	intro
+I am Alice	intro
+im alice	intro
+you can call me Mac	intro
+hi i go by Sparrow	intro
+my name is Mary Ann	intro
+i am called Zed	intro
+my name is fuck	name_swear_name
+call me asshole	name_swear_name
+i am called Shithead	name_swear_name
+my name is not important	none
+call me later	none
+i am tired	none
+what is your name	none
