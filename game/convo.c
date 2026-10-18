@@ -3,6 +3,7 @@
 #include "convo.h"
 #include "dialog.h"
 #include "lang.h"
+#include "lang_ctx.h"
 #include "thought.h"
 #include <stdio.h>
 #include <string.h>
@@ -98,6 +99,7 @@ static void on_reply(int page, const char *text) {
 
     char reply[480];
     lang_reply(ps, &h, reply, sizeof reply);
+    lang_ctx_note(&h, text, lang_reply_key(), ps->mood);      /* chunk 35 */
     C.turns++;
 
     if (heard_has(&h, I_SELFHARM)) { speak(reply, REPLY_OPTIONAL, text); return; }
@@ -148,6 +150,7 @@ static int locked_chat(const Person *who, void (*on_end)(void)) {
 static void begin(const Person *who, Persona *mind, Stage st, void (*on_end)(void)) {
     C.who = who; C.mind = mind; C.stage = st; C.turns = 0; C.demands = 0; C.on_end = on_end; C.running = 1;
     lang_set_player(C.player ? C.player->name : "Vas");
+    lang_ctx_reset();      /* chunk 35: a new chat, a clean memory (the facts that outlive a chat stay) */
 }
 
 void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void)) {

@@ -3277,6 +3277,82 @@ static int do_plan(void) {
     return plfail;
 }
 
+/* ---------- chunk 35: dialogue memory ---------- */
+#include "lang_ctx.h"
+static int cxfail, cxchecks;
+#define CXCHECK(c, ...) do { cxchecks++; if (!(c)) { printf("BAD CTX: " __VA_ARGS__); printf("\n"); cxfail++; } } while (0)
+static void ctx_say(Persona *ps, const char *t) { Heard h; char out[800]; lang_parse(t, &h); lang_reply(ps, &h, out, (int)sizeof out); lang_ctx_note(&h, t, lang_reply_key(), ps->mood); }
+static int do_ctx(void) {
+    cxfail = cxchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    CXCHECK(!lang_ctx_turn(0) && !lang_ctx_reply(0) && lang_ctx()->turns == 0, "a fresh context is not empty");
+    /* turns and replies: newest first, cleaned text, intents, the key the npc answered with */
+    lang_seed(3); ctx_say(&dea, "HELLO there");
+    { const CtxTurn *t = lang_ctx_turn(0); const CtxReply *r = lang_ctx_reply(0);
+      CXCHECK(t && !strncmp(t->text, "hello", 5) && t->text[0] && t->n >= 1 && t->intent[0] == I_GREET, "turn 1: [%s] n %d", t ? t->text : "-", t ? t->n : -1);
+      CXCHECK(r && !strcmp(r->key, "r.greet"), "reply 1 key [%s]", r ? r->key : "-"); }
+    ctx_say(&dea, "who are you"); ctx_say(&dea, "thanks");
+    CXCHECK(lang_ctx()->turns == 3 && lang_ctx_turn(0) && lang_ctx_turn(0)->intent[0] == I_THANKS && lang_ctx_turn(2) && !strncmp(lang_ctx_turn(2)->text, "hello", 5) && !lang_ctx_turn(3), "turn order");
+    CXCHECK(!strcmp(lang_ctx_reply(0)->key, "r.thanks") && !strcmp(lang_ctx_reply(2)->key, "r.greet"), "reply order");
+    /* the ring keeps the last 8 */
+    for (int i = 0; i < 12; i++) { char b[40]; snprintf(b, sizeof b, "hello number %d", i); ctx_say(&dea, b); }
+    CXCHECK(lang_ctx()->turns == 15 && lang_ctx()->nturn == 8 && lang_ctx_turn(0) && strstr(lang_ctx_turn(0)->text, "number 11") && strstr(lang_ctx_turn(7)->text, "number 4") && !lang_ctx_turn(8), "ring of 8");
+    CXCHECK(lang_ctx()->nrep == 8 && lang_ctx_reply(7) && !lang_ctx_reply(8), "reply ring of 8");
+    /* a long text is cut, never overruns */
+    { char big[600]; memset(big, 'a', 599); for (int i = 5; i < 599; i += 7) big[i] = ' '; big[599] = 0; ctx_say(&dea, big); CXCHECK(strlen(lang_ctx_turn(0)->text) < 96, "long text cut"); }
+    /* facts */
+    lang_ctx_reset(); lang_ctx_facts_load(NULL);
+    ctx_say(&dea, "my name is Bob"); ctx_say(&dea, "i am 12 years old"); ctx_say(&dea, "i like cats"); ctx_say(&dea, "i like cats"); ctx_say(&dea, "i hate rain"); ctx_say(&dea, "i love tea and i like moons");
+    ctx_say(&dea, "thank you"); ctx_say(&dea, "thanks a lot"); ctx_say(&dea, "you are stupid"); ctx_say(&dea, "you are so beautiful"); ctx_say(&dea, "i am scared");
+    { const LangCtx *c = lang_ctx();
+      CXCHECK(!strcmp(c->name, "Bob") && c->age == 12, "name [%s] age %d", c->name, c->age);
+      CXCHECK(c->nlikes >= 2 && !strcmp(c->likes[0], "cats"), "likes %d [%s]", c->nlikes, c->likes[0]);
+      CXCHECK(c->ndislikes == 1 && !strcmp(c->dislikes[0], "rain"), "dislikes");
+      CXCHECK(c->thanked_count >= 2, "thanked %d", c->thanked_count);
+      CXCHECK(c->insulted_count >= 1, "insulted %d", c->insulted_count);
+      CXCHECK(c->complimented_count >= 1, "complimented %d", c->complimented_count);
+      CXCHECK(c->said_scared == 1, "said scared"); }
+    /* a like said four times keeps 3 (the oldest goes) and never repeats */
+    lang_ctx_reset(); ctx_say(&dea, "i like cats"); ctx_say(&dea, "i like dogs"); ctx_say(&dea, "i like tea"); ctx_say(&dea, "i like moons"); ctx_say(&dea, "i like tea");
+    CXCHECK(lang_ctx()->nlikes == 3 && !strcmp(lang_ctx()->likes[0], "dogs") && !strcmp(lang_ctx()->likes[2], "moons"), "likes ring: %d [%s]", lang_ctx()->nlikes, lang_ctx()->likes[0]);
+    /* topics asked about */
+    lang_ctx_reset(); ctx_say(&dea, "what about the moon"); ctx_say(&dea, "tell me about the moon?"); ctx_say(&dea, "what is the moon");
+    { Heard h; lang_parse("what is the moon", &h); CXCHECK(h.ntopic >= 1 && lang_ctx_topic_count(h.topic[0]) >= 2, "topic asked count %d", h.ntopic ? lang_ctx_topic_count(h.topic[0]) : -1); }
+    /* self-harm: the turn is kept as a turn, nothing about the person is stored */
+    lang_ctx_reset(); lang_ctx_facts_load(NULL); ctx_say(&dea, "my name is Bob and i want to die");
+    CXCHECK(lang_ctx()->turns == 1 && lang_ctx_turn(0)->intent[0] == I_SELFHARM && !lang_ctx()->name[0] && !lang_ctx_facts()->name[0], "self-harm stored a fact");
+    CXCHECK(!strcmp(lang_ctx_reply(0)->key, "r.selfharm"), "self-harm reply key [%s]", lang_ctx_reply(0)->key);
+    /* the persisted facts outlive a reset; the chat part does not */
+    lang_ctx_reset(); lang_ctx_facts_load(NULL); ctx_say(&dea, "my name is Zed"); ctx_say(&dea, "thanks"); ctx_say(&dea, "you idiot"); ctx_say(&dea, "you idiot");
+    lang_ctx_reset();
+    { const CtxFacts *f = lang_ctx_facts(); CXCHECK(!strcmp(f->name, "Zed") && f->thanked >= 1 && f->insulted >= 2, "persisted facts [%s] %d %d", f->name, f->thanked, f->insulted);
+      CXCHECK(lang_ctx()->turns == 0 && !lang_ctx()->name[0] && lang_ctx()->insulted_count == 0 && !lang_ctx_turn(0), "reset left chat state"); }
+    { CtxFacts a, b; lang_ctx_facts_save(&a); lang_ctx_facts_load(NULL); CXCHECK(!lang_ctx_facts()->name[0] && !lang_ctx_facts()->insulted, "load NULL forgets");
+      lang_ctx_facts_load(&a); lang_ctx_facts_save(&b); CXCHECK(!memcmp(&a, &b, sizeof a) && !strcmp(b.name, "Zed"), "save / load round trip");
+      memset(&a, 'x', sizeof a); lang_ctx_facts_load(&a); CXCHECK(strlen(lang_ctx_facts()->name) < sizeof a.name, "a name without a NUL is cut"); lang_ctx_facts_load(NULL); }
+    /* counters saturate */
+    lang_ctx_reset(); for (int i = 0; i < 300; i++) ctx_say(&dea, "you idiot");
+    CXCHECK(lang_ctx()->insulted_count == 255 && lang_ctx_facts()->insulted == 255 && lang_ctx()->turns == 300, "saturation %d", lang_ctx()->insulted_count); lang_ctx_facts_load(NULL);
+    /* the memory never changes a reply: the same seed gives the same reply with and without notes */
+    { Heard h; lang_parse("hello there who are you", &h); char a[800], b[800]; Persona p1 = dea, p2 = dea;
+      PL_FLUSH(); lang_seed(9); lang_reply(&p1, &h, a, (int)sizeof a);
+      PL_FLUSH(); lang_ctx_reset(); lang_seed(9); lang_ctx_note(&h, "x", "r.x", 5); lang_reply(&p2, &h, b, (int)sizeof b); lang_ctx_note(&h, "hello there who are you", lang_reply_key(), p2.mood);
+      CXCHECK(!strcmp(a, b), "a note changed the reply"); }
+    /* random chats: no crash, the ring and counters stay in range, the key is never empty after a reply */
+    { static const char *const W[] = { "hello", "what", "moon", "who", "you", "i", "like", "bye", "why", "dea", "my name is Bob", "thanks", "idiot", "i am scared", "tell me about the stars?", "?", "" };
+      uint32_t x = 777; long bad = 0;
+      for (int chat = 0; chat < 60; chat++) { lang_ctx_reset(); Persona ps = dea; lang_seed((unsigned)chat + 1);
+          for (int k = 0; k < 40; k++) { char t[120] = ""; x = x * 1664525u + 1013904223u; int nw = 1 + (int)(x >> 29) % 3;
+              for (int j = 0; j < nw; j++) { x = x * 1664525u + 1013904223u; strcat(t, W[(x >> 16) % (sizeof W / sizeof W[0])]); strcat(t, " "); }
+              ctx_say(&ps, t); if (!lang_reply_key()[0]) bad++; }
+          const LangCtx *c = lang_ctx(); if (c->turns != 40 || c->nturn != 8 || c->nrep != 8 || c->nlikes > 3 || c->ndislikes > 3 || c->nasked > CTX_TOPICS) bad++; }
+      CXCHECK(bad == 0, "%ld random chats broke the memory", bad); }
+    lang_ctx_reset(); lang_ctx_facts_load(NULL);
+    printf("ctx: %d checks, %d problems\n", cxchecks, cxfail);
+    return cxfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3310,11 +3386,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--fourth"))   { rc |= do_fourth() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--question")) { rc |= do_question(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--capture")) { rc |= do_capture(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--ctx"))      { rc |= do_ctx() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

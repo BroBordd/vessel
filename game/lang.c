@@ -1121,8 +1121,10 @@ void lang_set_heard_slots(const Heard *h) {
     if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
 }
 
+static char g_reply_key[40];
+const char *lang_reply_key(void) { return g_reply_key; }
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0;
+    out[0] = 0; g_reply_key[0] = 0;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1130,7 +1132,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     int choice_safe = h->qtype == QT_CHOICE && lang_safe_echo(h->opt1) && lang_safe_echo(h->opt2);
     if (choice_safe) { g_opt1 = h->opt1; g_opt2 = h->opt2; }
     /* a real person might be behind these words: step out of character, whoever is talking */
-    if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); return 1; }
+    if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); snprintf(g_reply_key, sizeof g_reply_key, "r.selfharm"); return 1; }
 
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
@@ -1162,6 +1164,9 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         if (l) { int pass = g_pass; remember(l); fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
         hedge = 0;      /* a reading the npc could not answer is not hedged */
     }
+
+    if (!answered || ladder >= 0) snprintf(g_reply_key, sizeof g_reply_key, "%s", ladder >= 0 ? plan.s[ladder].key : "r.unknown");      /* chunk 35: the key that answered, for the dialogue memory */
+    else for (int i = 0; i < plan.n; i++) if (plan.s[i].role == ROLE_ANSWER) { snprintf(g_reply_key, sizeof g_reply_key, "%s", plan.s[i].key); break; }
 
     /* chunk 34: a HEDGE opener (the npc is not sure what was meant), in place of the random opener */
     char hed[100]; hed[0] = 0;

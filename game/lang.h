@@ -187,6 +187,7 @@ int  lang_plan(const Persona *ps, const Heard *h, ReplyPlan *out);
 const char *lang_role_name(int role);            /* "answer" "ack" "hedge" "echo" "deflect" "question" "unknown" */
 const char *lang_kind_name(int kind);            /* "none" "intent" "weak" "topic" "frame" */
 int  lang_reply(Persona *ps, const Heard *h, char *out, int cap);   /* applies, then answers. returns 1 if a real intent was answered */
+const char *lang_reply_key(void);                 /* chunk 35: the reply key the last lang_reply answered with ("r.greet", "r.unknown_q" ...), "" before the first reply */
 int  lang_line(const Persona *ps, const char *key, char *out, int cap);   /* any named line, formatted. 0 if none */
 int  lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap);
 /* moods (chunk 7): the order of moods tried for a line of mood t: its chain, then the nearest of the old four. returns how many (no repeats) */
