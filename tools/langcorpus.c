@@ -12,6 +12,7 @@
  *                                                                  and print how much recall is RETAINED: fuzzed recall / clean recall
  *   build/langcorpus --fuzz 5 --min-retained 93 FILE...            exit 1 if the overall retained recall is below 93 %
  *   build/langcorpus --fuzz 5 --fuzz-misses 40 FILE...              show more lost labels (default 15). the seed is fixed (--seed N to change)
+ *   build/langcorpus --plan [N] FILE...                            (chunk 34) print the confidence, the kind and the reply plan of each line (the first N, default all), then a summary
  * corpus file: one line per player text:  text <TAB> intent[,intent...]   (# = comment, none = nothing should be understood)
  * recall of intent X = lines labelled X where lang_parse heard X. precision of X = lines where X was heard and labelled.
  * exact = the heard set equals the labelled set (the sentiment words pos/neg are ignored unless labelled). */
@@ -179,9 +180,10 @@ static int run_fuzz(int per, int nshow, int minret) {
 }
 
 int main(int argc, char **argv) {
-    int minrec = -1, nmiss = 30, bad = 0, fuzz = 0, fuzzshow = 15, minret = -1; memset(&only, 0, sizeof only); const char *files[64]; int nf = 0;
+    int plan_n = 0, minrec = -1, nmiss = 30, bad = 0, fuzz = 0, fuzzshow = 15, minret = -1; memset(&only, 0, sizeof only); const char *files[64]; int nf = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--min-recall") && i + 1 < argc) minrec = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--plan")) plan_n = (i + 1 < argc && atoi(argv[i + 1]) > 0) ? atoi(argv[++i]) : 1 << 30;
         else if (!strcmp(argv[i], "--misses") && i + 1 < argc) nmiss = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fuzz") && i + 1 < argc) fuzz = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fuzz-misses") && i + 1 < argc) fuzzshow = atoi(argv[++i]);
@@ -196,6 +198,24 @@ int main(int argc, char **argv) {
     for (int i = 0; i < nf; i++) bad += load(files[i]);
     if (bad) return 2;
 
+    if (plan_n) {                                      /* chunk 34 */
+        Persona ps = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+        int bykind[5] = {0}, byshape[4] = {0}, band[3] = {0};
+        for (int r = 0; r < nrows; r++) {
+            Heard h; lang_parse(rows[r].text, &h);
+            ReplyPlan pl; lang_plan(&ps, &h, &pl);
+            if (r < plan_n) {
+                printf("%-44.44s conf %3d %-6s", rows[r].text, h.confidence, lang_kind_name(h.kind));
+                for (int k = 0; k < pl.n; k++) { printf(" %s%s%s", k ? "+ " : "", lang_role_name(pl.s[k].role), pl.s[k].intent >= 0 ? ":" : ""); if (pl.s[k].intent >= 0) printf("%s", lang_intent_name(pl.s[k].intent)); else printf(" %s", pl.s[k].key); }
+                printf("\n");
+            }
+            bykind[h.kind]++; if (pl.n >= 1 && pl.n <= 3) byshape[pl.n]++;
+            band[h.confidence >= 70 ? 0 : h.confidence >= 40 ? 1 : 2]++;
+        }
+        printf("=== %d lines: kind none %d intent %d weak %d topic %d frame %d; confidence >= 70: %d, 40-69: %d, < 40: %d; plans of 1 / 2 / 3 steps: %d / %d / %d\n",
+               nrows, bykind[HK_NONE], bykind[HK_INTENT], bykind[HK_WEAK], bykind[HK_TOPIC], bykind[HK_FRAME], band[0], band[1], band[2], byshape[1], byshape[2], byshape[3]);
+        return 0;
+    }
     lang_seed(1);
     int exp_n[I_COUNT] = {0}, hit[I_COUNT] = {0}, pred[I_COUNT] = {0}, ok_pred[I_COUNT] = {0};
     int scored = 0, unknown = 0, exact = 0, none_n = 0, none_ok = 0, missed_rows = 0;

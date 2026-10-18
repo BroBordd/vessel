@@ -73,5 +73,10 @@ const Line LINES_E[] = {
     {"r.name_swear_name", NEUT, ALLS, "No. Give me a name I can say out loud."}, {"r.name_swear_name", NEUT, ALLS, "That is not a name. Try again."}, {"r.name_swear_name", NEUT, ALLS, "I do not use that word. Choose another name."},
     {"r.name_swear_name", COLD, ALLS, "Cute. I will keep calling you {player}."}, {"r.name_swear_name", COLD, ALLS, "I will not say that. You stay {player}."}, {"r.name_swear_name", COLD, ALLS, "Try a name that is not an insult to the ears."},
     {"r.name_swear_name", HOST, ALLS, "Say that again and I will find you a worse name."}, {"r.name_swear_name", HOST, ALLS, "Is that the best you have? I will call you {player}."}, {"r.name_swear_name", HOST, ALLS, "I will not wear that word in my mouth. Fool."},
+    /* ---- p.hedge (chunk 34): an opener when the npc is not sure what was meant. no slots, nothing echoed ---- */
+    {"p.hedge", WARM, ALLS, "If I heard you right, {pet},"}, {"p.hedge", WARM, ALLS, "I think you mean this, {pet}."}, {"p.hedge", WARM, ALLS, "Hm, let me guess what you mean."},
+    {"p.hedge", NEUT, ALLS, "If you mean what I think you mean,"}, {"p.hedge", NEUT, ALLS, "I am not sure I follow, but,"}, {"p.hedge", NEUT, ALLS, "Taking a guess here."},
+    {"p.hedge", COLD, ALLS, "If that is what you meant,"}, {"p.hedge", COLD, ALLS, "That was unclear. Guessing,"}, {"p.hedge", COLD, ALLS, "Say it properly next time. For now,"},
+    {"p.hedge", HOST, ALLS, "Mumble again and I will guess."}, {"p.hedge", HOST, ALLS, "If that was a question,"}, {"p.hedge", HOST, ALLS, "You could not even say it clearly. So,"},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

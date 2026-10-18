@@ -3177,6 +3177,106 @@ static int do_capture(int argc, char **argv) {
     return cpfail;
 }
 
+/* ---------- chunk 34: confidence, kind and the reply plan ---------- */
+static int plfail, plchecks;
+#define PLCHECK(c, ...) do { plchecks++; if (!(c)) { printf("BAD PLAN: " __VA_ARGS__); printf("\n"); plfail++; } } while (0)
+static const char *const HEDGE_BITS[] = { "If I heard you right", "I think you mean this", "let me guess what you mean", "If you mean what I think", "I am not sure I follow",
+    "Taking a guess", "If that is what you meant", "That was unclear", "Say it properly next time", "Mumble again", "If that was a question", "could not even say it clearly", NULL };
+static int has_hedge(const char *t) { for (int i = 0; HEDGE_BITS[i]; i++) if (strstr(t, HEDGE_BITS[i])) return 1; return 0; }
+static int plan_shape(const ReplyPlan *p, char *out, int cap) {
+    out[0] = 0;
+    for (int i = 0; i < p->n; i++) { char b[80]; snprintf(b, sizeof b, "%s%s%s", i ? "+" : "", lang_role_name(p->s[i].role), p->s[i].intent >= 0 ? "" : ""); strncat(out, b, (size_t)(cap - (int)strlen(out) - 1)); }
+    return p->n;
+}
+/* the no-repeat memory holds 128 lines: 140 lines of another key push every earlier line out, so two replies can be compared */
+#define PL_FLUSH() do { Persona fp = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 }; char junk[200]; for (int k = 0; k < 140; k++) lang_line_tone(&fp, "p.sigh", TONE_NEUTRAL, junk, sizeof junk); } while (0)
+static int do_plan(void) {
+    plfail = plchecks = 0;
+    lang_tables_reset(); lang_init();
+    Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    ReplyPlan pl; char sh[120];
+    /* text -> kind, a confidence band and the shape of the plan */
+    static const struct { const char *t; int kind, lo, hi; const char *shape; } C[] = {
+        { "hello", HK_INTENT, 70, 100, "answer" }, { "bye", HK_INTENT, 70, 100, "answer" }, { "hi and who are you", HK_INTENT, 70, 100, "answer+ack" },
+        { "yes", HK_WEAK, 70, 100, "answer" }, { "i have to leave now", HK_INTENT, 40, 69, "hedge+answer" },
+        { "what is the task", HK_TOPIC, 1, 39, "echo" }, { "i like the stars", HK_TOPIC, 1, 39, "echo" },
+        { "do you know who i am", HK_FRAME, 1, 39, "question" }, { "i am your servant", HK_FRAME, 1, 39, "unknown" },
+        { "asdfghjkl", HK_NONE, 0, 0, "unknown" }, { "", HK_NONE, 0, 0, "unknown" }, { "tea or coffee", HK_NONE, 0, 100, "answer" },
+    };
+    for (unsigned i = 0; i < sizeof C / sizeof C[0]; i++) {
+        Heard h; lang_parse(C[i].t, &h); lang_plan(&dea, &h, &pl); plan_shape(&pl, sh, (int)sizeof sh);
+        if (!strcmp(C[i].t, "tea or coffee")) { PLCHECK(pl.n >= 1, "[%s]: empty plan", C[i].t); continue; }      /* only that it plans something */
+        PLCHECK(h.kind == C[i].kind, "[%s]: kind %s wanted %s", C[i].t, lang_kind_name(h.kind), lang_kind_name(C[i].kind));
+        PLCHECK(h.confidence >= C[i].lo && h.confidence <= C[i].hi, "[%s]: confidence %d wanted %d-%d", C[i].t, h.confidence, C[i].lo, C[i].hi);
+        PLCHECK(!strcmp(sh, C[i].shape), "[%s]: plan %s wanted %s", C[i].t, sh, C[i].shape);
+    }
+    /* the confidence bands, forced on a clean reading of "hello" */
+    { static const struct { int conf; const char *shape; } B[] = { { 100, "answer" }, { 70, "answer" }, { 69, "hedge+answer" }, { 40, "hedge+answer" }, { 39, "hedge+answer" }, { 1, "hedge+answer" } };
+      for (unsigned i = 0; i < sizeof B / sizeof B[0]; i++) {
+          Heard h; lang_parse("hello", &h); for (int k = 0; k < h.n; k++) if (h.order[k] == I_GREET) h.conf[k] = (uint8_t)B[i].conf;
+          lang_plan(&dea, &h, &pl); plan_shape(&pl, sh, (int)sizeof sh);
+          PLCHECK(!strcmp(sh, B[i].shape), "conf %d: plan %s wanted %s", B[i].conf, sh, B[i].shape); }
+      Heard h; lang_parse("hello", &h); for (int k = 0; k < h.n; k++) if (h.order[k] == I_GREET) h.conf[k] = 35; h.ntopic = 1;
+      lang_plan(&dea, &h, &pl); plan_shape(&pl, sh, (int)sizeof sh); PLCHECK(!strcmp(sh, "echo") && !strcmp(pl.s[0].key, "r.topic_q"), "conf 35 with a topic: %s", sh); }
+    /* a crying player is never hedged at; self-harm is never hedged and steps out of character */
+    { static const char *const T[] = { "i am sad", "i am scared", "help me", "i am confused" };
+      for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++) {
+          Heard h; lang_parse(T[i], &h); for (int k = 0; k < h.n; k++) h.conf[k] = 45; h.ntopic = 0;
+          lang_plan(&dea, &h, &pl); int hed = 0; for (int k = 0; k < pl.n; k++) if (pl.s[k].role == ROLE_HEDGE) hed = 1;
+          PLCHECK(!hed, "[%s]: hedged at someone who is hurting", T[i]); }
+      static const char *const S[] = { "i want to die", "my name is Bob and i want to die", "i want to kill myself" };
+      for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) {
+          Heard h; lang_parse(S[i], &h); for (int k = 0; k < h.n; k++) h.conf[k] = 45; lang_plan(&dea, &h, &pl);
+          PLCHECK(pl.n == 1 && pl.s[0].role == ROLE_ANSWER && !strcmp(pl.s[0].key, "r.selfharm"), "[%s]: plan is not the plain self-harm answer", S[i]); } }
+    /* the plan is pure: it uses no random numbers and changes no state */
+    { Heard h; lang_parse("hello there who are you", &h); char a[800], b[800];
+      Persona p1 = dea, p2 = dea; PL_FLUSH(); lang_seed(7); lang_reply(&p1, &h, a, (int)sizeof a);
+      PL_FLUSH(); lang_seed(7); lang_plan(&p2, &h, &pl); lang_plan(&p2, &h, &pl); lang_reply(&p2, &h, b, (int)sizeof b);
+      PLCHECK(!strcmp(a, b), "lang_plan changed the reply: [%s] [%s]", a, b);
+      ReplyPlan q; lang_plan(&dea, &h, &q); PLCHECK(!memcmp(&pl, &q, sizeof pl), "two plans differ"); }
+    /* the hedge lines: 3+ per old mood, no echo slot, short */
+    { Persona pp = dea; char o[200]; const Tone T[4] = { TONE_WARM, TONE_NEUTRAL, TONE_COLD, TONE_HOSTILE };
+      for (int t = 0; t < 4; t++) { int got = 0; for (int seed = 1; seed <= 80; seed++) { lang_seed((unsigned)seed); if (lang_line_tone(&pp, "p.hedge", T[t], o, (int)sizeof o)) { got++; PLCHECK(strlen(o) <= 60 && !strchr(o, '{'), "hedge line [%s]", o); } }
+          PLCHECK(got == 80, "p.hedge has no line for mood %d", t); } }
+    /* hedged readings answer with an opener; sure readings never do; every reply is non-empty and short enough */
+    { long n = 0, hedged = 0, sure_hedged = 0, empty = 0, longer = 0;
+      for (int v = 0; v < STYLE_COUNT; v++) for (int seed = 1; seed <= 60; seed++) {
+          Persona ps = { "Dea", 1 << v, 0, 50, 0, 8 }; char out[800]; Heard h;
+          lang_parse("hello", &h); lang_seed((unsigned)seed); lang_reply(&ps, &h, out, (int)sizeof out); n++; if (has_hedge(out)) sure_hedged++;
+          lang_parse("hello", &h); for (int k = 0; k < h.n; k++) if (h.order[k] == I_GREET) h.conf[k] = 50;
+          lang_seed((unsigned)seed); lang_reply(&ps, &h, out, (int)sizeof out); if (!out[0]) empty++; if (strlen(out) > 220) longer++;
+          if (has_hedge(out)) hedged++; }
+      PLCHECK(sure_hedged == 0, "%ld sure readings got a hedge opener", sure_hedged);
+      PLCHECK(hedged * 100 >= n * 85, "only %ld of %ld hedged readings got an opener (voices may rewrite the rest)", hedged, n);
+      PLCHECK(empty == 0 && longer == 0, "%ld empty, %ld too long", empty, longer); }
+    /* invariants over many texts: 1-3 steps, valid roles, keys that exist, the hedge comes first and only before an answer, replies never empty */
+    { static const char *const W[] = { "hello", "what", "the", "moon", "who", "are", "you", "i", "like", "stars", "bye", "why", "dea", "alex", "tea", "or", "coffee", "my", "name", "is", "bob", "?", "!", "love", "hate", "yes", "no", "orb", "help", "sad" };
+      uint32_t x = 12345; long n = 0, bad = 0, empty = 0, hed = 0;
+      for (int it = 0; it < 3000; it++) {
+          char t[200] = ""; int nw = 1 + (int)((x = x * 1664525u + 1013904223u) >> 28) % 6;
+          for (int k = 0; k < nw; k++) { x = x * 1664525u + 1013904223u; strcat(t, W[(x >> 16) % (sizeof W / sizeof W[0])]); strcat(t, " "); }
+          Heard h; lang_parse(t, &h); lang_plan(&dea, &h, &pl); n++;
+          int ok = pl.n >= 1 && pl.n <= PLAN_MAX && h.confidence <= 100 && h.kind <= HK_FRAME;
+          for (int k = 0; k < pl.n; k++) {
+              ok = ok && pl.s[k].role < ROLE_COUNT && pl.s[k].key[0];
+              if (pl.s[k].role == ROLE_HEDGE) { hed++; ok = ok && k == 0 && pl.n >= 2 && pl.s[1].role == ROLE_ANSWER; }
+              if (pl.s[k].role == ROLE_ACK) ok = ok && k >= 1 && pl.s[k - 1].role == ROLE_ANSWER;
+              if (pl.s[k].intent >= 0) ok = ok && pl.s[k].intent < I_COUNT; }
+          if (!ok) { bad++; if (bad < 5) printf("  plan of [%s]: n %d conf %d kind %d\n", t, pl.n, h.confidence, h.kind); }
+          Persona ps = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 }; char out[800]; lang_seed((unsigned)it + 1); lang_reply(&ps, &h, out, (int)sizeof out); if (!out[0] || strchr(out, '{')) empty++; }
+      PLCHECK(bad == 0, "%ld of %ld plans are malformed", bad, n);
+      PLCHECK(empty == 0, "%ld of %ld replies empty or with an open slot", empty, n);
+      PLCHECK(hed > 0, "no random text was ever hedged"); }
+    /* old callers: a plain phrase reading is answered exactly as before (same reply as the chunk 33 behaviour: no hedge, no extra random draw) */
+    { static const char *const T[] = { "hello", "bye", "who are you", "thanks", "i love you", "tell me a joke" };
+      for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++) { Heard h; lang_parse(T[i], &h); lang_plan(&dea, &h, &pl); PLCHECK(pl.s[0].role == ROLE_ANSWER, "[%s]: first step is %s", T[i], lang_role_name(pl.s[0].role)); } }
+    /* names */
+    { int ok = 1; for (int r = 0; r < ROLE_COUNT; r++) ok = ok && strcmp(lang_role_name(r), "?"); for (int k = 0; k <= HK_FRAME; k++) ok = ok && strcmp(lang_kind_name(k), "?");
+      PLCHECK(ok && !strcmp(lang_role_name(99), "?") && !strcmp(lang_kind_name(99), "?"), "role and kind names"); }
+    printf("plan: %d checks, %d problems\n", plchecks, plfail);
+    return plfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3210,10 +3310,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--fourth"))   { rc |= do_fourth() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--question")) { rc |= do_question(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--capture")) { rc |= do_capture(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

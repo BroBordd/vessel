@@ -120,8 +120,18 @@ typedef struct {
     Frame frame;        /* chunk 30: the frame of the last clause of the text as typed that does something (act, subject, tense, modality, politeness, verb, object, question word); a variant text only when the typed text has none. act SA_NONE = no clause said anything */
     uint8_t ncap;       /* chunk 33: facts captured (0-6): cap[] of kind CAP_NAME / AGE / PLACE / LIKE / DISLIKE / THING / NUMBER / TIME / FEELING, text as typed (a name keeps its capitals, the rest is lower case). a blocked name is never captured: it is heard as I_NAME_SWEAR_NAME */
     Capture cap[HEARD_CAPS];
+    uint8_t confidence; /* chunk 34: 0-100, how sure the engine is of the intent it will answer (that intent's conf; 30 when only a topic or a frame was heard; 0 = nothing) */
+    uint8_t kind;       /* chunk 34: HK_* what the reading rests on */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
+
+/* chunk 34: what a reading rests on (Heard.kind) */
+enum { HK_NONE, HK_INTENT, HK_WEAK, HK_TOPIC, HK_FRAME };   /* nothing / a real intent / only a catch-all intent (what, how, why ...) / a topic word only / a sentence frame only */
+/* chunk 34: the reply plan, up to 3 steps. ANSWER = the top intent, ACK = a second intent (answered short), HEDGE = an opener that says the npc is not sure,
+ * ECHO = reflect the topic back, DEFLECT = steer away in character (rhetorical questions), QUESTION = ask back, UNKNOWN = the unknown ladder */
+enum { ROLE_ANSWER, ROLE_ACK, ROLE_HEDGE, ROLE_ECHO, ROLE_DEFLECT, ROLE_QUESTION, ROLE_UNKNOWN, ROLE_COUNT };
+#define PLAN_MAX 3
+typedef struct { int n; struct { uint8_t role; int16_t intent; char key[40]; } s[PLAN_MAX]; } ReplyPlan;   /* intent = -1 when the step is not about one intent */
 
 static inline int  heard_has(const Heard *h, int i) { return (int)((h->m[i >> 6] >> (i & 63)) & 1u); }
 static inline void heard_set(Heard *h, int i) { h->m[i >> 6] |= 1ull << (i & 63); }
@@ -172,6 +182,10 @@ Tone lang_mood_now(const Persona *ps);
 void lang_apply(Persona *ps, const Heard *h);    /* moves mood + charisma for what was said; one call = one turn (the sticking mood counts them) */
 void lang_idle_turn(Persona *ps);                /* a turn where the player said nothing the engine heard: the vector drifts back to 0, a long silence makes them BORED or WORRIED */
 void lang_threat(Persona *ps);                   /* the player threatened them: AFRAID (gentle by nature) or HOSTILE (toxic). no intent calls this yet */
+/* chunk 34: what lang_reply will do with this reading (pure: no random numbers, no state). returns the number of steps (1-3) */
+int  lang_plan(const Persona *ps, const Heard *h, ReplyPlan *out);
+const char *lang_role_name(int role);            /* "answer" "ack" "hedge" "echo" "deflect" "question" "unknown" */
+const char *lang_kind_name(int kind);            /* "none" "intent" "weak" "topic" "frame" */
 int  lang_reply(Persona *ps, const Heard *h, char *out, int cap);   /* applies, then answers. returns 1 if a real intent was answered */
 int  lang_line(const Persona *ps, const char *key, char *out, int cap);   /* any named line, formatted. 0 if none */
 int  lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap);

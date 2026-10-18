@@ -478,6 +478,73 @@ static void capture_pass(Heard *h, const char *lc, int len, const int *src, Case
     }
 }
 
+/* ---------- chunk 34: which intents get answered, the confidence, the reply plan ---------- */
+/* the intents lang_reply answers: strong ones first (by rank), the catch-alls only when nothing else was said; at most 2 */
+static int choose_intents(const Heard *h, int *pickd) {
+    int np = 0;
+    for (int pass = 0; pass < 2 && !np; pass++) {
+        int cand[HEARD_ORDER], nc = 0;
+        for (int i = 0; i < h->n; i++) {
+            int in = h->order[i];
+            if (in == I_POS || in == I_NEG) continue;
+            if (h->qtype == QT_RHETORICAL && (in == I_WHAT || in == I_HOW || in == I_WHY || in == I_ASK_ADVICE || in == I_ASK_OPINION)) continue;      /* chunk 32: a rhetorical question is not answered as a real one */
+            if ((rank_of(in) == 99) == (pass == 1)) cand[nc++] = in;
+        }
+        for (int a = 0; a < nc; a++)                                   /* tiny sort by rank */
+            for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
+        for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
+    }
+    if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */
+    return np;
+}
+static int conf_of(const Heard *h, int in) {
+    for (int i = 0; i < h->n; i++) if (h->order[i] == in) return h->conf[i];
+    return 0;
+}
+/* the key of the unknown ladder for a reading nothing answered, and the role of that step */
+static const char *ladder_key(const Heard *h, int *role) {
+    *role = ROLE_UNKNOWN;
+    if (h->qtype == QT_CHOICE && h->opt1[0] && h->opt2[0]) { *role = ROLE_ANSWER; return "r.choice_q"; }
+    if (h->qtype == QT_RHETORICAL) { *role = ROLE_DEFLECT; return "r.rhetorical_q"; }
+    if ((h->qtype == QT_WHO || h->qtype == QT_WHAT) && h->focus[0] && !h->capture[0] && lang_safe_echo(h->focus) && lang_is_cast(h->focus)) { *role = ROLE_ECHO; return "r.cast_q"; }
+    if (h->ntopic && h->is_question && h->words >= 2) { *role = ROLE_ECHO; return "r.topic_q"; }
+    if (h->is_question && h->words >= 2) { *role = ROLE_QUESTION; return "r.unknown_q"; }
+    if (h->ntopic) *role = ROLE_ECHO;      /* a thing we know a word for: the unknown lines stand in until the echo lines of chunk 40 */
+    if (h->negative > h->positive) return "r.unknown_neg";
+    if (h->positive > h->negative) return "r.unknown_pos";
+    if (h->words <= 1) return "r.unknown_short";
+    return "r.unknown";
+}
+const char *lang_role_name(int r) { static const char *const N[ROLE_COUNT] = { "answer", "ack", "hedge", "echo", "deflect", "question", "unknown" }; return r >= 0 && r < ROLE_COUNT ? N[r] : "?"; }
+const char *lang_kind_name(int k) { static const char *const N[] = { "none", "intent", "weak", "topic", "frame" }; return k >= 0 && k <= HK_FRAME ? N[k] : "?"; }
+static void confidence_of(Heard *h) {
+    int pickd[HEARD_ORDER], np = choose_intents(h, pickd);
+    if (np) { h->confidence = (uint8_t)conf_of(h, pickd[0]); h->kind = rank_of(pickd[0]) == 99 ? HK_WEAK : HK_INTENT; }
+    else if (h->ntopic) { h->confidence = 30; h->kind = HK_TOPIC; }
+    else if (h->frame.act != SA_NONE) { h->confidence = 30; h->kind = HK_FRAME; }
+    else { h->confidence = 0; h->kind = HK_NONE; }
+}
+static void plan_add(ReplyPlan *p, int role, int intent, const char *key) {
+    if (p->n >= PLAN_MAX) return;
+    p->s[p->n].role = (uint8_t)role; p->s[p->n].intent = (int16_t)intent;
+    snprintf(p->s[p->n].key, sizeof p->s[p->n].key, "%s", key); p->n++;
+}
+int lang_plan(const Persona *ps, const Heard *h, ReplyPlan *out) {
+    (void)ps;
+    memset(out, 0, sizeof *out);
+    char key[40];
+    if (heard_has(h, I_SELFHARM)) { plan_add(out, ROLE_ANSWER, I_SELFHARM, "r.selfharm"); return out->n; }   /* steps out of character, never hedged */
+    int pickd[HEARD_ORDER], np = choose_intents(h, pickd);
+    if (!np) { int role; const char *k = ladder_key(h, &role); plan_add(out, role, -1, k); return out->n; }
+    int conf = conf_of(h, pickd[0]);
+    int top = pickd[0];
+    if (conf < 40 && h->ntopic && rank_of(top) != 99) { plan_add(out, ROLE_ECHO, -1, "r.topic_q"); return out->n; }      /* a shaky reading and a thing we know: reflect the thing */
+    if (conf < 70 && top != I_SAD && top != I_SCARED && top != I_CONFUSED && top != I_HELP) plan_add(out, ROLE_HEDGE, -1, "p.hedge");   /* never hedge at someone who is crying */
+    plan_add(out, ROLE_ANSWER, top, lang_intent_key(top, key, (int)sizeof key));
+    if (np > 1) plan_add(out, ROLE_ACK, pickd[1], lang_intent_key(pickd[1], key, (int)sizeof key));
+    return out->n;
+}
+
 void lang_parse(const char *text, Heard *h) {
     memset(h, 0, sizeof *h);
     char lc[MAX_TEXT], t1[MAX_TEXT]; int src[MAX_TEXT], map[MAX_TEXT]; LangInfo info;
@@ -573,6 +640,7 @@ void lang_parse(const char *text, Heard *h) {
         for (int k = 0; QW[k]; k++) if (!strcmp(fw, QW[k])) { q = 1; break; }
     }
     h->is_question = q;
+    confidence_of(h);      /* chunk 34 */
 }
 
 /* marks the ORIGINAL bytes of every match (chunk 15: through the char map, so folded accents, collapsed spaces and so on still
@@ -1067,22 +1135,15 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
 
-    /* strong intents first (by rank), weak ones only if nothing else was said */
-    int pickd[HEARD_ORDER], np = 0;
-    for (int pass = 0; pass < 2 && !np; pass++) {
-        int cand[HEARD_ORDER], nc = 0;
-        for (int i = 0; i < h->n; i++) {
-            int in = h->order[i];
-            if (in == I_POS || in == I_NEG) continue;
-            if (h->qtype == QT_RHETORICAL && (in == I_WHAT || in == I_HOW || in == I_WHY || in == I_ASK_ADVICE || in == I_ASK_OPINION)) continue;      /* chunk 32: a rhetorical question is not answered as a real one */
-            if ((rank_of(in) == 99) == (pass == 1)) cand[nc++] = in;
-        }
-        for (int a = 0; a < nc; a++)                                   /* tiny sort by rank */
-            for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
-        for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
+    /* chunk 34: the plan says what to do (answer, hedge, echo ...); the steps run in order */
+    ReplyPlan plan; lang_plan(ps, h, &plan);
+    int pickd[HEARD_ORDER] = { 0 }, np = 0, hedge = 0, ladder = -1;
+    for (int i = 0; i < plan.n; i++) {
+        int r = plan.s[i].role;
+        if (r == ROLE_HEDGE) hedge = 1;
+        else if ((r == ROLE_ANSWER || r == ROLE_ACK) && plan.s[i].intent >= 0) pickd[np++] = plan.s[i].intent;
+        else ladder = i;
     }
-
-    if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */      /* a long question we have no answer for */
     char body[600]; body[0] = 0;       /* chunk 5: was 400 (cut to a readable length in chunk 42) */
     int answered = say_picks(ps, pickd, np, tone, body, (int)sizeof body);
     if (!answered && np > 0 && rank_of(pickd[0]) != 99) {            /* chunk 30: the strong intents had no line (a fine intent whose group has no lines yet): the catch-alls answer after all */
@@ -1094,33 +1155,37 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     if (!answered) {                                                   /* never leave the player hanging */
         if (gibberish_flip(ps, h)) tone = lang_mood_now(ps);
-        const char *key = "r.unknown";
-        if (h->qtype == QT_CHOICE && h->opt1[0] && h->opt2[0]) { g_pick = lang_choice_pick(tone_rude(tone), rn(100)); key = "r.choice_q"; }      /* {pick} / {opt1} / {opt2} say "the first" and "the second" when the options are not safe to echo */      /* chunk 32 */
-        else if (h->qtype == QT_RHETORICAL) key = "r.rhetorical_q";
-        else if ((h->qtype == QT_WHO || h->qtype == QT_WHAT) && g_topic[0] && g_topic == h->focus && lang_is_cast(h->focus)) key = "r.cast_q";
-        else if (h->ntopic && h->is_question && h->words >= 2) key = "r.topic_q";      /* chunk 29: a question about a thing we know a word for */
-        else if (h->is_question && h->words >= 2) key = "r.unknown_q";
-        else if (h->negative > h->positive) key = "r.unknown_neg";
-        else if (h->positive > h->negative) key = "r.unknown_pos";
-        else if (h->words <= 1) key = "r.unknown_short";
+        int role; const char *key = ladder >= 0 ? plan.s[ladder].key : ladder_key(h, &role);
+        if (!strcmp(key, "r.choice_q")) g_pick = lang_choice_pick(tone_rude(tone), rn(100));      /* {pick} / {opt1} / {opt2} say "the first" and "the second" when the options are not safe to echo */      /* chunk 32 */
         g_tone = (int)tone;
         const Line *l = pick(ps, key, (int)tone);
         if (l) { int pass = g_pass; remember(l); fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
+        hedge = 0;      /* a reading the npc could not answer is not hedged */
+    }
+
+    /* chunk 34: a HEDGE opener (the npc is not sure what was meant), in place of the random opener */
+    char hed[100]; hed[0] = 0;
+    if (hedge && answered) {
+        g_tone = (int)tone;
+        const Line *l = pick(ps, "p.hedge", (int)tone);
+        if (l) { remember(l); fmt(ps, l->text, hed, (int)sizeof hed, 1); }
+        if ((int)strlen(hed) + (int)strlen(body) > 170) hed[0] = 0;      /* keep it readable on a phone */
     }
 
     /* a little colour around the edges: an opener and/or a closer */
     int len = (int)strlen(body);
     char pre[80] = "", post[100] = "", full[800];
     g_tone = (int)tone;
-    if (len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
+    if (!hed[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, pre, (int)sizeof pre, 1); }
     }
-    if (len + (int)strlen(pre) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
+    if (len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
         const Line *l = pick(ps, "p.post", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, post, (int)sizeof post, 1); }
     }
     full[0] = 0;
+    if (hed[0]) cat(full, (int)sizeof full, hed);
     if (pre[0]) cat(full, (int)sizeof full, pre);
     cat(full, (int)sizeof full, body);
     if (post[0]) cat(full, (int)sizeof full, post);
