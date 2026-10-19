@@ -30,6 +30,7 @@ typedef struct {
     uint8_t said_scared, insulted_count, thanked_count, complimented_count, lied_count;   /* saturate at 255 */
     int16_t asked_about[CTX_TOPICS]; uint8_t asked_n[CTX_TOPICS]; int nasked;               /* topic ids (lang_topic_name) asked about and how often */
     char ask[12];                                /* the ask tag of the npc's last line (chunk 36); empty = none */
+    char last_text[160];                         /* chunk 37: the npc's last reply as spoken ("" after self-harm): follow-ups resay or extend it */
     char ask_text[96];                           /* the question sentence of that line as spoken (chunk 36: a choice needs its two options) */
 } LangCtx;
 typedef struct { char name[24]; uint8_t insulted, thanked; } CtxFacts;    /* what is saved between chats */
@@ -41,6 +42,7 @@ const CtxTurn  *lang_ctx_turn(int back);         /* 0 = the newest player turn, 
 const CtxReply *lang_ctx_reply(int back);
 int  lang_ctx_topic_count(int topic);            /* how often the player asked about a topic this chat */
 void lang_ctx_set_ask(const char *tag, const char *text);   /* chunk 36: the npc just asked something (tag "" clears); lang_ctx_note does this from lang_reply_ask() */
+void lang_ctx_set_last(const char *key, const char *text);  /* chunk 37: the npc just said `text` with reply key `key` (tests, corpus @last lines; lang_ctx_note does this itself) */
 void lang_ctx_set_ask_line(const char *text);    /* chunk 36: a scripted line spoken without lang_reply (the story's own question): the tag it gets by rule */
 void lang_ctx_facts_save(CtxFacts *out);
 void lang_ctx_facts_load(const CtxFacts *in);    /* a NULL or empty struct forgets everything */

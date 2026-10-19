@@ -84,12 +84,12 @@ const char *lang_line_ask(const Line *l) {
 /* ---------- reading an answer ---------- */
 #define MAXW 10
 typedef struct { char w[MAXW][24]; int n; } Toks;
-static int tokenize(const char *lc, Toks *t) {
+static int tokenize2(const char *lc, Toks *t, int allowq) {
     t->n = 0;
     const char *p = lc;
     while (*p) {
         while (*p && !isalnum((unsigned char)*p)) {
-            if (*p == '?') return 0;                  /* a question back is not a bare answer */
+            if (*p == '?' && !allowq) return 0;       /* a question back is not a bare answer */
             p++;
         }
         if (!*p) break;
@@ -109,6 +109,7 @@ static int unit_at(const Toks *t, int at, const char *unit) {         /* does th
     }
     return k;
 }
+static int tokenize(const char *lc, Toks *t) { return tokenize2(lc, t, 0); }
 /* consume the whole token run with units of `good` (at least one needed) and `neutral` (fillers, always allowed); 1 if it all parses */
 static int consume(const Toks *t, const char *const *good, const char *const *neutral) {
     int at = 0, hit = 0;
@@ -211,4 +212,22 @@ int lang_ask_read(const char *tag, const char *ask_text, const char *lc, const c
         return ASK_NONE;
     }
     return ASK_NONE;
+}
+
+/* ---------- chunk 37: follow-ups ---------- */
+static const char *const FU_FILL[] = { "well", "um", "uh", "hmm", "oh", "ah", "but", "please", "pls", "mm", "hm", NULL };
+static const char *const FW_WHY[] = { "why", "why not", "how come", "why is that", "why so", "why though", "why is it", "why do you say that", "why would you say that", NULL };
+static const char *const FW_MORE[] = { "and", "and then", "and so", "so", "then what", "go on", "more", "continue", "tell me more", "explain", "elaborate", "like what", "for example", "for instance",
+    "in what way", "what do you mean", "what does that mean", "what do you mean by that", "how so", "such as", "example", "keep going", "carry on", "go on then", "explain more", "say more", "and what else", "what else", "meaning", NULL };
+static const char *const FW_REALLY[] = { "really", "seriously", "are you sure", "truly", "for real", "is that so", "is that true", "you sure", "honestly", "really really", "is it", "is that right", "no kidding", NULL };
+static const char *const FW_AGAIN[] = { "what", "huh", "pardon", "sorry what", "say that again", "say again", "again", "repeat", "repeat that", "what did you say", "come again", "eh", "excuse me", "once more",
+    "i did not hear", "i didnt hear", "i did not catch that", "i didnt catch that", "say it again", "what was that", "what was that again", "can you repeat that", "sorry", "wait what", "hm what", NULL };
+int lang_follow_read(const char *lc) {
+    Toks t;
+    if (!lc || !tokenize2(lc, &t, 1) || t.n > 8) return FU_NONE;
+    if (consume(&t, FW_WHY, FU_FILL)) return FU_WHY;
+    if (consume(&t, FW_REALLY, FU_FILL)) return FU_REALLY;
+    if (consume(&t, FW_AGAIN, FU_FILL)) return FU_AGAIN;
+    if (consume(&t, FW_MORE, FU_FILL)) return FU_MORE;
+    return FU_NONE;
 }

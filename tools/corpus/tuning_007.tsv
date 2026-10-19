@@ -1,0 +1,64 @@
+# chunk 37: bare follow-ups to the npc's last reply. `@last<TAB>on` = a reply is in the chat, a bare `@last` clears it
+@last	on
+why	follow_why
+why?	follow_why
+why not	follow_why
+but why	follow_why
+how come	follow_why
+why is that	follow_why
+WHY	follow_why
+why though	follow_why
+um why	follow_why
+and	follow_more
+and then	follow_more
+so	follow_more
+so?	follow_more
+go on	follow_more
+more	follow_more
+continue	follow_more
+tell me more	follow_more
+explain	follow_more
+elaborate	follow_more
+like what	follow_more
+for example	follow_more
+in what way	follow_more
+what do you mean	follow_more
+what do you mean?	follow_more
+how so	follow_more
+keep going	follow_more
+carry on	follow_more
+what else	follow_more
+such as	follow_more
+well go on	follow_more
+really	follow_really
+really?	follow_really
+seriously	follow_really
+are you sure	follow_really
+truly	follow_really
+for real	follow_really
+is that so	follow_really
+is that true	follow_really
+you sure	follow_really
+oh really	follow_really
+what	follow_again
+what?	follow_again
+huh	follow_again
+huh?	follow_again
+pardon	follow_again
+say that again	follow_again
+say again	follow_again
+again	follow_again
+repeat that	follow_again
+what did you say	follow_again
+come again	follow_again
+excuse me	follow_again
+once more	follow_again
+i didnt hear	follow_again
+i did not catch that	follow_again
+say it again	follow_again
+what was that	follow_again
+sorry what	follow_again
+@last
+# nothing said yet: the old readings
+why	why
+what	what

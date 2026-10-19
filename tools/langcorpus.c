@@ -34,22 +34,23 @@ static int  s_meet(const Set *a, const Set *b) { for (int k = 0; k < HEARD_MAX /
 static int  s_eq(const Set *a, const Set *b) { return !memcmp(a->w, b->w, sizeof a->w); }
 static Set  s_of(const Heard *h) { Set s; memcpy(s.w, h->m, sizeof s.w); return s; }
 #define MAXL 20000
-typedef struct { char text[512]; Set exp; int none; char ask[12], asktext[96]; } Row;      /* ask / asktext: the npc line the row answers (an `@ask<TAB>tag[<TAB>question]` line sets it for the rows below; a bare `@ask` clears it) */
+typedef struct { char text[512]; Set exp; int none; char ask[12], asktext[96]; int last; } Row;      /* ask / asktext: the npc line the row answers (an `@ask<TAB>tag[<TAB>question]` line sets it for the rows below; a bare `@ask` clears it) */
 static Row rows[MAXL]; static int nrows;
 
 static int intent_by_name(const char *n) { return lang_intent_by_name(n); }
 
-static char cur_ask[12], cur_asktext[96];
-static void use_ctx(const Row *r) { lang_ctx_set_ask(r->ask, r->asktext); }       /* chunk 36: parse the row as the answer to that line */
+static char cur_ask[12], cur_asktext[96]; static int cur_last;
+static void use_ctx(const Row *r) { lang_ctx_reset(); if (r->last) lang_ctx_set_last("r.sky", "The sky is wide and it does not care about you, wanderer."); lang_ctx_set_ask(r->ask, r->asktext); }       /* chunk 36: parse the row as the answer to that line */
 static int load(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) { fprintf(stderr, "cannot open %s\n", path); return 1; }
     char line[512]; int ln = 0, bad = 0;
-    cur_ask[0] = cur_asktext[0] = 0;
+    cur_ask[0] = cur_asktext[0] = 0; cur_last = 0;
     while (fgets(line, sizeof line, f)) {
         ln++;
         size_t n = strlen(line); while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
         if (!n || line[0] == '#') continue;
+        if (!strncmp(line, "@last", 5)) { cur_last = line[5] == '\t'; continue; }      /* chunk 37: the rows below follow an npc reply (`@last<TAB>on`; a bare `@last` clears) */
         if (!strncmp(line, "@ask", 4)) {                     /* chunk 36: the next rows answer an npc line with this ask tag */
             cur_ask[0] = cur_asktext[0] = 0;
             char *t1 = strchr(line, '\t');
@@ -63,7 +64,7 @@ static int load(const char *path) {
         if (nrows >= MAXL) { fprintf(stderr, "too many rows\n"); fclose(f); return 1; }
         Row *r = &rows[nrows];
         snprintf(r->text, sizeof r->text, "%s", line); memset(&r->exp, 0, sizeof r->exp); r->none = 0;
-        snprintf(r->ask, sizeof r->ask, "%s", cur_ask); snprintf(r->asktext, sizeof r->asktext, "%s", cur_asktext);
+        r->last = cur_last; snprintf(r->ask, sizeof r->ask, "%s", cur_ask); snprintf(r->asktext, sizeof r->asktext, "%s", cur_asktext);
         for (char *tok = strtok(tab + 1, ","); tok; tok = strtok(NULL, ",")) {
             while (*tok == ' ') tok++;
             if (!strcmp(tok, "none")) { r->none = 1; continue; }

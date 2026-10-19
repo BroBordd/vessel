@@ -14,6 +14,7 @@
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
+ *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
@@ -3356,6 +3357,11 @@ static int do_ctx(void) {
 
 /* ---------- chunk 36: ask tags ---------- */
 #include "lang_ask.h"
+#if defined(__SANITIZE_ADDRESS__)
+#define SANITIZED 1
+#else
+#define SANITIZED 0
+#endif
 static int akfail, akchecks;
 #define AKCHECK(c, ...) do { akchecks++; if (!(c)) { printf("BAD ASK: " __VA_ARGS__); printf("\n"); akfail++; } } while (0)
 static int ak_has(const Heard *h, const char *name) { int k = lang_intent_by_name(name); return k >= 0 && heard_has(h, k); }
@@ -3525,11 +3531,80 @@ static int do_ask(int argc, char **argv) {
       AKCHECK(!ak_any(&h) && strcmp(lang_reply_key(), "r.agree_to_ask") && out[0], "no tag: yes is answered the old way [%s] %s", out, lang_reply_key());
       lang_ctx_set_ask("yn", "Do you want more?"); const char *tx = "well um yeah sure i guess so that works for me and everything else is fine as it is";
       clock_t t0 = clock(); for (int i = 0; i < 2000; i++) { Heard hh; lang_parse(tx, &hh); } double ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / 2000;
-      AKCHECK(ms < 1.0, "parse with a tag in force took %.3f ms", ms); printf("ask: parse of %d characters with a tag in force %.3f ms\n", (int)strlen(tx), ms);
+      AKCHECK(SANITIZED || ms < 1.0, "parse with a tag in force took %.3f ms", ms); printf("ask: parse of %d characters with a tag in force %.3f ms\n", (int)strlen(tx), ms);
       lang_ctx_reset(); }
     (void)argc; (void)argv;
     printf("ask: %d checks, %d problems\n", akchecks, akfail);
     return akfail;
+}
+
+/* ---------- chunk 37: follow-ups ---------- */
+static int fufail, fuchecks;
+#define FUCHECK(c, ...) do { fuchecks++; if (!(c)) { printf("BAD FOLLOW: " __VA_ARGS__); printf("\n"); fufail++; } } while (0)
+static const char *fu_which(const Heard *h) { static const char *const N[] = { "follow_why", "follow_more", "follow_really", "follow_again" }; for (int i = 0; i < 4; i++) if (ak_has(h, N[i])) return N[i]; return "-"; }
+static const Line T37_Y[] = { { "r.got_it", WARM | NEUT | COLD | HOST, ALLS, "Mind the door.", NULL }, { "y.got_it", WARM | NEUT | COLD | HOST, ALLS, "I said, mind the door.", NULL }, { "x.got_it", WARM | NEUT | COLD | HOST, ALLS, "It sticks, and it bites.", NULL } };
+static int do_follow(void) {
+    fufail = fuchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    struct { const char *t, *w; } R[] = {
+        {"why","follow_why"},{"why?","follow_why"},{"why not","follow_why"},{"but why","follow_why"},{"how come","follow_why"},{"WHY","follow_why"},{"um why","follow_why"},
+        {"and","follow_more"},{"and then","follow_more"},{"so","follow_more"},{"go on","follow_more"},{"more","follow_more"},{"continue","follow_more"},{"tell me more","follow_more"},{"explain","follow_more"},
+        {"like what","follow_more"},{"for example","follow_more"},{"in what way","follow_more"},{"what do you mean","follow_more"},{"how so","follow_more"},{"what else","follow_more"},
+        {"really","follow_really"},{"really?","follow_really"},{"seriously","follow_really"},{"are you sure","follow_really"},{"is that true","follow_really"},{"oh really","follow_really"},
+        {"what","follow_again"},{"what?","follow_again"},{"huh","follow_again"},{"pardon","follow_again"},{"say that again","follow_again"},{"again","follow_again"},{"repeat that","follow_again"},{"come again","follow_again"},{"what did you say","follow_again"},
+        {"why are you here","-"},{"why do birds fly south","-"},{"and the moon","-"},{"so what is the hole","-"},{"more wine","-"},{"really good","-"},{"what is your name","-"},{"hello","-"},{"who are you","-"},{"tell me a joke","-"},{"i want more cake please now","-"},
+        {"yes","-"},{"no","-"},{"","-"},{"...","-"},{"why why why why why why why why why","-"},
+    };
+    for (unsigned i = 0; i < sizeof R / sizeof R[0]; i++) {
+        lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky is wide."); Heard h; lang_parse(R[i].t, &h);
+        FUCHECK(!strcmp(fu_which(&h), R[i].w), "[%s] read as %s, want %s", R[i].t, fu_which(&h), R[i].w);
+        lang_ctx_reset(); lang_parse(R[i].t, &h); FUCHECK(!strcmp(fu_which(&h), "-"), "[%s] with nothing said yet read as %s", R[i].t, fu_which(&h));
+    }
+    /* an ask tag wins (a yes to a question is not a follow-up), distress and self-harm are never follow-ups */
+    { lang_ctx_reset(); lang_ctx_set_last("r.sky", "Do you want more?"); lang_ctx_set_ask("yn", "Do you want more?"); Heard h; lang_parse("more", &h); FUCHECK(!strcmp(fu_which(&h), "follow_more") || ak_any(&h), "more under yn");
+      lang_parse("no", &h); FUCHECK(ak_has(&h, "decline_to_ask") && !strcmp(fu_which(&h), "-"), "no under yn stays an answer");
+      lang_ctx_set_ask("choice", "Red or blue?"); lang_parse("what", &h); FUCHECK(ak_has(&h, "answer_choice") == 0, "what is no pick");
+      lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky is wide.");
+      const char *sh[] = { "why i want to die", "i want to die really", "why am i so scared", "why i am so sad", "why help me" };
+      for (unsigned i = 0; i < 5; i++) { lang_parse(sh[i], &h); FUCHECK(!strcmp(fu_which(&h), "-"), "[%s] is no follow-up", sh[i]); }
+      lang_parse("i want to die", &h); char out[800]; lang_reply(&dea, &h, out, (int)sizeof out); lang_ctx_note(&h, "i want to die", lang_reply_key(), 0);
+      FUCHECK(!lang_ctx()->last_text[0] && !strcmp(lang_reply_key(), "r.selfharm"), "nothing to repeat after self-harm");
+      lang_parse("say that again", &h); FUCHECK(!strcmp(fu_which(&h), "-"), "no resaying after self-harm"); }
+    /* additive: a last reply in force loses no intent of any reply line */
+    { const Line *T[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E }; const int N[5] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N }; int n = 0, lost = 0;
+      for (int a = 0; a < 5; a++) for (int i = 0; i < N[a]; i += 3) { char tx[200]; snprintf(tx, sizeof tx, "%s", T[a][i].text); for (char *p = tx; *p; p++) if (*p == '{' || *p == '}') *p = ' ';
+          lang_ctx_reset(); Heard h0, h1; lang_parse(tx, &h0); lang_ctx_set_last("r.sky", "x y."); lang_parse(tx, &h1); for (int q = 0; q < h0.n; q++) if (!heard_has(&h1, h0.order[q])) lost++; n++; }
+      FUCHECK(!lost, "%d intents lost over %d texts", lost, n); printf("follow: %d reply lines with a last reply in force: %d intents lost\n", n, lost); lang_ctx_reset(); }
+    /* replies */
+    { static const char *const K[] = { "r.follow_why", "r.follow_really", "x.generic", "y.generic" }; const Line *const *rows;
+      for (int k = 0; k < 4; k++) { int n = lang_key_rows(K[k], &rows), per[4] = { 0 }, bad = 0; for (int r = 0; r < n; r++) { for (int t = 0; t < 4; t++) if (rows[r]->tones & (1u << t)) per[t]++; if (strchr(rows[r]->text, '{') && strncmp(strchr(rows[r]->text, '{'), "{pet}", 5)) bad++; if (strlen(rows[r]->text) > 110) bad++; }
+          FUCHECK(n == 12 && per[0] == 3 && per[1] == 3 && per[2] == 3 && per[3] == 3 && !bad, "%s: %d lines, %d %d %d %d, %d bad", K[k], n, per[0], per[1], per[2], per[3], bad); }
+      const char *flow[][2] = { { "why", "r.follow_why" }, { "really", "r.follow_really" }, { "go on", "x.generic" }, { "say that again", "y.generic" } };
+      for (int i = 0; i < 4; i++) { lang_ctx_reset(); lang_seed(3 + i); Heard h; lang_parse("tell me a joke", &h); char out[800]; lang_reply(&dea, &h, out, (int)sizeof out); lang_ctx_note(&h, "tell me a joke", lang_reply_key(), 0);
+          char first[800]; snprintf(first, sizeof first, "%s", out); lang_parse(flow[i][0], &h); lang_reply(&dea, &h, out, (int)sizeof out);
+          FUCHECK(out[0] && !strcmp(lang_reply_key(), flow[i][1]) && !strchr(out, '{'), "[%s] answered with %s [%s]", flow[i][0], lang_reply_key(), out);
+          if (i == 3) { FUCHECK(strlen(first) > 0 && (strstr(out, first) || strlen(first) > 70), "the repeat carries the last line [%s] / [%s]", first, out); FUCHECK(strlen(out) < 300, "the repeat is short enough %d", (int)strlen(out)); } }
+      /* a short last line is resaid whole, a long one shortened */
+      lang_ctx_reset(); lang_ctx_set_last("r.sky", "Mind the door."); { Heard h; lang_parse("again", &h); char out[800]; lang_reply(&dea, &h, out, (int)sizeof out); FUCHECK(strstr(out, "Mind the door."), "short line resaid [%s]", out); }
+      lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky is wide and it does not care about you, wanderer, nor about anything beneath it at all."); { Heard h; lang_parse("again", &h); char out[800]; lang_reply(&dea, &h, out, (int)sizeof out); FUCHECK(out[0] && strlen(out) < 250, "long line repeat [%s]", out); }
+      /* y.<key> and x.<key> pools win over the generic ones */
+      lang_tables_reset(); lang_register_lines(T37_Y, 3); lang_init(); lang_ctx_reset(); lang_ctx_set_last("r.got_it", "Mind the door.");
+      { Heard h; char out[800]; lang_parse("again", &h); lang_reply(&dea, &h, out, (int)sizeof out); FUCHECK(!strcmp(lang_reply_key(), "y.got_it") && strstr(out, "I said"), "y.<key> [%s] %s", out, lang_reply_key());
+        lang_parse("go on", &h); lang_reply(&dea, &h, out, (int)sizeof out); FUCHECK(!strcmp(lang_reply_key(), "x.got_it") && strstr(out, "It sticks"), "x.<key> [%s] %s", out, lang_reply_key()); }
+      lang_tables_reset(); lang_init(); lang_ctx_reset();
+      /* every voice and mood answers all four, closed and on-key */
+      int bad = 0, total = 0; static const int IN[] = { I_FOLLOW_WHY, I_FOLLOW_REALLY, I_FOLLOW_MORE, I_FOLLOW_AGAIN };
+      for (int k = 0; k < 4; k++) for (int st = 0; st < STYLE_COUNT; st++) for (int m = 0; m < 4; m++) for (int seed = 1; seed <= 3; seed++) {
+          Persona ps = { "Npc", 1 << st, -60 + 40 * m, 30, 50, 8 }; lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky is wide and it does not care about you, wanderer.");
+          Heard h; memset(&h, 0, sizeof h); heard_set(&h, IN[k]); h.order[0] = IN[k]; h.n = 1; h.conf[0] = 85; h.src[0] = SRC_FRAME; h.words = 1;
+          char out[800]; lang_seed(seed * 5 + st); int n = lang_reply(&ps, &h, out, (int)sizeof out); total++;
+          if (n < 1 || !out[0] || strchr(out, '{') || strlen(out) > 330) { bad++; if (bad < 4) printf("BAD FOLLOW: voice %d intent %d: [%s]\n", st, IN[k], out); } }
+      FUCHECK(!bad, "%d of %d follow-up replies empty, open or too long", bad, total); lang_ctx_reset(); }
+    { lang_ctx_set_last("r.sky", "x."); const char *tx = "well um but why is that then"; clock_t t0 = clock(); for (int i = 0; i < 2000; i++) { Heard hh; lang_parse(tx, &hh); }
+      double ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / 2000; FUCHECK(SANITIZED || ms < 1.0, "parse %.3f ms", ms); printf("follow: parse %.3f ms\n", ms); lang_ctx_reset(); }
+    printf("follow: %d checks, %d problems\n", fuchecks, fufail);
+    return fufail;
 }
 
 int main(int argc, char **argv) {
@@ -3567,11 +3642,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--capture")) { rc |= do_capture(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--ctx"))      { rc |= do_ctx() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--ask"))      { rc |= do_ask(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--follow"))   { rc |= do_follow() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

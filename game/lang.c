@@ -84,7 +84,7 @@ static const unsigned char RANK[I_COUNT] = {     /* chunk 12: an intent after I_
     /* joke */ 24, /* scared */ 26, /* confused */ 29, /* angry */ 28, /* sad */ 27, /* intro */ 10, /* repeat */ 34, /* sky */ 21, /* music */ 22, /* hole */ 16,
     /* secret */ 17, /* life */ 18, /* wait */ 99, /* please */ 99, /* agree */ 33, /* disagree */ 32, /* dontcare */ 31, /* demand */ 30, /* callout */ 2, /* age */ 19,
     /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99,
-    [I_AGREE_TO_ASK] = 5, [I_DECLINE_TO_ASK] = 5, [I_BECAUSE] = 5, [I_ANSWER_CHOICE] = 5      /* chunk 36: the answer to what the npc just asked comes first, and alone (choose_intents) */
+    [I_AGREE_TO_ASK] = 5, [I_DECLINE_TO_ASK] = 5, [I_BECAUSE] = 5, [I_ANSWER_CHOICE] = 5, [I_FOLLOW_WHY] = 5, [I_FOLLOW_MORE] = 5, [I_FOLLOW_REALLY] = 5, [I_FOLLOW_AGAIN] = 5      /* chunk 36: the answer to what the npc just asked comes first, and alone (choose_intents) */
 };
 
 #define RANK_DEFAULT 20
@@ -526,6 +526,17 @@ static void ask_pass(Heard *h, const char *const *tx, const int *tl, int nt, con
     }
 }
 
+/* ---------- chunk 37: a bare follow-up (why? and? really? what? go on. say that again) to the npc's last reply ---------- */
+static void follow_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
+    const LangCtx *cx = lang_ctx();
+    if (!cx->last_text[0] || !cx->nrep || heard_has(h, I_SELFHARM) || heard_has(h, I_SAD) || heard_has(h, I_SCARED) || heard_has(h, I_HELP)) return;      /* confused is fine: explaining is the kind answer */
+    if (heard_has(h, I_AGREE_TO_ASK) || heard_has(h, I_DECLINE_TO_ASK) || heard_has(h, I_BECAUSE) || heard_has(h, I_ANSWER_CHOICE)) return;      /* an answer to a question is not a follow-up */
+    int k = FU_NONE;
+    for (int i = 0; i < nt && k == FU_NONE; i++) if (tx[i] && tl[i] > 0) k = lang_follow_read(tx[i]);
+    static const int IN[] = { 0, I_FOLLOW_WHY, I_FOLLOW_MORE, I_FOLLOW_REALLY, I_FOLLOW_AGAIN };
+    if (k != FU_NONE) heard_add(h, IN[k], SRC_FRAME, 85);
+}
+
 /* ---------- chunk 34: which intents get answered, the confidence, the reply plan ---------- */
 /* the intents lang_reply answers: strong ones first (by rank), the catch-alls only when nothing else was said; at most 2 */
 static int choose_intents(const Heard *h, int *pickd) {
@@ -542,7 +553,7 @@ static int choose_intents(const Heard *h, int *pickd) {
             for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
         for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
     }
-    if (np == 2 && (pickd[0] == I_AGREE_TO_ASK || pickd[0] == I_DECLINE_TO_ASK || pickd[0] == I_BECAUSE || pickd[0] == I_ANSWER_CHOICE)) np = 1;      /* chunk 36: the whole text IS the answer to the npc's question: nothing is acknowledged next to it */
+    if (np == 2 && (pickd[0] == I_AGREE_TO_ASK || pickd[0] == I_DECLINE_TO_ASK || pickd[0] == I_BECAUSE || pickd[0] == I_ANSWER_CHOICE || (pickd[0] >= I_FOLLOW_WHY && pickd[0] <= I_FOLLOW_AGAIN))) np = 1;      /* chunk 36: the whole text IS the answer to the npc's question: nothing is acknowledged next to it */
     if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */
     return np;
 }
@@ -689,7 +700,7 @@ void lang_parse(const char *text, Heard *h) {
         for (int k = 0; QW[k]; k++) if (!strcmp(fw, QW[k])) { q = 1; break; }
     }
     h->is_question = q;
-    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); }      /* chunk 36 */
+    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); follow_pass(h, tx, tl, 4); }      /* chunks 36, 37 */
     confidence_of(h);      /* chunk 34 */
 }
 
@@ -924,6 +935,8 @@ static void remember(const Line *l) { recent[nrecent++ % RECENT_MAX] = l; }
 /* chunk 36: the ask tag and the question of the last thing the npc said (lang_reply and lang_line); lang_ctx keeps it for the next turn */
 static char g_ask[12], g_ask_text[96];
 static const Line *g_body_line;
+static char g_last_text[160];
+const char *lang_reply_text(void) { return g_last_text; }
 const char *lang_reply_ask(void) { return g_ask; }
 const char *lang_reply_ask_text(void) { return g_ask_text; }
 static void ask_note(const char *tag, const char *spoken) {
@@ -1181,10 +1194,39 @@ void lang_set_heard_slots(const Heard *h) {
     if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
 }
 
-static char g_reply_key[40];
+static char g_reply_key[48];
+
 const char *lang_reply_key(void) { return g_reply_key; }
+/* chunk 37: more / say that again. the npc extends its last reply from the pool x.<key> (x.generic when that key has none), or says it again:
+ * y.<key> when there is one, else a lead-in from y.generic and the last line itself (a long one goes through the child voice, shorter and blunter) */
+static int follow_reply(Persona *ps, const Heard *h, Tone tone, char *out, int cap) {
+    const CtxReply *lr = lang_ctx_reply(0);
+    const char *last = lang_ctx()->last_text, *lk = lr ? lr->key : "";
+    const char *base = !strncmp(lk, "r.", 2) ? lk + 2 : lk;
+    char key[44]; const Line *const *rows;
+    int again = heard_has(h, I_FOLLOW_AGAIN);
+    snprintf(key, sizeof key, "%c.%s", again ? 'y' : 'x', base);
+    if (!base[0] || !lang_key_rows(key, &rows)) snprintf(key, sizeof key, "%c.generic", again ? 'y' : 'x');
+    g_tone = (int)tone;
+    const Line *l = pick(ps, key, (int)tone);
+    if (!l) return 0;
+    int pass = g_pass; remember(l);
+    char one[300]; fmt(ps, l->text, one, (int)sizeof one, 0);
+    voice_line(ps, key, l, pass, (int)tone, one, (int)sizeof one);
+    char body[600]; snprintf(body, sizeof body, "%s", one);
+    if (again && !strcmp(key, "y.generic")) {
+        char t2[300]; snprintf(t2, sizeof t2, "%s", last);
+        if (strlen(last) > 70 && voice_apply(STYLE_CHILD, (int)tone, last, t2, (int)sizeof t2)) { /* a long line is said again shorter */ }
+        if ((int)strlen(body) + (int)strlen(t2) + 2 < (int)sizeof body && strlen(body) + strlen(t2) < 200) { strcat(body, " "); strcat(body, t2); }
+    }
+    snprintf(g_reply_key, sizeof g_reply_key, "%s", key);
+    snprintf(out, (size_t)cap, "%s", body);
+    snprintf(g_last_text, sizeof g_last_text, "%.159s", out);
+    ask_note(lang_line_ask(l), out);
+    return 1;
+}
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0; ask_note("", NULL); g_body_line = NULL;
+    out[0] = 0; g_reply_key[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1196,6 +1238,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
+    if ((heard_has(h, I_FOLLOW_MORE) || heard_has(h, I_FOLLOW_AGAIN)) && follow_reply(ps, h, tone, out, cap)) return 1;      /* chunk 37 */
 
     /* chunk 34: the plan says what to do (answer, hedge, echo ...); the steps run in order */
     ReplyPlan plan; lang_plan(ps, h, &plan);
@@ -1255,6 +1298,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     cat(full, (int)sizeof full, body);
     if (post[0]) cat(full, (int)sizeof full, post);
     snprintf(out, (size_t)cap, "%s", full);
+    snprintf(g_last_text, sizeof g_last_text, "%.159s", full);      /* chunk 37 */
     { const char *tg = post_l ? lang_line_ask(post_l) : ""; if (!tg[0] && g_body_line) tg = lang_line_ask(g_body_line); ask_note(tg, full); }      /* chunk 36: what the npc just asked (the closer's tag, else the answer's) */
     return answered;
 }

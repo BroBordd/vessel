@@ -99,5 +99,26 @@ const Line LINES_E[] = {
     {"r.answer_choice", NEUT, ALLS, "Chosen, then."}, {"r.answer_choice", NEUT, ALLS, "Very well. That is your pick."}, {"r.answer_choice", NEUT, ALLS, "Noted. You have decided."},
     {"r.answer_choice", COLD, ALLS, "That one. Hm. Fine."}, {"r.answer_choice", COLD, ALLS, "You chose. Do not change your mind."}, {"r.answer_choice", COLD, ALLS, "A choice. How brave of you."},
     {"r.answer_choice", HOST, ALLS, "That one? Of course. Predictable."}, {"r.answer_choice", HOST, ALLS, "Wrong pick, but it is yours to carry."}, {"r.answer_choice", HOST, ALLS, "You chose. Now live with it."},
+    /* ---- chunk 37: follow-ups. r.follow_why / r.follow_really answer a bare why? / really?; x.generic extends the last reply, y.generic is the lead-in of a repeat (the last line follows it) ---- */
+    /* ---- r.follow_why ---- */
+    {"r.follow_why", WARM, ALLS, "Because it is so, {pet}. Some things simply are."}, {"r.follow_why", WARM, ALLS, "I do not always know why. I only know that it is."}, {"r.follow_why", WARM, ALLS, "That is a fair thing to wonder, {pet}."},
+    {"r.follow_why", NEUT, ALLS, "Because that is how it is."}, {"r.follow_why", NEUT, ALLS, "Some things have no reason that I can give."}, {"r.follow_why", NEUT, ALLS, "I said it because it is true."},
+    {"r.follow_why", COLD, ALLS, "Because I said so. Is that not enough?"}, {"r.follow_why", COLD, ALLS, "Reasons are tiresome. Take it as it is."}, {"r.follow_why", COLD, ALLS, "You ask too much."},
+    {"r.follow_why", HOST, ALLS, "Because I said so, and I am not repeating myself."}, {"r.follow_why", HOST, ALLS, "Why? Because you are asking, fool."}, {"r.follow_why", HOST, ALLS, "Stop prying and listen."},
+    /* ---- r.follow_really ---- */
+    {"r.follow_really", WARM, ALLS, "Really, {pet}. I would not lie to you."}, {"r.follow_really", WARM, ALLS, "Yes, truly. I mean every word."}, {"r.follow_really", WARM, ALLS, "As sure as the sky is high, {pet}."},
+    {"r.follow_really", NEUT, ALLS, "Yes. Really."}, {"r.follow_really", NEUT, ALLS, "I am sure."}, {"r.follow_really", NEUT, ALLS, "It is as I said."},
+    {"r.follow_really", COLD, ALLS, "Do I look like I jest?"}, {"r.follow_really", COLD, ALLS, "I never say what I do not mean. Mostly."}, {"r.follow_really", COLD, ALLS, "Doubt me if you like."},
+    {"r.follow_really", HOST, ALLS, "Do not doubt me again."}, {"r.follow_really", HOST, ALLS, "Really. Say it once more and see."}, {"r.follow_really", HOST, ALLS, "Are you calling me a liar? Careful."},
+    /* ---- x.generic ---- */
+    {"x.generic", WARM, ALLS, "There is more, {pet}, but it is a long tale."}, {"x.generic", WARM, ALLS, "Let me say it another way, {pet}. It matters more than it sounds."}, {"x.generic", WARM, ALLS, "It runs deeper than that, and I will tell you in time."},
+    {"x.generic", NEUT, ALLS, "There is more to it, but not much."}, {"x.generic", NEUT, ALLS, "It goes further than I said."}, {"x.generic", NEUT, ALLS, "Think on it. The rest will come."},
+    {"x.generic", COLD, ALLS, "That is all you get."}, {"x.generic", COLD, ALLS, "More? Greedy."}, {"x.generic", COLD, ALLS, "The rest is not for you."},
+    {"x.generic", HOST, ALLS, "You want more? Earn it."}, {"x.generic", HOST, ALLS, "Is that not enough for your small head?"}, {"x.generic", HOST, ALLS, "Ask nicely and I may tell."},
+    /* ---- y.generic ---- */
+    {"y.generic", WARM, ALLS, "Of course, {pet}. Once more."}, {"y.generic", WARM, ALLS, "Gladly. Listen well."}, {"y.generic", WARM, ALLS, "I will say it again, gently."},
+    {"y.generic", NEUT, ALLS, "Once more."}, {"y.generic", NEUT, ALLS, "Again, then."}, {"y.generic", NEUT, ALLS, "Listen this time."},
+    {"y.generic", COLD, ALLS, "Fine. Again."}, {"y.generic", COLD, ALLS, "Pay attention."}, {"y.generic", COLD, ALLS, "I will not say it a third time."},
+    {"y.generic", HOST, ALLS, "Cover your ears less. Again."}, {"y.generic", HOST, ALLS, "Were you not listening? Again."}, {"y.generic", HOST, ALLS, "Fool. Once more."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

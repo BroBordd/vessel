@@ -25,6 +25,12 @@ void lang_ctx_set_ask(const char *tag, const char *text) {
     snprintf(C.ask, sizeof C.ask, "%s", tag);
     if (text) snprintf(C.ask_text, sizeof C.ask_text, "%.95s", text);
 }
+void lang_ctx_set_last(const char *key, const char *text) {
+    CtxReply *r = &C.rep[C.reps % CTX_TURNS];
+    snprintf(r->key, sizeof r->key, "%s", key ? key : ""); r->mood = 0;
+    C.reps++; if (C.nrep < CTX_TURNS) C.nrep++;
+    snprintf(C.last_text, sizeof C.last_text, "%.159s", text ? text : "");
+}
 void lang_ctx_set_ask_line(const char *text) {
     char q[96]; lang_ask_sentence(text, q, (int)sizeof q);
     lang_ctx_set_ask(lang_ask_tag_text(text), q);
@@ -55,6 +61,7 @@ void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int 
     snprintf(r->key, sizeof r->key, "%s", reply_key ? reply_key : "");
     r->mood = (int8_t)(mood < -100 ? -100 : mood > 100 ? 100 : mood);
     C.reps++; if (C.nrep < CTX_TURNS) C.nrep++;
+    if (heard_has(h, I_SELFHARM)) C.last_text[0] = 0; else snprintf(C.last_text, sizeof C.last_text, "%.159s", lang_reply_text());
     if (heard_has(h, I_SELFHARM)) lang_ctx_set_ask("", NULL); else lang_ctx_set_ask(lang_reply_ask(), lang_reply_ask_text());      /* chunk 36: what the npc just asked */
     /* facts. nothing is kept after self-harm: that turn is a person, not a data point */
     if (heard_has(h, I_SELFHARM)) return;

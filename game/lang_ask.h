@@ -24,4 +24,9 @@ typedef struct {
  * same text with the capitals as typed (same length; may be NULL = no capitals known). Returns the kind (ASK_NONE when the text is no answer of
  * the kind the tag asks for). A text of more than 8 words is never a bare answer. */
 int lang_ask_read(const char *tag, const char *ask_text, const char *lc, const char *lcase, AskAnswer *out);
+
+/* chunk 37: a bare follow-up to what the npc just said (why? and? really? what? go on. say that again). FU_* kinds; the whole text must be made of
+ * follow-up words (a question mark is fine here), at most 8 words. FU_NONE for anything else */
+enum { FU_NONE, FU_WHY, FU_MORE, FU_REALLY, FU_AGAIN };
+int lang_follow_read(const char *lc);
 #endif
