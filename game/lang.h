@@ -207,6 +207,8 @@ int  lang_mood_resolve(const char *key, int t, int style);
 int  lang_ask_tag_valid(const char *tag);                 /* 1 for yn name why any choice more ready agree */
 const char *lang_ask_tag_text(const char *text);          /* the tag a line text gets by rule ("" none); text may hold {slots} */
 const char *lang_reply_ask(void);                         /* the tag of the last question the last lang_reply / lang_line said ("" none) */
+void lang_callbacks_set(int on);                          /* chunk 39: tests switch the callbacks off (1 = on, the default) */
+const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */
 const char *lang_reply_text(void);                        /* chunk 37: the last reply lang_reply said, whole ("" for self-harm) */
 const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */
 void lang_ask_sentence(const char *text, char *out, int cap);   /* the last question sentence of a spoken text ("" if it asks nothing) */

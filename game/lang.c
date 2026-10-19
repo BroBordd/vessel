@@ -16,6 +16,7 @@
 #include "lang_capture.h"
 #include "lang_ask.h"
 #include "lang_ctx.h"
+#include "lang_persona.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1101,6 +1102,7 @@ static const char *g_opt1 = "", *g_opt2 = "";      /* chunk 32: the two options 
 static int g_pick;
 static const char *g_thing = "";     /* chunk 29: {thing} = the strongest topic word of the text (moon), "that" if none */
 static int g_tone;
+static char g_fact[24];      /* chunk 39: {fact} = what a callback recalls (a name, a topic word); only cb.* lines use it */
 static char g_name[CAP_TEXT], g_age[8], g_likes[CAP_TEXT], g_dislikes[CAP_TEXT], g_cthing[CAP_TEXT];   /* chunk 33: the captured facts as the slots {name} {age} {likes} {dislikes} {thing} print them ("" = none) */
 
 static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int depth) {
@@ -1118,6 +1120,7 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
         else if (!strcmp(name, "topic")) rep = g_topic[0] ? g_topic : "that";
         else if (!strcmp(name, "thing")) rep = g_cthing[0] ? g_cthing : g_thing[0] ? g_thing : "that";
         else if (!strcmp(name, "name")) rep = g_name[0] ? g_name : player_name;
+        else if (!strcmp(name, "fact")) rep = g_fact[0] ? g_fact : "that";
         else if (!strcmp(name, "age")) rep = g_age[0] ? g_age : "that";
         else if (!strcmp(name, "likes")) rep = g_likes[0] ? g_likes : "that";
         else if (!strcmp(name, "dislikes")) rep = g_dislikes[0] ? g_dislikes : "that";
@@ -1207,9 +1210,12 @@ void lang_set_heard_slots(const Heard *h) {
     if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
 }
 
-static char g_reply_key[48];
+static char g_reply_key[48], g_cb_key[24];
+static int g_cb_on = 1;
+void lang_callbacks_set(int on) { g_cb_on = on; }
 
 const char *lang_reply_key(void) { return g_reply_key; }
+const char *lang_reply_callback(void) { return g_cb_key; }
 /* chunk 37: more / say that again. the npc extends its last reply from the pool x.<key> (x.generic when that key has none), or says it again:
  * y.<key> when there is one, else a lead-in from y.generic and the last line itself (a long one goes through the child voice, shorter and blunter) */
 static int follow_reply(Persona *ps, const Heard *h, Tone tone, char *out, int cap) {
@@ -1255,7 +1261,7 @@ static int ladder_reply(Persona *ps, const Heard *h, Tone tone, char *out, int c
     return 1;
 }
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
+    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1289,9 +1295,11 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         answered = say_picks(ps, wk, nw, tone, body, (int)sizeof body);
     }
 
+    const char *ladder_k = NULL;      /* chunk 39: the key of the ladder line, if one answered */
     if (!answered) {                                                   /* never leave the player hanging */
         if (gibberish_flip(ps, h)) tone = lang_mood_now(ps);
         int role; const char *key = ladder >= 0 ? plan.s[ladder].key : ladder_key(h, &role);
+        ladder_k = key;
         if (!strcmp(key, "r.choice_q")) g_pick = lang_choice_pick(tone_rude(tone), rn(100));      /* {pick} / {opt1} / {opt2} say "the first" and "the second" when the options are not safe to echo */      /* chunk 32 */
         g_tone = (int)tone;
         const Line *l = pick(ps, key, (int)tone);
@@ -1311,15 +1319,40 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         if ((int)strlen(hed) + (int)strlen(body) > 170) hed[0] = 0;      /* keep it readable on a phone */
     }
 
+    /* chunk 39: a callback (the npc remembers): one short line about the chat so far, now and then, only after a plain answer.
+     * The moods that hold a grudge or a memory (sulky, smug, suspicious, tender, solemn) do it more; a forgetful npc half as often and never by name. */
+    char cb[110]; cb[0] = 0;
+    /* (an answer to a topic question, r.topic_q or r.cast_q, can carry one too: `you asked about the moon before` belongs right there) */
+    if (g_cb_on && !hed[0] && ((answered && ladder < 0) || (ladder_k && (!strcmp(ladder_k, "r.topic_q") || !strcmp(ladder_k, "r.cast_q"))))) {
+        CbCand cc[CB_COUNT]; int forget = (ps->quirk & Q_FORGETFUL) != 0, ncc = lang_ctx_callbacks(h, forget, cc);
+        if (ncc) {
+            int chance = (tone == TONE_SULKY || tone == TONE_SMUG || tone == TONE_SUSPICIOUS || tone == TONE_TENDER || tone == TONE_SOLEMN) ? 40 : 15;
+            if (forget) chance /= 2;
+            if (rn(100) < chance) {
+                const char *ck = lang_cb_key(cc[0].kind);
+                snprintf(g_fact, sizeof g_fact, "%s", cc[0].fact);
+                g_tone = (int)tone;
+                const Line *l = pick(ps, ck, (int)tone);
+                if (l) {
+                    int pass = g_pass; remember(l);
+                    fmt(ps, l->text, cb, (int)sizeof cb, 0);
+                    voice_line(ps, ck, l, pass, (int)tone, cb, (int)sizeof cb);
+                    if ((int)strlen(body) + 1 + (int)strlen(cb) > 150) cb[0] = 0;      /* keep the phone readable (chunk 42 makes this the general cap) */
+                    else snprintf(g_cb_key, sizeof g_cb_key, "%s", ck);
+                }
+            }
+        }
+    }
+
     /* a little colour around the edges: an opener and/or a closer */
     int len = (int)strlen(body);
     char pre[80] = "", post[100] = "", full[800]; const Line *post_l = NULL;
     g_tone = (int)tone;
-    if (!hed[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
+    if (!hed[0] && !cb[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, pre, (int)sizeof pre, 1); }
     }
-    if (len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
+    if (!cb[0] && len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
         const Line *l = pick(ps, "p.post", (int)tone);
         if (l) { remember(l); post_l = l; fmt(ps, l->text, post, (int)sizeof post, 1); }
     }
@@ -1327,6 +1360,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (hed[0]) cat(full, (int)sizeof full, hed);
     if (pre[0]) cat(full, (int)sizeof full, pre);
     cat(full, (int)sizeof full, body);
+    if (cb[0]) cat(full, (int)sizeof full, cb);
     if (post[0]) cat(full, (int)sizeof full, post);
     snprintf(out, (size_t)cap, "%s", full);
     snprintf(g_last_text, sizeof g_last_text, "%.159s", full);      /* chunk 37 */

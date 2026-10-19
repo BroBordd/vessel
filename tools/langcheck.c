@@ -14,6 +14,7 @@
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
+ *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
  *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
@@ -3281,6 +3282,7 @@ static int do_plan(void) {
 
 /* ---------- chunk 35: dialogue memory ---------- */
 #include "lang_ctx.h"
+#include "lang_persona.h"
 static int cxfail, cxchecks;
 #define CXCHECK(c, ...) do { cxchecks++; if (!(c)) { printf("BAD CTX: " __VA_ARGS__); printf("\n"); cxfail++; } } while (0)
 static void ctx_say(Persona *ps, const char *t) { Heard h; char out[800]; lang_parse(t, &h); lang_reply(ps, &h, out, (int)sizeof out); lang_ctx_note(&h, t, lang_reply_key(), ps->mood); }
@@ -3689,6 +3691,123 @@ static int do_repeat(void) {
     return rpfail;
 }
 
+/* ---------- chunk 39: callbacks (the npc remembers) ---------- */
+static int cbfail, cbchecks;
+#define CBCHECK(c, ...) do { cbchecks++; if (!(c)) { printf("BAD CALLBACK: " __VA_ARGS__); printf("\n"); cbfail++; } } while (0)
+static int cb_has(const CbCand *c, int n, int kind) { for (int i = 0; i < n; i++) if (c[i].kind == kind) return 1; return 0; }
+static const char *cb_fact(const CbCand *c, int n, int kind) { for (int i = 0; i < n; i++) if (c[i].kind == kind) return c[i].fact; return ""; }
+static int cb_cands(const char *next, int forget, CbCand *cc) { Heard h; lang_parse(next, &h); return lang_ctx_callbacks(&h, forget, cc); }
+static void cb_chat(Persona *p, const char *const *t, int n) { Heard h; for (int i = 0; i < n; i++) rp_turn(p, t[i], &h); }
+#define CHAT(p, ...) do { const char *_t[] = { __VA_ARGS__ }; cb_chat(&(p), _t, (int)(sizeof _t / sizeof _t[0])); } while (0)
+static int do_callbacks(void) {
+    cbfail = cbchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0);
+    Persona base = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    CbCand cc[CB_COUNT]; int n;
+    /* the lines: 11 keys, 12 each, 3 per old mood, short, no question, only {pet} and {fact} (a fact only where a fact exists) */
+    { int rows = 0; const Line *const *r;
+      for (int k = 0; k < CB_COUNT; k++) {
+          const char *key = lang_cb_key(k); int cnt = lang_key_rows(key, &r), per[4] = { 0 };
+          CBCHECK(cnt == 12, "%s has %d lines, want 12", key, cnt); rows += cnt;
+          CBCHECK(lang_cb_by_key(key) == k, "%s does not map back", key);
+          for (int i = 0; i < cnt; i++) {
+              const char *t = r[i]->text; int len = (int)strlen(t);
+              for (int b = 0; b < 4; b++) if (r[i]->tones == (uint32_t)(1u << b)) per[b]++;
+              CBCHECK(len <= 62 && !strchr(t, '?'), "%s line too long or a question: %s", key, t);
+              for (const char *s = t; (s = strchr(s, '{')); s++) { int ok = !strncmp(s, "{pet}", 5) || (!strncmp(s, "{fact}", 6) && (k == CB_NAME || k == CB_NAME_PAST || k == CB_ASKED_BEFORE || k == CB_SAME_TOPIC)); CBCHECK(ok, "%s uses a slot it must not: %s", key, t); }
+              if (k == CB_NAME || k == CB_NAME_PAST || k == CB_ASKED_BEFORE || k == CB_SAME_TOPIC) CBCHECK(strstr(t, "{fact}") != NULL, "%s line has no {fact}: %s", key, t);
+          }
+          for (int b = 0; b < 4; b++) CBCHECK(per[b] == 3, "%s has %d lines for mood %d, want 3", key, per[b], b);
+      }
+      CBCHECK(rows == 132, "132 callback lines, got %d", rows); CBCHECK(lang_cb_by_key("r.greet") < 0 && lang_cb_by_key(NULL) < 0, "a non-callback key maps to a kind"); }
+    /* nothing to remember: a fresh chat, a chat of one turn */
+    { Persona p = base; lang_ctx_reset(); CBCHECK(cb_cands("hello", 0, cc) == 0, "a fresh chat has callbacks"); CHAT(p, "you are stupid"); CBCHECK(cb_cands("hello", 0, cc) == 0, "one turn is too early"); }
+    /* insults: recalled after one more turn, never right after the insult, never while insulting again */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "you are stupid", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_INSULTED), "insult not recalled after a quiet turn");
+      CBCHECK(!cb_cands("you are stupid", 0, cc) || !cb_has(cc, cb_cands("you are stupid", 0, cc), CB_INSULTED), "recalled while insulting again");
+      lang_ctx_reset(); p = base; CHAT(p, "hello", "you are stupid"); n = cb_cands("what is the sky", 0, cc); CBCHECK(!cb_has(cc, n, CB_INSULTED), "recalled on the turn right after the insult"); }
+    /* thanks and praise */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "thank you", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_THANKED), "thanks not recalled"); n = cb_cands("thanks again", 0, cc); CBCHECK(!cb_has(cc, n, CB_THANKED), "thanks recalled while thanking");
+      lang_ctx_reset(); p = base; CHAT(p, "you are wonderful", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_COMPLIMENTED), "praise not recalled"); }
+    /* fear: recalled later, never to a player who is afraid right now */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "i am scared", "hello"); n = cb_cands("tell me a joke", 0, cc); CBCHECK(cb_has(cc, n, CB_SCARED), "fear not recalled");
+      CBCHECK(cb_cands("i am scared", 0, cc) == 0, "callback for a player who is scared now"); CBCHECK(cb_cands("i am so sad", 0, cc) == 0, "callback for a sad player"); CBCHECK(cb_cands("help me", 0, cc) == 0, "callback for help");
+      CBCHECK(cb_cands("i want to die", 0, cc) == 0, "callback for self-harm"); CBCHECK(cb_cands("i do not understand", 0, cc) == 0, "callback for confusion"); }
+    /* the name: this chat's name (with its fact), the forgetful npc, and not on the turn the name is told */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "my name is Zed", "hello", "who are you"); n = cb_cands("tell me a joke", 0, cc); CBCHECK(cb_has(cc, n, CB_NAME) && !strcmp(cb_fact(cc, n, CB_NAME), "Zed"), "name not recalled [%s]", cb_fact(cc, n, CB_NAME));
+      n = cb_cands("tell me a joke", 1, cc); CBCHECK(!cb_has(cc, n, CB_NAME), "a forgetful npc recalls the name"); n = cb_cands("my name is Bob", 0, cc); CBCHECK(!cb_has(cc, n, CB_NAME), "name recalled while it is told"); }
+    /* topics: the second time, the third time, and a plain mention is no question */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "what is the moon", "hello"); n = cb_cands("what about the moon", 0, cc); CBCHECK(cb_has(cc, n, CB_ASKED_BEFORE) && !strcmp(cb_fact(cc, n, CB_ASKED_BEFORE), "moon"), "second ask of the moon [%d %s]", n, cb_fact(cc, n, CB_ASKED_BEFORE));
+      CHAT(p, "what about the moon"); n = cb_cands("what is the moon", 0, cc); CBCHECK(cb_has(cc, n, CB_SAME_TOPIC) && !cb_has(cc, n, CB_ASKED_BEFORE), "third ask of the moon");
+      n = cb_cands("what is the sun", 0, cc); CBCHECK(!cb_has(cc, n, CB_SAME_TOPIC) && !cb_has(cc, n, CB_ASKED_BEFORE), "another topic recalls the moon"); }
+    /* the apology that was taken */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "you are stupid", "i am sorry", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_APOLOGY_TAKEN), "apology not recalled"); n = cb_cands("sorry again", 0, cc); CBCHECK(!cb_has(cc, n, CB_APOLOGY_TAKEN), "apology recalled while apologising");
+      lang_ctx_reset(); p = base; CHAT(p, "hello", "i am sorry", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(!cb_has(cc, n, CB_APOLOGY_TAKEN), "apology recalled though nothing was done"); }
+    /* the lie has no intent yet, so a test counter stands in */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "hello", "who are you"); lang_ctx_set_counts(0, 0, 0, 1, 0); n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_LIED), "lie not recalled"); }
+    /* earlier chats: the name, and many insults (more than 3), with the forgetful rule; a name told this chat wins */
+    { CtxFacts f; memset(&f, 0, sizeof f); snprintf(f.name, sizeof f.name, "Mira"); f.insulted = 5; lang_ctx_facts_load(&f); lang_ctx_reset(); Persona p = base; CHAT(p, "hello", "who are you");
+      n = cb_cands("what is the sky", 0, cc); CBCHECK(cb_has(cc, n, CB_NAME_PAST) && !strcmp(cb_fact(cc, n, CB_NAME_PAST), "Mira") && cb_has(cc, n, CB_INSULTED_PAST), "past facts not recalled (%d)", n);
+      n = cb_cands("what is the sky", 1, cc); CBCHECK(!cb_has(cc, n, CB_NAME_PAST) && cb_has(cc, n, CB_INSULTED_PAST), "forgetful: the name only");
+      CHAT(p, "my name is Zed", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(!cb_has(cc, n, CB_NAME_PAST) && cb_has(cc, n, CB_NAME), "a name told this chat should replace the old one");
+      f.insulted = 3; lang_ctx_facts_load(&f); lang_ctx_reset(); p = base; CHAT(p, "hello", "who are you"); n = cb_cands("what is the sky", 0, cc); CBCHECK(!cb_has(cc, n, CB_INSULTED_PAST), "3 insults is not more than 3");
+      f.insulted = 9; lang_ctx_facts_load(&f); lang_ctx_reset(); p = base; CHAT(p, "you are stupid", "hello"); n = cb_cands("what is the sky", 0, cc); CBCHECK(!cb_has(cc, n, CB_INSULTED_PAST) && cb_has(cc, n, CB_INSULTED), "this chat's insults take the place of the old ones");
+      lang_ctx_facts_load(NULL); }
+    /* the order: the topic first, a kind used less comes first */
+    { Persona p = base; lang_ctx_reset(); CHAT(p, "what is the moon", "you are stupid", "thank you", "hello"); n = cb_cands("what about the moon", 0, cc); CBCHECK(n >= 3 && cc[0].kind == CB_ASKED_BEFORE, "topic first (%d, %d)", n, n ? cc[0].kind : -1); }
+
+    /* the reply: callbacks on, many chats. gap of 4, each kind at most twice (the past kinds once), nothing on distress or self-harm, short, never an open slot */
+    lang_callbacks_set(1);
+    { const char *scriptA[] = { "you are an idiot", "what is the moon", "thank you", "you are wonderful", "who are you", "i am scared", "my name is Zed", "what about the moon", "tell me a joke", "hello", "what is the moon",
+          "i am so sad", "where am i", "sorry", "what is the sky", "i want to die", "tell me about the moon", "who is alex", "what is the sky", "where am i", "hello", "tell me a joke", "what is the moon", "bye" };
+      /* a gentle chat: no insults, so the name, the topics, the thanks and the old facts get their turn */
+      const char *scriptB[] = { "hello", "who are you", "what is the moon", "my name is Zed", "thank you", "what about the moon", "tell me a joke", "where am i", "what is the moon", "you are wonderful", "what is the sky", "i am scared",
+          "who is alex", "what is the moon", "tell me a joke", "i want to die", "where am i", "what is the sky", "hello", "what is the moon", "who are you", "tell me a joke", "where am i", "bye" };
+      int chats = 0, with = 0, total = 0, kinds_seen[CB_COUNT] = { 0 }, over = 0;
+      for (int seed = 1; seed <= 800; seed++) {
+          const char *const *script = seed <= 400 ? scriptA : scriptB; int ns = 24;
+          CtxFacts f; memset(&f, 0, sizeof f); if (seed % 2) { snprintf(f.name, sizeof f.name, "Mira"); f.insulted = 6; } lang_ctx_facts_load(&f);
+          lang_ctx_reset(); lang_seed((unsigned)seed); Persona p = base; if (seed % 3 == 0) p.lean = LEAN(TONE_SULKY) | LEAN(TONE_SMUG) | LEAN(TONE_SUSPICIOUS) | LEAN(TONE_TENDER); if (seed % 5 == 0) p.quirk = Q_FORGETFUL;
+          int last = -100, cnt[CB_COUNT] = { 0 }, any = 0; Heard h; chats++;
+          for (int i = 0; i < ns; i++) {
+              lang_parse(script[i], &h); lang_reply(&p, &h, rp_out, (int)sizeof rp_out); const char *ck = lang_reply_callback(); int k = lang_cb_by_key(ck);
+              if (k >= 0) {
+                  total++; any = 1; kinds_seen[k]++;
+                  CBCHECK(i - last >= CB_GAP, "seed %d: callbacks at turns %d and %d (gap under %d)", seed, last, i, CB_GAP); last = i; cnt[k]++;
+                  CBCHECK(!heard_has(&h, I_SELFHARM) && !heard_has(&h, I_SAD) && !heard_has(&h, I_SCARED) && !heard_has(&h, I_HELP), "seed %d: a callback on [%s]", seed, script[i]);
+                  CBCHECK(!strchr(rp_out, '{') && !strchr(rp_out, '}') && strlen(rp_out) <= 150, "seed %d: bad callback reply [%s]", seed, rp_out);
+                  if (k == CB_NAME || k == CB_NAME_PAST) { CBCHECK(strstr(rp_out, k == CB_NAME ? "Zed" : "Mira") != NULL, "seed %d: the name is missing [%s]", seed, rp_out); CBCHECK(!(p.quirk & Q_FORGETFUL), "seed %d: a forgetful npc recalled a name", seed); }
+                  if (k == CB_ASKED_BEFORE || k == CB_SAME_TOPIC) CBCHECK(strstr(rp_out, "moon") != NULL, "seed %d: the topic is missing [%s]", seed, rp_out);
+              }
+              if (heard_has(&h, I_SELFHARM)) CBCHECK(!strcmp(lang_reply_key(), "r.selfharm") && !lang_reply_callback()[0], "seed %d: self-harm answer carries a callback", seed);
+              lang_ctx_note(&h, script[i], lang_reply_key(), p.mood);
+          }
+          for (int k = 0; k < CB_COUNT; k++) { int max = (k == CB_INSULTED_PAST || k == CB_NAME_PAST) ? 1 : CB_MAX_PER_KIND; if (cnt[k] > max) over++; }
+          with += any;
+      }
+      CBCHECK(!over, "%d chats used a kind more often than allowed", over);
+      CBCHECK(with * 100 >= chats * 40, "only %d of %d chats had a callback", with, chats);
+      CBCHECK(total > 0, "no callback at all");
+      int fine = 0; for (int k = 0; k < CB_COUNT; k++) fine += kinds_seen[k] > 0;
+      CBCHECK(fine >= 9, "only %d of %d kinds were ever used (the lie has no intent yet: 10 can be reached)", fine, CB_COUNT);
+      printf("callbacks: %d chats, %d with a callback, %d callbacks in all (%d of %d kinds seen:", chats, with, total, fine, CB_COUNT); for (int k = 0; k < CB_COUNT; k++) printf(" %s=%d", lang_cb_key(k) + 3, kinds_seen[k]); printf(")\n"); }
+    /* every callback line in every voice and mood resolves and prints clean (10 voices x 20 moods x 11 keys), {fact} filled by the engine */
+    { int bad = 0, outs = 0;
+      for (int vi = 0; vi < STYLE_COUNT; vi++) for (int t = 0; t < TONE_COUNT; t++) for (int k = 0; k < CB_COUNT; k++) {
+          Persona p = base; p.style = 1 << vi; char out[300]; lang_seed((unsigned)(vi * 100 + t)); lang_line_tone(&p, lang_cb_key(k), (Tone)t, out, (int)sizeof out); outs++;
+          if (!out[0] || strlen(out) > 150) bad++;
+      }
+      CBCHECK(!bad, "%d of %d callback lines came out empty or too long", bad, outs); }
+    /* the callbacks do not draw random numbers when none fits: a chat with no facts is unchanged by the switch */
+    { char a[8][400], b[8][400]; const char *t[8] = { "hello", "who are you", "what is the sky", "tell me a joke", "where am i", "what is the moon", "hello", "bye" }; Heard h;
+      for (int on = 0; on < 2; on++) { lang_callbacks_set(on); lang_ctx_facts_load(NULL); lang_ctx_reset(); PL_FLUSH(); lang_seed(77); Persona p = base; for (int i = 0; i < 8; i++) { lang_parse(t[i], &h); lang_reply(&p, &h, on ? b[i] : a[i], 400); lang_ctx_note(&h, t[i], lang_reply_key(), p.mood); } }
+      int same = 1; for (int i = 0; i < 8; i++) if (strcmp(a[i], b[i])) same = 0;
+      CBCHECK(same, "a chat with nothing to remember changed with the callbacks on"); }
+    lang_callbacks_set(1); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    printf("callbacks: %d checks, %d problems\n", cbchecks, cbfail);
+    return cbfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3726,11 +3845,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--ask"))      { rc |= do_ask(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--follow"))   { rc |= do_follow() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--repeat"))   { rc |= do_repeat() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

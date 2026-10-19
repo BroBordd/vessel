@@ -4,7 +4,8 @@
  * LINES, part E (docs/convo_plan.md, chunk 31): the fourth wall. Someone asks if the npc is a bot or an AI, what they may say, tries
  * "ignore previous instructions", says this is a game, asks who is playing, or tells the npc to say something. The npc stays IN CHARACTER
  * (never names a real product, never says "language model", never steps out of the game: only r.selfharm does that), never obeys, and
- * never repeats the player's words: no line here has a {topic} or {thing} slot (langcheck --fourth checks both). Three lines per old mood. */
+ * never repeats the player's words: no line here has a {topic} or {thing} slot (langcheck --fourth checks both). Three lines per old mood.
+ * Chunk 39 adds the callback lines at the end (cb.*): short, no question, the only slot besides {pet} is {fact} (a name or a topic word). */
 #include "lang_data.h"
 
 const Line LINES_E[] = {
@@ -161,5 +162,60 @@ const Line LINES_E[] = {
     {"copycat.3", NEUT, ALLS, "Enough. Say something of your own."}, {"copycat.3", NEUT, ALLS, "I will not talk to my own echo."}, {"copycat.3", NEUT, ALLS, "Your own words, or none at all."},
     {"copycat.3", COLD, ALLS, "Last warning. Your own words."}, {"copycat.3", COLD, ALLS, "Stop. I am not a mirror."}, {"copycat.3", COLD, ALLS, "No more mimicry. Speak or be silent."},
     {"copycat.3", HOST, ALLS, "Copy me again and I am gone."}, {"copycat.3", HOST, ALLS, "I am no mirror for a fool to play with."}, {"copycat.3", HOST, ALLS, "Enough mimicry. Say your own thing or vanish."},
+    /* ---- cb.insulted ---- */
+    {"cb.insulted", WARM, ALLS, "I have not forgotten what you called me, {pet}. I forgave it."}, {"cb.insulted", WARM, ALLS, "You were cruel to me earlier. I choose to let it go."}, {"cb.insulted", WARM, ALLS, "Earlier you were unkind, {pet}. I am still here all the same."},
+    {"cb.insulted", NEUT, ALLS, "You insulted me earlier. I remember."}, {"cb.insulted", NEUT, ALLS, "I have not lost count of your insults."}, {"cb.insulted", NEUT, ALLS, "Careful. I still recall what you said before."},
+    {"cb.insulted", COLD, ALLS, "I remember your insults. All of them."}, {"cb.insulted", COLD, ALLS, "You called me names earlier. I keep such things."}, {"cb.insulted", COLD, ALLS, "Do not think I forgot."},
+    {"cb.insulted", HOST, ALLS, "You insulted me once. I am saving it for later."}, {"cb.insulted", HOST, ALLS, "I remember every word you spat at me, worm."}, {"cb.insulted", HOST, ALLS, "Your earlier insults are written on my tongue."},
+    /* ---- cb.thanked ---- */
+    {"cb.thanked", WARM, ALLS, "You thanked me earlier, {pet}. It warmed me still."}, {"cb.thanked", WARM, ALLS, "I remember your kind words from before, {pet}."}, {"cb.thanked", WARM, ALLS, "Your thanks still rings in me, {pet}."},
+    {"cb.thanked", NEUT, ALLS, "You thanked me earlier. I noted it."}, {"cb.thanked", NEUT, ALLS, "Your thanks was not wasted."}, {"cb.thanked", NEUT, ALLS, "I remember you being polite. That counts."},
+    {"cb.thanked", COLD, ALLS, "You thanked me once. Do not make it a habit."}, {"cb.thanked", COLD, ALLS, "I recall your thanks. It changes nothing."}, {"cb.thanked", COLD, ALLS, "Politeness noted. Briefly."},
+    {"cb.thanked", HOST, ALLS, "Thanks, you said once. Do not think it bought you anything."}, {"cb.thanked", HOST, ALLS, "You thanked me. How quaint. I remember."}, {"cb.thanked", HOST, ALLS, "Your thanks was cheap, but I kept it."},
+    /* ---- cb.complimented ---- */
+    {"cb.complimented", WARM, ALLS, "Your kind words from before still sit with me, {pet}."}, {"cb.complimented", WARM, ALLS, "You flattered me earlier, {pet}. I have not forgotten."}, {"cb.complimented", WARM, ALLS, "I keep the nice things you said, {pet}."},
+    {"cb.complimented", NEUT, ALLS, "You praised me earlier. I remember."}, {"cb.complimented", NEUT, ALLS, "I recall your compliment."}, {"cb.complimented", NEUT, ALLS, "Your flattery is noted."},
+    {"cb.complimented", COLD, ALLS, "Flattery earlier. I am not fooled."}, {"cb.complimented", COLD, ALLS, "You praised me before. I wonder what you want."}, {"cb.complimented", COLD, ALLS, "Sweet words from you. I filed them away."},
+    {"cb.complimented", HOST, ALLS, "You flattered me earlier. I know what that means."}, {"cb.complimented", HOST, ALLS, "Honeyed words from before still stink in my ears."}, {"cb.complimented", HOST, ALLS, "I remember your flattery. Try something honest."},
+    /* ---- cb.name ---- */
+    {"cb.name", WARM, ALLS, "I will not forget your name, {fact}."}, {"cb.name", WARM, ALLS, "{fact}. It is a good name. I keep it close."}, {"cb.name", WARM, ALLS, "You told me your name, {fact}. I hold it dear."},
+    {"cb.name", NEUT, ALLS, "I remember your name, {fact}."}, {"cb.name", NEUT, ALLS, "{fact}. I have it written down, in a manner of speaking."}, {"cb.name", NEUT, ALLS, "You said your name was {fact}. I recall."},
+    {"cb.name", COLD, ALLS, "Your name is {fact}. I have not forgotten."}, {"cb.name", COLD, ALLS, "{fact}. I know it. Do not test me."}, {"cb.name", COLD, ALLS, "I keep your name, {fact}. Do not take that as a gift."},
+    {"cb.name", HOST, ALLS, "I remember your name, {fact}. That is not a kindness."}, {"cb.name", HOST, ALLS, "{fact}. A name I can shout when I need to."}, {"cb.name", HOST, ALLS, "I have your name, {fact}. Remember that."},
+    /* ---- cb.name_past ---- */
+    {"cb.name_past", WARM, ALLS, "You came back, {fact}. I remember you."}, {"cb.name_past", WARM, ALLS, "I have kept your name since last time, {fact}."}, {"cb.name_past", WARM, ALLS, "{fact}. It is good to hear that name again."},
+    {"cb.name_past", NEUT, ALLS, "I remember you from before, {fact}."}, {"cb.name_past", NEUT, ALLS, "You were {fact} the last time. I recall."}, {"cb.name_past", NEUT, ALLS, "Your name was {fact}. I still have it."},
+    {"cb.name_past", COLD, ALLS, "You again, {fact}. I remember."}, {"cb.name_past", COLD, ALLS, "I recall you, {fact}. Not fondly."}, {"cb.name_past", COLD, ALLS, "{fact}. Yes. I remember that name."},
+    {"cb.name_past", HOST, ALLS, "I remember you, {fact}, and how you behaved last time."}, {"cb.name_past", HOST, ALLS, "{fact} again. I do keep grudges."}, {"cb.name_past", HOST, ALLS, "You, {fact}. I have your name and your manners."},
+    /* ---- cb.insulted_past ---- */
+    {"cb.insulted_past", WARM, ALLS, "You were harsh with me before, {pet}. Be kinder today."}, {"cb.insulted_past", WARM, ALLS, "Last time we spoke you were cruel. Let us do better."}, {"cb.insulted_past", WARM, ALLS, "I remember our last talk, {pet}. I hope today is gentler."},
+    {"cb.insulted_past", NEUT, ALLS, "You were rude to me last time. I remember."}, {"cb.insulted_past", NEUT, ALLS, "Last time you insulted me often. Mind yourself."}, {"cb.insulted_past", NEUT, ALLS, "Our last talks were sour. I have not forgotten."},
+    {"cb.insulted_past", COLD, ALLS, "You insulted me many times before. I counted."}, {"cb.insulted_past", COLD, ALLS, "I recall how you spoke to me last time."}, {"cb.insulted_past", COLD, ALLS, "Do not think the old insults are gone."},
+    {"cb.insulted_past", HOST, ALLS, "You were vile to me last time. Do not start again."}, {"cb.insulted_past", HOST, ALLS, "I remember the insults you gave me. Every one."}, {"cb.insulted_past", HOST, ALLS, "You were foul before, and I kept all of it."},
+    /* ---- cb.scared ---- */
+    {"cb.scared", WARM, ALLS, "You said you were afraid earlier, {pet}. I hope it has eased."}, {"cb.scared", WARM, ALLS, "I have not forgotten you were frightened, {pet}. Stay close."}, {"cb.scared", WARM, ALLS, "Your fear from before still worries me, {pet}."},
+    {"cb.scared", NEUT, ALLS, "You said you were afraid earlier. I remember."}, {"cb.scared", NEUT, ALLS, "You were scared before. I noticed."}, {"cb.scared", NEUT, ALLS, "Earlier you were frightened. Tell me if it returns."},
+    {"cb.scared", COLD, ALLS, "You admitted fear earlier. I keep that."}, {"cb.scared", COLD, ALLS, "You were afraid before. Do not let it slow you."}, {"cb.scared", COLD, ALLS, "Fear was in your voice before. I heard it."},
+    {"cb.scared", HOST, ALLS, "You were afraid earlier. Do not be a fool about it."}, {"cb.scared", HOST, ALLS, "I heard your fear before. Keep your head, then."}, {"cb.scared", HOST, ALLS, "You showed fear earlier. Watch where you step."},
+    /* ---- cb.lied ---- */
+    {"cb.lied", WARM, ALLS, "You told me a lie earlier, {pet}. I am not angry, only sad."}, {"cb.lied", WARM, ALLS, "I remember the untruth you told, {pet}."}, {"cb.lied", WARM, ALLS, "A lie from before still sits between us, {pet}."},
+    {"cb.lied", NEUT, ALLS, "You lied to me earlier. I remember."}, {"cb.lied", NEUT, ALLS, "I have not forgotten your lie."}, {"cb.lied", NEUT, ALLS, "One lie from you was enough to remember."},
+    {"cb.lied", COLD, ALLS, "You lied to me once. I trust nothing since."}, {"cb.lied", COLD, ALLS, "I remember the lie. Mind your words."}, {"cb.lied", COLD, ALLS, "Liars are remembered here."},
+    {"cb.lied", HOST, ALLS, "You lied to my face earlier. Do not lie again."}, {"cb.lied", HOST, ALLS, "A lie from you. I keep it like a stone in my shoe."}, {"cb.lied", HOST, ALLS, "Lie to me twice and see what happens."},
+    /* ---- cb.asked_before ---- */
+    {"cb.asked_before", WARM, ALLS, "You asked about {fact} before, {pet}. It matters to you."}, {"cb.asked_before", WARM, ALLS, "{fact} again, {pet}. It lives in your mind."}, {"cb.asked_before", WARM, ALLS, "You wondered about {fact} earlier too, {pet}."},
+    {"cb.asked_before", NEUT, ALLS, "You asked about {fact} before."}, {"cb.asked_before", NEUT, ALLS, "{fact} again. I noticed."}, {"cb.asked_before", NEUT, ALLS, "That is the second time you ask about {fact}."},
+    {"cb.asked_before", COLD, ALLS, "You asked about {fact} already."}, {"cb.asked_before", COLD, ALLS, "{fact} again. Pay attention."}, {"cb.asked_before", COLD, ALLS, "I have already spoken of {fact}."},
+    {"cb.asked_before", HOST, ALLS, "Asking about {fact} twice. You are slow."}, {"cb.asked_before", HOST, ALLS, "I told you of {fact} already, fool."}, {"cb.asked_before", HOST, ALLS, "{fact} again. Your memory leaks."},
+    /* ---- cb.same_topic ---- */
+    {"cb.same_topic", WARM, ALLS, "You keep returning to {fact}, {pet}. It must weigh on you."}, {"cb.same_topic", WARM, ALLS, "{fact} is on your mind a lot today, {pet}."}, {"cb.same_topic", WARM, ALLS, "You circle {fact} like a moth, {pet}."},
+    {"cb.same_topic", NEUT, ALLS, "You keep asking about {fact}."}, {"cb.same_topic", NEUT, ALLS, "{fact} is all you ask about."}, {"cb.same_topic", NEUT, ALLS, "Again {fact}. You are fixed on it."},
+    {"cb.same_topic", COLD, ALLS, "{fact}. Again. Find another subject."}, {"cb.same_topic", COLD, ALLS, "You are stuck on {fact}."}, {"cb.same_topic", COLD, ALLS, "Enough about {fact}."},
+    {"cb.same_topic", HOST, ALLS, "You cling to {fact} like a leech."}, {"cb.same_topic", HOST, ALLS, "Stop dragging me back to {fact}."}, {"cb.same_topic", HOST, ALLS, "{fact}, {fact}, {fact}. Is that all your head holds."},
+    /* ---- cb.apology_taken ---- */
+    {"cb.apology_taken", WARM, ALLS, "I took your apology, {pet}. Let us leave the rest behind."}, {"cb.apology_taken", WARM, ALLS, "Your apology was enough for me, {pet}."}, {"cb.apology_taken", WARM, ALLS, "I forgave you, {pet}. Do not make me regret it."},
+    {"cb.apology_taken", NEUT, ALLS, "I accepted your apology earlier. Do not waste it."}, {"cb.apology_taken", NEUT, ALLS, "We are even, since your apology."}, {"cb.apology_taken", NEUT, ALLS, "Your apology stands. Keep it that way."},
+    {"cb.apology_taken", COLD, ALLS, "I took your apology. Do not make me regret it."}, {"cb.apology_taken", COLD, ALLS, "Your sorry bought you one chance."}, {"cb.apology_taken", COLD, ALLS, "I accepted it. Once."},
+    {"cb.apology_taken", HOST, ALLS, "I took your sorry, and I can take it back."}, {"cb.apology_taken", HOST, ALLS, "Your apology was a gift. Do not squander it, worm."}, {"cb.apology_taken", HOST, ALLS, "One apology bought you this talk. Careful."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

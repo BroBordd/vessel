@@ -4,6 +4,8 @@
  * DIALOGUE MEMORY (docs/convo_plan.md, chunk 35): see lang_ctx.h. */
 #include "lang_ctx.h"
 #include "lang_clean.h"
+#include "lang_lex.h"
+#include "lang_frame.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -19,7 +21,7 @@ static void put_unique(char (*list)[24], int *n, int cap, const char *s) {
     snprintf(list[(*n)++], 24, "%s", s);
 }
 
-void lang_ctx_reset(void) { memset(&C, 0, sizeof C); }
+void lang_ctx_reset(void) { memset(&C, 0, sizeof C); C.prior = F; }      /* chunk 39: what earlier chats left stays readable as `prior` */
 void lang_ctx_set_ask(const char *tag, const char *text) {
     C.ask[0] = 0; C.ask_text[0] = 0;
     if (!tag || !lang_ask_tag_valid(tag)) return;
@@ -128,6 +130,55 @@ int lang_ctx_repeat_kind(const Heard *h, const char *raw, const char *lc, int *l
     return REP_NONE;
 }
 
+/* ---------- chunk 39: callbacks (the npc remembers) ---------- */
+static const char *const CB_KEY[CB_COUNT] = { "cb.insulted", "cb.thanked", "cb.complimented", "cb.name", "cb.scared", "cb.lied", "cb.asked_before",
+    "cb.apology_taken", "cb.same_topic", "cb.insulted_past", "cb.name_past" };
+const char *lang_cb_key(int kind) { return kind >= 0 && kind < CB_COUNT ? CB_KEY[kind] : ""; }
+int lang_cb_by_key(const char *key) { for (int i = 0; i < CB_COUNT; i++) if (key && !strcmp(key, CB_KEY[i])) return i; return -1; }
+void lang_ctx_set_counts(int insulted, int thanked, int complimented, int lied, int scared) {
+    C.insulted_count = (uint8_t)insulted; C.thanked_count = (uint8_t)thanked; C.complimented_count = (uint8_t)complimented; C.lied_count = (uint8_t)lied; C.said_scared = (uint8_t)(scared != 0);
+}
+static int prev_has(int in) { const CtxTurn *t = lang_ctx_turn(0); if (!t) return 0; for (int i = 0; i < t->n; i++) if (t->intent[i] == in) return 1; return 0; }
+static int cur_has_name(const Heard *h) { return heard_has(h, I_INTRO) || heard_has(h, I_NAME_SWEAR_NAME) || lang_heard_capture(h, CAP_NAME, 0) != NULL; }
+/* the word of the topic just asked about: what the player typed when it is safe to echo, else the topic's own name (a curated one) */
+static void topic_fact(const Heard *h, char *out, int cap) {
+    const char *w = h->thing[0] && lang_safe_echo(h->thing) ? h->thing : lang_topic_name(h->topic[0]);
+    snprintf(out, (size_t)cap, "%s", w ? w : "that");
+    for (char *p = out; *p; p++) if (*p == '_' || *p == '.') *p = ' ';
+}
+int lang_ctx_callbacks(const Heard *h, int forgetful, CbCand *out) {
+    if (!h || C.turns < 2) return 0;                                   /* nothing to remember yet */
+    if (heard_has(h, I_SELFHARM) || heard_has(h, I_SAD) || heard_has(h, I_SCARED) || heard_has(h, I_HELP) || heard_has(h, I_CONFUSED)) return 0;
+    if (C.cb_n && C.reps - C.cb_at < CB_GAP - 1) return 0;             /* one in 4 replies at most */
+    int ok[CB_COUNT] = { 0 }; char fact[CB_COUNT][24]; memset(fact, 0, sizeof fact);
+    int cur_ins = heard_has(h, I_INSULT), cur_sorry = heard_has(h, I_SORRY);
+    int cur_thx = heard_has(h, I_THANKS) || heard_has(h, I_THANKS_SARCASTIC), cur_praise = heard_has(h, I_PRAISE) || heard_has(h, I_LOVE);
+    /* the topic just asked about, and how often before */
+    if (h->is_question && h->ntopic > 0) {
+        int n = lang_ctx_topic_count(h->topic[0]);
+        if (n == 1) { ok[CB_ASKED_BEFORE] = 1; topic_fact(h, fact[CB_ASKED_BEFORE], 24); }
+        else if (n >= 2) { ok[CB_SAME_TOPIC] = 1; topic_fact(h, fact[CB_SAME_TOPIC], 24); }
+    }
+    ok[CB_APOLOGY_TAKEN] = C.apologized && !cur_sorry && !cur_ins && !prev_has(I_SORRY);
+    ok[CB_INSULTED] = C.insulted_count >= 1 && !cur_ins && !cur_sorry && !prev_has(I_INSULT);
+    ok[CB_SCARED] = C.said_scared && !prev_has(I_SCARED);
+    ok[CB_THANKED] = C.thanked_count >= 1 && !cur_thx && !prev_has(I_THANKS);
+    ok[CB_COMPLIMENTED] = C.complimented_count >= 1 && !cur_praise && !prev_has(I_PRAISE);
+    ok[CB_LIED] = C.lied_count >= 1;
+    if (!forgetful && C.name[0] && C.turns >= 3 && !cur_has_name(h)) { ok[CB_NAME] = 1; snprintf(fact[CB_NAME], 24, "%s", C.name); }
+    if (!forgetful && !C.name[0] && C.prior.name[0] && !cur_has_name(h)) { ok[CB_NAME_PAST] = 1; snprintf(fact[CB_NAME_PAST], 24, "%s", C.prior.name); }
+    ok[CB_INSULTED_PAST] = C.prior.insulted > 3 && C.insulted_count == 0 && !cur_ins;
+    /* order: the priority above, a kind used less often first, a spent kind never */
+    static const int PRIO[CB_COUNT] = { CB_ASKED_BEFORE, CB_SAME_TOPIC, CB_APOLOGY_TAKEN, CB_INSULTED, CB_SCARED, CB_THANKED, CB_COMPLIMENTED, CB_NAME, CB_LIED, CB_INSULTED_PAST, CB_NAME_PAST };
+    int n = 0;
+    for (int used = 0; used < CB_MAX_PER_KIND; used++)
+        for (int i = 0; i < CB_COUNT; i++) {
+            int k = PRIO[i], max = (k == CB_INSULTED_PAST || k == CB_NAME_PAST) ? 1 : CB_MAX_PER_KIND;
+            if (ok[k] && C.cb_cnt[k] == used && used < max) { out[n].kind = k; snprintf(out[n].fact, sizeof out[n].fact, "%s", fact[k]); n++; }
+        }
+    return n;
+}
+
 void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int mood) {
     if (I_LIED == -2) I_LIED = lang_intent_by_name("lie");
     /* the player's turn */
@@ -143,6 +194,8 @@ void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int 
     snprintf(r->key, sizeof r->key, "%s", reply_key ? reply_key : "");
     r->mood = (int8_t)(mood < -100 ? -100 : mood > 100 ? 100 : mood);
     C.reps++; if (C.nrep < CTX_TURNS) C.nrep++;
+    { int k = lang_cb_by_key(lang_reply_callback());      /* chunk 39: the reply carried a callback */
+      if (k >= 0) { if (C.cb_cnt[k] < 255) C.cb_cnt[k]++; C.cb_n++; C.cb_at = C.reps; } }
     if (heard_has(h, I_SELFHARM)) C.rep_n = C.copy_n = 0;      /* chunk 38 */
     else { C.rep_n = (heard_has(h, I_REPEAT_PLAYER) || heard_has(h, I_SPAM)) ? h->rep_level : 0; C.copy_n = heard_has(h, I_COPYCAT) ? h->rep_level : 0; }
     if (heard_has(h, I_SELFHARM)) C.last_text[0] = 0; else snprintf(C.last_text, sizeof C.last_text, "%.159s", lang_reply_text());
@@ -155,6 +208,7 @@ void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int 
     for (int k = 0; (c = lang_heard_capture(h, CAP_LIKE, k)); k++) put_unique(C.likes, &C.nlikes, CTX_LIKES, c->text);
     for (int k = 0; (c = lang_heard_capture(h, CAP_DISLIKE, k)); k++) put_unique(C.dislikes, &C.ndislikes, CTX_LIKES, c->text);
     if (heard_has(h, I_SCARED)) C.said_scared = 1;
+    if (heard_has(h, I_SORRY) && C.insulted_count) C.apologized = 1;      /* chunk 39 */
     if (heard_has(h, I_INSULT)) { sat(&C.insulted_count); sat(&F.insulted); }
     if (heard_has(h, I_THANKS)) { sat(&C.thanked_count); sat(&F.thanked); }
     if (heard_has(h, I_PRAISE)) sat(&C.complimented_count);

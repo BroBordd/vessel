@@ -18,6 +18,12 @@
 #define CTX_TURNS 8
 #define CTX_LIKES 3
 #define CTX_TOPICS 8
+typedef struct { char name[24]; uint8_t insulted, thanked; } CtxFacts;    /* what is saved between chats */
+/* chunk 39: callbacks. The kinds the npc may bring back (reply key cb.<name>; the two _past kinds use facts of EARLIER chats) */
+enum { CB_INSULTED, CB_THANKED, CB_COMPLIMENTED, CB_NAME, CB_SCARED, CB_LIED, CB_ASKED_BEFORE, CB_APOLOGY_TAKEN, CB_SAME_TOPIC, CB_INSULTED_PAST, CB_NAME_PAST, CB_COUNT };
+#define CB_GAP 4          /* at most one callback in 4 replies */
+#define CB_MAX_PER_KIND 2 /* and a kind comes back at most twice per chat (the _past kinds once) */
+typedef struct { int kind; char fact[24]; } CbCand;
 typedef struct { char text[96]; uint8_t n; int16_t intent[4]; int8_t valence; } CtxTurn;     /* the cleaned text (cut at 95 bytes), up to 4 intents (self-harm first, then by order said) */
 typedef struct { char key[40]; int8_t mood; } CtxReply;
 typedef struct {
@@ -32,9 +38,11 @@ typedef struct {
     char ask[12];                                /* the ask tag of the npc's last line (chunk 36); empty = none */
     char last_text[160];                         /* chunk 37: the npc's last reply as spoken ("" after self-harm): follow-ups resay or extend it */
     uint8_t rep_n, copy_n;                       /* chunk 38: how many repeat / spam turns and copycat turns in a row (the ladder step of the last one); a different turn or an apology resets them */
+    CtxFacts prior;                              /* chunk 39: the persisted facts as this chat began (what earlier chats left) */
+    uint8_t apologized;                          /* chunk 39: the player said sorry after insulting the npc this chat */
+    uint8_t cb_cnt[CB_COUNT]; int cb_n, cb_at;   /* chunk 39: callbacks made this chat per kind, in all, and the reply count right after the last one */
     char ask_text[96];                           /* the question sentence of that line as spoken (chunk 36: a choice needs its two options) */
 } LangCtx;
-typedef struct { char name[24]; uint8_t insulted, thanked; } CtxFacts;    /* what is saved between chats */
 
 void lang_ctx_reset(void);
 void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int mood);
@@ -52,6 +60,15 @@ void lang_ctx_set_ask_line(const char *text);    /* chunk 36: a scripted line sp
  * *level = the ladder step this turn would be on (1-5 rep, 1-3 copycat; spam starts at 2). Never for self-harm, sorry, distress, confusion, an answer to a question or a follow-up. */
 enum { REP_NONE, REP_REPEAT, REP_SPAM, REP_COPYCAT };
 int  lang_ctx_repeat_kind(const Heard *h, const char *raw, const char *lc, int *level);
+/* chunk 39: which callbacks fit the turn that is being answered (call BEFORE lang_ctx_note of that turn). Fills out[] (>= CB_COUNT) in the order they should be
+ * tried: the ones about the topic just asked, then the apology, insults, fear, thanks, praise, the name, a lie, the persisted ones; a kind used less comes first.
+ * Returns 0 when none fits: nothing for self-harm, sadness, fear, confusion or a call for help, nothing less than CB_GAP replies after the last callback,
+ * nothing about a thing the player is doing this very turn, and nothing on the turn right after it (an insult is answered, not recalled).
+ * `forgetful` (Q_FORGETFUL) drops the name kinds. Pure: no random numbers, no state change. */
+int  lang_ctx_callbacks(const Heard *h, int forgetful, CbCand *out);
+const char *lang_cb_key(int kind);                 /* "cb.insulted" ... */
+int  lang_cb_by_key(const char *key);              /* -1 if it is no callback key */
+void lang_ctx_set_counts(int insulted, int thanked, int complimented, int lied, int scared);   /* tests */
 void lang_ctx_facts_save(CtxFacts *out);
 void lang_ctx_facts_load(const CtxFacts *in);    /* a NULL or empty struct forgets everything */
 const CtxFacts *lang_ctx_facts(void);
