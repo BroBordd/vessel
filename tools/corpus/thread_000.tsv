@@ -1,0 +1,62 @@
+# chunk 40: does the player ask to talk about a topic? `ask` = Heard.topic_ask must be set (a topic is named after a phrase like tell me more about ...),
+# `no` = it must not. Read by `langcheck --thread` (pass this file). Format: text<TAB>ask|no. Private test data, never shipped.
+tell me more about the moon	ask
+tell me about the sky	ask
+tell me more about the stars	ask
+more about the orb	ask
+lets talk about the sun	ask
+let us talk about the sea	ask
+can we talk about the night	ask
+i want to talk about the shrine	ask
+i wanna talk about the hammer	ask
+talk about the clouds	ask
+talk more about the forest	ask
+speak of the grave	ask
+speak about the rain	ask
+what about the moon	ask
+how about the stars	ask
+what do you think about the sky	ask
+tell me about the house	ask
+tell me more about that door	ask
+hey lets talk about the moon	ask
+ok tell me about the orb	ask
+please tell me more about the sun	ask
+so what about the hammer	ask
+um what about the sea	ask
+tell me more about the shrine please	ask
+can we talk about the clouds	ask
+lets talk about rain	ask
+tell me about the night sky	ask
+talk about the moon	ask
+what about the forest at night	ask
+tell me about the grave	ask
+the moon is bright	no
+i like the moon	no
+what is the moon	no
+where is the moon	no
+the stars are out	no
+hello	no
+tell me more	no
+tell me about yourself	no
+talk to me	no
+lets talk	no
+what about you	no
+how about a joke	no
+tell me a joke	no
+who are you	no
+i see the sun	no
+the sky is blue	no
+the moon and the stars	no
+why is the sky dark	no
+more	no
+what about it	no
+i hate the rain	no
+open the door	no
+the orb	no
+hammer time	no
+going to the sea	no
+that is a nice house	no
+the forest is dark	no
+i fear the grave	no
+are you the moon	no
+say something funny	no

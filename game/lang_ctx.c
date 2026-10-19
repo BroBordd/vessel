@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <stdlib.h>
 
 static LangCtx C;
 static CtxFacts F;      /* survives lang_ctx_reset */
@@ -179,6 +180,55 @@ int lang_ctx_callbacks(const Heard *h, int forgetful, CbCand *out) {
     return n;
 }
 
+/* ---------- chunk 40: topic threads ---------- */
+static int th_spent(int topic) { for (int i = 0; i < C.th_nspent; i++) if (C.th_spent[i] == topic) return 1; return 0; }
+static void th_spend(int topic) {
+    if (th_spent(topic)) return;
+    if (C.th_nspent == 4) { memmove(C.th_spent, C.th_spent + 1, 3 * sizeof C.th_spent[0]); C.th_nspent--; }
+    C.th_spent[C.th_nspent++] = (int16_t)topic;
+}
+int lang_thread_active(void) { return C.th_on; }
+/* a short answer to the npc's question (yes, no, ok, because ..., the second one): the thread waits, it does not end */
+static int th_answer(const Heard *h) {
+    return heard_has(h, I_AGREE_TO_ASK) || heard_has(h, I_DECLINE_TO_ASK) || heard_has(h, I_BECAUSE) || heard_has(h, I_ANSWER_CHOICE)
+        || heard_has(h, I_YES) || heard_has(h, I_NO) || heard_has(h, I_OK) || heard_has(h, I_AGREE) || heard_has(h, I_DISAGREE);
+}
+int lang_thread_ask(const char *lc) {
+    static const char *const P[] = { "tell me more about ", "tell me about ", "more about ", "talk about ", "talk more about ", "talk of ", "speak of ", "speak about ",
+        "lets talk about ", "let us talk about ", "can we talk about ", "i want to talk about ", "i wanna talk about ", "what about ", "how about ", "what do you think about ", NULL };
+    if (!lc) return 0;
+    for (int i = 0; P[i]; i++) { const char *f = strstr(lc, P[i]); if (f && (f == lc || f[-1] == ' ')) return 1; }
+    return 0;
+}
+int lang_ctx_thread(const Heard *h, int tone, ThreadPlan *out) {
+    out->kind = TH_NONE; out->topic = -1; out->step = 0;
+    if (!h) return TH_NONE;
+    if (heard_has(h, I_SELFHARM) || heard_has(h, I_SAD) || heard_has(h, I_SCARED) || heard_has(h, I_HELP) || heard_has(h, I_CONFUSED)) return TH_NONE;
+    int more = heard_has(h, I_FOLLOW_MORE), top = h->ntopic ? h->topic[0] : -1;
+    int dull = tone == TONE_BORED || tone == TONE_COLD;
+    if (C.th_on) {
+        int same = top == C.th_topic;
+        if (!same && !more) return TH_NONE;      /* the player moved on, or only answered the npc's question (the thread waits, see th_commit) */                      /* the player moved on: the thread just ends (commit does it) */
+        out->topic = C.th_topic;
+        if (C.th_step >= 4 || dull) { out->kind = TH_CHANGE; out->step = 0; return TH_CHANGE; }      /* the goodbye is said, or the npc has no patience left for it */
+        out->kind = TH_STEP; out->step = C.th_step + 1; return TH_STEP;
+    }
+    if (top < 0 || th_spent(top)) return TH_NONE;
+    int run = (C.run_topic == top ? C.run_n : 0) + 1;
+    if (run >= 3 || h->topic_ask) { out->kind = TH_STEP; out->topic = top; out->step = 1; return TH_STEP; }
+    return TH_NONE;
+}
+/* commit what the reply said: key is the thread key lang_reply spoke (th.<topic>.<n> or ch.generic), "" if none */
+static void th_commit(const Heard *h, const char *key) {
+    int top = h->ntopic ? h->topic[0] : -1;
+    if (!heard_has(h, I_SELFHARM)) { if (top >= 0 && top == C.run_topic) { if (C.run_n < 255) C.run_n++; } else { C.run_topic = (int16_t)top; C.run_n = top >= 0 ? 1 : 0; } }
+    else { C.run_topic = -1; C.run_n = 0; }
+    if (!C.th_on && key[0] == 0) return;
+    if (!strncmp(key, "th.", 3)) { const char *d = strrchr(key, '.'); int n = d ? atoi(d + 1) : 0; if (!C.th_on) { C.th_on = 1; C.th_topic = (int16_t)top; } C.th_step = (uint8_t)n; if (n >= 4) th_spend(C.th_topic); return; }
+    if (!strncmp(key, "ch.", 3)) { if (C.th_on) th_spend(C.th_topic); C.th_on = 0; C.th_step = 0; return; }
+    if (C.th_on && !(top == C.th_topic || heard_has(h, I_FOLLOW_MORE) || th_answer(h))) { C.th_on = 0; C.th_step = 0; }      /* the player left the topic (an answer to the npc's question does not count as leaving) */
+}
+
 void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int mood) {
     if (I_LIED == -2) I_LIED = lang_intent_by_name("lie");
     /* the player's turn */
@@ -196,6 +246,7 @@ void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int 
     C.reps++; if (C.nrep < CTX_TURNS) C.nrep++;
     { int k = lang_cb_by_key(lang_reply_callback());      /* chunk 39: the reply carried a callback */
       if (k >= 0) { if (C.cb_cnt[k] < 255) C.cb_cnt[k]++; C.cb_n++; C.cb_at = C.reps; } }
+    th_commit(h, lang_reply_thread());      /* chunk 40 */
     if (heard_has(h, I_SELFHARM)) C.rep_n = C.copy_n = 0;      /* chunk 38 */
     else { C.rep_n = (heard_has(h, I_REPEAT_PLAYER) || heard_has(h, I_SPAM)) ? h->rep_level : 0; C.copy_n = heard_has(h, I_COPYCAT) ? h->rep_level : 0; }
     if (heard_has(h, I_SELFHARM)) C.last_text[0] = 0; else snprintf(C.last_text, sizeof C.last_text, "%.159s", lang_reply_text());

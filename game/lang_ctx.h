@@ -41,6 +41,9 @@ typedef struct {
     CtxFacts prior;                              /* chunk 39: the persisted facts as this chat began (what earlier chats left) */
     uint8_t apologized;                          /* chunk 39: the player said sorry after insulting the npc this chat */
     uint8_t cb_cnt[CB_COUNT]; int cb_n, cb_at;   /* chunk 39: callbacks made this chat per kind, in all, and the reply count right after the last one */
+    int16_t run_topic; uint8_t run_n;            /* chunk 40: the strongest topic of the last turn and how many turns in a row it has been the one */
+    uint8_t th_on, th_step; int16_t th_topic;     /* chunk 40: a topic thread is running (th_on), its topic id and the step the npc said last (1-4) */
+    int16_t th_spent[4]; uint8_t th_nspent;       /* chunk 40: topics whose thread is over (said goodbye to, or changed away from): they never start another */
     char ask_text[96];                           /* the question sentence of that line as spoken (chunk 36: a choice needs its two options) */
 } LangCtx;
 
@@ -68,6 +71,15 @@ int  lang_ctx_repeat_kind(const Heard *h, const char *raw, const char *lc, int *
 int  lang_ctx_callbacks(const Heard *h, int forgetful, CbCand *out);
 const char *lang_cb_key(int kind);                 /* "cb.insulted" ... */
 int  lang_cb_by_key(const char *key);              /* -1 if it is no callback key */
+/* chunk 40: topic threads. When the player keeps to one topic (its word in the strongest place three turns running) or asks to talk about it, the npc runs a
+ * thread th.<topic>.1 .. 4 (what it is, a feeling about it, a question back, a goodbye to it; th.generic.N when the topic has no lines of its own). A thread that
+ * has said its goodbye, or whose npc is BORED or COLD by the second step, changes the subject (ch.generic; chunk 41 adds the persona's hooks) and the topic is spent.
+ * The pure planner: call it BEFORE the turn is noted; it draws no random numbers and changes nothing. lang_reply says the line, lang_ctx_note commits the step. */
+enum { TH_NONE, TH_STEP, TH_CHANGE };
+typedef struct { int kind; int topic; int step; } ThreadPlan;       /* TH_STEP: say th.<topic>.<step>; TH_CHANGE: say ch.generic and close the thread */
+int  lang_ctx_thread(const Heard *h, int tone, ThreadPlan *out);    /* returns the kind; tone = the npc's mood this turn */
+int  lang_thread_ask(const char *lc);                               /* does the cleaned text ask to talk about something (tell me more about ..., lets talk about ...)? */
+int  lang_thread_active(void);                                      /* 1 while a thread runs */
 void lang_ctx_set_counts(int insulted, int thanked, int complimented, int lied, int scared);   /* tests */
 void lang_ctx_facts_save(CtxFacts *out);
 void lang_ctx_facts_load(const CtxFacts *in);    /* a NULL or empty struct forgets everything */

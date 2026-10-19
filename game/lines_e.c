@@ -217,5 +217,32 @@ const Line LINES_E[] = {
     {"cb.apology_taken", NEUT, ALLS, "I accepted your apology earlier. Do not waste it."}, {"cb.apology_taken", NEUT, ALLS, "We are even, since your apology."}, {"cb.apology_taken", NEUT, ALLS, "Your apology stands. Keep it that way."},
     {"cb.apology_taken", COLD, ALLS, "I took your apology. Do not make me regret it."}, {"cb.apology_taken", COLD, ALLS, "Your sorry bought you one chance."}, {"cb.apology_taken", COLD, ALLS, "I accepted it. Once."},
     {"cb.apology_taken", HOST, ALLS, "I took your sorry, and I can take it back."}, {"cb.apology_taken", HOST, ALLS, "Your apology was a gift. Do not squander it, worm."}, {"cb.apology_taken", HOST, ALLS, "One apology bought you this talk. Careful."},
+    /* ---- chunk 40: topic threads. th.generic.1..4 = what it is, a feeling about it, a question back, a goodbye to it ({thing} = the topic word the player typed, else its name);
+     * ch.generic = the npc changes the subject. A topic with lines of its own (th.<topic>.1..4, chunks 144-145) is used instead of th.generic. ---- */
+    /* ---- th.generic.1 ---- */
+    {"th.generic.1", WARM, ALLS, "Ah, {thing}. I know a little of it, {pet}, and I will gladly tell you."}, {"th.generic.1", WARM, ALLS, "Of {thing} I can say a good deal. Sit, and listen."}, {"th.generic.1", WARM, ALLS, "You return to {thing} again, {pet}. Good. It deserves your notice."},
+    {"th.generic.1", NEUT, ALLS, "Of {thing} I can tell you this much. It was here before you."}, {"th.generic.1", NEUT, ALLS, "Very well. About {thing}, I know a few things."}, {"th.generic.1", NEUT, ALLS, "Ah, {thing}. It is a part of this place, as you are, for now."},
+    {"th.generic.1", COLD, ALLS, "Of {thing}, little can be said that you would grasp."}, {"th.generic.1", COLD, ALLS, "You keep saying {thing}. Fine. It exists. That is all."}, {"th.generic.1", COLD, ALLS, "Hm. {thing}. It is what it is."},
+    {"th.generic.1", HOST, ALLS, "Again with {thing}? It is older than your whole sorry life."}, {"th.generic.1", HOST, ALLS, "Another word on {thing}? A fool's fixation, but I will indulge you once."}, {"th.generic.1", HOST, ALLS, "You prattle on of {thing}. Hear me, then, and be quiet."},
+    /* ---- th.generic.2 ---- */
+    {"th.generic.2", WARM, ALLS, "I feel something soft when you speak of {thing}, {pet}."}, {"th.generic.2", WARM, ALLS, "Do not laugh, but {thing} moves me. It always has."}, {"th.generic.2", WARM, ALLS, "Talking of {thing} makes me glad to be here, and gladder you asked."},
+    {"th.generic.2", NEUT, ALLS, "I have thought about {thing} more than I let on."}, {"th.generic.2", NEUT, ALLS, "I think of {thing} sometimes, when it is quiet."}, {"th.generic.2", NEUT, ALLS, "Some days I feel one way about {thing}, some days another."},
+    {"th.generic.2", COLD, ALLS, "I feel nothing for {thing}. Nothing at all."}, {"th.generic.2", COLD, ALLS, "Why should I feel anything toward {thing}?"}, {"th.generic.2", COLD, ALLS, "You want a feeling. I have none to spare for {thing}."},
+    {"th.generic.2", HOST, ALLS, "I loathe how much you care about {thing}. It is tiresome."}, {"th.generic.2", HOST, ALLS, "A feeling about {thing}? Only that I tire of it."}, {"th.generic.2", HOST, ALLS, "If you must know, {thing} bores me, and so do you."},
+    /* ---- th.generic.3 ---- */
+    {"th.generic.3", WARM, ALLS, "Do you think of {thing} often, {pet}?"}, {"th.generic.3", WARM, ALLS, "Tell me, did {thing} find you, or did you find it?"}, {"th.generic.3", WARM, ALLS, "Is it {thing} you love, {pet}, or what it stands for?"},
+    {"th.generic.3", NEUT, ALLS, "Do you know why you keep coming back to {thing}?"}, {"th.generic.3", NEUT, ALLS, "Have you seen {thing} for yourself?"}, {"th.generic.3", NEUT, ALLS, "Would you say {thing} is a good thing, or a bad one?"},
+    {"th.generic.3", COLD, ALLS, "Why do you ask about {thing}?"}, {"th.generic.3", COLD, ALLS, "What is {thing} to you?"}, {"th.generic.3", COLD, ALLS, "Do you want something from me about {thing}?"},
+    {"th.generic.3", HOST, ALLS, "Do you even know what you want of {thing}?"}, {"th.generic.3", HOST, ALLS, "Is there any point to all this talk of {thing}?"}, {"th.generic.3", HOST, ALLS, "Have you nothing better to ask than {thing}?"},
+    /* ---- th.generic.4 ---- */
+    {"th.generic.4", WARM, ALLS, "That is enough of {thing} for now, {pet}. Ask me something new."}, {"th.generic.4", WARM, ALLS, "We have talked {thing} through, you and I. I am glad of it."}, {"th.generic.4", WARM, ALLS, "Let {thing} rest now. It has had its say."},
+    {"th.generic.4", NEUT, ALLS, "That is all I have to say of {thing}."}, {"th.generic.4", NEUT, ALLS, "We are done with {thing}. Ask another."}, {"th.generic.4", NEUT, ALLS, "Enough of {thing}. There is more to speak of."},
+    {"th.generic.4", COLD, ALLS, "Enough about {thing}."}, {"th.generic.4", COLD, ALLS, "I am finished with {thing}. Speak of something else."}, {"th.generic.4", COLD, ALLS, "No more of {thing}."},
+    {"th.generic.4", HOST, ALLS, "No more of {thing}. I am sick of the word."}, {"th.generic.4", HOST, ALLS, "Done. Not another word about {thing}, fool."}, {"th.generic.4", HOST, ALLS, "That is the end of {thing}. Find another bone to chew."},
+    /* ---- ch.generic ---- */
+    {"ch.generic", WARM, ALLS, "Let us speak of something else, {pet}. Ask me about the hole, or the sky."}, {"ch.generic", WARM, ALLS, "Come, {pet}. Let us leave that and find a new road."}, {"ch.generic", WARM, ALLS, "Enough of that for now. Ask me about something else."},
+    {"ch.generic", NEUT, ALLS, "Let us change the subject."}, {"ch.generic", NEUT, ALLS, "Another matter, then. Ask what you like."}, {"ch.generic", NEUT, ALLS, "That is done. Pick something else."},
+    {"ch.generic", COLD, ALLS, "Let us speak of something that matters."}, {"ch.generic", COLD, ALLS, "Enough. Another subject."}, {"ch.generic", COLD, ALLS, "I am bored of this. Speak of something else."},
+    {"ch.generic", HOST, ALLS, "Change the subject, or leave."}, {"ch.generic", HOST, ALLS, "I have heard enough on that. Find a new bone."}, {"ch.generic", HOST, ALLS, "Talk of something else, or do not talk at all."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

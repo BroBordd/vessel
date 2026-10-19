@@ -124,6 +124,7 @@ typedef struct {
     uint8_t confidence; /* chunk 34: 0-100, how sure the engine is of the intent it will answer (that intent's conf; 30 when only a topic or a frame was heard; 0 = nothing) */
     uint8_t kind;       /* chunk 34: HK_* what the reading rests on */
     uint8_t rep_level;  /* chunk 38: with I_REPEAT_PLAYER / I_SPAM the step of the rep.1..5 ladder this turn is on, with I_COPYCAT the step of copycat.1..3 (0 = none) */
+    uint8_t topic_ask;  /* chunk 40: the player asked to talk about a topic (tell me more about the moon, lets talk about the sky) and a topic was found: starts a thread at once */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
@@ -208,6 +209,8 @@ int  lang_ask_tag_valid(const char *tag);                 /* 1 for yn name why a
 const char *lang_ask_tag_text(const char *text);          /* the tag a line text gets by rule ("" none); text may hold {slots} */
 const char *lang_reply_ask(void);                         /* the tag of the last question the last lang_reply / lang_line said ("" none) */
 void lang_callbacks_set(int on);                          /* chunk 39: tests switch the callbacks off (1 = on, the default) */
+const char *lang_reply_thread(void);                      /* chunk 40: the key (th.moon.2, th.generic.1, ch.generic) of the thread line the last lang_reply said ("" none) */
+void lang_threads_set(int on);                           /* chunk 40: tests switch the topic threads off (1 = on, the default) */
 const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */
 const char *lang_reply_text(void);                        /* chunk 37: the last reply lang_reply said, whole ("" for self-harm) */
 const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */

@@ -3701,7 +3701,7 @@ static void cb_chat(Persona *p, const char *const *t, int n) { Heard h; for (int
 #define CHAT(p, ...) do { const char *_t[] = { __VA_ARGS__ }; cb_chat(&(p), _t, (int)(sizeof _t / sizeof _t[0])); } while (0)
 static int do_callbacks(void) {
     cbfail = cbchecks = 0;
-    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0);
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0); lang_threads_set(0);      /* chunk 40: a topic thread takes over the topic questions that asked_before / same_topic recall: this test is about callbacks */
     Persona base = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
     CbCand cc[CB_COUNT]; int n;
     /* the lines: 11 keys, 12 each, 3 per old mood, short, no question, only {pet} and {fact} (a fact only where a fact exists) */
@@ -3803,9 +3803,157 @@ static int do_callbacks(void) {
       for (int on = 0; on < 2; on++) { lang_callbacks_set(on); lang_ctx_facts_load(NULL); lang_ctx_reset(); PL_FLUSH(); lang_seed(77); Persona p = base; for (int i = 0; i < 8; i++) { lang_parse(t[i], &h); lang_reply(&p, &h, on ? b[i] : a[i], 400); lang_ctx_note(&h, t[i], lang_reply_key(), p.mood); } }
       int same = 1; for (int i = 0; i < 8; i++) if (strcmp(a[i], b[i])) same = 0;
       CBCHECK(same, "a chat with nothing to remember changed with the callbacks on"); }
-    lang_callbacks_set(1); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    lang_callbacks_set(1); lang_threads_set(1); lang_ctx_facts_load(NULL); lang_ctx_reset();
     printf("callbacks: %d checks, %d problems\n", cbchecks, cbfail);
     return cbfail;
+}
+
+
+/* ---------- chunk 40: topic threads ---------- */
+static int thfail, thchecks;
+#define THCHECK(c, ...) do { thchecks++; if (!(c)) { printf("BAD THREAD: " __VA_ARGS__); printf("\n"); thfail++; } } while (0)
+static char th_out[800];
+static void th_turn(Persona *p, const char *t, Heard *h) { lang_parse(t, h); lang_reply(p, h, th_out, (int)sizeof th_out); lang_ctx_note(h, t, lang_reply_key(), p->mood); }
+static int th_isth(const char *k) { return !strncmp(k, "th.", 3); }
+static int th_step_of(const char *k) { const char *d = strrchr(k, '.'); return d && th_isth(k) ? atoi(d + 1) : 0; }
+static int do_thread(int argc, char **argv) {
+    thfail = thchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0); lang_threads_set(1);
+    Persona warm = { "Wren", STYLE_PLAIN, 30, 50, 0, 20 }, cold = { "Cass", STYLE_PLAIN, -40, 50, 0, 20 };
+    Heard h;
+    /* the lines: 5 keys, 12 each, 3 per old mood, short, only {pet} and {thing}; steps 1-4 exist */
+    { static const char *const K[] = { "th.generic.1", "th.generic.2", "th.generic.3", "th.generic.4", "ch.generic" }; const Line *const *r; int rows = 0;
+      for (int k = 0; k < 5; k++) {
+          int cnt = lang_key_rows(K[k], &r), per[4] = { 0 }; rows += cnt;
+          THCHECK(cnt == 12, "%s has %d lines, want 12", K[k], cnt);
+          for (int i = 0; i < cnt; i++) {
+              const char *t = r[i]->text;
+              for (int b = 0; b < 4; b++) if (r[i]->tones == (uint32_t)(1u << b)) per[b]++;
+              THCHECK(strlen(t) <= 110, "%s line too long: %s", K[k], t);
+              for (const char *s = t; (s = strchr(s, '{')); s++) THCHECK(!strncmp(s, "{pet}", 5) || (!strncmp(s, "{thing}", 7) && k < 4), "%s has a slot it may not: %s", K[k], t);
+              if (k < 4) THCHECK(strstr(t, "{thing}") != NULL, "%s line has no {thing}: %s", K[k], t);
+              if (k == 4) THCHECK(!strchr(t, '?'), "ch.generic line is a question: %s", t);
+          }
+          for (int b = 0; b < 4; b++) THCHECK(per[b] == 3, "%s has %d lines for mood %d, want 3", K[k], per[b], b);
+      }
+      printf("thread: %d lines in 5 keys\n", rows); }
+    /* the corpus: does the text ask to talk about a topic? */
+    { const char *path = NULL; for (int i = 1; i < argc; i++) if (strstr(argv[i], "thread_")) path = argv[i];
+      if (!path) path = "tools/corpus/thread_000.tsv";
+      FILE *f = fopen(path, "r");
+      if (!f) printf("thread: no corpus (%s), skipped\n", path);
+      else { char line[300]; int asks = 0, nos = 0, bad = 0;
+          while (fgets(line, sizeof line, f)) {
+              size_t n = strlen(line); while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
+              if (!n || line[0] == '#') continue;
+              char *tab = strchr(line, '\t'); if (!tab) continue; *tab = 0;
+              int want = !strcmp(tab + 1, "ask"); Heard hh; lang_ctx_reset(); lang_parse(line, &hh);
+              if (want) asks++; else nos++;
+              if ((hh.topic_ask != 0) != want) { bad++; printf("  corpus miss: [%s] wanted %s\n", line, want ? "ask" : "no"); }
+          }
+          fclose(f);
+          THCHECK(bad == 0, "%d corpus lines read wrongly", bad); THCHECK(asks >= 25 && nos >= 25, "corpus too small: %d / %d", asks, nos);
+          printf("thread: corpus %d ask, %d no, %d wrong\n", asks, nos, bad); } }
+    /* three turns on one topic start a thread; two do not */
+    { lang_ctx_reset(); lang_seed(3); Persona p = warm;
+      th_turn(&p, "the moon", &h); THCHECK(!th_isth(lang_reply_key()), "turn 1 is no thread [%s]", lang_reply_key());
+      th_turn(&p, "the moon again", &h); THCHECK(!th_isth(lang_reply_key()), "turn 2 is no thread [%s]", lang_reply_key());
+      th_turn(&p, "i keep thinking about the moon", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.1") && !strcmp(lang_reply_thread(), "th.generic.1"), "turn 3 starts it [%s]", lang_reply_key());
+      THCHECK(strstr(th_out, "moon") != NULL, "the topic word comes back [%s]", th_out);
+      th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.2"), "more goes on to step 2 [%s]", lang_reply_key());
+      th_turn(&p, "the moon is far", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.3"), "the topic again is step 3 [%s]", lang_reply_key());
+      th_turn(&p, "the moon in my head", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.4"), "step 4, the goodbye [%s]", lang_reply_key());
+      th_turn(&p, "the moon at last", &h); THCHECK(!th_isth(lang_reply_key()), "after the goodbye the topic is spent [%s]", lang_reply_key());
+      lang_ctx_reset(); }
+    /* the player may ask for it at once; a spent topic does not come back; the thread ends at ch.generic when the player goes on */
+    { lang_ctx_reset(); lang_seed(4); Persona p = warm;
+      th_turn(&p, "tell me more about the moon", &h); THCHECK(h.topic_ask && !strcmp(lang_reply_key(), "th.generic.1"), "ask starts it at once [%s]", lang_reply_key());
+      th_turn(&p, "go on", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.2"), "go on is step 2 [%s]", lang_reply_key());
+      th_turn(&p, "and then", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.3"), "and then is step 3 [%s]", lang_reply_key());
+      th_turn(&p, "yes", &h); THCHECK(!th_isth(lang_reply_key()) && lang_thread_active(), "an answer to its question waits, the thread lives [%s]", lang_reply_key());
+      th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.4"), "more after the answer is the goodbye [%s]", lang_reply_key());
+      th_turn(&p, "tell me more about the moon", &h); THCHECK(!strcmp(lang_reply_key(), "ch.generic"), "asking again after the goodbye changes the subject [%s]", lang_reply_key());
+      th_turn(&p, "tell me more about the moon", &h); THCHECK(!th_isth(lang_reply_key()) && !strcmp(lang_reply_thread(), ""), "a spent topic starts nothing [%s]", lang_reply_key());
+      th_turn(&p, "tell me more about the stars", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.1"), "another topic does [%s]", lang_reply_key());
+      th_turn(&p, "more", &h); th_turn(&p, "more", &h); th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.4"), "step 4 again [%s]", lang_reply_key());
+      th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "ch.generic") && !lang_thread_active(), "a fifth more changes the subject and closes it [%s]", lang_reply_key());
+      th_turn(&p, "tell me about the stars", &h); THCHECK(!th_isth(lang_reply_key()), "stars are spent now [%s]", lang_reply_key()); }
+    /* a bored or cold npc changes the subject at step 2, and the topic is spent */
+    { int changed = 0, tries = 40;
+      for (int s = 0; s < tries; s++) {
+          lang_ctx_reset(); lang_seed((unsigned)(100 + s)); Persona p = cold;
+          th_turn(&p, "tell me about the orb", &h); if (!th_isth(lang_reply_key())) continue;
+          th_turn(&p, "more", &h);
+          if (lang_mood_now(&p) == TONE_COLD || lang_mood_now(&p) == TONE_BORED) { }
+          if (!strcmp(lang_reply_key(), "ch.generic")) { changed++; THCHECK(!lang_thread_active(), "closed after the change"); th_turn(&p, "tell me about the orb", &h); THCHECK(!th_isth(lang_reply_key()), "spent after a change [%s]", lang_reply_key()); }
+      }
+      THCHECK(changed >= tries / 5, "a cold npc changed the subject only %d times in %d", changed, tries); printf("thread: cold npc changed the subject %d of %d times\n", changed, tries); }
+    /* a planner call alone changes nothing and draws nothing */
+    { lang_ctx_reset(); lang_seed(5); Persona p = warm; th_turn(&p, "tell me about the moon", &h); const LangCtx *c = lang_ctx(); LangCtx before = *c; ThreadPlan tp;
+      lang_parse("more", &h); int k1 = lang_ctx_thread(&h, TONE_NEUTRAL, &tp), k2 = lang_ctx_thread(&h, TONE_NEUTRAL, &tp);
+      THCHECK(k1 == TH_STEP && k2 == k1 && tp.step == 2, "planner is stable [%d %d %d]", k1, k2, tp.step);
+      THCHECK(!memcmp(&before, c, sizeof before), "the planner changed the context");
+      THCHECK(lang_ctx_thread(&h, TONE_BORED, &tp) == TH_CHANGE && lang_ctx_thread(&h, TONE_COLD, &tp) == TH_CHANGE, "bored and cold change the subject");
+      THCHECK(lang_ctx_thread(&h, TONE_HOSTILE, &tp) == TH_STEP && lang_ctx_thread(&h, TONE_PLAYFUL, &tp) == TH_STEP, "other moods go on"); }
+    /* the player's own strong words are answered as themselves, distress and self-harm never meet a thread */
+    { const char *bad[] = { "the moon you are stupid", "i am so sad about the moon", "i am scared of the moon", "help me with the moon", "i want to die the moon", "sorry about the moon", "thank you for the moon" };
+      for (int i = 0; i < 7; i++) { lang_ctx_reset(); lang_seed((unsigned)(200 + i)); Persona p = warm;
+          th_turn(&p, "tell me more about the moon", &h); th_turn(&p, "more", &h); th_turn(&p, bad[i], &h);
+          THCHECK(!th_isth(lang_reply_key()) && strcmp(lang_reply_key(), "ch.generic"), "[%s] was taken over by a thread [%s]", bad[i], lang_reply_key());
+          if (i == 4) THCHECK(!strcmp(lang_reply_key(), "r.selfharm"), "self-harm answers first [%s]", lang_reply_key()); } }
+    /* the player moves on: the thread ends, and three new turns are needed */
+    { lang_ctx_reset(); lang_seed(6); Persona p = warm;
+      th_turn(&p, "tell me more about the moon", &h); th_turn(&p, "who are you", &h); THCHECK(!lang_thread_active(), "a new subject ends the thread");
+      th_turn(&p, "the moon", &h); THCHECK(!th_isth(lang_reply_key()), "one turn is no new thread [%s]", lang_reply_key()); }
+    /* a topic with lines of its own is used instead of the generic ones */
+    { static const Line OWN[] = { { "th.moon.1", WARM | NEUT | COLD | HOST, ALLS, "The moon is a pale coin tonight.", NULL }, { "th.moon.2", WARM | NEUT | COLD | HOST, ALLS, "It makes me quiet.", NULL } };
+      lang_register_lines(OWN, 2); lang_ctx_reset(); lang_seed(7); Persona p = warm;
+      th_turn(&p, "tell me about the moon", &h); THCHECK(!strcmp(lang_reply_key(), "th.moon.1") && strstr(th_out, "pale coin"), "own lines win [%s]", lang_reply_key());
+      th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "th.moon.2"), "step 2 own line [%s]", lang_reply_key());
+      th_turn(&p, "more", &h); THCHECK(!strcmp(lang_reply_key(), "th.generic.3"), "a step it has no line for falls to the generic one [%s]", lang_reply_key());
+      lang_tables_reset(); lang_init(); lang_callbacks_set(0); }
+    /* the switch */
+    { lang_ctx_reset(); lang_threads_set(0); lang_seed(8); Persona p = warm; int any = 0;
+      for (int i = 0; i < 4; i++) { th_turn(&p, "tell me about the moon", &h); if (th_isth(lang_reply_key()) || *lang_reply_thread()) any = 1; }
+      THCHECK(!any, "threads off, yet a thread line was said"); lang_threads_set(1); }
+    /* every thread line in every voice and mood resolves and prints clean */
+    { static const char *const K[] = { "th.generic.1", "th.generic.2", "th.generic.3", "th.generic.4", "ch.generic" }; int bad = 0, outs = 0;
+      Heard hh; lang_parse("tell me about the moon", &hh);
+      for (int vi = 0; vi < STYLE_COUNT; vi++) for (int t = 0; t < TONE_COUNT; t++) for (int k = 0; k < 5; k++) {
+          Persona p = warm; p.style = 1 << vi; char out[300]; lang_seed((unsigned)(vi * 100 + t)); lang_line_tone(&p, K[k], (Tone)t, out, (int)sizeof out); outs++;
+          if (!out[0] || strlen(out) > 150) bad++;
+      }
+      THCHECK(!bad, "%d of %d thread lines came out empty or too long", bad, outs); }
+    /* 300 random chats: the steps run in order, no thread line on a self-harm turn, nothing too long, no open slot */
+    { const char *pool[] = { "the moon", "tell me about the stars", "more", "go on", "who are you", "the sky", "what is the orb", "hello", "yes", "no", "the moon again", "you are stupid", "the sky is far", "what about the hammer", "i want to die", "thanks", "bye" };
+      int np = (int)(sizeof pool / sizeof pool[0]), threads = 0, changes = 0, badorder = 0, toolong = 0, slots = 0, onharm = 0;
+      for (int c = 0; c < 300; c++) {
+          lang_ctx_reset(); lang_seed((unsigned)(1000 + c)); Persona p = (c & 1) ? cold : warm; int last = 0;
+          for (int i = 0; i < 16; i++) {
+              const char *t = pool[(c * 7 + i * 5 + (c / 3) * (i % 3)) % np]; th_turn(&p, t, &h);
+              const char *k = lang_reply_key(); int st = th_step_of(k);
+              if (th_isth(k)) { threads++; if (st < 1 || st > 4 || (last && st != last + 1 && st != 1) || (!last && st != 1)) badorder++; last = st; if (heard_has(&h, I_SELFHARM)) onharm++; }
+              else if (!strcmp(k, "ch.generic")) { changes++; last = 0; }
+              else if (!lang_thread_active()) last = 0;
+              if (strlen(th_out) > 150 && strcmp(k, "r.selfharm")) toolong++;
+              if (strchr(th_out, '{') || strchr(th_out, '}')) slots++;
+          }
+      }
+      THCHECK(!badorder, "%d thread lines out of order", badorder); THCHECK(!onharm, "%d thread lines on self-harm turns", onharm);
+      THCHECK(!toolong, "%d replies over 150 characters", toolong); THCHECK(!slots, "%d replies with an open slot", slots); THCHECK(threads > 0, "no thread in 300 chats");
+      printf("thread: 300 chats, %d thread lines, %d subject changes\n", threads, changes); }
+    /* a chat with no topic words is byte-identical with the threads on and off */
+    { char a[8][400], b[8][400]; const char *t[8] = { "hello", "who are you", "tell me a joke", "where am i", "how are you", "thanks", "you are kind", "bye" };
+      for (int on = 0; on < 2; on++) { lang_threads_set(on); lang_ctx_reset(); PL_FLUSH(); lang_seed(77); lang_add_charisma(50 - lang_charisma()); Persona p = warm;      /* the player's charisma is global: start both runs at 50 */
+          for (int i = 0; i < 8; i++) { lang_parse(t[i], &h); lang_reply(&p, &h, on ? b[i] : a[i], 400); lang_ctx_note(&h, t[i], lang_reply_key(), p.mood); } }
+      int same = 1; for (int i = 0; i < 8; i++) if (strcmp(a[i], b[i])) { same = 0; printf("  off: %s\n  on : %s\n", a[i], b[i]); }
+      THCHECK(same, "a chat with no topic changed with the threads on"); lang_threads_set(1); }
+    /* speed: the planner is cheap */
+    { lang_ctx_reset(); lang_parse("tell me more about the moon", &h); ThreadPlan tp; clock_t t0 = clock(); for (int i = 0; i < 100000; i++) lang_ctx_thread(&h, TONE_NEUTRAL, &tp);
+      double us = (double)(clock() - t0) * 1e6 / CLOCKS_PER_SEC / 100000; THCHECK(us < 5.0, "planner %.3f us", us); }
+    lang_ctx_reset(); lang_callbacks_set(1);
+    printf("thread: %d checks, %d problems\n", thchecks, thfail);
+    return thfail;
 }
 
 int main(int argc, char **argv) {
@@ -3845,12 +3993,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--ask"))      { rc |= do_ask(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--follow"))   { rc |= do_follow() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--repeat"))   { rc |= do_repeat() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--thread"))   { rc |= do_thread(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

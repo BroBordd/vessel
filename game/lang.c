@@ -714,6 +714,7 @@ void lang_parse(const char *text, Heard *h) {
     }
     h->is_question = q;
     { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); follow_pass(h, tx, tl, 4); }      /* chunks 36, 37 */
+    h->topic_ask = (uint8_t)(h->ntopic && lang_thread_ask(lc));      /* chunk 40 */
     repeat_pass(h, text, lc);      /* chunk 38 */
     confidence_of(h);      /* chunk 34 */
 }
@@ -1210,12 +1211,47 @@ void lang_set_heard_slots(const Heard *h) {
     if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
 }
 
-static char g_reply_key[48], g_cb_key[24];
+static char g_reply_key[48], g_cb_key[24], g_th_key[48], g_th_word[24];
 static int g_cb_on = 1;
 void lang_callbacks_set(int on) { g_cb_on = on; }
 
 const char *lang_reply_key(void) { return g_reply_key; }
 const char *lang_reply_callback(void) { return g_cb_key; }
+const char *lang_reply_thread(void) { return g_th_key; }
+static int g_th_on = 1;
+void lang_threads_set(int on) { g_th_on = on; }
+/* chunk 40: one line of a topic thread: th.<topic>.<1..4> (th.generic.<n> when the topic has no lines of its own) or ch.generic, the npc changing the subject */
+static int thread_reply(Persona *ps, const Heard *h, Tone tone, const ThreadPlan *tp, char *out, int cap) {
+    char key[48]; const Line *const *rows;
+    if (tp->kind == TH_CHANGE) snprintf(key, sizeof key, "ch.generic");
+    else {
+        const char *tn = lang_topic_name(tp->topic);
+        snprintf(key, sizeof key, "th.%.36s.%d", tn ? tn : "generic", tp->step);
+        if (!tn || !lang_key_rows(key, &rows)) snprintf(key, sizeof key, "th.generic.%d", tp->step);
+    }
+    if (!h->thing[0]) {      /* a bare more: the topic's own name stands in for the word the player typed */
+        const char *tn = lang_topic_name(tp->topic);
+        snprintf(g_th_word, sizeof g_th_word, "%s", tn ? tn : "that");
+        for (char *p = g_th_word; *p; p++) if (*p == '_' || *p == '.') *p = ' ';
+        g_thing = g_th_word;
+    }
+    g_tone = (int)tone;
+    const Line *l = pick(ps, key, (int)tone);
+    if (!l) return 0;
+    int pass = g_pass; remember(l);
+    fmt(ps, l->text, out, cap, 0);
+    voice_line(ps, key, l, pass, (int)tone, out, cap);
+    snprintf(g_reply_key, sizeof g_reply_key, "%s", key);
+    snprintf(g_th_key, sizeof g_th_key, "%s", key);
+    snprintf(g_last_text, sizeof g_last_text, "%.159s", out);
+    ask_note(lang_line_ask(l), out);
+    return 1;
+}
+/* what a player's own words may not be taken over by a thread: they are answered as themselves */
+static int thread_blocker(int in) {
+    return in == I_INSULT || in == I_SORRY || in == I_BYE || in == I_THANKS || in == I_LOVE || in == I_PRAISE || in == I_WORSHIP || in == I_CALLOUT || (in >= I_REPEAT_PLAYER && in <= I_SPAM)
+        || in == I_AGREE_TO_ASK || in == I_DECLINE_TO_ASK || in == I_BECAUSE || in == I_ANSWER_CHOICE;
+}
 /* chunk 37: more / say that again. the npc extends its last reply from the pool x.<key> (x.generic when that key has none), or says it again:
  * y.<key> when there is one, else a lead-in from y.generic and the last line itself (a long one goes through the child voice, shorter and blunter) */
 static int follow_reply(Persona *ps, const Heard *h, Tone tone, char *out, int cap) {
@@ -1261,7 +1297,7 @@ static int ladder_reply(Persona *ps, const Heard *h, Tone tone, char *out, int c
     return 1;
 }
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
+    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_th_key[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1273,6 +1309,14 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
+    if (g_th_on) {      /* chunk 40: topic threads. A thread takes over only a turn that has no strong reading of its own (or one that asks for the topic) */
+        ThreadPlan tp; int tk = lang_ctx_thread(h, (int)tone, &tp);
+        if (tk != TH_NONE) {
+            int pk[HEARD_ORDER], npk = choose_intents(h, pk);
+            int ok = !npk || rank_of(pk[0]) == 99 || heard_has(h, I_FOLLOW_MORE) || (h->topic_ask && !thread_blocker(pk[0]));
+            if (ok && thread_reply(ps, h, tone, &tp, out, cap)) return 1;
+        }
+    }
     if ((heard_has(h, I_FOLLOW_MORE) || heard_has(h, I_FOLLOW_AGAIN)) && follow_reply(ps, h, tone, out, cap)) return 1;      /* chunk 37 */
     { int pk[HEARD_ORDER], npk = choose_intents(h, pk);      /* chunk 38: only when the repeat is what would be answered first (an insult, a callout, an apology or love outranks it) */
       if (npk && pk[0] >= I_REPEAT_PLAYER && pk[0] <= I_SPAM && ladder_reply(ps, h, tone, out, cap)) return 1; }
