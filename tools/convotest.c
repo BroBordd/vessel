@@ -6,6 +6,8 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+#include "lang.h"
 #include "dialog.h"
 #include "talk.h"
 #include "convo.h"
@@ -114,6 +116,26 @@ int main(void) {
     say("hello"); for (int i = 0; i < 2; i++) { settle(6.0f); tap_page(); }
     printf("  old convo_watch calls %d\n", old_calls); if (old_calls != 1) fails++;
     say("bye"); for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
+
+    printf("6) the keyboard chips (chunk 46): 12 lists of 6, every chip lights up green as typed\n");
+    {
+        int total = 0, bad = 0;
+        for (int l = 0; l < CONVO_CHIP_LISTS; l++) {
+            int n; const char *name; const char *const *c = convo_chip_list(l, &n, &name);
+            if (!c || n != 6) { printf("  !! list %d has %d chips\n", l, n); fails++; continue; }
+            for (int i = 0; i < n; i++) {
+                uint8_t m[160]; lang_highlight(c[i], m);
+                int letters = 0, exact = 0, rep = 0;
+                for (int k = 0; c[i][k]; k++) if (isalpha((unsigned char)c[i][k])) { letters++; if (m[k] == 1) exact++; else if (m[k]) rep++; }
+                for (int j = 0; j < i; j++) if (!strcmp(c[i], c[j])) { printf("  !! '%s' twice in list '%s'\n", c[i], name); fails++; }
+                total++;
+                if (exact * 2 < letters || rep) { printf("  !! chip '%s' (%s) lights %d of %d letters, %d repaired\n", c[i], name, exact, letters, rep); bad++; }
+            }
+        }
+        printf("  %d chips checked, %d not lighting up\n", total, bad); if (bad) fails++;
+        int n; const char *nm;
+        if (convo_chip_list(-1, &n, &nm) || convo_chip_list(CONVO_CHIP_LISTS, &n, &nm)) fails++;
+    }
 
     printf("%s\n", fails ? "FAILED" : "all conversation flows ok");
     return fails;

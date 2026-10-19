@@ -273,7 +273,7 @@ void talk_draw(SDL_Renderer *r) {
             int on = hl[i], j = i; char run[TALK_MAX + 1]; int n = 0;
             while (j < end && hl[j] == on) run[n++] = text[j++];
             run[n] = 0;
-            if (on) col(r, 120, 235, 170, 255); else col(r, 255, 255, 255, 255);
+            if (on == 1) col(r, 120, 235, 170, 255); else if (on) col(r, 196, 246, 214, 255); else col(r, 255, 255, 255, 255);      /* chunk 46: lighter green = understood through a repair */
             font_draw(r, run, x + (i - ls[li]) * 6 * tc, y, tc);
             if (on) { SDL_Rect ul = { x + (i - ls[li]) * 6 * tc, y + 8 * tc, n * 6 * tc - tc, tc }; SDL_RenderFillRect(r, &ul); }
             i = j;

@@ -17,6 +17,12 @@
 #include "char.h"
 #include "lang.h"
 
+/* chunk 46: the keyboard's suggestion chips, 12 lists of 6 by situation (greeting, the questions stage, the sorry stage, after an insult, after a
+ * refusal, an answer to a question the npc asked, and free chat by mood: warm, neutral, cold, hostile, dark, playful). Every chip is something the
+ * engine understands (a test lights each one up). convo_chip_list(i, &n) returns list i (0..CONVO_CHIP_LISTS-1) and its name, for tests. */
+#define CONVO_CHIP_LISTS 12
+const char *const *convo_chip_list(int i, int *n, const char **name);
+
 void convo_set_player(const Person *p);                    /* who the player's own lines are shown as */
 const Person *convo_player(void);                           /* ... and who it is right now */
 void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void));

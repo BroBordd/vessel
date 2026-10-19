@@ -739,12 +739,13 @@ void lang_parse(const char *text, Heard *h) {
 
 /* marks the ORIGINAL bytes of every match (chunk 15: through the char map, so folded accents, collapsed spaces and so on still
  * light up the right characters); a phrase marks the whole stretch from its first to its last original byte */
-static void mark(const char *text, const int *map, int total, int start, int end, uint8_t *mask) {
+static void mark_v(const char *text, const int *map, int total, int start, int end, uint8_t *mask, int v) {
     if (end <= start) return;
     int a = map[start], b = map[end - 1] + lang_clean_orig_len(text, map[end - 1]);
     if (b > total) b = total;
-    for (int i = a; i < b; i++) mask[i] = 1;
+    for (int i = a; i < b; i++) if (v == 1 || !mask[i]) mask[i] = (uint8_t)v;       /* chunk 46: 1 = understood as typed, 2 = understood through a repair; 1 always wins */
 }
+static void mark(const char *text, const int *map, int total, int start, int end, uint8_t *mask) { mark_v(text, map, total, start, end, mask, 1); }
 
 int lang_highlight(const char *text, uint8_t *mask) {
     char lc[MAX_TEXT]; int map[MAX_TEXT];
@@ -772,9 +773,9 @@ int lang_highlight(const char *text, uint8_t *mask) {
     if (spi.nfix) {
         Span sps[MAX_SPANS];
         int nq = scan(ls, lens, sps, MAX_SPANS);
-        for (int k = 0; k < nq; k++) mark(text, ms, total, sps[k].start, sps[k].end, mask);
+        for (int k = 0; k < nq; k++) mark_v(text, ms, total, sps[k].start, sps[k].end, mask, 2);
         Span sq[4]; int nsq = safety_scan(ls, lens, sq, 4);
-        for (int k = 0; k < nsq; k++) mark(text, ms, total, sq[k].start, sq[k].end, mask);
+        for (int k = 0; k < nsq; k++) mark_v(text, ms, total, sq[k].start, sq[k].end, mask, 2);
         ns += nq; nsf += nsq;
         LangInfo se; memset(&se, 0, sizeof se);
         lensx = lang_clean_expand(ls, ms, lsx, MAX_TEXT, msx, NULL, &se);
@@ -782,9 +783,9 @@ int lang_highlight(const char *text, uint8_t *mask) {
         if (se.nexpand) {
             Span spq[MAX_SPANS];
             int nr = scan(lsx, lensx, spq, MAX_SPANS);
-            for (int k = 0; k < nr; k++) mark(text, msx, total, spq[k].start, spq[k].end, mask);
+            for (int k = 0; k < nr; k++) mark_v(text, msx, total, spq[k].start, spq[k].end, mask, 2);
             Span sr[4]; int nsr = safety_scan(lsx, lensx, sr, 4);
-            for (int k = 0; k < nsr; k++) mark(text, msx, total, sr[k].start, sr[k].end, mask);
+            for (int k = 0; k < nsr; k++) mark_v(text, msx, total, sr[k].start, sr[k].end, mask, 2);
             ns += nr; nsf += nsr;
         }
     }
@@ -797,9 +798,9 @@ int lang_highlight(const char *text, uint8_t *mask) {
             for (int i = 0; i < v.len; i++) lm[i] = bmap[b][v.src[i]];
             Span spl[MAX_SPANS];
             int nn = keep_replaced(&v, spl, scan(v.t, v.len, spl, MAX_SPANS));
-            for (int k = 0; k < nn; k++) mark(text, lm, total, spl[k].start, spl[k].end, mask);
+            for (int k = 0; k < nn; k++) mark_v(text, lm, total, spl[k].start, spl[k].end, mask, b >= 2 ? 2 : 1);
             Span sl[4]; int nsl = safety_scan(v.t, v.len, sl, 4);
-            for (int k = 0; k < nsl; k++) mark(text, lm, total, sl[k].start, sl[k].end, mask);
+            for (int k = 0; k < nsl; k++) mark_v(text, lm, total, sl[k].start, sl[k].end, mask, b >= 2 ? 2 : 1);
             ns += nn; nsf += nsl;
         }
     }

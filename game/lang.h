@@ -178,7 +178,8 @@ void lang_add_charisma(int d);
 
 /* ---- understanding ---- */
 void lang_parse(const char *text, Heard *h);
-/* mask[i] = 1 for every character of text that belongs to something the npcs understand.
+/* mask[i] = 1 for every character of text that belongs to something the npcs understand as typed, 2 when only a repair (a typo fix, a phonetic
+ * or dialect fix, a glued word split: chunk 46) made it understood; 0 for the rest.
  * returns how many separate phrases were highlighted. mask needs strlen(text)+1 bytes */
 int  lang_highlight(const char *text, uint8_t *mask);
 void lang_match_classic(const char *pat, const char *s, const char *base, const char **best);   /* chunk 26 (tests): the old wildcard matcher */

@@ -4351,6 +4351,15 @@ static int do_watch(void) {
       Heard h; lang_parse("zorg are you there", &h); WTCHECK(heard_has(&h, I_BOT_Q), "<npc> pattern with the name set");
       lpat_set_npc("Other"); lang_parse("zorg are you there", &h); WTCHECK(!heard_has(&h, I_BOT_Q), "<npc> pattern with another name");
       lpat_set_npc(NULL); lang_tables_reset(); lang_init(); }
+    /* chunk 46: highlight value 1 = understood as typed, 2 = only through a repair (typo, phonetic / dialect, glued word); 1 always wins */
+    { uint8_t m[64]; int all1, all2;
+      lang_highlight("hello", m); all1 = 1; for (int i = 0; i < 5; i++) if (m[i] != 1) all1 = 0; WTCHECK(all1, "hello is exact (1)");
+      lang_highlight("hwllo", m); all2 = 1; for (int i = 0; i < 5; i++) if (m[i] != 2) all2 = 0; WTCHECK(all2, "hwllo is repaired (2): %d%d%d%d%d", m[0], m[1], m[2], m[3], m[4]);
+      lang_highlight("whoareyou", m); all2 = 1; for (int i = 0; i < 9; i++) if (m[i] != 2) all2 = 0; WTCHECK(all2, "whoareyou is repaired (2)");
+      lang_highlight("hello hwllo", m); WTCHECK(m[0] == 1 && m[4] == 1 && m[5] == 0 && m[6] == 2 && m[10] == 2, "hello hwllo: exact then repaired (%d %d %d)", m[0], m[5], m[6]);
+      lang_highlight("zzz hello", m); WTCHECK(m[0] == 0 && m[4] == 1, "no mark on unknown text");
+      lang_highlight("hello", m); lang_highlight("hwllo bye", m); WTCHECK(m[0] == 2 && m[6] == 1, "a repaired word and an exact word in one line");
+      lang_highlight("i wana die", m); WTCHECK(m[2] != 0 && m[9] != 0, "self-harm is marked through a repair too"); }
     printf("watch: %d checks, %d problems\n", wtchecks, wtfail);
     return wtfail;
 }

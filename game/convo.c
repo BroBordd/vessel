@@ -17,21 +17,36 @@ static struct {
     const Person *who, *player;
     Persona *mind;
     Stage stage;
-    int turns, demands, running;
+    int turns, demands, running, after;           /* after: 0 nothing special, 1 the player just insulted, 2 the npc just refused (chunk 46: picks the chips) */
     void (*on_end)(void);
 } C;
 
 static char npc_buf[480], me_buf[100];
 static DialogLine pair[2];
 
-/* what the keyboard suggests, by situation. the words are chosen so most of them light up green */
-static const char *const SUG_QUESTIONS[] = { "No", "Yes" };
-static const char *const SUG_SORRY[]     = { "Sorry", "I am sorry" };
-static const char *const SUG_FREE[3][5]  = {
-    { "Hello", "Who are you?", "Where am I?", "What should I do?", "Bye" },
-    { "How are you?", "Why?", "I am scared", "Thank you", "Bye" },
-    { "Tell me a joke", "You are nice", "Will I die?", "What is the hole?", "Bye" },
+/* what the keyboard suggests, by situation (chunk 46: 12 lists of 6). the words are chosen so they all light up green (convotest checks each one) */
+enum { CL_GREET, CL_QUESTIONS, CL_SORRY, CL_INSULT, CL_REFUSED, CL_ASKED, CL_WARM, CL_NEUTRAL, CL_COLD, CL_HOSTILE, CL_DARK, CL_PLAYFUL };
+static const char *const CL_NAME[CONVO_CHIP_LISTS] = { "greeting", "questions", "sorry", "after an insult", "after a refusal", "answering a question",
+    "free: warm", "free: neutral", "free: cold", "free: hostile", "free: dark", "free: playful" };
+static const char *const CHIPS[CONVO_CHIP_LISTS][6] = {
+    { "Hello", "Who are you?", "Where am I?", "What should I do?", "How are you?", "Bye" },
+    { "Yes", "No", "Yes please", "No thanks", "Sure", "Not now" },
+    { "Sorry", "I am sorry", "Forgive me", "Please", "My bad", "Bye" },
+    { "Sorry", "I am sorry", "Calm down", "Please", "Forgive me", "Bye" },
+    { "Please", "Why?", "Okay", "Fine", "I understand", "Bye" },
+    { "Yes", "No", "Okay", "Please", "Why?", "Bye" },
+    { "How are you?", "Thank you", "I like you", "Tell me a joke", "What is the hole?", "Bye" },
+    { "Who are you?", "Where am I?", "What should I do?", "Why?", "Thank you", "Bye" },
+    { "Why?", "What do you want?", "Help me", "Please", "I am scared", "Bye" },
+    { "Calm down", "Sorry", "I am scared", "Please", "Why?", "Bye" },
+    { "Are you okay?", "I am scared", "Will I die?", "Help me", "What is the hole?", "Bye" },
+    { "Tell me a joke", "Haha", "How are you?", "Thank you", "What is the hole?", "Bye" },
 };
+const char *const *convo_chip_list(int i, int *n, const char **name) {
+    if (i < 0 || i >= CONVO_CHIP_LISTS) { if (n) *n = 0; if (name) *name = ""; return NULL; }
+    if (n) *n = 6; if (name) *name = CL_NAME[i];
+    return CHIPS[i];
+}
 
 static struct { int (*fn)(const char *, char *, int); int (*fn2)(const char *, const char *, char *, int); const char *suggest; } W;     /* chunk 63: the watch on this chat (chunk 45: fn2 also gets the understood text) */
 void convo_watch(int (*fn)(const char *, char *, int), const char *suggest) { W.fn = fn; W.fn2 = NULL; W.suggest = suggest; }
@@ -46,6 +61,24 @@ static void finish(void) {
 
 static void on_reply(int page, const char *text);
 
+/* chunk 46: which of the 12 lists the keyboard shows now */
+static int chip_pick(void) {
+    if (C.stage == ST_QUESTIONS) return CL_QUESTIONS;
+    if (C.stage == ST_SORRY) return CL_SORRY;
+    if (C.after == 1) return CL_INSULT;
+    if (C.after == 2) return CL_REFUSED;
+    if (C.turns == 0) return CL_GREET;
+    if (*lang_reply_ask()) return CL_ASKED;
+    switch (C.mind ? lang_reply_tone() : TONE_NEUTRAL) {
+    case TONE_WARM: case TONE_TENDER: case TONE_SHY: case TONE_EXCITED: return CL_WARM;
+    case TONE_PLAYFUL: case TONE_CURIOUS: case TONE_MANIC: return CL_PLAYFUL;
+    case TONE_COLD: case TONE_SARCASTIC: case TONE_SMUG: case TONE_SULKY: case TONE_SUSPICIOUS: return CL_COLD;
+    case TONE_HOSTILE: return CL_HOSTILE;
+    case TONE_AFRAID: case TONE_HOLLOW: case TONE_WEARY: case TONE_WORRIED: case TONE_BORED: case TONE_SOLEMN: return CL_DARK;
+    default: return CL_NEUTRAL;
+    }
+}
+
 /* the npc speaks. reply: REPLY_NONE ends the chat after this line, otherwise the player may answer.
  * echo: the player's own line, shown first as the player (NULL for none) */
 static void speak(const char *line, int reply, const char *echo) {
@@ -56,13 +89,12 @@ static void speak(const char *line, int reply, const char *echo) {
     dialog_on_page(NULL);
     if (reply) {
         dialog_on_reply(on_reply);
-        if (C.stage == ST_QUESTIONS) dialog_suggest(SUG_QUESTIONS, 2);
-        else if (C.stage == ST_SORRY) dialog_suggest(SUG_SORRY, 2);
-        else if (W.suggest) {                               /* chunk 63: the story's own suggestion comes first */
-            static const char *sug[6]; sug[0] = W.suggest;
-            for (int i = 0; i < 5; i++) sug[i + 1] = SUG_FREE[C.turns % 3][i];
-            dialog_suggest(sug, 6);
-        } else dialog_suggest(SUG_FREE[C.turns % 3], 5);
+        const char *const *ch = CHIPS[chip_pick()];
+        if (W.suggest && C.stage == ST_FREE) {              /* chunk 63: the story's own suggestion comes first */
+            static const char *sug[7]; sug[0] = W.suggest;
+            for (int i = 0; i < 6; i++) sug[i + 1] = ch[i];
+            dialog_suggest(sug, 7);
+        } else dialog_suggest(ch, 6);
     } else { dialog_on_reply(NULL); dialog_suggest(NULL, 0); }
     dialog_play(pair, n, finish);
 }
@@ -84,14 +116,14 @@ static void on_reply(int page, const char *text) {
         int hit;
         if (W.fn2) { lang_understood(text, und, sizeof und); hit = W.fn2(text, und, own, sizeof own); }      /* chunk 45: raw text + what the game understood */
         else hit = W.fn(text, own, sizeof own);
-        if (hit) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); lang_ctx_set_ask_line(own); speak(own, REPLY_OPTIONAL, text); return; }
+        if (hit) { C.stage = ST_FREE; C.after = 2; C.turns++; if (C.mind) lang_idle_turn(C.mind); lang_ctx_set_ask_line(own); speak(own, REPLY_OPTIONAL, text); return; }
     }
     lang_parse(text, &h);
     Persona *ps = C.mind;
 
     if (C.stage == ST_SORRY) {                              /* the npc demanded an apology: no skipping here */
         lang_apply(ps, &h);
-        if (heard_has(&h, I_SORRY)) { ps->mood += 22; if (ps->mood > 100) ps->mood = 100; C.stage = ST_FREE; say_key("accept.sorry", REPLY_OPTIONAL, text); return; }
+        if (heard_has(&h, I_SORRY)) { ps->mood += 22; if (ps->mood > 100) ps->mood = 100; C.stage = ST_FREE; C.after = 0; say_key("accept.sorry", REPLY_OPTIONAL, text); return; }
         if (++C.demands >= 3) { say_key("end.angry", REPLY_NONE, text); return; }
         say_key("demand.again", REPLY_REQUIRED, text);
         return;
@@ -109,6 +141,7 @@ static void on_reply(int page, const char *text) {
     lang_reply(ps, &h, reply, sizeof reply);
     lang_ctx_note(&h, text, lang_reply_key(), ps->mood);      /* chunk 35 */
     C.turns++;
+    C.after = heard_has(&h, I_INSULT) ? 1 : (!strncmp(lang_reply_key(), "dk.", 3) || heard_has(&h, I_DECLINE_TO_ASK)) ? 2 : 0;      /* chunk 46: what the chips answer to */
     int worn = (heard_has(&h, I_REPEAT_PLAYER) || heard_has(&h, I_SPAM));
     if (worn) C.turns++;                                    /* chunk 38: the same line again and spam tire the npc twice as fast */
 
@@ -159,7 +192,7 @@ static int locked_chat(const Person *who, void (*on_end)(void)) {
 }
 
 static void begin(const Person *who, Persona *mind, Stage st, void (*on_end)(void)) {
-    C.who = who; C.mind = mind; C.stage = st; C.turns = 0; C.demands = 0; C.on_end = on_end; C.running = 1;
+    C.who = who; C.mind = mind; C.stage = st; C.turns = 0; C.demands = 0; C.after = 0; C.on_end = on_end; C.running = 1;
     lang_set_player(C.player ? C.player->name : "Vas");
     lpat_set_npc(mind ? mind->name : NULL);      /* chunk 45: <npc> in a pattern matches the name of who is talking */
     lang_ctx_reset();      /* chunk 35: a new chat, a clean memory (the facts that outlive a chat stay) */
