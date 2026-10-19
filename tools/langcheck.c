@@ -4244,6 +4244,69 @@ static int do_replylen(void) {
     return rlfail;
 }
 
+/* ---------- chunk 43: per-persona knowledge ---------- */
+static int knfail, knchecks;
+#define KNCHECK(c, ...) do { knchecks++; if (!(c)) { printf("BAD KNOWLEDGE: " __VA_ARGS__); printf("\n"); knfail++; } } while (0)
+static int do_knowledge(void) {
+    knfail = knchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0); lang_threads_set(0); lang_initiative_set(0);
+    Heard h; char out[400];
+    /* the lines: 12 each, 3 per old mood, no question, slots only {pet} {thing}, <= 110 characters */
+    { static const char *const K[] = { "dk.refuse", "dk.unknown" };
+      for (int k = 0; k < 2; k++) { const Line *const *r; int cnt = lang_key_rows(K[k], &r), per[4] = { 0 };
+          KNCHECK(cnt == 12, "%s has %d lines, want 12", K[k], cnt);
+          for (int i = 0; i < cnt; i++) { const char *t = r[i]->text;
+              for (int b = 0; b < 4; b++) if (r[i]->tones == (uint32_t)(1u << b)) per[b]++;
+              KNCHECK(strlen(t) <= 110 && !strchr(t, '?'), "%s line too long or a question: %s", K[k], t);
+              for (const char *q = t; (q = strchr(q, '{')); q++) KNCHECK(!strncmp(q, "{pet}", 5) || !strncmp(q, "{thing}", 7), "%s bad slot: %s", K[k], t); }
+          for (int b = 0; b < 4; b++) KNCHECK(per[b] == 3, "%s has %d lines for mood %d, want 3", K[k], per[b], b); } }
+    /* the list helper */
+    { const char *l[6] = { "moon", "orb", 0 }; KNCHECK(lang_topic_listed(l, "orb") && !lang_topic_listed(l, "sun") && !lang_topic_listed(l, NULL), "lang_topic_listed"); }
+    /* refused / ignorant / loved */
+    { const char *texts_q[] = { "what is the moon", "tell me about the moon", "do you know about the moon", "what about the moon" };
+      for (int i = 0; i < 4; i++) {
+          Persona r = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .refuses = { "moon" } }, g = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .ignorant = { "moon" } };
+          lang_ctx_reset(); lang_seed(11); lang_parse(texts_q[i], &h); lang_reply(&r, &h, out, (int)sizeof out);
+          KNCHECK(!strcmp(lang_reply_key(), "dk.refuse") && out[0] && !strchr(out, '{'), "refused topic: '%s' -> %s [%s]", texts_q[i], lang_reply_key(), out);
+          lang_ctx_reset(); lang_seed(11); lang_parse(texts_q[i], &h); lang_reply(&g, &h, out, (int)sizeof out);
+          KNCHECK(!strcmp(lang_reply_key(), "dk.unknown") && out[0] && !strchr(out, '{'), "unknown topic: '%s' -> %s [%s]", texts_q[i], lang_reply_key(), out); } }
+    /* not gated: another topic, a plain mention, distress, self-harm, a strong intent, no list */
+    { Persona r = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .refuses = { "moon" }, .ignorant = { "stars" } };
+      const char *free_[] = { "what is the sun", "the moon is nice", "i am sad about the moon", "help me with the moon", "i want to die under the moon", "hello", "thank you for the moon", "you are stupid, what is the moon" };
+      for (int i = 0; i < 8; i++) { lang_ctx_reset(); lang_seed(21 + i); lang_parse(free_[i], &h); lang_reply(&r, &h, out, (int)sizeof out);
+          KNCHECK(strncmp(lang_reply_key(), "dk.", 3), "'%s' was deflected (%s)", free_[i], lang_reply_key()); }
+      Persona none = { "Ona", STYLE_PLAIN, 0, 50, 0, 60 };
+      lang_ctx_reset(); lang_seed(5); lang_parse("what is the moon", &h); lang_reply(&none, &h, out, (int)sizeof out);
+      KNCHECK(strncmp(lang_reply_key(), "dk.", 3), "a persona with no lists deflected"); }
+    /* with lists that name other topics a chat is byte-identical to one with no lists */
+    { Persona a = { "Ona", STYLE_PLAIN, 10, 50, 0, 60 }, b = { "Ona", STYLE_PLAIN, 10, 50, 0, 60, .refuses = { "shrine" }, .ignorant = { "hammer" } };
+      const char *t[] = { "hello", "who are you", "what is the sky", "tell me a joke", "i love the moon", "what is the moon", "thank you" }; int same = 1;
+      char oa[7][400], ob[7][400];
+      for (int w = 0; w < 2; w++) { lang_ctx_reset(); PL_FLUSH(); lang_seed(99); lang_add_charisma(50 - lang_charisma()); Persona p = w ? b : a;
+          for (int i = 0; i < 7; i++) { lang_parse(t[i], &h); lang_reply(&p, &h, w ? ob[i] : oa[i], 400); lang_ctx_note(&h, t[i], lang_reply_key(), p.mood); } }
+      for (int i = 0; i < 7; i++) if (strcmp(oa[i], ob[i])) { same = 0; printf("  a: %s\n  b: %s\n", oa[i], ob[i]); }
+      KNCHECK(same, "lists naming other topics changed a chat"); }
+    /* a loved topic lifts the mood a notch, a toxic character less, never past 100; a topic it does not love does not */
+    { Persona l = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .loves = { "moon" } }, t = { "Ona", STYLE_PLAIN, 0, 50, 80, 60, .loves = { "moon" } }, n = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .loves = { "sun" } };
+      lang_ctx_reset(); lang_parse("the moon is big", &h); lang_reply(&l, &h, out, (int)sizeof out);
+      KNCHECK(l.mood >= 4, "love lifted the mood to %d, want >= 4", l.mood);
+      lang_ctx_reset(); lang_parse("the moon is big", &h); lang_reply(&t, &h, out, (int)sizeof out);
+      KNCHECK(t.mood >= 1 && t.mood < l.mood, "a toxic character moved %d vs %d", t.mood, l.mood);
+      lang_ctx_reset(); lang_parse("the moon is big", &h); lang_reply(&n, &h, out, (int)sizeof out);
+      KNCHECK(n.mood < 4, "a topic it does not love moved the mood to %d", n.mood);
+      Persona m = { "Ona", STYLE_PLAIN, 99, 50, 0, 60, .loves = { "moon" } }; lang_ctx_reset(); lang_parse("the moon is big", &h); lang_reply(&m, &h, out, (int)sizeof out);
+      KNCHECK(m.mood <= 100, "mood past 100"); }
+    /* every voice and mood resolves clean */
+    { int bad = 0; static const char *const K[] = { "dk.refuse", "dk.unknown" };
+      for (int v = 0; v < STYLE_COUNT; v++) for (int tn = 0; tn < TONE_COUNT; tn++) for (int k = 0; k < 2; k++) {
+          Persona p = { "Tess", 1 << v, 0, 50, 0, 30 }; char o[300];
+          int ok = lang_line_tone(&p, K[k], (Tone)tn, o, (int)sizeof o); if (!ok || !o[0] || strlen(o) > 150) bad++; }
+      KNCHECK(!bad, "%d of 400 lines empty or too long", bad); }
+    lang_ctx_reset(); lang_callbacks_set(1); lang_threads_set(1); lang_initiative_set(1);
+    printf("knowledge: %d checks, %d problems\n", knchecks, knfail);
+    return knfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -4285,11 +4348,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--initiative")) { rc |= do_initiative() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--knowledge")) { rc |= do_knowledge() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

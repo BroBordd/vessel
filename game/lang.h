@@ -75,6 +75,10 @@ typedef struct {
     /* chunk 41: what this character steers the talk back to when it changes the subject (keys of ch.<hook> lines: mission, obey, orb, grass ...), tried in turn.
      * NULL = the end of the list; a persona with no hooks never steers (it uses ch.generic). trailing, so every older initialiser compiles unchanged */
     const char *hooks[4];
+    /* chunk 43: what this character knows. topic NAMES (the names of lang_topic_name: moon, shrine, orb ...), NULL ends a list, trailing so older initialisers compile.
+     * empty lists = knows everything, refuses nothing, loves nothing. `refuses`: never discussed, in any mood (dk.refuse); `ignorant`: does not know it (dk.unknown);
+     * `loves`: a turn that mentions it lifts the mood a notch (less for a toxic character) */
+    const char *refuses[6], *ignorant[6], *loves[6];
 } Persona;
 #define LEAN(t) (1u << (t))
 
@@ -221,6 +225,8 @@ void lang_initiative_set(int on);                         /* chunk 41: tests swi
  * Q_LONG moves it one step up, Q_TERSE one step down (-1..1) */
 #define LANG_PHONE_CAP 150
 int lang_pace(Tone t, unsigned quirk);
+/* chunk 43: is the topic NAME in a persona list (refuses / ignorant / loves)? */
+int lang_topic_listed(const char *const *list, const char *name);
 const char *lang_reply_askback(void);                     /* chunk 41: the key (ask.back.yn ...) of the question the last lang_reply asked back ("" none) */
 const char *lang_reply_hook(void);                        /* chunk 41: the hook (mission, orb ...) the last change of subject steered to ("" none) */
 const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */

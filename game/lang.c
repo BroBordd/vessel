@@ -1158,6 +1158,29 @@ static int first_sentence(char *s) {
     s[n] = 0;
     return 1;
 }
+/* ---------- chunk 43: what the character knows ---------- */
+static int thread_blocker(int in);
+int lang_topic_listed(const char *const *list, const char *name) {
+    for (int i = 0; i < 6 && list[i] && name; i++) if (!strcmp(list[i], name)) return 1;
+    return 0;
+}
+/* a topic the player asks about that this character refuses or does not know: 1 = refuses, 2 = does not know, 0 = nothing to say about it.
+ * only a turn that asks about it (a question, or a request to talk about it) with no strong reading of its own is taken; distress is never deflected */
+static int knowledge_gate(const Persona *ps, const Heard *h, const char **name) {
+    if (!h->ntopic || !(h->is_question || h->qtype || h->topic_ask)) return 0;
+    const char *tn = lang_topic_name(h->topic[0]);
+    if (!tn) return 0;
+    int ref = lang_topic_listed(ps->refuses, tn), ign = lang_topic_listed(ps->ignorant, tn);
+    if (!ref && !ign) return 0;
+    if (heard_has(h, I_SAD) || heard_has(h, I_SCARED) || heard_has(h, I_CONFUSED) || heard_has(h, I_HELP) || heard_has(h, I_SELFHARM)) return 0;
+    int pk[HEARD_ORDER], npk = choose_intents(h, pk);
+    if (npk && rank_of(pk[0]) != 99 && !h->topic_ask) {      /* a strong reading written as a phrase answers itself; a guess about the topic (a frame, a lexicon hit) is what the gate is for */
+        for (int i = 0; i < h->n; i++) if (h->order[i] == pk[0] && h->src[i] == SRC_PHRASE) return 0;
+    }
+    if (npk && thread_blocker(pk[0])) return 0;
+    *name = tn;
+    return ref ? 1 : 2;
+}
 static int plen(const char *s) { return s[0] ? (int)strlen(s) + 1 : 0; }
 
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
@@ -1403,7 +1426,23 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (h->silent && g_init_on && silent_reply(ps, h, out, cap)) return 1;      /* chunk 41: dots only */
 
     lang_apply(ps, h);
+    if (h->ntopic && ps->loves[0] && lang_topic_listed(ps->loves, lang_topic_name(h->topic[0]))) {      /* chunk 43: a topic it loves lifts the mood a notch (less for a toxic one) */
+        int up = 4 * (100 - ps->toxic) / 100; ps->mood += up < 1 ? 1 : up; if (ps->mood > 100) ps->mood = 100;
+    }
     Tone tone = lang_mood_now(ps);
+    { const char *kn; int gate = knowledge_gate(ps, h, &kn);      /* chunk 43: dk.refuse / dk.unknown, one short line */
+      if (gate) {
+          const char *key = gate == 1 ? "dk.refuse" : "dk.unknown";
+          g_tone = (int)tone; g_thing = h->thing[0] ? h->thing : kn;
+          const Line *l = pick(ps, key, (int)tone);
+          if (l) {
+              int pass = g_pass; remember(l);
+              fmt(ps, l->text, out, cap, 0); voice_line(ps, key, l, pass, (int)tone, out, cap);
+              snprintf(g_reply_key, sizeof g_reply_key, "%s", key); snprintf(g_last_text, sizeof g_last_text, "%.159s", out);
+              ask_note(lang_line_ask(l), out);
+              return 1;
+          }
+      } }
     if (g_th_on) {      /* chunk 40: topic threads. A thread takes over only a turn that has no strong reading of its own (or one that asks for the topic) */
         ThreadPlan tp; int tk = lang_ctx_thread(h, (int)tone, &tp);
         if (tk != TH_NONE) {

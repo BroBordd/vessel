@@ -79,8 +79,8 @@ const Person DEA    = { "Dea",        { 252, 240, 190 }, { 252, 228, 206 }, { 25
 
 /* ---------- minds: how each npc talks (see lang.h) ----------
  *                          name    style          mood warmth toxic patience(replies) */
-static Persona DEA_MIND  = { "Dea",  STYLE_DIVINE,   0,   30,   65,   8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED) };     /* the goddess: toxic, condescending, "i do not care" */
-static Persona ALEX_MIND = { "Alex", STYLE_STREET,  10,   70,    5,  12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS) };
+static Persona DEA_MIND  = { "Dea",  STYLE_DIVINE,   0,   30,   65,   8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED), .loves = { "god", "power" } };     /* the goddess: toxic, condescending, "i do not care" */
+static Persona ALEX_MIND = { "Alex", STYLE_STREET,  10,   70,    5,  12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS), .loves = { "grass", "flower" } };
 
 /* ---------- timers ---------- */
 #define MAX_TIMERS 8

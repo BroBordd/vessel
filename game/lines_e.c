@@ -311,5 +311,13 @@ const Line LINES_E[] = {
     {"ch.grass", NEUT, ALLS, "Let us talk about the grass instead."}, {"ch.grass", NEUT, ALLS, "Back to the grass. It has more to say than this."},
     {"ch.grass", COLD, ALLS, "Enough. The grass is a better listener."}, {"ch.grass", COLD, ALLS, "Talk of the grass, or do not talk."},
     {"ch.grass", HOST, ALLS, "Go talk to the grass. It is smarter than you."}, {"ch.grass", HOST, ALLS, "The grass has better manners than you. Speak of it instead."},
+    {"dk.refuse", WARM, ALLS, "I will not speak of {thing}, {pet}. Ask me anything else."}, {"dk.refuse", WARM, ALLS, "Not {thing}. I am sorry, but that door stays shut."}, {"dk.refuse", WARM, ALLS, "Of {thing} I say nothing, not even to you."},
+    {"dk.refuse", NEUT, ALLS, "I do not discuss {thing}. Choose another subject."}, {"dk.refuse", NEUT, ALLS, "That is closed to you. Do not ask about {thing} again."}, {"dk.refuse", NEUT, ALLS, "No. {thing} is not for talking."},
+    {"dk.refuse", COLD, ALLS, "Not {thing}. Not now, not ever."}, {"dk.refuse", COLD, ALLS, "You will get nothing from me about {thing}."}, {"dk.refuse", COLD, ALLS, "Ask about {thing} again and I will stop listening."},
+    {"dk.refuse", HOST, ALLS, "Say {thing} once more and I will forget you exist."}, {"dk.refuse", HOST, ALLS, "Keep your nose out of {thing}, worm."}, {"dk.refuse", HOST, ALLS, "I owe you nothing, least of all words on {thing}."},
+    {"dk.unknown", WARM, ALLS, "I wish I could tell you about {thing}, {pet}, but I do not know it."}, {"dk.unknown", WARM, ALLS, "{thing} is beyond me, I am sorry. Ask me something else."}, {"dk.unknown", WARM, ALLS, "I know nothing of {thing}. I would tell you if I did."},
+    {"dk.unknown", NEUT, ALLS, "I do not know {thing}. Do not ask me again."}, {"dk.unknown", NEUT, ALLS, "{thing} is not something I know. Ask another."}, {"dk.unknown", NEUT, ALLS, "Nothing. I know nothing about {thing}."},
+    {"dk.unknown", COLD, ALLS, "I do not know {thing} and I do not care to."}, {"dk.unknown", COLD, ALLS, "I would not know of {thing}. Ask someone who does."}, {"dk.unknown", COLD, ALLS, "{thing} means nothing to me. Move on."},
+    {"dk.unknown", HOST, ALLS, "I know nothing of {thing}, and you know less. Be quiet."}, {"dk.unknown", HOST, ALLS, "I keep no {thing} in my head, fool. Go away."}, {"dk.unknown", HOST, ALLS, "Ask the wind about {thing}. It listens better than I do."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);
