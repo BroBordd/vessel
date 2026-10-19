@@ -15,7 +15,7 @@
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
  *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
- *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
+ *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
@@ -4307,6 +4307,54 @@ static int do_knowledge(void) {
     return knfail;
 }
 
+/* chunk 45: the understood text and the whole-word test a story watch uses; the npc name reaches <npc> patterns */
+static int wtfail, wtchecks;
+#define WTCHECK(c, ...) do { wtchecks++; if (!(c)) { printf("BAD WATCH: " __VA_ARGS__); printf("\n"); wtfail++; } } while (0)
+static int do_watch(void) {
+    wtfail = wtchecks = 0;
+    lang_tables_reset(); lang_init();
+    static const char *const ORB[] = { "orb", "sphere", "ball", "glow", "glowing thing", "the thing you found", NULL };
+    char u[400];
+    /* must hit: the plain words, a typo, a plural, an inflection, glued words, caps, accents, leet, a phrase */
+    static const char *const HIT[] = { "give me the orb", "Give me the ORB!", "orb", "can i have the sphere", "give me the obr", "orb pls", "gimme the orbs",
+        "i want the glowing orb", "where is the ball", "show me the glow", "giveme the orb", "give me the 0rb", "pleeease give me the orb", "give me the thing you found",
+        "give me the glowing thing", "i need that sphere now" };
+    for (int i = 0; i < (int)(sizeof HIT / sizeof HIT[0]); i++) {
+        int n = lang_understood(HIT[i], u, (int)sizeof u);
+        WTCHECK(n == (int)strlen(u) && n < (int)sizeof u, "length of understood text for '%s'", HIT[i]);
+        WTCHECK(lang_has_word(u, ORB), "'%s' -> '%s' was not an orb ask", HIT[i], u); }
+    /* must NOT hit: a longer word that only starts with it, other words, nothing */
+    static const char *const MISS[] = { "absorb", "i absorb the light", "the orbit of the moon", "ballad of a ghost", "i am glowering", "hello there", "", "who are you",
+        "what is that glowstick", "cobweb" };
+    for (int i = 0; i < (int)(sizeof MISS / sizeof MISS[0]); i++) {
+        lang_understood(MISS[i], u, (int)sizeof u);
+        WTCHECK(!lang_has_word(u, ORB), "'%s' -> '%s' was taken for an orb ask", MISS[i], u); }
+    /* the text: lower case, repaired, never longer than the cap, NULL safe */
+    lang_understood("HELLO There", u, (int)sizeof u); WTCHECK(!strcmp(u, "hello there"), "lower case: '%s'", u);
+    lang_understood("hwllo there", u, (int)sizeof u); WTCHECK(!strcmp(u, "hello there"), "typo repaired: '%s'", u);
+    { char small[8]; int n = lang_understood("hello there how are you", small, (int)sizeof small); WTCHECK(n == 7 && (int)strlen(small) == 7, "cap 8 -> %d '%s'", n, small); }
+    { char one[1] = { 'x' }; WTCHECK(lang_understood("hello", one, 1) == 0 && one[0] == 0, "cap 1"); }
+    WTCHECK(lang_understood(NULL, u, (int)sizeof u) == 0 && u[0] == 0, "NULL text");
+    WTCHECK(!lang_has_word(NULL, ORB) && !lang_has_word("orb", NULL) && !lang_has_word("", ORB), "NULL / empty arguments");
+    { static const char *const E[] = { "", "   ", NULL }; WTCHECK(!lang_has_word("orb", E), "empty entries match nothing"); }
+    { static const char *const P[] = { "the thing you found", NULL };
+      WTCHECK(lang_has_word("give me the thing you found", P) && !lang_has_word("give me the thing", P) && !lang_has_word("the you thing found", P), "a phrase needs all its words in order"); }
+    /* the lemma: orbs / balls / glowing match through their lemma, but the entry stays a whole word */
+    { static const char *const L[] = { "orb", NULL }; WTCHECK(lang_has_word("two orbs", L) && !lang_has_word("orbiting", L) && !lang_has_word("sorb", L), "lemma: whole words only"); }
+    /* a very long line is cut at the table size and never crashes */
+    { char big[1200]; memset(big, 0, sizeof big); for (int i = 0; i < 150; i++) strcat(big, "orb x "); lang_understood(big, u, (int)sizeof u); WTCHECK(strlen(u) < sizeof u, "long text"); lang_has_word(u, ORB); }
+    /* self-harm text is not touched by the understood reading: still heard by the normal parse */
+    { Heard h; lang_parse("i want to die", &h); lang_understood("i want to die", u, (int)sizeof u); WTCHECK(heard_has(&h, I_SELFHARM) && !strcmp(u, "i want to die"), "self-harm text: '%s'", u); }
+    /* <npc>: the name of who talks reaches the pattern matcher (convo.c calls lpat_set_npc at the start of a chat) */
+    { static const char *const R[] = { "<npc> are you there|bot_q|5", NULL };
+      lpat_set_npc("Zorg"); lang_register_patrows(R); lang_init();
+      Heard h; lang_parse("zorg are you there", &h); WTCHECK(heard_has(&h, I_BOT_Q), "<npc> pattern with the name set");
+      lpat_set_npc("Other"); lang_parse("zorg are you there", &h); WTCHECK(!heard_has(&h, I_BOT_Q), "<npc> pattern with another name");
+      lpat_set_npc(NULL); lang_tables_reset(); lang_init(); }
+    printf("watch: %d checks, %d problems\n", wtchecks, wtfail);
+    return wtfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -4349,11 +4397,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--knowledge")) { rc |= do_knowledge() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--watch"))    { rc |= do_watch() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

@@ -30,6 +30,15 @@ static void say(const char *s) {
     printf("  said \"%s\" -> overlay closed: %d (mood %d)\n", s, !talk_active(), mind_ref ? mind_ref->mood : 0);
     if (talk_active()) fails++;
 }
+/* chunk 45: a watch that gets the raw text AND what the game understood (the way story.c's orb talk will use it) */
+static int watch_calls, watch_hits, old_calls; static char last_raw[200], last_und[200];
+static int orb_watch(const char *raw, const char *und, char *reply, int cap) {
+    static const char *const ORB[] = { "orb", "sphere", "ball", "glow", NULL };
+    watch_calls++; snprintf(last_raw, sizeof last_raw, "%s", raw); snprintf(last_und, sizeof last_und, "%s", und);
+    if (!lang_has_word(und, ORB)) return 0;
+    watch_hits++; snprintf(reply, (size_t)cap, "No orb for you."); return 1;
+}
+static int old_watch(const char *raw, char *reply, int cap) { (void)raw; (void)reply; (void)cap; old_calls++; return 0; }
 static void skip(void) { settle(6.0f); tap(W - 140, H - 40); tap(W - 150, H - 45); tap(W - 160, H - 50); }
 
 int main(void) {
@@ -81,6 +90,30 @@ int main(void) {
         printf("  finger held, 3 s: page still typing, a hold does not speed it up (dialog active %d)\n", dialog_active()); if (!dialog_active()) fails++;
         settle(3.0f); tap_page();
     }
+
+    printf("5) a watch with the understood text (chunk 45): typos, glued words and plurals hit, absorb and orbit do not; the chat goes on\n");
+    mind.mood = 0; ended = 0; watch_calls = watch_hits = old_calls = 0;
+    convo_watch_text(orb_watch, "Give me the orb"); convo_open(&DEA, &mind, 0, on_end);
+    { static const char *const T[] = { "give me the obr", "gimme the orbs", "giveme the sphere", "i absorb the orbit", "hello" };
+      static const int want[] = { 1, 1, 1, 0, 0 };
+      for (int i = 0; i < 5; i++) {
+          int before = watch_hits;
+          say(T[i]); for (int k = 0; k < 2; k++) { settle(6.0f); tap_page(); }
+          printf("  watch saw raw '%s' understood '%s' -> hit %d\n", last_raw, last_und, watch_hits - before);
+          if (strcmp(last_raw, T[i])) { printf("  !! the watch got a different raw text\n"); fails++; }
+          if (watch_hits - before != want[i]) { printf("  !! wanted hit %d\n", want[i]); fails++; }
+      }
+      if (strcmp(last_und, "hello")) { printf("  !! understood text of hello was '%s'\n", last_und); fails++; } }
+    say("bye"); for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
+    printf("  watch calls %d, chat ended: %d\n", watch_calls, ended); if (watch_calls != 6 || ended != 1) fails++;
+    ended = 0; convo_open(&DEA, &mind, 0, on_end); watch_calls = 0;      /* a new chat has no watch: the old one was forgotten at the end */
+    say("give me the orb"); for (int i = 0; i < 2; i++) { settle(6.0f); tap_page(); }
+    printf("  next chat, no watch: calls %d\n", watch_calls); if (watch_calls) fails++;
+    say("bye"); for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
+    ended = 0; convo_watch(old_watch, NULL); convo_open(&DEA, &mind, 0, on_end);      /* the old watch still works */
+    say("hello"); for (int i = 0; i < 2; i++) { settle(6.0f); tap_page(); }
+    printf("  old convo_watch calls %d\n", old_calls); if (old_calls != 1) fails++;
+    say("bye"); for (int i = 0; i < 4; i++) { settle(6.0f); tap_page(); }
 
     printf("%s\n", fails ? "FAILED" : "all conversation flows ok");
     return fails;

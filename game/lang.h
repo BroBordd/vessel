@@ -233,6 +233,12 @@ const char *lang_reply_callback(void);                    /* chunk 39: the key (
 int lang_append_flow(char *reply, int cap, const char *extra, int must);   /* chunk 44: append a flow line (end.bored, demand.sorry) to a reply inside the phone cap; see lang.c */
 int lang_reply_tone(void);                                /* chunk 44: the mood (Tone) the last lang_reply spoke in, -1 for self-harm / dots / before any reply (tests) */
 const char *lang_reply_text(void);                        /* chunk 37: the last reply lang_reply said, whole ("" for self-harm) */
+/* chunk 45: what the game UNDERSTOOD of a typed line, for a watch (convo_watch_text): the cleaned text with the spelling, phonetic and glued-word
+ * repairs applied (`give me the obr` -> `give me the orb`, `giveme` -> `give me`). Lower case, at most cap-1 bytes. Returns its length. */
+int lang_understood(const char *text, char *out, int cap);
+/* does the understood text hold one of these words or phrases? list ends with NULL; an entry may hold spaces (`the thing you found`). A WHOLE word
+ * matches itself or through its lemma (orbs, glowing, balls), never a longer word that merely starts with it (absorb, orbit, ballad). */
+int lang_has_word(const char *understood, const char *const *list);
 const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */
 void lang_ask_sentence(const char *text, char *out, int cap);   /* the last question sentence of a spoken text ("" if it asks nothing) */
 #endif

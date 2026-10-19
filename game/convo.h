@@ -39,5 +39,9 @@ int  convo_locked(void);
  * it returns 1 the npc answers with exactly the text it wrote into reply (the chat goes on, the mood is not touched), otherwise the normal
  * language answer runs. `suggest` (may be NULL) is put first among the keyboard's suggestions. the watch is forgotten when the chat ends. */
 void convo_watch(int (*fn)(const char *text, char *reply, int cap), const char *suggest);
+/* chunk 45: the same watch, but fn also gets what the game UNDERSTOOD of the line (lang_understood: cleaned, typos / phonetic / glued words
+ * repaired, lower case) next to the raw text, so a story can test it with lang_has_word (whole words and lemmas: `give me the obr`, `orbs`,
+ * `giveme the orb` hit, `absorb` and `orbit` do not). One watch per chat: this replaces convo_watch's and the other way round. */
+void convo_watch_text(int (*fn)(const char *raw, const char *understood, char *reply, int cap), const char *suggest);
 
 #endif

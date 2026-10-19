@@ -1600,3 +1600,54 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     { const char *tg = ab_l ? lang_line_ask(ab_l) : post_l ? lang_line_ask(post_l) : ""; if (!tg[0] && g_body_line) tg = lang_line_ask(g_body_line); ask_note(tg, full); }      /* chunk 36: what the npc just asked (the closer's tag, else the answer's) */
     return answered;
 }
+
+/* chunk 45: the understood text and the whole-word test used by the story's watches */
+int lang_understood(const char *text, char *out, int cap) {
+    if (cap <= 0) return 0;
+    out[0] = 0;
+    if (!text) return 0;
+    char lc[MAX_TEXT], ls[MAX_TEXT]; int map[MAX_TEXT], ss[MAX_TEXT]; LangInfo info; SpellInfo spi;
+    int len = prepare3(text, lc, map, NULL, NULL, &info);
+    int lens = lang_spell_text(text, lc, map, (info.flags & LF_SHOUT) != 0, ls, MAX_TEXT, NULL, ss, &spi);
+    const char *use = spi.nfix > 0 ? ls : lc;
+    int n = spi.nfix > 0 ? lens : len;
+    if (n > cap - 1) n = cap - 1;
+    memcpy(out, use, (size_t)n); out[n] = 0;
+    return n;
+}
+
+int lang_has_word(const char *u, const char *const *list) {
+    if (!u || !list) return 0;
+    char tok[24][40]; char lem[24][40]; int nt = 0;             /* the words of u, each with its lemma */
+    for (const char *p = u; *p && nt < 24; ) {
+        while (*p && !is_word((unsigned char)*p)) p++;
+        const char *q = p;
+        while (*q && is_word((unsigned char)*q)) q++;
+        int n = (int)(q - p);
+        if (n > 0) {
+            if (n > 39) n = 39;
+            memcpy(tok[nt], p, (size_t)n); tok[nt][n] = 0;
+            if (!lang_lemma(tok[nt], n, lem[nt], (int)sizeof lem[nt])) snprintf(lem[nt], sizeof lem[nt], "%s", tok[nt]);
+            nt++;
+        }
+        p = q;
+    }
+    for (int k = 0; list[k]; k++) {
+        char want[8][40]; int nw = 0;
+        for (const char *p = list[k]; *p && nw < 8; ) {
+            while (*p == ' ') p++;
+            const char *q = p;
+            while (*q && *q != ' ') q++;
+            int n = (int)(q - p);
+            if (n > 0) { if (n > 39) n = 39; for (int i = 0; i < n; i++) want[nw][i] = (char)tolower((unsigned char)p[i]); want[nw][n] = 0; nw++; }
+            p = q;
+        }
+        if (!nw) continue;
+        for (int s0 = 0; s0 + nw <= nt; s0++) {
+            int ok = 1;
+            for (int w = 0; w < nw && ok; w++) ok = !strcmp(tok[s0 + w], want[w]) || !strcmp(lem[s0 + w], want[w]);
+            if (ok) return 1;
+        }
+    }
+    return 0;
+}

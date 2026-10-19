@@ -4,9 +4,12 @@
 #include "dialog.h"
 #include "lang.h"
 #include "lang_ctx.h"
+#include "lang_pat.h"
 #include "thought.h"
 #include <stdio.h>
 #include <string.h>
+
+#define MAX_TEXT_UNDERSTOOD 400                             /* chunk 45: the engine's MAX_TEXT */
 
 typedef enum { ST_FREE, ST_QUESTIONS, ST_SORRY } Stage;
 
@@ -30,13 +33,14 @@ static const char *const SUG_FREE[3][5]  = {
     { "Tell me a joke", "You are nice", "Will I die?", "What is the hole?", "Bye" },
 };
 
-static struct { int (*fn)(const char *, char *, int); const char *suggest; } W;     /* chunk 63: the watch on this chat */
-void convo_watch(int (*fn)(const char *, char *, int), const char *suggest) { W.fn = fn; W.suggest = suggest; }
+static struct { int (*fn)(const char *, char *, int); int (*fn2)(const char *, const char *, char *, int); const char *suggest; } W;     /* chunk 63: the watch on this chat (chunk 45: fn2 also gets the understood text) */
+void convo_watch(int (*fn)(const char *, char *, int), const char *suggest) { W.fn = fn; W.fn2 = NULL; W.suggest = suggest; }
+void convo_watch_text(int (*fn)(const char *, const char *, char *, int), const char *suggest) { W.fn = NULL; W.fn2 = fn; W.suggest = suggest; }
 
 static void finish(void) {
     void (*cb)(void) = C.on_end;
     C.on_end = NULL; C.running = 0;
-    W.fn = NULL; W.suggest = NULL;
+    W.fn = NULL; W.fn2 = NULL; W.suggest = NULL;
     if (cb) cb();
 }
 
@@ -75,9 +79,12 @@ static void on_reply(int page, const char *text) {
     (void)page;
     Heard h; memset(&h, 0, sizeof h);
     if (!text) text = "Bye";                                /* the BYE button: the player says goodbye, and the npc answers that */
-    else if (W.fn && C.stage != ST_SORRY) {                 /* chunk 63: the story may answer this line itself (Alex and the orb) */
-        char own[480];
-        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); lang_ctx_set_ask_line(own); speak(own, REPLY_OPTIONAL, text); return; }
+    else if ((W.fn || W.fn2) && C.stage != ST_SORRY) {      /* chunk 63: the story may answer this line itself (Alex and the orb) */
+        char own[480], und[MAX_TEXT_UNDERSTOOD];
+        int hit;
+        if (W.fn2) { lang_understood(text, und, sizeof und); hit = W.fn2(text, und, own, sizeof own); }      /* chunk 45: raw text + what the game understood */
+        else hit = W.fn(text, own, sizeof own);
+        if (hit) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); lang_ctx_set_ask_line(own); speak(own, REPLY_OPTIONAL, text); return; }
     }
     lang_parse(text, &h);
     Persona *ps = C.mind;
@@ -154,6 +161,7 @@ static int locked_chat(const Person *who, void (*on_end)(void)) {
 static void begin(const Person *who, Persona *mind, Stage st, void (*on_end)(void)) {
     C.who = who; C.mind = mind; C.stage = st; C.turns = 0; C.demands = 0; C.on_end = on_end; C.running = 1;
     lang_set_player(C.player ? C.player->name : "Vas");
+    lpat_set_npc(mind ? mind->name : NULL);      /* chunk 45: <npc> in a pattern matches the name of who is talking */
     lang_ctx_reset();      /* chunk 35: a new chat, a clean memory (the facts that outlive a chat stay) */
 }
 
