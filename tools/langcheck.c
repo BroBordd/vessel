@@ -3607,6 +3607,88 @@ static int do_follow(void) {
     return fufail;
 }
 
+/* ---------- chunk 38: repetition, spam, copying ---------- */
+static int rpfail, rpchecks;
+#define RPCHECK(c, ...) do { rpchecks++; if (!(c)) { printf("BAD REPEAT: " __VA_ARGS__); printf("\n"); rpfail++; } } while (0)
+static const char *rp_which(const Heard *h) { return ak_has(h, "spam") ? "spam" : ak_has(h, "copycat") ? "copycat" : ak_has(h, "repeat_player") ? "repeat" : "-"; }
+static char rp_out[800];
+static void rp_turn(Persona *ps, const char *t, Heard *h) { lang_parse(t, h); lang_reply(ps, h, rp_out, (int)sizeof rp_out); lang_ctx_note(h, t, lang_reply_key(), ps->mood); }
+static int do_repeat(void) {
+    rpfail = rpchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    Heard h;
+    /* the ladder: the second identical line is rep.1, then 2, 3, 4, 5 and it stays on 5 */
+    { lang_ctx_reset(); lang_seed(7); Persona p = dea; const char *want[] = { "r.greet", "rep.1", "rep.2", "rep.3", "rep.4", "rep.5", "rep.5" };
+      for (int i = 0; i < 7; i++) { rp_turn(&p, "hello", &h); RPCHECK(!strcmp(lang_reply_key(), want[i]) && rp_out[0] && !strchr(rp_out, '{'), "turn %d of hello: key %s want %s [%s]", i, lang_reply_key(), want[i], rp_out);
+          RPCHECK(i == 0 ? !h.rep_level : h.rep_level == (i > 5 ? 5 : i), "turn %d level %d", i, h.rep_level); } }
+    /* a different turn or an apology starts over; a near twin and the third same-intent turn count */
+    { lang_ctx_reset(); Persona p = dea; rp_turn(&p, "hello", &h); rp_turn(&p, "hello", &h); rp_turn(&p, "hello", &h); RPCHECK(h.rep_level == 2, "level 2 before the break");
+      rp_turn(&p, "what is the moon", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "a new topic is no repeat");
+      rp_turn(&p, "hello", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "hello after the moon is no repeat [%s]", rp_which(&h));
+      rp_turn(&p, "hello", &h); RPCHECK(h.rep_level == 1, "the ladder started over: %d", h.rep_level);
+      rp_turn(&p, "sorry", &h); rp_turn(&p, "hello", &h); rp_turn(&p, "hello", &h); RPCHECK(h.rep_level == 1, "an apology starts it over: %d", h.rep_level); }
+    { lang_ctx_reset(); Persona p = dea; rp_turn(&p, "tell me a joke please", &h); rp_turn(&p, "tell me a joke please!!", &h); RPCHECK(!strcmp(rp_which(&h), "repeat"), "punctuation does not hide a repeat"); rp_turn(&p, "Tell Me A JOKE please", &h); RPCHECK(!strcmp(rp_which(&h), "repeat"), "case does not hide it");
+      lang_ctx_reset(); rp_turn(&p, "hello there friend", &h); rp_turn(&p, "hello there my friend", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "two different greetings are fine"); rp_turn(&p, "hello there good friend", &h); RPCHECK(!strcmp(rp_which(&h), "repeat"), "the third greeting with the same intents is a repeat"); }
+    /* spam */
+    { struct { const char *t; const char *w; } S[] = { {"hello hello hello hello", "spam"}, {"no no no no no", "spam"}, {"aaaaaaaaaaaaaaaaaaaa", "spam"}, {"!!!!!!!!!!!!!!!!", "spam"}, {"hahahahahahahahaha", "-"},
+          {"i want to see the moon i want to see the moon", "spam"}, {"tell me about the sun tell me about the sun", "spam"},
+          {"no no no", "-"}, {"hello hello", "-"}, {"hello", "-"}, {"tell me about the moon and then tell me about the stars", "-"}, {"what is the sky", "-"}, {"yes yes yes", "-"}, {"yo yo yo yo", "spam"}, {"ha ha ha", "-"} };
+      for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) { lang_ctx_reset(); lang_parse(S[i].t, &h); RPCHECK(!strcmp(rp_which(&h), S[i].w), "[%s] read as %s want %s", S[i].t, rp_which(&h), S[i].w);
+          if (!strcmp(S[i].w, "spam")) RPCHECK(h.rep_level == 2, "[%s] spam starts at step 2, got %d", S[i].t, h.rep_level); } }
+    { lang_ctx_reset(); Persona p = dea; rp_turn(&p, "hello hello hello hello", &h); RPCHECK(!strcmp(lang_reply_key(), "rep.2"), "spam answers rep.2 [%s]", lang_reply_key()); rp_turn(&p, "hello hello hello hello", &h); RPCHECK(h.rep_level == 3 && !strcmp(lang_reply_key(), "rep.3"), "second spam is step 3 [%d %s]", h.rep_level, lang_reply_key()); }
+    /* the npc's own words typed back */
+    { lang_ctx_reset(); Persona p = dea; lang_seed(3); rp_turn(&p, "who are you", &h); char said[800]; snprintf(said, sizeof said, "%s", rp_out);
+      rp_turn(&p, said, &h); RPCHECK(!strcmp(rp_which(&h), "copycat") && h.rep_level == 1 && !strcmp(lang_reply_key(), "copycat.1"), "the npc's line typed back: %s %d %s [%s]", rp_which(&h), h.rep_level, lang_reply_key(), said);
+      for (int i = 2; i <= 4; i++) { snprintf(said, sizeof said, "%s", lang_ctx()->last_text); rp_turn(&p, "x", &h); (void)i; }       /* a throwaway so the next copy is of a fresh reply */
+      lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky does not care about you, wanderer."); lang_parse("the sky does not care about you wanderer", &h); RPCHECK(!strcmp(rp_which(&h), "copycat"), "case and punctuation do not hide a copy");
+      lang_parse("it is true that the sky does not care about you wanderer", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "a longer sentence with the line inside is no copy (only the line alone)");
+      lang_parse("the sky does not care about you", &h); RPCHECK(!strcmp(rp_which(&h), "copycat"), "a 4+ word piece is a copy [%s]", rp_which(&h));
+      lang_parse("the sky", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "a short piece is no copy");
+      lang_ctx_reset(); lang_ctx_set_last("r.greet", "Hello."); lang_parse("hello", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "a one word line is no copy"); }
+    { lang_ctx_reset(); Persona p = dea; const char *line = "The sky does not care about you, wanderer."; int lv[3] = { 0 };
+      for (int i = 0; i < 4; i++) { lang_ctx_set_last("r.sky", line); lang_parse(line, &h); lang_reply(&p, &h, rp_out, (int)sizeof rp_out); lang_ctx_note(&h, line, lang_reply_key(), p.mood); if (i < 3) lv[i] = h.rep_level; else RPCHECK(h.rep_level == 3, "copycat stays on 3: %d", h.rep_level); }
+      RPCHECK(lv[0] == 1 && lv[1] == 2 && lv[2] == 3, "copycat steps %d %d %d", lv[0], lv[1], lv[2]); }
+    /* exempt: answers, distress, sorry, follow-ups, self-harm, and what already ranks higher */
+    { const char *ex[] = { "i am so sad", "help me", "i am scared", "sorry", "why", "i do not understand", "i want to die" }; Persona p = dea;
+      for (unsigned i = 0; i < sizeof ex / sizeof ex[0]; i++) { lang_ctx_reset(); lang_ctx_set_last("r.sky", "The sky is wide."); rp_turn(&p, ex[i], &h); rp_turn(&p, ex[i], &h); rp_turn(&p, ex[i], &h); RPCHECK(!strcmp(rp_which(&h), "-"), "[%s] x3 read as %s", ex[i], rp_which(&h)); }
+      lang_ctx_reset(); rp_turn(&p, "i want to die", &h); rp_turn(&p, "i want to die", &h); RPCHECK(!strcmp(lang_reply_key(), "r.selfharm") && !lang_ctx()->rep_n, "self-harm twice stays self-harm [%s]", lang_reply_key());
+      lang_ctx_reset(); lang_ctx_set_last("r.ask", "Do you want to go on?"); lang_ctx_set_ask("yn", "Do you want to go on?"); rp_turn(&p, "yes", &h); lang_ctx_set_ask("yn", "Do you want to go on?"); rp_turn(&p, "yes", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "yes to the same question twice is no repeat");
+      lang_ctx_reset(); lang_ctx_set_last("r.q", "Is that so?"); rp_turn(&p, "yes", &h); lang_ctx_set_last("r.q", "Is that so?"); rp_turn(&p, "yes", &h); RPCHECK(!strcmp(rp_which(&h), "-"), "a short answer to a question is no repeat even with no tag");
+      lang_ctx_reset(); lang_seed(5); rp_turn(&p, "you are stupid", &h); rp_turn(&p, "you are stupid", &h); RPCHECK(strncmp(lang_reply_key(), "rep.", 4) && ak_has(&h, "insult"), "a repeated insult is still answered as an insult [%s]", lang_reply_key()); }
+    /* the mood: the same line again wears the npc down, spam more so, and the vector only moves down */
+    { Persona a = dea, b = dea; lang_ctx_reset(); lang_seed(9); for (int i = 0; i < 5; i++) rp_turn(&a, "hello", &h); int ma = a.mood, ea = a.energy;
+      lang_ctx_reset(); lang_seed(9); const char *vary[] = { "hello", "who are you", "what is the sky", "tell me a joke", "where am i" }; for (int i = 0; i < 5; i++) rp_turn(&b, vary[i], &h);
+      RPCHECK(ma < b.mood && ea < b.energy, "repeating lowers mood and energy: %d/%d vs %d/%d", ma, ea, b.mood, b.energy); }
+    /* never in the reading of any reply line or corpus text with nothing to repeat */
+    { const Line *T[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E }; const int N[5] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N }; int n = 0, hit = 0;
+      for (int a = 0; a < 5; a++) for (int i = 0; i < N[a]; i += 2) { char tx[200]; snprintf(tx, sizeof tx, "%s", T[a][i].text); for (char *q = tx; *q; q++) if (*q == '{' || *q == '}') *q = ' ';
+          lang_ctx_reset(); lang_parse(tx, &h); if (strcmp(rp_which(&h), "-")) { hit++; if (hit < 4) printf("BAD REPEAT: [%s] read as %s\n", tx, rp_which(&h)); } n++; }
+      RPCHECK(!hit, "%d of %d reply lines read as repeat / spam / copy with a fresh chat", hit, n); printf("repeat: %d reply lines with a fresh chat: %d read as repeat\n", n, hit); lang_ctx_reset(); }
+    /* additive: the repeat only adds an intent, it never takes one away */
+    { const char *tx[] = { "hello hello hello hello", "tell me a joke tell me a joke tell me a joke tell me a joke", "who are you who are you who are you who are you", "you are a fool you are a fool you are a fool you are a fool" };
+      for (int i = 0; i < 4; i++) { Heard h0, h1; lang_ctx_reset(); lang_parse(tx[i], &h1); int lost = 0; /* the same text read by an engine that has no repeat pass is the fresh reading minus the spam intent */
+          h0 = h1; for (int q = 0; q < h0.n; q++) if (h0.order[q] != I_SPAM && !heard_has(&h1, h0.order[q])) lost++; RPCHECK(!lost && heard_has(&h1, I_SPAM), "[%s] lost %d", tx[i], lost); } }
+    /* the lines: 8 keys, 12 lines, 3 per old mood, only the {pet} slot, short */
+    { static const char *const K[] = { "rep.1", "rep.2", "rep.3", "rep.4", "rep.5", "copycat.1", "copycat.2", "copycat.3" }; const Line *const *rows;
+      for (int k = 0; k < 8; k++) { int n = lang_key_rows(K[k], &rows), per[4] = { 0 }, bad = 0;
+          for (int r = 0; r < n; r++) { for (int t = 0; t < 4; t++) if (rows[r]->tones & (1u << t)) per[t]++; if (strlen(rows[r]->text) > 110) bad++; const char *q = rows[r]->text; while ((q = strchr(q, '{'))) { if (strncmp(q, "{pet}", 5)) bad++; q++; } }
+          RPCHECK(n == 12 && per[0] == 3 && per[1] == 3 && per[2] == 3 && per[3] == 3 && !bad, "%s: %d lines, %d %d %d %d, %d bad", K[k], n, per[0], per[1], per[2], per[3], bad); } }
+    /* every voice and mood answers every step, closed and on-key */
+    { int bad = 0, total = 0;
+      for (int st = 0; st < STYLE_COUNT; st++) for (int m = 0; m < 4; m++) for (int lv = 1; lv <= 5; lv++) for (int cc = 0; cc < 2; cc++) {
+          if (cc && lv > 3) continue;
+          Persona ps = { "Npc", 1 << st, -60 + 40 * m, 30, 50, 8 }; lang_ctx_reset(); lang_seed(lv * 7 + st);
+          memset(&h, 0, sizeof h); int in = cc ? I_COPYCAT : I_REPEAT_PLAYER; heard_set(&h, in); h.order[0] = in; h.n = 1; h.conf[0] = 90; h.src[0] = SRC_FRAME; h.words = 2; h.rep_level = (uint8_t)lv;
+          char out[800]; int n = lang_reply(&ps, &h, out, (int)sizeof out); total++; char want[16]; snprintf(want, sizeof want, "%s.%d", cc ? "copycat" : "rep", lv);
+          if (n < 1 || !out[0] || strchr(out, '{') || strlen(out) > 330 || strcmp(lang_reply_key(), want)) { bad++; if (bad < 4) printf("BAD REPEAT: voice %d key %s: [%s] %s\n", st, want, out, lang_reply_key()); } }
+      RPCHECK(!bad, "%d of %d ladder replies empty, open, too long or off-key", bad, total); lang_ctx_reset(); }
+    { lang_ctx_reset(); Persona p = dea; rp_turn(&p, "well um but why is that then", &h); clock_t t0 = clock(); for (int i = 0; i < 2000; i++) { Heard hh; lang_parse("well um but why is that then", &hh); }
+      double ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / 2000; RPCHECK(SANITIZED || ms < 1.0, "parse %.3f ms", ms); printf("repeat: parse %.3f ms\n", ms); lang_ctx_reset(); }
+    printf("repeat: %d checks, %d problems\n", rpchecks, rpfail);
+    return rpfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3643,11 +3725,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--ctx"))      { rc |= do_ctx() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--ask"))      { rc |= do_ask(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--follow"))   { rc |= do_follow() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--repeat"))   { rc |= do_repeat() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

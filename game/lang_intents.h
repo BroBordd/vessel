@@ -139,4 +139,6 @@
     /* chunk 36: answers read relative to what the npc just asked (the ask tag of lang_ctx): they are only ever added by an ask tag, no pattern says them */ \
     X(AGREE_TO_ASK, "agree_to_ask", "AGREE TO ASK") X(DECLINE_TO_ASK, "decline_to_ask", "DECLINE TO ASK") X(BECAUSE, "because", "BECAUSE") X(ANSWER_CHOICE, "answer_choice", "ANSWER CHOICE") \
     /* chunk 37: a bare follow-up to the npc's last reply (lang_follow_read, only with a last reply in the chat) */ \
-    X(FOLLOW_WHY, "follow_why", "FOLLOW WHY") X(FOLLOW_MORE, "follow_more", "FOLLOW MORE") X(FOLLOW_REALLY, "follow_really", "FOLLOW REALLY") X(FOLLOW_AGAIN, "follow_again", "FOLLOW AGAIN")
+    X(FOLLOW_WHY, "follow_why", "FOLLOW WHY") X(FOLLOW_MORE, "follow_more", "FOLLOW MORE") X(FOLLOW_REALLY, "follow_really", "FOLLOW REALLY") X(FOLLOW_AGAIN, "follow_again", "FOLLOW AGAIN") \
+    /* chunk 38: the player repeats, spams or copies (lang_ctx_repeat_kind; they answer from the ladders rep.1..5 and copycat.1..3) */ \
+    X(REPEAT_PLAYER, "repeat_player", "REPEAT PLAYER") X(COPYCAT, "copycat", "COPYCAT") X(SPAM, "spam", "SPAM")

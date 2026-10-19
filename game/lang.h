@@ -123,6 +123,7 @@ typedef struct {
     Capture cap[HEARD_CAPS];
     uint8_t confidence; /* chunk 34: 0-100, how sure the engine is of the intent it will answer (that intent's conf; 30 when only a topic or a frame was heard; 0 = nothing) */
     uint8_t kind;       /* chunk 34: HK_* what the reading rests on */
+    uint8_t rep_level;  /* chunk 38: with I_REPEAT_PLAYER / I_SPAM the step of the rep.1..5 ladder this turn is on, with I_COPYCAT the step of copycat.1..3 (0 = none) */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 

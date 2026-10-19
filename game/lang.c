@@ -84,7 +84,7 @@ static const unsigned char RANK[I_COUNT] = {     /* chunk 12: an intent after I_
     /* joke */ 24, /* scared */ 26, /* confused */ 29, /* angry */ 28, /* sad */ 27, /* intro */ 10, /* repeat */ 34, /* sky */ 21, /* music */ 22, /* hole */ 16,
     /* secret */ 17, /* life */ 18, /* wait */ 99, /* please */ 99, /* agree */ 33, /* disagree */ 32, /* dontcare */ 31, /* demand */ 30, /* callout */ 2, /* age */ 19,
     /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99,
-    [I_AGREE_TO_ASK] = 5, [I_DECLINE_TO_ASK] = 5, [I_BECAUSE] = 5, [I_ANSWER_CHOICE] = 5, [I_FOLLOW_WHY] = 5, [I_FOLLOW_MORE] = 5, [I_FOLLOW_REALLY] = 5, [I_FOLLOW_AGAIN] = 5      /* chunk 36: the answer to what the npc just asked comes first, and alone (choose_intents) */
+    [I_AGREE_TO_ASK] = 5, [I_DECLINE_TO_ASK] = 5, [I_BECAUSE] = 5, [I_ANSWER_CHOICE] = 5, [I_FOLLOW_WHY] = 5, [I_FOLLOW_MORE] = 5, [I_FOLLOW_REALLY] = 5, [I_FOLLOW_AGAIN] = 5, [I_REPEAT_PLAYER] = 5, [I_COPYCAT] = 5, [I_SPAM] = 5      /* chunk 38: the player repeats, copies or spams: it comes alone, but an insult, a callout, an apology or love outrank it. chunk 36: the answer to what the npc just asked comes first, and alone (choose_intents) */
 };
 
 #define RANK_DEFAULT 20
@@ -124,6 +124,10 @@ static const Effect EFFECT[I_COUNT] = {
     [I_CONFUSED] = {          0,  0,   0,   0,  -2,    0,   0, FL_NONE },
     [I_REPEAT]   = {          0,  0,   0,   0,  -2,   -1,   0, FL_NONE },
     [I_HELP]     = {          0,  0,   2,   0,   0,    0,   0, FL_NONE },
+    /* chunk 38: the same line again wears an npc down (energy goes first, so a patient one gets BORED before it gets cross); spam is ruder; a copycat amuses until it does not */
+    [I_REPEAT_PLAYER] = {    -2,  0,  -1,   0,  -6,   -2,   0, FL_NONE },
+    [I_SPAM]     = {         -3, -1,  -3,   0,  -4,   -3,   0, FL_NONE },
+    [I_COPYCAT]  = {         -1,  0,  -1,   0,   0,    4,   0, FL_NONE },
 };
 
 /* ---------- random ---------- */
@@ -537,6 +541,14 @@ static void follow_pass(Heard *h, const char *const *tx, const int *tl, int nt) 
     if (k != FU_NONE) heard_add(h, IN[k], SRC_FRAME, 85);
 }
 
+/* ---------- chunk 38: the same line again, a spammed word or character, the npc's own words typed back ---------- */
+static void repeat_pass(Heard *h, const char *raw, const char *lc) {
+    int level = 0, k = lang_ctx_repeat_kind(h, raw, lc, &level);
+    if (k == REP_NONE) return;
+    heard_add(h, k == REP_SPAM ? I_SPAM : k == REP_COPYCAT ? I_COPYCAT : I_REPEAT_PLAYER, SRC_FRAME, 90);
+    h->rep_level = (uint8_t)level;
+}
+
 /* ---------- chunk 34: which intents get answered, the confidence, the reply plan ---------- */
 /* the intents lang_reply answers: strong ones first (by rank), the catch-alls only when nothing else was said; at most 2 */
 static int choose_intents(const Heard *h, int *pickd) {
@@ -553,7 +565,7 @@ static int choose_intents(const Heard *h, int *pickd) {
             for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
         for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
     }
-    if (np == 2 && (pickd[0] == I_AGREE_TO_ASK || pickd[0] == I_DECLINE_TO_ASK || pickd[0] == I_BECAUSE || pickd[0] == I_ANSWER_CHOICE || (pickd[0] >= I_FOLLOW_WHY && pickd[0] <= I_FOLLOW_AGAIN))) np = 1;      /* chunk 36: the whole text IS the answer to the npc's question: nothing is acknowledged next to it */
+    if (np == 2 && (pickd[0] == I_AGREE_TO_ASK || pickd[0] == I_DECLINE_TO_ASK || pickd[0] == I_BECAUSE || pickd[0] == I_ANSWER_CHOICE || (pickd[0] >= I_FOLLOW_WHY && pickd[0] <= I_FOLLOW_AGAIN) || (pickd[0] >= I_REPEAT_PLAYER && pickd[0] <= I_SPAM))) np = 1;      /* chunk 36: the whole text IS the answer to the npc's question: nothing is acknowledged next to it */
     if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */
     return np;
 }
@@ -701,6 +713,7 @@ void lang_parse(const char *text, Heard *h) {
     }
     h->is_question = q;
     { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); follow_pass(h, tx, tl, 4); }      /* chunks 36, 37 */
+    repeat_pass(h, text, lc);      /* chunk 38 */
     confidence_of(h);      /* chunk 34 */
 }
 
@@ -1225,6 +1238,22 @@ static int follow_reply(Persona *ps, const Heard *h, Tone tone, char *out, int c
     ask_note(lang_line_ask(l), out);
     return 1;
 }
+/* chunk 38: rep.1..5 (the same line again: confusion, annoyance, a joke, a warning, giving up) and copycat.1..3 (the npc's own words typed back) */
+static int ladder_reply(Persona *ps, const Heard *h, Tone tone, char *out, int cap) {
+    int copy = heard_has(h, I_COPYCAT), lv = h->rep_level < 1 ? 1 : h->rep_level;
+    if (lv > (copy ? 3 : 5)) lv = copy ? 3 : 5;
+    char key[16]; snprintf(key, sizeof key, "%s.%d", copy ? "copycat" : "rep", lv);
+    g_tone = (int)tone;
+    const Line *l = pick(ps, key, (int)tone);
+    if (!l) return 0;
+    int pass = g_pass; remember(l);
+    fmt(ps, l->text, out, cap, 0);
+    voice_line(ps, key, l, pass, (int)tone, out, cap);
+    snprintf(g_reply_key, sizeof g_reply_key, "%s", key);
+    snprintf(g_last_text, sizeof g_last_text, "%.159s", out);
+    ask_note(lang_line_ask(l), out);
+    return 1;
+}
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     out[0] = 0; g_reply_key[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
@@ -1239,6 +1268,8 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
     if ((heard_has(h, I_FOLLOW_MORE) || heard_has(h, I_FOLLOW_AGAIN)) && follow_reply(ps, h, tone, out, cap)) return 1;      /* chunk 37 */
+    { int pk[HEARD_ORDER], npk = choose_intents(h, pk);      /* chunk 38: only when the repeat is what would be answered first (an insult, a callout, an apology or love outranks it) */
+      if (npk && pk[0] >= I_REPEAT_PLAYER && pk[0] <= I_SPAM && ladder_reply(ps, h, tone, out, cap)) return 1; }
 
     /* chunk 34: the plan says what to do (answer, hedge, echo ...); the steps run in order */
     ReplyPlan plan; lang_plan(ps, h, &plan);

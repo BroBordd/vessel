@@ -120,5 +120,46 @@ const Line LINES_E[] = {
     {"y.generic", NEUT, ALLS, "Once more."}, {"y.generic", NEUT, ALLS, "Again, then."}, {"y.generic", NEUT, ALLS, "Listen this time."},
     {"y.generic", COLD, ALLS, "Fine. Again."}, {"y.generic", COLD, ALLS, "Pay attention."}, {"y.generic", COLD, ALLS, "I will not say it a third time."},
     {"y.generic", HOST, ALLS, "Cover your ears less. Again."}, {"y.generic", HOST, ALLS, "Were you not listening? Again."}, {"y.generic", HOST, ALLS, "Fool. Once more."},
+    /* ---- chunk 38: the same line again (rep.1 confusion, rep.2 annoyance, rep.3 a joke, rep.4 a warning, rep.5 giving up) and the npc's own words typed back (copycat.1-3). three lines per old mood, nothing echoed; chunk 147 writes the 20 moods and the voices ---- */
+    /* ---- rep.1 ---- */
+    {"rep.1", WARM, ALLS, "You said that already, {pet}. Did I miss something?"}, {"rep.1", WARM, ALLS, "Hm? That is just what you told me, {pet}."}, {"rep.1", WARM, ALLS, "I heard you the first time, {pet}. Is something wrong?"},
+    {"rep.1", NEUT, ALLS, "You said that already."}, {"rep.1", NEUT, ALLS, "That is the same thing again."}, {"rep.1", NEUT, ALLS, "I heard that a moment ago."},
+    {"rep.1", COLD, ALLS, "Again? You said it already."}, {"rep.1", COLD, ALLS, "I heard you. I do not need it twice."}, {"rep.1", COLD, ALLS, "The same words. Why?"},
+    {"rep.1", HOST, ALLS, "You said that already, fool."}, {"rep.1", HOST, ALLS, "Same words, same empty head."}, {"rep.1", HOST, ALLS, "Did you forget you spoke a moment ago?"},
+    /* ---- rep.2 ---- */
+    {"rep.2", WARM, ALLS, "Gently now, {pet}. I have heard it twice."}, {"rep.2", WARM, ALLS, "I am listening, {pet}, truly. Is there something new?"}, {"rep.2", WARM, ALLS, "You are repeating yourself, {pet}. Is there more?"},
+    {"rep.2", NEUT, ALLS, "You are repeating yourself."}, {"rep.2", NEUT, ALLS, "Say something else."}, {"rep.2", NEUT, ALLS, "I know. You told me. Twice."},
+    {"rep.2", COLD, ALLS, "Stop repeating yourself."}, {"rep.2", COLD, ALLS, "It is tiresome, hearing the same words."}, {"rep.2", COLD, ALLS, "Saying it again will not change my answer."},
+    {"rep.2", HOST, ALLS, "Repeating yourself like a cracked bell."}, {"rep.2", HOST, ALLS, "Again. Your cleverness knows no bounds."}, {"rep.2", HOST, ALLS, "Stop it. The same words, again."},
+    /* ---- rep.3 ---- */
+    {"rep.3", WARM, ALLS, "If you say it a third time, does it come true, {pet}?"}, {"rep.3", WARM, ALLS, "You repeat yourself like an echo in a cave, {pet}."}, {"rep.3", WARM, ALLS, "Three times now. Shall I fetch you a cup of something, {pet}?"},
+    {"rep.3", NEUT, ALLS, "An echo in the clouds. How curious."}, {"rep.3", NEUT, ALLS, "Say it once more and I will answer in a fourth way."}, {"rep.3", NEUT, ALLS, "Are you practicing? You are very good at it."},
+    {"rep.3", COLD, ALLS, "Was that for my benefit, or for the echo's?"}, {"rep.3", COLD, ALLS, "Again. A parrot would be proud."}, {"rep.3", COLD, ALLS, "Three times. I am counting, you know."},
+    {"rep.3", HOST, ALLS, "A parrot has more to say than you."}, {"rep.3", HOST, ALLS, "Say it again. Perhaps a wall will answer."}, {"rep.3", HOST, ALLS, "Three times! Your skull must be an echo chamber."},
+    /* ---- rep.4 ---- */
+    {"rep.4", WARM, ALLS, "I care for you, {pet}, but my patience has an end."}, {"rep.4", WARM, ALLS, "Please stop, {pet}. I will not answer the same words again."}, {"rep.4", WARM, ALLS, "Say something else, {pet}, or I may grow quiet."},
+    {"rep.4", NEUT, ALLS, "Say something new or we are done."}, {"rep.4", NEUT, ALLS, "One more time and I stop answering."}, {"rep.4", NEUT, ALLS, "I will not answer this again."},
+    {"rep.4", COLD, ALLS, "One more and I will leave."}, {"rep.4", COLD, ALLS, "Say it again and watch me go."}, {"rep.4", COLD, ALLS, "Enough. Say something new or be silent."},
+    {"rep.4", HOST, ALLS, "Say it again and I will leave you to rot."}, {"rep.4", HOST, ALLS, "Repeat that once more. I dare you."}, {"rep.4", HOST, ALLS, "Another word of it and you are alone."},
+    /* ---- rep.5 ---- */
+    {"rep.5", WARM, ALLS, "I am sorry, {pet}. I have nothing more to give you now."}, {"rep.5", WARM, ALLS, "I cannot go on like this. Come back later, {pet}."}, {"rep.5", WARM, ALLS, "We are going in circles, {pet}. Let us rest."},
+    {"rep.5", NEUT, ALLS, "I am done. This goes nowhere."}, {"rep.5", NEUT, ALLS, "Enough. I leave it there."}, {"rep.5", NEUT, ALLS, "We are finished here."},
+    {"rep.5", COLD, ALLS, "I am done with this."}, {"rep.5", COLD, ALLS, "No more. Go away."}, {"rep.5", COLD, ALLS, "Nothing left to say. Goodbye."},
+    {"rep.5", HOST, ALLS, "I am done with you and your one sentence."}, {"rep.5", HOST, ALLS, "Enough! Go bother the wind."}, {"rep.5", HOST, ALLS, "I am finished. Do not come back with that."},
+    /* ---- copycat.1 ---- */
+    {"copycat.1", WARM, ALLS, "Ha! You said what I said, {pet}."}, {"copycat.1", WARM, ALLS, "That is my line, {pet}. Are you teasing me?"}, {"copycat.1", WARM, ALLS, "You borrow my words, {pet}. How sweet."},
+    {"copycat.1", NEUT, ALLS, "Those are my words."}, {"copycat.1", NEUT, ALLS, "You are echoing me."}, {"copycat.1", NEUT, ALLS, "I just said that."},
+    {"copycat.1", COLD, ALLS, "Those were my words."}, {"copycat.1", COLD, ALLS, "Do not copy me."}, {"copycat.1", COLD, ALLS, "Echo yourself, not me."},
+    {"copycat.1", HOST, ALLS, "Do not steal my words, fool."}, {"copycat.1", HOST, ALLS, "Copying me? Pathetic."}, {"copycat.1", HOST, ALLS, "Those are mine. Find your own."},
+    /* ---- copycat.2 ---- */
+    {"copycat.2", WARM, ALLS, "Speak for yourself, {pet}. I know you can."}, {"copycat.2", WARM, ALLS, "You are copying me again, {pet}. Say what you feel."}, {"copycat.2", WARM, ALLS, "My words are not yours to wear, {pet}."},
+    {"copycat.2", NEUT, ALLS, "Stop copying me."}, {"copycat.2", NEUT, ALLS, "Use your own words."}, {"copycat.2", NEUT, ALLS, "My words again. Try your own."},
+    {"copycat.2", COLD, ALLS, "Copying again. How dull."}, {"copycat.2", COLD, ALLS, "Use your own tongue."}, {"copycat.2", COLD, ALLS, "I will not be mimicked."},
+    {"copycat.2", HOST, ALLS, "Stop aping me, you little shadow."}, {"copycat.2", HOST, ALLS, "Mimicking me, you hollow thing."}, {"copycat.2", HOST, ALLS, "Mimic me again and see what comes."},
+    /* ---- copycat.3 ---- */
+    {"copycat.3", WARM, ALLS, "Enough of that, {pet}. Speak with your own voice."}, {"copycat.3", WARM, ALLS, "I would hear you, {pet}, not myself."}, {"copycat.3", WARM, ALLS, "No more echoes, {pet}. Tell me what you mean."},
+    {"copycat.3", NEUT, ALLS, "Enough. Say something of your own."}, {"copycat.3", NEUT, ALLS, "I will not talk to my own echo."}, {"copycat.3", NEUT, ALLS, "Your own words, or none at all."},
+    {"copycat.3", COLD, ALLS, "Last warning. Your own words."}, {"copycat.3", COLD, ALLS, "Stop. I am not a mirror."}, {"copycat.3", COLD, ALLS, "No more mimicry. Speak or be silent."},
+    {"copycat.3", HOST, ALLS, "Copy me again and I am gone."}, {"copycat.3", HOST, ALLS, "I am no mirror for a fool to play with."}, {"copycat.3", HOST, ALLS, "Enough mimicry. Say your own thing or vanish."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

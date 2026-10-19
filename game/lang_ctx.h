@@ -31,6 +31,7 @@ typedef struct {
     int16_t asked_about[CTX_TOPICS]; uint8_t asked_n[CTX_TOPICS]; int nasked;               /* topic ids (lang_topic_name) asked about and how often */
     char ask[12];                                /* the ask tag of the npc's last line (chunk 36); empty = none */
     char last_text[160];                         /* chunk 37: the npc's last reply as spoken ("" after self-harm): follow-ups resay or extend it */
+    uint8_t rep_n, copy_n;                       /* chunk 38: how many repeat / spam turns and copycat turns in a row (the ladder step of the last one); a different turn or an apology resets them */
     char ask_text[96];                           /* the question sentence of that line as spoken (chunk 36: a choice needs its two options) */
 } LangCtx;
 typedef struct { char name[24]; uint8_t insulted, thanked; } CtxFacts;    /* what is saved between chats */
@@ -44,6 +45,13 @@ int  lang_ctx_topic_count(int topic);            /* how often the player asked a
 void lang_ctx_set_ask(const char *tag, const char *text);   /* chunk 36: the npc just asked something (tag "" clears); lang_ctx_note does this from lang_reply_ask() */
 void lang_ctx_set_last(const char *key, const char *text);  /* chunk 37: the npc just said `text` with reply key `key` (tests, corpus @last lines; lang_ctx_note does this itself) */
 void lang_ctx_set_ask_line(const char *text);    /* chunk 36: a scripted line spoken without lang_reply (the story's own question): the tag it gets by rule */
+/* chunk 38: does this reading repeat, spam or copy? Called by lang_parse after the other layers, so h already holds what was heard.
+ * REP_REPEAT: the same text as the last turn (after cleaning, or a near twin of 3+ words), or the same intents for the third turn running with half the words the same.
+ * REP_SPAM: one word typed 4+ times (60 % of the words), a character 12+ times in a row, or a long text pasted twice.
+ * REP_COPYCAT: the npc's own last reply typed back (equal, a 4+ word piece of it, or a near twin).
+ * *level = the ladder step this turn would be on (1-5 rep, 1-3 copycat; spam starts at 2). Never for self-harm, sorry, distress, confusion, an answer to a question or a follow-up. */
+enum { REP_NONE, REP_REPEAT, REP_SPAM, REP_COPYCAT };
+int  lang_ctx_repeat_kind(const Heard *h, const char *raw, const char *lc, int *level);
 void lang_ctx_facts_save(CtxFacts *out);
 void lang_ctx_facts_load(const CtxFacts *in);    /* a NULL or empty struct forgets everything */
 const CtxFacts *lang_ctx_facts(void);

@@ -102,6 +102,8 @@ static void on_reply(int page, const char *text) {
     lang_reply(ps, &h, reply, sizeof reply);
     lang_ctx_note(&h, text, lang_reply_key(), ps->mood);      /* chunk 35 */
     C.turns++;
+    int worn = (heard_has(&h, I_REPEAT_PLAYER) || heard_has(&h, I_SPAM));
+    if (worn) C.turns++;                                    /* chunk 38: the same line again and spam tire the npc twice as fast */
 
     if (heard_has(&h, I_SELFHARM)) { speak(reply, REPLY_OPTIONAL, text); return; }
     if (heard_has(&h, I_BYE)) {                                /* the player is leaving: wave and end */
@@ -113,7 +115,7 @@ static void on_reply(int page, const char *text) {
         C.stage = ST_SORRY; C.demands = 0;
         speak(reply, REPLY_REQUIRED, text); return;
     }
-    if (C.turns >= ps->patience) {                          /* the npc has had enough */
+    if (C.turns >= ps->patience || (worn && h.rep_level >= 5)) {      /* the npc has had enough (chunk 38: rep.5 is the npc giving up) */
         char end[200]; lang_line(ps, "end.bored", end, sizeof end);
         size_t n = strlen(reply); if (n + strlen(end) + 2 < sizeof reply) { strcat(reply, " "); strcat(reply, end); }
         speak(reply, REPLY_NONE, text); return;
