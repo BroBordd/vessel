@@ -66,6 +66,7 @@ static void speak(const char *line, int reply, const char *echo) {
 static void say_key(const char *key, int reply, const char *echo) {
     char buf[480];
     if (!lang_line(C.mind, key, buf, sizeof buf)) snprintf(buf, sizeof buf, "...");
+    lang_ctx_set_ask(lang_reply_ask(), lang_reply_ask_text());      /* chunk 36: a scripted question (ask.questions) is read like any other: its tag decides what a bare yes means */
     speak(buf, reply, echo);
 }
 
@@ -76,7 +77,7 @@ static void on_reply(int page, const char *text) {
     if (!text) text = "Bye";                                /* the BYE button: the player says goodbye, and the npc answers that */
     else if (W.fn && C.stage != ST_SORRY) {                 /* chunk 63: the story may answer this line itself (Alex and the orb) */
         char own[480];
-        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); speak(own, REPLY_OPTIONAL, text); return; }
+        if (W.fn(text, own, sizeof own)) { C.stage = ST_FREE; C.turns++; if (C.mind) lang_idle_turn(C.mind); lang_ctx_set_ask_line(own); speak(own, REPLY_OPTIONAL, text); return; }
     }
     lang_parse(text, &h);
     Persona *ps = C.mind;
@@ -90,10 +91,10 @@ static void on_reply(int page, const char *text) {
     }
 
     if (C.stage == ST_QUESTIONS) {
-        static const int polite[] = { I_NO, I_OK, I_THANKS, I_PLEASE, I_POS, I_ADDRESS, -1 };
-        static const int yes[] = { I_YES, I_OK, I_PLEASE, I_POS, I_ADDRESS, I_HELP, -1 };
-        if (heard_has(&h, I_NO) && heard_only(&h, polite)) { lang_apply(ps, &h); say_key("end.noquestions", REPLY_NONE, text); return; }
-        if (heard_has(&h, I_YES) && heard_only(&h, yes)) { lang_apply(ps, &h); C.stage = ST_FREE; C.turns = 0; say_key("ask.go", REPLY_OPTIONAL, text); return; }
+        static const int polite[] = { I_NO, I_OK, I_THANKS, I_PLEASE, I_POS, I_ADDRESS, I_DECLINE_TO_ASK, -1 };      /* chunk 36: the ask tag of the question adds the DECLINE / AGREE intents next to the old ones */
+        static const int yes[] = { I_YES, I_OK, I_PLEASE, I_POS, I_ADDRESS, I_HELP, I_AGREE_TO_ASK, -1 };
+        if ((heard_has(&h, I_NO) || heard_has(&h, I_DECLINE_TO_ASK)) && heard_only(&h, polite)) { lang_apply(ps, &h); say_key("end.noquestions", REPLY_NONE, text); return; }
+        if ((heard_has(&h, I_YES) || heard_has(&h, I_AGREE_TO_ASK)) && heard_only(&h, yes)) { lang_apply(ps, &h); C.stage = ST_FREE; C.turns = 0; say_key("ask.go", REPLY_OPTIONAL, text); return; }
         C.stage = ST_FREE;                                  /* they just asked something: answer it */
     }
 
@@ -162,12 +163,14 @@ void convo_open(const Person *who, Persona *mind, int again, void (*on_end)(void
 void convo_open_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void)) {
     if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_FREE, on_end);
+    lang_ctx_set_ask_line(line);      /* chunk 36 */
     speak(line, REPLY_OPTIONAL, NULL);
 }
 
 void convo_ask_line(const Person *who, Persona *mind, const char *line, void (*on_end)(void)) {
     if (locked_chat(who, on_end)) return;
     begin(who, mind, ST_QUESTIONS, on_end);
+    lang_ctx_set_ask_line(line);      /* chunk 36 */
     speak(line, REPLY_OPTIONAL, NULL);
 }
 

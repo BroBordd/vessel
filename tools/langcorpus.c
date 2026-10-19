@@ -14,9 +14,11 @@
  *   build/langcorpus --fuzz 5 --fuzz-misses 40 FILE...              show more lost labels (default 15). the seed is fixed (--seed N to change)
  *   build/langcorpus --plan [N] FILE...                            (chunk 34) print the confidence, the kind and the reply plan of each line (the first N, default all), then a summary
  * corpus file: one line per player text:  text <TAB> intent[,intent...]   (# = comment, none = nothing should be understood)
+ * chunk 36: a line `@ask<TAB>tag<TAB>question` sets the npc line the rows below answer (tag: yn name why any choice more ready agree); a bare `@ask` clears it.
  * recall of intent X = lines labelled X where lang_parse heard X. precision of X = lines where X was heard and labelled.
  * exact = the heard set equals the labelled set (the sentiment words pos/neg are ignored unless labelled). */
 #include "lang.h"
+#include "lang_ctx.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,25 +34,36 @@ static int  s_meet(const Set *a, const Set *b) { for (int k = 0; k < HEARD_MAX /
 static int  s_eq(const Set *a, const Set *b) { return !memcmp(a->w, b->w, sizeof a->w); }
 static Set  s_of(const Heard *h) { Set s; memcpy(s.w, h->m, sizeof s.w); return s; }
 #define MAXL 20000
-typedef struct { char text[512]; Set exp; int none; } Row;
+typedef struct { char text[512]; Set exp; int none; char ask[12], asktext[96]; } Row;      /* ask / asktext: the npc line the row answers (an `@ask<TAB>tag[<TAB>question]` line sets it for the rows below; a bare `@ask` clears it) */
 static Row rows[MAXL]; static int nrows;
 
 static int intent_by_name(const char *n) { return lang_intent_by_name(n); }
 
+static char cur_ask[12], cur_asktext[96];
+static void use_ctx(const Row *r) { lang_ctx_set_ask(r->ask, r->asktext); }       /* chunk 36: parse the row as the answer to that line */
 static int load(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) { fprintf(stderr, "cannot open %s\n", path); return 1; }
     char line[512]; int ln = 0, bad = 0;
+    cur_ask[0] = cur_asktext[0] = 0;
     while (fgets(line, sizeof line, f)) {
         ln++;
         size_t n = strlen(line); while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
         if (!n || line[0] == '#') continue;
+        if (!strncmp(line, "@ask", 4)) {                     /* chunk 36: the next rows answer an npc line with this ask tag */
+            cur_ask[0] = cur_asktext[0] = 0;
+            char *t1 = strchr(line, '\t');
+            if (t1) { char *t2 = strchr(t1 + 1, '\t'); if (t2) { *t2 = 0; snprintf(cur_asktext, sizeof cur_asktext, "%s", t2 + 1); } snprintf(cur_ask, sizeof cur_ask, "%s", t1 + 1); }
+            if (cur_ask[0] && !lang_ask_tag_valid(cur_ask)) { fprintf(stderr, "%s:%d: unknown ask tag '%s'\n", path, ln, cur_ask); bad++; cur_ask[0] = 0; }
+            continue;
+        }
         char *tab = strchr(line, '\t');
         if (!tab) { fprintf(stderr, "%s:%d: no TAB\n", path, ln); bad++; continue; }
         *tab = 0;
         if (nrows >= MAXL) { fprintf(stderr, "too many rows\n"); fclose(f); return 1; }
         Row *r = &rows[nrows];
         snprintf(r->text, sizeof r->text, "%s", line); memset(&r->exp, 0, sizeof r->exp); r->none = 0;
+        snprintf(r->ask, sizeof r->ask, "%s", cur_ask); snprintf(r->asktext, sizeof r->asktext, "%s", cur_asktext);
         for (char *tok = strtok(tab + 1, ","); tok; tok = strtok(NULL, ",")) {
             while (*tok == ' ') tok++;
             if (!strcmp(tok, "none")) { r->none = 1; continue; }
@@ -148,7 +161,7 @@ static int run_fuzz(int per, int nshow, int minret) {
     for (int r = 0; r < nrows; r++) {
         Row *w = &rows[r];
         if (w->none || !s_any(&w->exp) || (s_any(&only) && !s_meet(&w->exp, &only))) continue;
-        Heard h0; lang_parse(w->text, &h0);
+        use_ctx(w); Heard h0; lang_parse(w->text, &h0);
         for (int k = 0; k < F_COUNT; k++) for (int v = 0; v < per; v++) {
             char t[512]; strncpy(t, w->text, sizeof t - 1); t[sizeof t - 1] = 0;
             int changed;
@@ -202,7 +215,7 @@ int main(int argc, char **argv) {
         Persona ps = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
         int bykind[5] = {0}, byshape[4] = {0}, band[3] = {0};
         for (int r = 0; r < nrows; r++) {
-            Heard h; lang_parse(rows[r].text, &h);
+            use_ctx(&rows[r]); Heard h; lang_parse(rows[r].text, &h);
             ReplyPlan pl; lang_plan(&ps, &h, &pl);
             if (r < plan_n) {
                 printf("%-44.44s conf %3d %-6s", rows[r].text, h.confidence, lang_kind_name(h.kind));
@@ -224,7 +237,7 @@ int main(int argc, char **argv) {
     for (int r = 0; r < nrows; r++) {
         Row *w = &rows[r];
         if (s_any(&only) && !s_meet(&w->exp, &only)) continue;
-        Heard h; lang_parse(w->text, &h);
+        use_ctx(w); Heard h; lang_parse(w->text, &h);
         Set got = s_of(&h), cmp_got = got, cmp_exp = w->exp;
         cmp_got.w[I_POS >> 6] &= ~(1ull << (I_POS & 63)); cmp_got.w[I_NEG >> 6] &= ~(1ull << (I_NEG & 63));      /* the sentiment words only count when expected */
         cmp_exp.w[I_POS >> 6] &= ~(1ull << (I_POS & 63)); cmp_exp.w[I_NEG >> 6] &= ~(1ull << (I_NEG & 63));

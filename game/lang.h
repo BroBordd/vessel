@@ -96,6 +96,7 @@ typedef struct {
     int positive, negative;     /* chunk 28: WEIGHTS 0-9 of the positive and the negative feeling in the text (valence lexicon, negation, boosters, but), no longer counts */
     int is_question, words;
     char capture[24];   /* "my name is X" -> X */
+    char ask[12];       /* chunk 36: the ask tag of the npc line this text answers (from lang_ctx), empty = none; set by lang_parse */
     /* chunk 16: what the text carries besides words (see lang_clean.h). none of it changes which intents are heard yet */
     unsigned flags;     /* LF_SHOUT LF_NOISE LF_LONG LF_LAUGH LF_EMOTE */
     uint8_t noise;      /* 0-100: how much of the text is keyboard mash or gibberish */
@@ -197,4 +198,14 @@ char lang_tone_code(int t);                      /* the letter code of docs/conv
 /* which mood's lines answer for (key, mood t, style mask or 0 = any): t itself, or the one reached through the fallbacks; -1 if the key has nothing */
 int  lang_mood_resolve(const char *key, int t, int style);
 
+
+/* chunk 36: ask tags. a line the npc speaks may carry an ask tag (the Line's own, or one by rule: a question that starts with do / did / is / are /
+ * will / can ... is `yn`, one with ` or ` is `choice`, `your name` / `call you` is `name`, one that starts with why is `why`, one that starts
+ * with any / anything is `any`). lang_reply and lang_line remember the tag of the last question they said; lang_ctx keeps it for the next turn
+ * and lang_parse reads a short answer (yes / no / a name / because ... / one of two options) relative to it. no tag = the old behaviour */
+int  lang_ask_tag_valid(const char *tag);                 /* 1 for yn name why any choice more ready agree */
+const char *lang_ask_tag_text(const char *text);          /* the tag a line text gets by rule ("" none); text may hold {slots} */
+const char *lang_reply_ask(void);                         /* the tag of the last question the last lang_reply / lang_line said ("" none) */
+const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */
+void lang_ask_sentence(const char *text, char *out, int cap);   /* the last question sentence of a spoken text ("" if it asks nothing) */
 #endif

@@ -135,4 +135,6 @@
     X(NAME_DEA, "name_dea", "NAME DEA") X(NAME_DIA, "name_dia", "NAME DIA") X(NAME_ALEX, "name_alex", "NAME ALEX") \
     X(NAME_AONIA, "name_aonia", "NAME AONIA") X(NAME_DOIA, "name_doia", "NAME DOIA") X(NAME_TRIA, "name_tria", "NAME TRIA") \
     X(NAME_VAS, "name_vas", "NAME VAS") X(NAME_UNKNOWN_PERSON, "name_unknown_person", "NAME UNKNOWN PERSON") \
-    X(NAME_PLAYER_PET, "name_player_pet", "NAME PLAYER PET") X(NAME_SWEAR_NAME, "name_swear_name", "NAME SWEAR NAME")
+    X(NAME_PLAYER_PET, "name_player_pet", "NAME PLAYER PET") X(NAME_SWEAR_NAME, "name_swear_name", "NAME SWEAR NAME") \
+    /* chunk 36: answers read relative to what the npc just asked (the ask tag of lang_ctx): they are only ever added by an ask tag, no pattern says them */ \
+    X(AGREE_TO_ASK, "agree_to_ask", "AGREE TO ASK") X(DECLINE_TO_ASK, "decline_to_ask", "DECLINE TO ASK") X(BECAUSE, "because", "BECAUSE") X(ANSWER_CHOICE, "answer_choice", "ANSWER CHOICE")

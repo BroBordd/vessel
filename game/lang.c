@@ -14,6 +14,8 @@
 #include "lang_lex.h"
 #include "lang_frame.h"
 #include "lang_capture.h"
+#include "lang_ask.h"
+#include "lang_ctx.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,7 +83,8 @@ static const unsigned char RANK[I_COUNT] = {     /* chunk 12: an intent after I_
     /* whoami */ 14, /* mission */ 15, /* why */ 99, /* how */ 99, /* what */ 99, /* help */ 25, /* insult */ 1, /* praise */ 6, /* love */ 4, /* worship */ 5,
     /* joke */ 24, /* scared */ 26, /* confused */ 29, /* angry */ 28, /* sad */ 27, /* intro */ 10, /* repeat */ 34, /* sky */ 21, /* music */ 22, /* hole */ 16,
     /* secret */ 17, /* life */ 18, /* wait */ 99, /* please */ 99, /* agree */ 33, /* disagree */ 32, /* dontcare */ 31, /* demand */ 30, /* callout */ 2, /* age */ 19,
-    /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99
+    /* real */ 20, /* address */ 99, /* selfharm */ 0, /* alex */ 23, /* pos */ 99, /* neg */ 99,
+    [I_AGREE_TO_ASK] = 5, [I_DECLINE_TO_ASK] = 5, [I_BECAUSE] = 5, [I_ANSWER_CHOICE] = 5      /* chunk 36: the answer to what the npc just asked comes first, and alone (choose_intents) */
 };
 
 #define RANK_DEFAULT 20
@@ -478,6 +481,51 @@ static void capture_pass(Heard *h, const char *lc, int len, const int *src, Case
     }
 }
 
+/* ---------- chunk 36: a short answer is read relative to what the npc just asked ---------- */
+/* nothing real was heard (the catch-alls and a bare feeling do not count): a reason, a name or a pick is not hiding another meaning */
+static int ask_nothing_else(const Heard *h) {
+    for (int i = 0; i < h->n; i++) {
+        int in = h->order[i];
+        if (in == I_POS || in == I_NEG || in == I_INTRO || in == I_ALEX || rank_of(in) == 99) continue;
+        if (h->src[i] == SRC_FUZZY) continue;      /* a typo guess (Alice read as life) is noise next to a name or a reason */
+        if (h->conf[i] >= 40) return 0;
+    }
+    return 1;
+}
+static int ask_distress(const Heard *h) { return heard_has(h, I_SAD) || heard_has(h, I_SCARED) || heard_has(h, I_HELP) || heard_has(h, I_CONFUSED); }      /* never answer a crying player with a cold remark about their reason */
+static void ask_pass(Heard *h, const char *const *tx, const int *tl, int nt, const char *lc, int len, const int *src, Case *cs) {
+    const LangCtx *cx = lang_ctx();
+    snprintf(h->ask, sizeof h->ask, "%s", cx->ask);
+    if (!cx->ask[0] || heard_has(h, I_SELFHARM)) return;
+    char lcase[MAX_TEXT];
+    if (!cs->have) { lang_clean_case(cs->text, cs->cs, MAX_TEXT, NULL); cs->have = 1; }
+    for (int i = 0; i < len; i++) { int j = src[i]; lcase[i] = (lc[i] == cs->t1[j]) ? cs->cs[j] : lc[i]; }
+    lcase[len] = 0;
+    AskAnswer a; a.kind = ASK_NONE;
+    for (int k = 0; k < nt && a.kind == ASK_NONE; k++) {
+        if (!tx[k] || tl[k] <= 0) continue;
+        lang_ask_read(cx->ask, cx->ask_text, tx[k], k == 0 ? lcase : NULL, &a);
+    }
+    switch (a.kind) {
+    case ASK_YES: heard_add(h, I_AGREE_TO_ASK, SRC_FRAME, 85); break;      /* the reader only says yes / no when the WHOLE text is made of yes / no words, so what else was heard (go on = continue, do it = demand) is those words' own noise */
+    case ASK_NO:  heard_add(h, I_DECLINE_TO_ASK, SRC_FRAME, 85); break;
+    /* a reason or a pick has other words in it (the moon is a topic, i want to is a demand): the reader already knows the WHOLE text is the answer, so only
+     * someone in distress keeps the floor. insult / love / sorry still outrank it by rank, and it comes alone (choose_intents) */
+    case ASK_BECAUSE: if (!ask_distress(h)) heard_add(h, I_BECAUSE, SRC_FRAME, 80); break;
+    case ASK_CHOICE:  if (!ask_distress(h)) heard_add(h, I_ANSWER_CHOICE, SRC_FRAME, 80); break;
+    case ASK_NAME: {
+        if (h->capture[0] || h->ncap >= HEARD_CAPS) break;
+        char nm[24]; int blocked = 0;
+        snprintf(nm, sizeof nm, "%s", a.name);
+        if (!lang_name_clean(nm, &blocked)) { if (blocked) heard_add(h, I_NAME_SWEAR_NAME, SRC_FRAME, 60); break; }
+        if (!ask_nothing_else(h)) break;
+        Capture *d = &h->cap[h->ncap++]; memset(d, 0, sizeof *d); d->type = CAP_NAME; snprintf(d->text, CAP_TEXT, "%s", nm);
+        snprintf(h->capture, sizeof h->capture, "%s", nm);
+        heard_add(h, I_INTRO, SRC_FRAME, 80);
+        break; }
+    }
+}
+
 /* ---------- chunk 34: which intents get answered, the confidence, the reply plan ---------- */
 /* the intents lang_reply answers: strong ones first (by rank), the catch-alls only when nothing else was said; at most 2 */
 static int choose_intents(const Heard *h, int *pickd) {
@@ -494,6 +542,7 @@ static int choose_intents(const Heard *h, int *pickd) {
             for (int b = a + 1; b < nc; b++) if (rank_of(cand[b]) < rank_of(cand[a])) { int x = cand[a]; cand[a] = cand[b]; cand[b] = x; }
         for (int a = 0; a < nc && np < 2; a++) pickd[np++] = cand[a];
     }
+    if (np == 2 && (pickd[0] == I_AGREE_TO_ASK || pickd[0] == I_DECLINE_TO_ASK || pickd[0] == I_BECAUSE || pickd[0] == I_ANSWER_CHOICE)) np = 1;      /* chunk 36: the whole text IS the answer to the npc's question: nothing is acknowledged next to it */
     if (np == 1 && pickd[0] == I_WHAT && (h->words >= 5 || h->ntopic)) np = 0;      /* chunk 29: a bare what with a topic is a question about the thing (r.topic_q) */
     return np;
 }
@@ -640,6 +689,7 @@ void lang_parse(const char *text, Heard *h) {
         for (int k = 0; QW[k]; k++) if (!strcmp(fw, QW[k])) { q = 1; break; }
     }
     h->is_question = q;
+    { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); }      /* chunk 36 */
     confidence_of(h);      /* chunk 34 */
 }
 
@@ -871,6 +921,15 @@ static const Line *recent[RECENT_MAX];
 static int nrecent;
 
 static void remember(const Line *l) { recent[nrecent++ % RECENT_MAX] = l; }
+/* chunk 36: the ask tag and the question of the last thing the npc said (lang_reply and lang_line); lang_ctx keeps it for the next turn */
+static char g_ask[12], g_ask_text[96];
+static const Line *g_body_line;
+const char *lang_reply_ask(void) { return g_ask; }
+const char *lang_reply_ask_text(void) { return g_ask_text; }
+static void ask_note(const char *tag, const char *spoken) {
+    snprintf(g_ask, sizeof g_ask, "%s", tag ? tag : "");
+    if (g_ask[0] && spoken) lang_ask_sentence(spoken, g_ask_text, (int)sizeof g_ask_text); else g_ask_text[0] = 0;
+}
 
 /* was l one of the last `window` lines used from this key? */
 static int was_recent(const Line *l, const char *key, int window) {
@@ -1053,11 +1112,12 @@ static void fmt(const Persona *ps, const char *tpl, char *out, int cap, int dept
 int lang_line_tone(const Persona *ps, const char *key, Tone t, char *out, int cap) {
     g_tone = (int)t;
     const Line *l = pick(ps, key, (int)t);
-    if (!l) { out[0] = 0; return 0; }
+    if (!l) { out[0] = 0; ask_note("", NULL); return 0; }
     int pass = g_pass;
     remember(l);
     fmt(ps, l->text, out, cap, 0);
     voice_line(ps, key, l, pass, (int)t, out, cap);
+    ask_note(lang_line_ask(l), out);      /* chunk 36 */
     return 1;
 }
 int lang_line(const Persona *ps, const char *key, char *out, int cap) { return lang_line_tone(ps, key, lang_mood_now(ps), out, cap); }
@@ -1085,7 +1145,7 @@ static int say_picks(const Persona *ps, const int *pickd, int np, Tone tone, cha
         const Line *l = pick(ps, key, (int)tt);
         if (!l) continue;
         int pass = g_pass;
-        remember(l);
+        remember(l); g_body_line = l;
         fmt(ps, l->text, one, (int)sizeof one, 0);
         voice_line(ps, key, l, pass, (int)tt, one, (int)sizeof one);
         if (a == 1 && (int)strlen(body) + (int)strlen(one) > 150) break;   /* keep it readable on a phone */
@@ -1124,7 +1184,7 @@ void lang_set_heard_slots(const Heard *h) {
 static char g_reply_key[40];
 const char *lang_reply_key(void) { return g_reply_key; }
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0;
+    out[0] = 0; g_reply_key[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1132,7 +1192,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     int choice_safe = h->qtype == QT_CHOICE && lang_safe_echo(h->opt1) && lang_safe_echo(h->opt2);
     if (choice_safe) { g_opt1 = h->opt1; g_opt2 = h->opt2; }
     /* a real person might be behind these words: step out of character, whoever is talking */
-    if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); snprintf(g_reply_key, sizeof g_reply_key, "r.selfharm"); return 1; }
+    if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); snprintf(g_reply_key, sizeof g_reply_key, "r.selfharm"); ask_note("", NULL); return 1; }      /* a person may be behind the words: nothing is asked back */
 
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
@@ -1161,7 +1221,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         if (!strcmp(key, "r.choice_q")) g_pick = lang_choice_pick(tone_rude(tone), rn(100));      /* {pick} / {opt1} / {opt2} say "the first" and "the second" when the options are not safe to echo */      /* chunk 32 */
         g_tone = (int)tone;
         const Line *l = pick(ps, key, (int)tone);
-        if (l) { int pass = g_pass; remember(l); fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
+        if (l) { int pass = g_pass; remember(l); g_body_line = l; fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
         hedge = 0;      /* a reading the npc could not answer is not hedged */
     }
 
@@ -1179,7 +1239,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
 
     /* a little colour around the edges: an opener and/or a closer */
     int len = (int)strlen(body);
-    char pre[80] = "", post[100] = "", full[800];
+    char pre[80] = "", post[100] = "", full[800]; const Line *post_l = NULL;
     g_tone = (int)tone;
     if (!hed[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
@@ -1187,7 +1247,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     }
     if (len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
         const Line *l = pick(ps, "p.post", (int)tone);
-        if (l) { remember(l); fmt(ps, l->text, post, (int)sizeof post, 1); }
+        if (l) { remember(l); post_l = l; fmt(ps, l->text, post, (int)sizeof post, 1); }
     }
     full[0] = 0;
     if (hed[0]) cat(full, (int)sizeof full, hed);
@@ -1195,5 +1255,6 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     cat(full, (int)sizeof full, body);
     if (post[0]) cat(full, (int)sizeof full, post);
     snprintf(out, (size_t)cap, "%s", full);
+    { const char *tg = post_l ? lang_line_ask(post_l) : ""; if (!tg[0] && g_body_line) tg = lang_line_ask(g_body_line); ask_note(tg, full); }      /* chunk 36: what the npc just asked (the closer's tag, else the answer's) */
     return answered;
 }

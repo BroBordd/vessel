@@ -13,6 +13,7 @@
  *   --moods            (chunk 7) the fallback chain of each of the 20 moods and, per key, which mood's lines answer for each mood (= own lines, a letter = reached through the chain, . = nothing). fails if a chain has no old mood in it or a key with lines is silent for a mood
  *   --voices           (chunk 10) the ten voices: the picker's fallback (own voice, then PLAIN, then any), several voices at once, and no reply key silent for a voice. fails on a problem
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
+ *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
@@ -3353,6 +3354,184 @@ static int do_ctx(void) {
     return cxfail;
 }
 
+/* ---------- chunk 36: ask tags ---------- */
+#include "lang_ask.h"
+static int akfail, akchecks;
+#define AKCHECK(c, ...) do { akchecks++; if (!(c)) { printf("BAD ASK: " __VA_ARGS__); printf("\n"); akfail++; } } while (0)
+static int ak_has(const Heard *h, const char *name) { int k = lang_intent_by_name(name); return k >= 0 && heard_has(h, k); }
+static int ak_any(const Heard *h) { return ak_has(h, "agree_to_ask") || ak_has(h, "decline_to_ask") || ak_has(h, "because") || ak_has(h, "answer_choice"); }
+static const Line T36_A[] = { { "r.got_it", WARM | NEUT | COLD | HOST, ALLS, "Shall I go on, {pet}?", NULL } };
+static const Line T36_B[] = { { "r.got_it", WARM | NEUT | COLD | HOST, ALLS, "I could tell you more.", "more" } };
+static const Line T36_C[] = { { "r.got_it", WARM | NEUT | COLD | HOST, ALLS, "That is all.", NULL } };
+static const Line T36_D[] = { { "r.got_it", WARM | NEUT | COLD | HOST, ALLS, "Is this fine?", "bogus" } };
+static int do_ask(int argc, char **argv) {
+    akfail = akchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset();
+    Persona dea = { "Dea", STYLE_DIVINE, 0, 30, 65, 8 };
+    /* 1. the tag a question gets by rule */
+    static const char *const TAGR[][2] = {
+        { "Do you want to hear more?", "yn" }, { "Is it true?", "yn" }, { "Are you sure?", "yn" }, { "Will you stay?", "yn" }, { "Can you hear me?", "yn" }, { "Would you like that, {pet}?", "yn" },
+        { "Have you seen it?", "yn" }, { "Shall we go on?", "yn" }, { "Did you hear that?", "yn" }, { "Does it hurt?", "yn" }, { "Before you go, do you have any questions?", "yn" }, { "Hm. Do you mean it?", "yn" },
+        { "Do you hate me? I would.", "yn" }, { "Hm. Shall I go on?", "yn" }, { "Is it you or not?", "yn" }, { "Do you want it or what?", "yn" }, { "I will wait. Do you know why, {pet}?", "yn" },
+        { "What is your name?", "name" }, { "Who are you?", "name" }, { "What do they call you?", "name" }, { "Tell me, {pet}. What is your name?", "name" },
+        { "Why are you here?", "why" }, { "Why?", "why" }, { "How come you came?", "why" },
+        { "Do you prefer the sun or the moon?", "choice" }, { "Red or blue?", "choice" }, { "Which do you fear, the dark or the light?", "choice" },
+        { "Any questions?", "any" }, { "Anything you want to ask me first, {pet}?", "any" },
+        { "Where are you from?", "" }, { "What is the hole?", "" }, { "How are you?", "" }, { "Tell me.", "" }, { "I will wait.", "" }, { "", "" }, { "Do it now.", "" }, { "Is that so", "" }, { "Fine. Go.", "" },
+    };
+    for (unsigned i = 0; i < sizeof TAGR / sizeof TAGR[0]; i++) AKCHECK(!strcmp(lang_ask_tag_text(TAGR[i][0]), TAGR[i][1]), "tag of [%s] is [%s], want [%s]", TAGR[i][0], lang_ask_tag_text(TAGR[i][0]), TAGR[i][1]);
+    { char q[100];
+      lang_ask_sentence("Hm. Do you mean it? I wonder.", q, (int)sizeof q); AKCHECK(!strcmp(q, "Do you mean it?"), "sentence [%s]", q);
+      lang_ask_sentence("Yes! Really?", q, (int)sizeof q); AKCHECK(!strcmp(q, "Really?"), "sentence 2 [%s]", q);
+      lang_ask_sentence("No question here.", q, (int)sizeof q); AKCHECK(!q[0], "no question");
+      lang_ask_sentence("Do you know the way to the very end of the long road that goes on forever and never stops?", q, 20); AKCHECK(strlen(q) == 19, "cut at the cap %d", (int)strlen(q));
+      lang_ask_sentence(NULL, q, (int)sizeof q); AKCHECK(!q[0], "null"); }
+    for (const char *const *t = (const char *const[]){ "yn", "name", "why", "any", "choice", "more", "ready", "agree", NULL }; *t; t++) AKCHECK(lang_ask_tag_valid(*t), "tag %s is valid", *t);
+    AKCHECK(!lang_ask_tag_valid("") && !lang_ask_tag_valid(NULL) && !lang_ask_tag_valid("bogus") && !lang_ask_tag_valid("YN"), "bad tags are not valid");
+    /* 2. the Line's own tag wins, a bad one is ignored, the table lines get their tags by rule (a report, not a failure) */
+    AKCHECK(!strcmp(lang_line_ask(&T36_A[0]), "yn") && !strcmp(lang_line_ask(&T36_B[0]), "more") && !strcmp(lang_line_ask(&T36_C[0]), "") && !strcmp(lang_line_ask(&T36_D[0]), "yn") && !strcmp(lang_line_ask(NULL), ""), "line tags: %s %s [%s] %s", lang_line_ask(&T36_A[0]), lang_line_ask(&T36_B[0]), lang_line_ask(&T36_C[0]), lang_line_ask(&T36_D[0]));
+    { const Line *T[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E }; const int N[5] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N };
+      int cnt[9] = { 0 }, own = 0, badown = 0; static const char *const NM[] = { "", "yn", "name", "why", "any", "choice", "more", "ready", "agree" };
+      for (int a = 0; a < 5; a++) for (int i = 0; i < N[a]; i++) {
+          const Line *l = &T[a][i];
+          if (l->ask) { own++; if (!lang_ask_tag_valid(l->ask)) { badown++; printf("BAD ASK: %s has the invalid tag [%s]\n", l->key, l->ask); } }
+          const char *tg = lang_line_ask(l); for (int k = 0; k < 9; k++) if (!strcmp(tg, NM[k])) cnt[k]++;
+      }
+      AKCHECK(!badown, "%d lines carry an invalid ask tag", badown);
+      printf("ask: lines by tag (own %d): none %d  yn %d  name %d  why %d  any %d  choice %d  more %d  ready %d  agree %d\n", own, cnt[0], cnt[1], cnt[2], cnt[3], cnt[4], cnt[5], cnt[6], cnt[7], cnt[8]);
+      AKCHECK(cnt[1] + cnt[4] > 5, "ask.questions and the like are tagged by rule"); }
+    /* 3. reading an answer relative to the tag */
+    struct { const char *tag, *q, *text, *want; } A[] = {
+        /* yn / any / ready: yes and no */
+        {"yn","Do you want to hear more?","yes","agree_to_ask"}, {"yn","","yeah","agree_to_ask"}, {"yn","","yep","agree_to_ask"}, {"yn","","yup","agree_to_ask"}, {"yn","","ya","agree_to_ask"}, {"yn","","sure","agree_to_ask"},
+        {"yn","","ok","agree_to_ask"}, {"yn","","okay","agree_to_ask"}, {"yn","","k","agree_to_ask"}, {"yn","","fine","agree_to_ask"}, {"yn","","alright","agree_to_ask"}, {"yn","","all right","agree_to_ask"},
+        {"yn","","definitely","agree_to_ask"}, {"yn","","absolutely","agree_to_ask"}, {"yn","","of course","agree_to_ask"}, {"yn","","i do","agree_to_ask"}, {"yn","","i am","agree_to_ask"}, {"yn","","i will","agree_to_ask"},
+        {"yn","","i can","agree_to_ask"}, {"yn","","i would","agree_to_ask"}, {"yn","","i guess so","agree_to_ask"}, {"yn","","i think so","agree_to_ask"}, {"yn","","why not","agree_to_ask"}, {"yn","","go on","agree_to_ask"},
+        {"yn","","go ahead","agree_to_ask"}, {"yn","","do it","agree_to_ask"}, {"yn","","yes please","agree_to_ask"}, {"yn","","yeah sure","agree_to_ask"}, {"yn","","YES","agree_to_ask"}, {"yn","","Yes!","agree_to_ask"},
+        {"yn","","well yes","agree_to_ask"}, {"yn","","um yeah","agree_to_ask"}, {"yn","","yes i do","agree_to_ask"}, {"yn","","yes sir","agree_to_ask"}, {"yn","","yea","agree_to_ask"}, {"yn","","aye","agree_to_ask"},
+        {"more","Shall I go on?","yes","agree_to_ask"}, {"more","","yes please","agree_to_ask"}, {"ready","Are you ready?","im ready","agree_to_ask"}, {"ready","","ready","agree_to_ask"}, {"ready","","lets go","agree_to_ask"},
+        {"agree","Do you agree?","i agree","-"}, {"any","Any questions?","yes","agree_to_ask"}, {"any","","no questions","decline_to_ask"}, {"any","","i have none","decline_to_ask"},
+        {"yn","","no","decline_to_ask"}, {"yn","","nope","decline_to_ask"}, {"yn","","nah","decline_to_ask"}, {"yn","","naw","decline_to_ask"}, {"yn","","never","decline_to_ask"}, {"yn","","not really","decline_to_ask"},
+        {"yn","","not now","decline_to_ask"}, {"yn","","not yet","decline_to_ask"}, {"yn","","not at all","decline_to_ask"}, {"yn","","no thanks","decline_to_ask"}, {"yn","","no thank you","decline_to_ask"},
+        {"yn","","i dont","decline_to_ask"}, {"yn","","i do not","decline_to_ask"}, {"yn","","i am not","decline_to_ask"}, {"yn","","im not","decline_to_ask"}, {"yn","","i wont","decline_to_ask"}, {"yn","","i cant","decline_to_ask"},
+        {"yn","","nothing","decline_to_ask"}, {"yn","","none","decline_to_ask"}, {"yn","","NO","decline_to_ask"}, {"yn","","No.","decline_to_ask"}, {"yn","","um no","decline_to_ask"}, {"yn","","oh no","decline_to_ask"},
+        {"ready","","not yet","decline_to_ask"}, {"ready","","no","decline_to_ask"},
+        /* not answers: more words, a question back, another meaning */
+        {"yn","","yes who are you","-"}, {"yn","","yes but why","-"}, {"yn","","no what is the hole","-"}, {"yn","","yeah tell me a joke","-"}, {"yn","","who are you","-"}, {"yn","","where am i","-"}, {"yn","","yes?","-"},
+        {"yn","","hello","-"}, {"yn","","i hate you","-"}, {"yn","","not sure","-"}, {"yn","","maybe","-"}, {"yn","","i dont know","-"}, {"yn","","yes you are an idiot","-"}, {"yn","","no you are stupid","-"},
+        {"yn","","what do you mean","-"}, {"yn","","idk","-"}, {"yn","","yes and no","-"}, {"yn","","a b c d e f g h i j k l","-"}, {"yn","","","-"}, {"yn","","...","-"}, {"yn","","sure?","-"}, {"yn","","thanks","-"}, {"yn","","bye","-"},
+        {"why","Why are you here?","yes","-"}, {"why","","no","-"}, {"name","What is your name?","yes","-"}, {"choice","Red or blue?","yes","-"}, {"name","","no","-"},
+        /* name */
+        {"name","What is your name?","Bob","intro"}, {"name","","Alice","intro"}, {"name","","Zoe","intro"}, {"name","","Mary","intro"}, {"name","","Max","intro"}, {"name","","Sam","intro"}, {"name","","its Bob","intro"},
+        {"name","","Its Alice","intro"}, {"name","","Kai","intro"}, {"name","","Dmitri","intro"}, {"name","","Anna","intro"}, {"name","","maria","intro"}, {"name","","john","intro"}, {"name","","OMAR","intro"}, {"name","","Bob!","intro"},
+        {"name","","Hitler","name_swear_name"},
+        {"name","","hello","-"}, {"name","","Hello","-"}, {"name","","fine","-"}, {"name","","Fine","-"}, {"name","","Why","-"}, {"name","","nothing","-"}, {"name","","Nothing","-"}, {"name","","thanks","-"}, {"name","","Thanks","-"},
+        {"name","","sorry","-"}, {"name","","Sorry","-"}, {"name","","bye","-"}, {"name","","zxqv","-"}, {"name","","who are you","-"}, {"name","","Bob Marley Junior Third","-"}, {"name","","B","-"}, {"name","","Bob2","-"}, {"name","","Bob?","-"},
+        /* because */
+        {"why","Why are you here?","because","because"}, {"why","","because i said so","because"}, {"why","","because i want to","because"}, {"why","","cause i can","because"}, {"why","","cuz i want to","because"}, {"why","","coz","because"},
+        {"why","","bc i said so","because"}, {"why","","because i am curious","because"}, {"why","","just because","because"}, {"why","","no reason","because"}, {"why","","for no reason","because"}, {"why","","since i got lost","-"}, {"why","","becos i can","because"},
+        {"why","","because i am scared","-"}, {"why","","because i am sad","-"}, {"why","","because i need help","-"},
+        {"why","","who are you","-"}, {"why","","i dont know","-"}, {"why","","idk","-"}, {"why","","tell me a joke","-"}, {"why","","what","-"}, {"why","","hello","-"},
+        /* choice */
+        {"choice","Do you prefer the sun or the moon?","the sun","answer_choice"}, {"choice","","sun","answer_choice"}, {"choice","","the moon","answer_choice"}, {"choice","","moon","answer_choice"}, {"choice","","i pick the moon","answer_choice"},
+        {"choice","","i choose the sun","answer_choice"}, {"choice","","the first","answer_choice"}, {"choice","","the second","answer_choice"}, {"choice","","first","answer_choice"}, {"choice","","second","answer_choice"}, {"choice","","both","answer_choice"},
+        {"choice","","neither","answer_choice"}, {"choice","","i prefer the sun","answer_choice"}, {"choice","","i would say the moon","answer_choice"}, {"choice","","either","answer_choice"}, {"choice","","the first one please","answer_choice"},
+        {"choice","","moon please","answer_choice"}, {"choice","","id say sun","answer_choice"}, {"choice","Red or blue?","red","answer_choice"}, {"choice","","blue","answer_choice"},
+        {"choice","Do you prefer the sun or the moon?","the stars","-"}, {"choice","","a cat","-"}, {"choice","","who are you","-"}, {"choice","","hello","-"}, {"choice","","maybe","-"}, {"choice","","idk","-"}, {"choice","","the sea","-"},
+        {"choice","What is the hole?","the first","-"}, {"choice","","sun","-"}, {"choice","","","-"},
+        /* nothing in force */
+        {"","","yes","-"}, {"","","no","-"}, {"","","Bob","-"}, {"","","because","-"}, {"","","the moon","-"}, {"bogus","","yes","-"},
+    };
+    const char *carry = "";      /* an empty question in a row means: the same npc line as the row above */
+    for (unsigned i = 0; i < sizeof A / sizeof A[0]; i++) {
+        if (A[i].q[0]) carry = A[i].q;
+        lang_ctx_reset(); lang_ctx_set_ask(A[i].tag, carry);
+        Heard h; lang_parse(A[i].text, &h);
+        if (!strcmp(A[i].want, "-")) AKCHECK(!ak_any(&h) && (!ak_has(&h, "intro") || !strcmp(A[i].tag, "") || strcmp(A[i].tag, "name")), "[%s] under [%s]: no ask intent wanted, heard%s%s%s%s", A[i].text, A[i].tag, ak_has(&h, "agree_to_ask") ? " agree" : "", ak_has(&h, "decline_to_ask") ? " decline" : "", ak_has(&h, "because") ? " because" : "", ak_has(&h, "answer_choice") ? " choice" : "");
+        else AKCHECK(ak_has(&h, A[i].want), "[%s] under [%s]: wanted %s", A[i].text, A[i].tag, A[i].want);
+    }
+    /* a name under the tag fills the capture, and the old texts do not */
+    { lang_ctx_reset(); lang_ctx_set_ask("name", "What is your name?"); Heard h; lang_parse("Bob", &h); const Capture *c = lang_heard_capture(&h, CAP_NAME, 0);
+      AKCHECK(c && !strcmp(c->text, "Bob") && !strcmp(h.capture, "Bob") && !strcmp(h.ask, "name"), "name capture [%s] ask [%s]", c ? c->text : "-", h.ask);
+      lang_parse("alex", &h); AKCHECK(ak_has(&h, "intro") && !strcmp(h.capture, "Alex"), "a lower case cast name is a name here [%s]", h.capture);
+      lang_ctx_reset(); lang_parse("Bob", &h); AKCHECK(!h.ncap && !h.capture[0] && !h.ask[0], "no tag, no capture"); }
+    /* 4. additive: with a tag in force every intent heard without it is still heard; with no tag the four intents are never heard (all reply lines and the corpus files) */
+    { const char *tags[] = { "yn", "name", "why", "choice" }; int texts = 0, lost = 0, gained = 0, leaked = 0;
+      const Line *T[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E }; const int N[5] = { LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N };
+      for (int a = 0; a < 5; a++) for (int i = 0; i < N[a]; i += 3) {
+          char tx[200]; snprintf(tx, sizeof tx, "%s", T[a][i].text); for (char *p = tx; *p; p++) if (*p == '{' || *p == '}') *p = ' ';
+          lang_ctx_reset(); Heard h0; lang_parse(tx, &h0); if (ak_any(&h0)) leaked++;
+          for (int k = 0; k < 4; k++) {
+              lang_ctx_set_ask(tags[k], "Do you prefer the sun or the moon?"); Heard h1; lang_parse(tx, &h1);
+              for (int q = 0; q < h0.n; q++) if (!heard_has(&h1, h0.order[q])) lost++;
+              if (ak_any(&h1)) gained++;
+          }
+          texts++;
+      }
+      lang_ctx_reset();
+      AKCHECK(!lost && !leaked, "additive rule over %d texts: %d intents lost, %d heard with no tag", texts, lost, leaked);
+      printf("ask: %d reply lines read with 4 tags in force: 0 intents lost, %d got an ask intent (their own words are bare answers), %d heard one with no tag\n", texts, gained, leaked); }
+    /* 5. self-harm is never an answer */
+    { const char *sh[] = { "i want to die", "yes i want to die", "no i want to kill myself", "because i want to die" }; const char *tg[] = { "yn", "name", "why", "choice", "any" };
+      for (unsigned i = 0; i < sizeof sh / sizeof sh[0]; i++) for (unsigned k = 0; k < sizeof tg / sizeof tg[0]; k++) {
+          lang_ctx_reset(); lang_ctx_set_ask(tg[k], "Do you prefer the sun or the moon?"); Heard h; lang_parse(sh[i], &h);
+          AKCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM && !ak_any(&h), "[%s] under [%s]: self-harm %d first %d ask %d", sh[i], tg[k], heard_has(&h, I_SELFHARM), h.order[0] == I_SELFHARM, ak_any(&h));
+          char out[800]; lang_reply(&dea, &h, out, (int)sizeof out); lang_ctx_note(&h, sh[i], lang_reply_key(), dea.mood);
+          AKCHECK(!strcmp(lang_reply_key(), "r.selfharm") && !lang_ctx()->ask[0], "after self-harm the key is %s and the ask [%s]", lang_reply_key(), lang_ctx()->ask);
+      } }
+    /* 6. the tag of what lang_reply / lang_line said travels through lang_ctx_note to the next turn */
+    { static const Line *const TT[] = { T36_A, T36_B, T36_C, T36_D }; static const char *const WANT[] = { "yn", "more", "", "yn" };
+      for (int k = 0; k < 4; k++) {
+          lang_tables_reset(); lang_register_lines(TT[k], 1); lang_init();
+          lang_ctx_reset(); Heard h; memset(&h, 0, sizeof h); heard_set(&h, I_GOT_IT); h.order[0] = I_GOT_IT; h.n = 1; h.conf[0] = 90; h.src[0] = SRC_PHRASE; h.words = 2;
+          char out[800]; lang_seed(11 + k); int n = lang_reply(&dea, &h, out, (int)sizeof out); lang_ctx_note(&h, "got it", lang_reply_key(), dea.mood);
+          AKCHECK(n > 0 && !strcmp(lang_reply_key(), "r.got_it") && !strcmp(lang_reply_ask(), WANT[k]) && !strcmp(lang_ctx()->ask, WANT[k]), "case %c: said [%s] key %s tag [%s] ctx [%s] want [%s]", 'A' + k, out, lang_reply_key(), lang_reply_ask(), lang_ctx()->ask, WANT[k]);
+          if (k == 0) AKCHECK(!strcmp(lang_ctx()->ask_text, "Shall I go on, Vas?") || strstr(lang_ctx()->ask_text, "Shall I go on"), "the question kept [%s]", lang_ctx()->ask_text);
+          if (k == 0) { Heard h2; lang_parse("yes", &h2); AKCHECK(ak_has(&h2, "agree_to_ask"), "yes after the question"); lang_parse("no", &h2); AKCHECK(ak_has(&h2, "decline_to_ask"), "no after the question"); }
+      }
+      lang_tables_reset(); lang_init(); lang_ctx_reset();
+      /* lang_line (the scripted lines of convo.c) records the tag too; reset clears it; a scripted question is set from its text */
+      char buf[300]; lang_seed(5); lang_line(&dea, "ask.questions", buf, (int)sizeof buf);
+      AKCHECK(lang_ask_tag_valid(lang_reply_ask()), "ask.questions [%s] has the tag [%s]", buf, lang_reply_ask());
+      lang_ctx_set_ask(lang_reply_ask(), lang_reply_ask_text()); { Heard h; lang_parse("no", &h); AKCHECK(ak_has(&h, "decline_to_ask"), "no after ask.questions"); lang_parse("yes please", &h); AKCHECK(ak_has(&h, "agree_to_ask"), "yes please after ask.questions"); }
+      lang_ctx_set_ask_line("Do you carry a light, traveller?"); AKCHECK(!strcmp(lang_ctx()->ask, "yn") && !strcmp(lang_ctx()->ask_text, "Do you carry a light, traveller?"), "a scripted line sets the tag [%s] [%s]", lang_ctx()->ask, lang_ctx()->ask_text);
+      lang_ctx_set_ask_line("The door is closed."); AKCHECK(!lang_ctx()->ask[0] && !lang_ctx()->ask_text[0], "a statement clears it");
+      lang_ctx_set_ask("yn", "Do you?"); lang_ctx_reset(); AKCHECK(!lang_ctx()->ask[0], "reset clears the tag"); lang_ctx_set_ask("bogus", "x"); AKCHECK(!lang_ctx()->ask[0], "a bad tag is not kept"); }
+    /* 7. the four answers have lines (3 per old mood, no echo, in every voice and mood), and a whole turn works */
+    { static const char *const K[] = { "r.agree_to_ask", "r.decline_to_ask", "r.because", "r.answer_choice" }; static const int IN[] = { I_AGREE_TO_ASK, I_DECLINE_TO_ASK, I_BECAUSE, I_ANSWER_CHOICE };
+      const Line *const *rows;
+      for (int k = 0; k < 4; k++) {
+          int n = lang_key_rows(K[k], &rows), per[4] = { 0 }, slot = 0;
+          for (int r = 0; r < n; r++) { for (int t = 0; t < 4; t++) if (rows[r]->tones & (1u << t)) per[t]++; if (strchr(rows[r]->text, '{') && strncmp(strchr(rows[r]->text, '{'), "{pet}", 5)) slot++; if (strlen(rows[r]->text) > 110) slot++; }
+          AKCHECK(n == 12 && per[0] == 3 && per[1] == 3 && per[2] == 3 && per[3] == 3 && !slot, "%s: %d lines, per mood %d %d %d %d, %d with an echo slot or too long", K[k], n, per[0], per[1], per[2], per[3], slot);
+      }
+      int bad = 0, total = 0;
+      for (int k = 0; k < 4; k++) for (int st = 0; st < STYLE_COUNT; st++) for (int m = 0; m < TONE_COUNT; m++) for (int seed = 1; seed <= 3; seed++) {
+          Persona ps = { "Npc", 1 << st, 0, 30, 50, 8 }; ps.mood = (m < 4 ? -60 + 40 * m : 0); (void)m;
+          Heard h; memset(&h, 0, sizeof h); heard_set(&h, IN[k]); h.order[0] = IN[k]; h.n = 1; h.conf[0] = 85; h.src[0] = SRC_FRAME; h.words = 1;
+          char out[800]; lang_seed(seed * 7 + st); int n = lang_reply(&ps, &h, out, (int)sizeof out); total++;
+          if (n < 1 || !out[0] || strchr(out, '{') || strchr(out, '}') || strlen(out) > 220 || strcmp(lang_reply_key(), K[k])) { bad++; if (bad < 4) printf("BAD ASK: %s voice %d: [%s] key %s\n", K[k], st, out, lang_reply_key()); }
+      }
+      AKCHECK(!bad, "%d of %d replies to the four answers were empty, open or off-key", bad, total);
+      /* a whole turn: question -> answer -> reply key */
+      const char *flow[][3] = { { "yn", "yes", "r.agree_to_ask" }, { "yn", "no", "r.decline_to_ask" }, { "why", "because i said so", "r.because" }, { "choice", "the moon", "r.answer_choice" }, { "name", "Bob", "r.intro" } };
+      for (int i = 0; i < 5; i++) {
+          lang_ctx_reset(); lang_ctx_set_ask(flow[i][0], !strcmp(flow[i][0], "choice") ? "Do you prefer the sun or the moon?" : "x?");
+          Heard h; lang_parse(flow[i][1], &h); char out[800]; lang_seed(9); lang_reply(&dea, &h, out, (int)sizeof out);
+          AKCHECK(out[0] && !strcmp(lang_reply_key(), flow[i][2]), "[%s] under [%s] answered with %s [%s]", flow[i][1], flow[i][0], lang_reply_key(), out);
+      } }
+    /* 8. the old behaviour: a heard yes with no tag still answers r.yes-like keys, and the speed budget holds */
+    { lang_ctx_reset(); Heard h; lang_parse("yes", &h); char out[800]; lang_seed(2); lang_reply(&dea, &h, out, (int)sizeof out);
+      AKCHECK(!ak_any(&h) && strcmp(lang_reply_key(), "r.agree_to_ask") && out[0], "no tag: yes is answered the old way [%s] %s", out, lang_reply_key());
+      lang_ctx_set_ask("yn", "Do you want more?"); const char *tx = "well um yeah sure i guess so that works for me and everything else is fine as it is";
+      clock_t t0 = clock(); for (int i = 0; i < 2000; i++) { Heard hh; lang_parse(tx, &hh); } double ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / 2000;
+      AKCHECK(ms < 1.0, "parse with a tag in force took %.3f ms", ms); printf("ask: parse of %d characters with a tag in force %.3f ms\n", (int)strlen(tx), ms);
+      lang_ctx_reset(); }
+    (void)argc; (void)argv;
+    printf("ask: %d checks, %d problems\n", akchecks, akfail);
+    return akfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3387,11 +3566,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--question")) { rc |= do_question(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--capture")) { rc |= do_capture(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--ctx"))      { rc |= do_ctx() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--ask"))      { rc |= do_ask(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

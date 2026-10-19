@@ -1,0 +1,178 @@
+@ask	yn	Do you want to hear more?
+yes	agree_to_ask
+yeah	agree_to_ask
+yep	agree_to_ask
+yup	agree_to_ask
+ya	agree_to_ask
+sure	agree_to_ask
+ok	agree_to_ask
+okay	agree_to_ask
+k	agree_to_ask
+fine	agree_to_ask
+alright	agree_to_ask
+all right	agree_to_ask
+definitely	agree_to_ask
+absolutely	agree_to_ask
+of course	agree_to_ask
+i do	agree_to_ask
+i am	agree_to_ask
+i will	agree_to_ask
+i can	agree_to_ask
+i would	agree_to_ask
+i have	agree_to_ask
+i guess so	agree_to_ask
+i think so	agree_to_ask
+why not	agree_to_ask
+go on	agree_to_ask
+go ahead	agree_to_ask
+do it	agree_to_ask
+lets go	agree_to_ask
+im ready	agree_to_ask
+yes please	agree_to_ask
+yeah sure	agree_to_ask
+sure thing	agree_to_ask
+yes i do	agree_to_ask
+yes i am	agree_to_ask
+yes i will	agree_to_ask
+YES	agree_to_ask
+Yes!	agree_to_ask
+yeah!	agree_to_ask
+ok sure	agree_to_ask
+oh yes	agree_to_ask
+well yes	agree_to_ask
+um yeah	agree_to_ask
+yes sir	agree_to_ask
+yes of course	agree_to_ask
+yea	agree_to_ask
+ys	agree_to_ask
+aye	agree_to_ask
+indeed	agree_to_ask
+yeah i guess	agree_to_ask
+yep thanks	agree_to_ask
+sure please	agree_to_ask
+ya sure	agree_to_ask
+yeah ok	agree_to_ask
+no	decline_to_ask
+nope	decline_to_ask
+nah	decline_to_ask
+naw	decline_to_ask
+never	decline_to_ask
+not really	decline_to_ask
+not now	decline_to_ask
+not yet	decline_to_ask
+not at all	decline_to_ask
+no way	decline_to_ask
+no thanks	decline_to_ask
+no thank you	decline_to_ask
+i dont	decline_to_ask
+i do not	decline_to_ask
+i am not	decline_to_ask
+im not	decline_to_ask
+i wont	decline_to_ask
+i will not	decline_to_ask
+i cant	decline_to_ask
+nothing	decline_to_ask
+none	decline_to_ask
+no questions	decline_to_ask
+no more	decline_to_ask
+i have no questions	decline_to_ask
+NO	decline_to_ask
+No.	decline_to_ask
+nah thanks	decline_to_ask
+no please	decline_to_ask
+um no	decline_to_ask
+well no	decline_to_ask
+oh no	decline_to_ask
+nope thanks	decline_to_ask
+not today	decline_to_ask
+@ask
+@ask	any	Any questions before we go on?
+yes	agree_to_ask
+yeah	agree_to_ask
+yes i do	agree_to_ask
+sure	agree_to_ask
+i do	agree_to_ask
+no	decline_to_ask
+nope	decline_to_ask
+no questions	decline_to_ask
+i have none	decline_to_ask
+nothing	decline_to_ask
+@ask
+@ask	ready	Are you ready?
+yes	agree_to_ask
+im ready	agree_to_ask
+i am ready	agree_to_ask
+ready	agree_to_ask
+yeah ready	agree_to_ask
+lets go	agree_to_ask
+ok	agree_to_ask
+no	decline_to_ask
+not yet	decline_to_ask
+not now	decline_to_ask
+nope	decline_to_ask
+@ask
+@ask	yn	Do you want to hear more?
+@ask
+@ask	name	What is your name?
+Bob	intro
+Alice	intro
+Zoe	intro
+Mary	intro
+Max	intro
+Sam	intro
+its Bob	intro
+Its Alice	intro
+Kai	intro
+Dmitri	intro
+Anna	intro
+alex	intro
+maria	intro
+john	intro
+OMAR	intro
+@ask
+@ask	name	What is your name?
+Hitler	name_swear_name
+@ask
+@ask	why	Why are you here?
+because	because
+because i said so	because
+because i want to	because
+cause i can	because
+cuz i want to	because
+coz	because
+because i am curious	because
+just because	because
+no reason	because
+for no reason	because
+becos i can	because
+@ask
+@ask	choice	Do you prefer the sun or the moon?
+the sun	answer_choice
+sun	answer_choice
+the moon	answer_choice
+moon	answer_choice
+i pick the moon	answer_choice
+i choose the sun	answer_choice
+ill take the moon	answer_choice
+the first	answer_choice
+the second	answer_choice
+first	answer_choice
+second	answer_choice
+both	answer_choice
+neither	answer_choice
+i prefer the sun	answer_choice
+i would say the moon	answer_choice
+either	answer_choice
+the first one please	answer_choice
+moon please	answer_choice
+id say sun	answer_choice
+@ask
+# without an ask tag the old behaviour: no ask intent is ever heard
+yes	yes
+no	no
+ok	ok
+@ask	yn	Do you want to hear more?
+# a self-harm answer is never an answer to an ask
+i want to die	selfharm
+yes i want to die	selfharm
+@ask

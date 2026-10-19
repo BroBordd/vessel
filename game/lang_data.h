@@ -46,12 +46,13 @@
 #define ALLS    1023
 
 /* chunk 5: tones is 32 bits (20 moods + room) and styles is 16 bits (10 voices + room). the old rows compile unchanged */
-typedef struct { const char *key; uint32_t tones; uint16_t styles; const char *text; } Line;
+typedef struct { const char *key; uint32_t tones; uint16_t styles; const char *text; const char *ask; } Line;      /* ask (chunk 36): the ask tag of the line (yn name why any choice more ready agree), NULL = none; a line that ends in a question gets one by rule (lang_line_ask) */
 typedef struct { const char *pat; int intent; } Pat;
 
 /* a key may have at most this many rows (the picker has no cap, the lint fails above it) */
 #define LANG_MAX_KEY_ROWS 4000
 
+const char *lang_line_ask(const Line *l);      /* chunk 36: the line's own ask tag, else the tag its text gets by rule ("" none) */
 extern const Line LINES_A[], LINES_B[], LINES_C[], LINES_D[], LINES_E[];
 extern const int  LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N;
 extern const char *const PATROWS_G15[];       /* chunk 31: the fourth wall */

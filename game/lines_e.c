@@ -78,5 +78,26 @@ const Line LINES_E[] = {
     {"p.hedge", NEUT, ALLS, "If you mean what I think you mean,"}, {"p.hedge", NEUT, ALLS, "I am not sure I follow, but,"}, {"p.hedge", NEUT, ALLS, "Taking a guess here."},
     {"p.hedge", COLD, ALLS, "If that is what you meant,"}, {"p.hedge", COLD, ALLS, "That was unclear. Guessing,"}, {"p.hedge", COLD, ALLS, "Say it properly next time. For now,"},
     {"p.hedge", HOST, ALLS, "Mumble again and I will guess."}, {"p.hedge", HOST, ALLS, "If that was a question,"}, {"p.hedge", HOST, ALLS, "You could not even say it clearly. So,"},
+    /* ---- chunk 36: answers read relative to the ask tag (agree_to_ask, decline_to_ask, because, answer_choice). the npc does not know WHAT it asked, so these stay vague on purpose and echo nothing ---- */
+    /* ---- r.agree_to_ask ---- */
+    {"r.agree_to_ask", WARM, ALLS, "Good, {pet}. I hoped you would say so."}, {"r.agree_to_ask", WARM, ALLS, "Then we are agreed. That makes me glad."}, {"r.agree_to_ask", WARM, ALLS, "Yes. Stay close and we will see it through."},
+    {"r.agree_to_ask", NEUT, ALLS, "Good. Then we go on."}, {"r.agree_to_ask", NEUT, ALLS, "So it is settled."}, {"r.agree_to_ask", NEUT, ALLS, "Very well. That is all I needed to hear."},
+    {"r.agree_to_ask", COLD, ALLS, "Fine. Do not make me regret it."}, {"r.agree_to_ask", COLD, ALLS, "Hm. Then it is done."}, {"r.agree_to_ask", COLD, ALLS, "Good. Try to remember you said it."},
+    {"r.agree_to_ask", HOST, ALLS, "Of course you agree. Wise, for once."}, {"r.agree_to_ask", HOST, ALLS, "Good. Say it again and I might believe it."}, {"r.agree_to_ask", HOST, ALLS, "Nod all you like. I will hold you to it."},
+    /* ---- r.decline_to_ask ---- */
+    {"r.decline_to_ask", WARM, ALLS, "That is all right, {pet}. I will not push."}, {"r.decline_to_ask", WARM, ALLS, "No? Then we leave it there, gently."}, {"r.decline_to_ask", WARM, ALLS, "As you wish. The door stays open."},
+    {"r.decline_to_ask", NEUT, ALLS, "Very well. Then not."}, {"r.decline_to_ask", NEUT, ALLS, "So be it. I will not ask again."}, {"r.decline_to_ask", NEUT, ALLS, "Fine. We leave it."},
+    {"r.decline_to_ask", COLD, ALLS, "No. Of course not."}, {"r.decline_to_ask", COLD, ALLS, "Then do not. See if I care."}, {"r.decline_to_ask", COLD, ALLS, "Noted. Nothing more to say on it."},
+    {"r.decline_to_ask", HOST, ALLS, "Refuse me again and see what follows."}, {"r.decline_to_ask", HOST, ALLS, "No? Then keep your mouth shut about it."}, {"r.decline_to_ask", HOST, ALLS, "Say no to me once more. I dare you."},
+    /* ---- r.because ---- */
+    {"r.because", WARM, ALLS, "That is a fair reason, {pet}. I understand."}, {"r.because", WARM, ALLS, "Because. Yes, sometimes that is all there is."}, {"r.because", WARM, ALLS, "I see. Thank you for telling me."},
+    {"r.because", NEUT, ALLS, "A reason. I will take it."}, {"r.because", NEUT, ALLS, "I see. That explains something."}, {"r.because", NEUT, ALLS, "Hm. That will do."},
+    {"r.because", COLD, ALLS, "That is no reason at all."}, {"r.because", COLD, ALLS, "Because. How thin."}, {"r.because", COLD, ALLS, "Keep your reasons. They bore me."},
+    {"r.because", HOST, ALLS, "Because. What a feeble thing to say."}, {"r.because", HOST, ALLS, "That is the best you have? Pathetic."}, {"r.because", HOST, ALLS, "Reasons from you, of all things."},
+    /* ---- r.answer_choice ---- */
+    {"r.answer_choice", WARM, ALLS, "A good choice, {pet}. I would have picked it too."}, {"r.answer_choice", WARM, ALLS, "So that is what you want. I will remember."}, {"r.answer_choice", WARM, ALLS, "Chosen. I like how quickly you decided."},
+    {"r.answer_choice", NEUT, ALLS, "Chosen, then."}, {"r.answer_choice", NEUT, ALLS, "Very well. That is your pick."}, {"r.answer_choice", NEUT, ALLS, "Noted. You have decided."},
+    {"r.answer_choice", COLD, ALLS, "That one. Hm. Fine."}, {"r.answer_choice", COLD, ALLS, "You chose. Do not change your mind."}, {"r.answer_choice", COLD, ALLS, "A choice. How brave of you."},
+    {"r.answer_choice", HOST, ALLS, "That one? Of course. Predictable."}, {"r.answer_choice", HOST, ALLS, "Wrong pick, but it is yours to carry."}, {"r.answer_choice", HOST, ALLS, "You chose. Now live with it."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);
