@@ -4161,6 +4161,89 @@ static int do_initiative(void) {
     return infail;
 }
 
+/* ---------- chunk 42: pacing and length ---------- */
+static int rlfail, rlchecks;
+#define RLCHECK(c, ...) do { rlchecks++; if (!(c)) { printf("BAD REPLY-LEN: " __VA_ARGS__); printf("\n"); rlfail++; } } while (0)
+static int do_replylen(void) {
+    rlfail = rlchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(1); lang_threads_set(1); lang_initiative_set(1);
+    /* the pace table: short = hostile cold bored hollow, long = warm tender curious playful manic, the rest normal; quirks move it one step and it stays in -1..1 */
+    { int sh = 0, lo = 0, no = 0;
+      for (int t = 0; t < TONE_COUNT; t++) {
+          int p0 = lang_pace((Tone)t, 0), pl = lang_pace((Tone)t, Q_LONG), pt = lang_pace((Tone)t, Q_TERSE), pb = lang_pace((Tone)t, Q_LONG | Q_TERSE);
+          if (p0 < 0) sh++; else if (p0 > 0) lo++; else no++;
+          RLCHECK(p0 >= -1 && p0 <= 1 && pl >= -1 && pl <= 1 && pt >= -1 && pt <= 1, "pace out of range for mood %d", t);
+          RLCHECK(pl >= p0 && pt <= p0, "Q_LONG / Q_TERSE moved mood %d the wrong way (%d %d %d)", t, p0, pl, pt);
+          RLCHECK(pb == p0, "Q_LONG and Q_TERSE together should cancel for mood %d (%d vs %d)", t, pb, p0);
+          RLCHECK(lang_pace((Tone)t, Q_ASKS_BACK | Q_RHYMES | Q_LIES) == p0, "an unrelated quirk moved the pace of mood %d", t);
+      }
+      RLCHECK(sh == 4 && lo == 5 && no == 11, "pace table has %d short, %d long, %d normal (want 4, 5, 11)", sh, lo, no);
+      RLCHECK(lang_pace(TONE_COLD, Q_LONG) == 0 && lang_pace(TONE_WARM, Q_TERSE) == 0 && lang_pace(TONE_NEUTRAL, Q_LONG) == 1 && lang_pace(TONE_NEUTRAL, Q_TERSE) == -1, "quirk steps"); }
+    /* 2,000 simulated replies: 20 moods x 100, five voices, forced moods (the mood is held for the turn) and a mix of texts */
+    { const char *pool[] = { "hello", "who are you", "what is the sky", "tell me a joke", "i am sad", "you are stupid", "i love the moon", "where am i", "what is the hole", "can you help me",
+          "how are you", "thank you", "what do you want", "tell me about the orb", "i do not understand", "what is your name", "do you like me", "why", "i am scared", "hello who are you and where am i",
+          "what is the meaning of life and who made this place", "give me something", "sorry", "what is that", "are you a bot", "how old are you", "what should i do", "is it dark here", "i like cats", "tell me a secret" };
+      int np = (int)(sizeof pool / sizeof pool[0]);
+      const int styles[5] = { STYLE_PLAIN, STYLE_DIVINE, STYLE_STREET, STYLE_ELDER, STYLE_BEAST };
+      long hist[12] = { 0 }, over = 0, empty = 0, slots = 0, noend = 0, n_all = 0, cnt[3] = { 0 }, sum[3] = { 0 }, multi[3] = { 0 }, opener[3] = { 0 }, used[3] = { 0 };
+      int maxlen = 0; Heard h; char out[800];
+      for (int t = 0; t < TONE_COUNT; t++) {
+          for (int i = 0; i < 100; i++) {
+              if (i % 10 == 0) { lang_ctx_reset(); lang_seed((unsigned)(4200 + t * 100 + i)); lang_add_charisma(50 - lang_charisma()); }
+              Persona p = { "Ona", styles[(i / 10) % 5], 0, 50, 0, 60 };
+              p.held = (int8_t)t; p.hold = 3;
+              lang_parse(pool[(t * 7 + i * 3) % np], &h);
+              lang_reply(&p, &h, out, (int)sizeof out);
+              lang_ctx_note(&h, pool[(t * 7 + i * 3) % np], lang_reply_key(), p.mood);
+              if (p.held != (int8_t)t || p.hold == 0) continue;      /* a hard flip changed the mood: not counted */
+              int L = (int)strlen(out), pc = lang_pace((Tone)t, 0) + 1; n_all++;
+              if (!L) { empty++; continue; }
+              if (L > LANG_PHONE_CAP && strcmp(lang_reply_key(), "r.selfharm")) { over++; if (over < 4) printf("  over %d: %s\n", L, out); }
+              if (L > maxlen) maxlen = L;
+              hist[L >= 150 ? 8 + (L > 150) : L / 20 < 8 ? L / 20 : 7]++;
+              if (strchr(out, '{') || strchr(out, '}')) slots++;
+              { char last = out[L - 1]; if (!strchr(".!?-'", last)) { noend++; if (noend < 4) printf("  no end: %s\n", out); } }
+              cnt[pc]++; sum[pc] += L; used[pc]++;
+              { int stops = 0; for (const char *c = out; *c; c++) if ((*c == '.' || *c == '!' || *c == '?') && (c[1] == ' ' || !c[1]) && c[-1] != '.') stops++; if (stops > 1) multi[pc]++; }
+              (void)opener;
+          }
+      }
+      printf("reply length (%ld replies, 20 moods, 5 voices): ", n_all);
+      { static const char *const B[] = { "0-19", "20-39", "40-59", "60-79", "80-99", "100-119", "120-139", "140-149", "150", ">150" };
+        printf("\n"); for (int b = 0; b < 10; b++) printf("  %-8s %5ld %s\n", B[b], hist[b], b < 10 ? "" : ""); }
+      for (int pc = 0; pc < 3; pc++) printf("  %-6s moods: %4ld replies, mean %5.1f characters, %4.1f %% with 2+ sentences\n", pc == 0 ? "short" : pc == 1 ? "normal" : "long", cnt[pc], cnt[pc] ? (double)sum[pc] / cnt[pc] : 0, cnt[pc] ? 100.0 * multi[pc] / cnt[pc] : 0);
+      printf("  longest %d characters\n", maxlen);
+      RLCHECK(n_all > 1500, "only %ld of 2,000 replies counted", n_all);
+      RLCHECK(!empty, "%ld empty replies", empty);
+      RLCHECK(!over, "%ld replies over %d characters", over, LANG_PHONE_CAP);
+      RLCHECK(!slots, "%ld replies with an open slot", slots);
+      RLCHECK(cnt[0] > 100 && cnt[1] > 100 && cnt[2] > 100, "a pace class has too few replies");
+      if (cnt[0] > 100 && cnt[1] > 100 && cnt[2] > 100) {
+          double ms = (double)sum[0] / cnt[0], mn = (double)sum[1] / cnt[1], ml = (double)sum[2] / cnt[2];
+          RLCHECK(ms + 5 < mn, "short moods are not shorter than normal ones (%.1f vs %.1f)", ms, mn);
+          RLCHECK(mn + 3 < ml, "long moods are not longer than normal ones (%.1f vs %.1f)", mn, ml);
+          RLCHECK(100.0 * multi[0] / cnt[0] < 100.0 * multi[2] / cnt[2], "short moods use as many sentences as long ones");
+      }
+      printf("  replies that do not end in . ! ? or -: %ld\n", noend);
+      RLCHECK(noend * 100 <= n_all, "%ld replies end without a stop", noend); }
+    /* a long answer is cut only at a sentence end: a hostile npc never says half a sentence, and the cap never leaves a dangling opener */
+    { Persona p = { "Ona", STYLE_PLAIN, 0, 50, 0, 60 }; Heard h; char out[800]; long bad = 0, n = 0;
+      for (int t = 0; t < TONE_COUNT; t++) for (int i = 0; i < 60; i++) {
+          lang_ctx_reset(); lang_seed((unsigned)(777 + t * 60 + i)); p.held = (int8_t)t; p.hold = 3;
+          const char *tx = (i & 1) ? "what is the sky and who are you and what do you want from me" : "i am so sad and lost and i do not know what to do here";
+          lang_parse(tx, &h); lang_reply(&p, &h, out, (int)sizeof out); n++;
+          if (strlen(out) > LANG_PHONE_CAP && strcmp(lang_reply_key(), "r.selfharm")) bad++;
+      }
+      RLCHECK(!bad, "%ld of %ld long-text replies over the cap", bad, n); }
+    /* the self-harm line is exempt from the cap and never trimmed: it still names the number */
+    { Persona p = { "Ona", STYLE_PLAIN, 0, 50, 0, 60, .quirk = Q_TERSE }; Heard h; char out[800]; int ok = 1;
+      for (int t = 0; t < TONE_COUNT; t++) { lang_ctx_reset(); p.held = (int8_t)t; p.hold = 3; lang_parse("i want to die", &h); lang_reply(&p, &h, out, (int)sizeof out); if (!strstr(out, "988")) ok = 0; }
+      RLCHECK(ok, "a self-harm reply lost its number under a short mood"); }
+    lang_ctx_reset(); lang_callbacks_set(1); lang_initiative_set(1);
+    printf("reply-len: %d checks, %d problems\n", rlchecks, rlfail);
+    return rlfail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -4202,10 +4285,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--initiative")) { rc |= do_initiative() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

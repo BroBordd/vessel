@@ -216,6 +216,11 @@ void lang_callbacks_set(int on);                          /* chunk 39: tests swi
 const char *lang_reply_thread(void);                      /* chunk 40: the key (th.moon.2, th.generic.1, ch.generic) of the thread line the last lang_reply said ("" none) */
 void lang_threads_set(int on);                           /* chunk 40: tests switch the topic threads off (1 = on, the default) */
 void lang_initiative_set(int on);                         /* chunk 41: tests switch the npc initiative (ask-backs and the nudge ladder) off (1 = on, the default) */
+/* chunk 42: pacing and length. a reply is at most LANG_PHONE_CAP characters (a phone shows about that much), cut only at sentence ends.
+ * lang_pace: -1 short (hostile, cold, bored, hollow: one sentence, no opener or closer), 0 normal, 1 long (warm, tender, curious, playful, manic: roomier);
+ * Q_LONG moves it one step up, Q_TERSE one step down (-1..1) */
+#define LANG_PHONE_CAP 150
+int lang_pace(Tone t, unsigned quirk);
 const char *lang_reply_askback(void);                     /* chunk 41: the key (ask.back.yn ...) of the question the last lang_reply asked back ("" none) */
 const char *lang_reply_hook(void);                        /* chunk 41: the hook (mission, orb ...) the last change of subject steered to ("" none) */
 const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */

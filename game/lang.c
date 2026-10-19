@@ -1115,6 +1115,51 @@ int lang_mood_resolve(const char *key, int t, int style) {
 
 static int tone_rude(Tone t) { return (int)((RUDE >> t) & 1u); }   /* cold, hostile, sarcastic, smug, sulky, suspicious (was tone >= COLD with 4 tones) */
 
+/* ---------- chunk 42: pacing and length ---------- */
+#define PHONE_CAP LANG_PHONE_CAP
+int lang_pace(Tone t, unsigned quirk) {
+    int p = 0;
+    switch (t) {
+    case TONE_HOSTILE: case TONE_COLD: case TONE_BORED: case TONE_HOLLOW: p = -1; break;
+    case TONE_WARM: case TONE_TENDER: case TONE_CURIOUS: case TONE_PLAYFUL: case TONE_MANIC: p = 1; break;
+    default: break;
+    }
+    if (quirk & Q_LONG) p++;
+    if (quirk & Q_TERSE) p--;
+    return p < -1 ? -1 : p > 1 ? 1 : p;
+}
+/* the length of the first sentence of s: a run of . ! ? followed by a space or the end closes it (so \"...\" is one stop) */
+static int sent_len(const char *s) {
+    for (int i = 0; s[i]; i++) {
+        if (s[i] == '.' || s[i] == '!' || s[i] == '?') {
+            int j = i; while (s[j] == '.' || s[j] == '!' || s[j] == '?') j++;
+            if (!s[j] || s[j] == ' ') return j;
+            i = j - 1;
+        }
+    }
+    return (int)strlen(s);
+}
+/* cut s after its last whole sentence that ends within `room` characters; 1 if it changed, 0 if nothing fits (a first sentence longer than room stays whole) */
+static int trim_to(char *s, int room) {
+    int total = (int)strlen(s), at = 0, end = 0;
+    while (end < total) {
+        int n = sent_len(s + end), e = end + n;
+        if (e > room) break;
+        at = e; end = e; while (s[end] == ' ') end++;
+    }
+    if (at <= 0 || at >= total) return 0;
+    s[at] = 0;
+    return 1;
+}
+/* the first sentence only (a short mood says one thing); never when it is too small to stand alone */
+static int first_sentence(char *s) {
+    int n = sent_len(s);
+    if (n < 8 || n >= (int)strlen(s)) return 0;
+    s[n] = 0;
+    return 1;
+}
+static int plen(const char *s) { return s[0] ? (int)strlen(s) + 1 : 0; }
+
 /* ---------- templates: {slot} gets replaced by a line from the pool "p.<slot>" ---------- */
 static const char *g_topic = "";
 static const char *g_opt1 = "", *g_opt2 = "";      /* chunk 32: the two options of a choice question, and the pick (0 first, 1 second, 2 both, 3 neither) */
@@ -1196,7 +1241,7 @@ static int say_picks(const Persona *ps, const int *pickd, int np, Tone tone, cha
         remember(l); g_body_line = l;
         fmt(ps, l->text, one, (int)sizeof one, 0);
         voice_line(ps, key, l, pass, (int)tt, one, (int)sizeof one);
-        if (a == 1 && (int)strlen(body) + (int)strlen(one) > 150) break;   /* keep it readable on a phone */
+        if (a == 1 && (int)strlen(body) + (int)strlen(one) > PHONE_CAP) break;   /* keep it readable on a phone */
         cat(body, cap, one);
         answered++;
         if ((int)strlen(body) > 90) break;
@@ -1300,7 +1345,9 @@ static int follow_reply(Persona *ps, const Heard *h, Tone tone, char *out, int c
     if (again && !strcmp(key, "y.generic")) {
         char t2[300]; snprintf(t2, sizeof t2, "%s", last);
         if (strlen(last) > 70 && voice_apply(STYLE_CHILD, (int)tone, last, t2, (int)sizeof t2)) { /* a long line is said again shorter */ }
-        if ((int)strlen(body) + (int)strlen(t2) + 2 < (int)sizeof body && strlen(body) + strlen(t2) < 200) { strcat(body, " "); strcat(body, t2); }
+        int room = PHONE_CAP - (int)strlen(body) - 1;      /* chunk 42: the lead-in and the line said again fit one phone-sized reply; whole sentences only */
+        if ((int)strlen(t2) > room) trim_to(t2, room);
+        if ((int)strlen(t2) <= room) { strcat(body, " "); strcat(body, t2); }
     }
     snprintf(g_reply_key, sizeof g_reply_key, "%s", key);
     snprintf(out, (size_t)cap, "%s", body);
@@ -1378,7 +1425,9 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         else if ((r == ROLE_ANSWER || r == ROLE_ACK) && plan.s[i].intent >= 0) pickd[np++] = plan.s[i].intent;
         else ladder = i;
     }
-    char body[600]; body[0] = 0;       /* chunk 5: was 400 (cut to a readable length in chunk 42) */
+    int pace = lang_pace(tone, ps->quirk);      /* chunk 42: -1 short, 0 normal, 1 long */
+    if (pace < 0 && np > 1) np = 1;             /* a short mood answers one thing */
+    char body[600]; body[0] = 0;       /* chunk 5: was 400; chunk 42 keeps the whole reply inside PHONE_CAP */
     int answered = say_picks(ps, pickd, np, tone, body, (int)sizeof body);
     if (!answered && np > 0 && rank_of(pickd[0]) != 99) {            /* chunk 30: the strong intents had no line (a fine intent whose group has no lines yet): the catch-alls answer after all */
         int wk[HEARD_ORDER], nw = 0;
@@ -1398,6 +1447,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         if (l) { int pass = g_pass; remember(l); g_body_line = l; fmt(ps, l->text, body, (int)sizeof body, 0); voice_line(ps, key, l, pass, (int)tone, body, (int)sizeof body); }
         hedge = 0;      /* a reading the npc could not answer is not hedged */
     }
+
+    /* chunk 42: a short mood says one sentence (not when the line asks something: the question is its ask tag) */
+    int can_trim = !strchr(body, '?') && !(g_body_line && lang_line_ask(g_body_line)[0]);
+    if (pace < 0 && can_trim) first_sentence(body);
 
     if (!answered || ladder >= 0) snprintf(g_reply_key, sizeof g_reply_key, "%s", ladder >= 0 ? plan.s[ladder].key : "r.unknown");      /* chunk 35: the key that answered, for the dialogue memory */
     else for (int i = 0; i < plan.n; i++) if (plan.s[i].role == ROLE_ANSWER) { snprintf(g_reply_key, sizeof g_reply_key, "%s", plan.s[i].key); break; }
@@ -1429,7 +1482,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
                     int pass = g_pass; remember(l);
                     fmt(ps, l->text, cb, (int)sizeof cb, 0);
                     voice_line(ps, ck, l, pass, (int)tone, cb, (int)sizeof cb);
-                    if ((int)strlen(body) + 1 + (int)strlen(cb) > 150) cb[0] = 0;      /* keep the phone readable (chunk 42 makes this the general cap) */
+                    if ((int)strlen(body) + 1 + (int)strlen(cb) > PHONE_CAP) cb[0] = 0;      /* keep the phone readable */
                     else snprintf(g_cb_key, sizeof g_cb_key, "%s", ck);
                 }
             }
@@ -1454,7 +1507,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
                     int pass = g_pass; remember(l);
                     char one[120]; fmt(ps, l->text, one, (int)sizeof one, 0);
                     voice_line(ps, k, l, pass, (int)tone, one, (int)sizeof one);
-                    if ((int)strlen(body) + 1 + (int)strlen(one) <= 150) { snprintf(ab, sizeof ab, "%s", one); ab_l = l; snprintf(g_ab_key, sizeof g_ab_key, "%s", k); }
+                    if ((int)strlen(body) + 1 + (int)strlen(one) <= PHONE_CAP) { snprintf(ab, sizeof ab, "%s", one); ab_l = l; snprintf(g_ab_key, sizeof g_ab_key, "%s", k); }
                 }
             }
         }
@@ -1464,14 +1517,21 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     int len = (int)strlen(body);
     char pre[80] = "", post[100] = "", full[800]; const Line *post_l = NULL;
     g_tone = (int)tone;
-    if (!hed[0] && !cb[0] && !ab[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
+    if (pace >= 0 && !hed[0] && !cb[0] && !ab[0] && len < (pace > 0 ? 130 : 110) && rn(100) < (tone_rude(tone) ? 45 : 25) + (pace > 0 ? 15 : 0)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, pre, (int)sizeof pre, 1); }
     }
-    if (!cb[0] && !ab[0] && len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
+    if (pace >= 0 && !cb[0] && !ab[0] && len + (int)strlen(pre) + (int)strlen(hed) < (pace > 0 ? 115 : 100) && rn(100) < (tone_rude(tone) ? 50 : 30) + (pace > 0 ? 15 : 0)) {
         const Line *l = pick(ps, "p.post", (int)tone);
         if (l) { remember(l); post_l = l; fmt(ps, l->text, post, (int)sizeof post, 1); }
     }
+    /* chunk 42: the phone cap. the closer goes first, then the opener, then trailing sentences of the answer, then the hedge; a sentence is never cut in the middle */
+#define TOTAL() (plen(hed) + plen(pre) + plen(body) + plen(cb) + plen(ab) + plen(post) - 1)
+    if (TOTAL() > PHONE_CAP && post[0]) { post[0] = 0; post_l = NULL; }
+    if (TOTAL() > PHONE_CAP && pre[0]) pre[0] = 0;
+    if (TOTAL() > PHONE_CAP && can_trim) trim_to(body, PHONE_CAP - (TOTAL() - (int)strlen(body)));
+    if (TOTAL() > PHONE_CAP && hed[0]) hed[0] = 0;
+#undef TOTAL
     full[0] = 0;
     if (hed[0]) cat(full, (int)sizeof full, hed);
     if (pre[0]) cat(full, (int)sizeof full, pre);
