@@ -44,6 +44,7 @@
 #include "jukebox.h"
 #include "heart.h"
 #include "hud.h"
+#include "lang_persona.h"
 #include "convo.h"
 #include "lang.h"
 #include <string.h>
@@ -79,8 +80,8 @@ const Person DEA    = { "Dea",        { 252, 240, 190 }, { 252, 228, 206 }, { 25
 
 /* ---------- minds: how each npc talks (see lang.h) ----------
  *                          name    style          mood warmth toxic patience(replies) */
-static Persona DEA_MIND  = { "Dea",  STYLE_DIVINE,   0,   30,   65,   8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED), .loves = { "god", "power" } };     /* the goddess: toxic, condescending, "i do not care" */
-static Persona ALEX_MIND = { "Alex", STYLE_STREET,  10,   70,    5,  12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS), .loves = { "grass", "flower" } };
+static Persona DEA_MIND  = { "Dea",  STYLE_DIVINE,   0,   30,   65,   8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED), .quirk = 0, .hooks = { "mission", "obey" }, .loves = { "god", "power" } };     /* the goddess: toxic, condescending, "i do not care" */
+static Persona ALEX_MIND = { "Alex", STYLE_STREET,  10,   70,    5,  12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS), .quirk = Q_ASKS_BACK, .hooks = { "grass" }, .loves = { "grass", "flower" } };
 
 /* ---------- timers ---------- */
 #define MAX_TIMERS 8
@@ -787,17 +788,15 @@ static void alex_refuse_done(void) {
     think("She won't give it up. I need something heavy to change her mind.", "I need something heavy.", BRAIN_SCENE_HEAVY, THOUGHT_REFUSED, 1);
 }
 
-/* does the player's line ask for the orb? (a word that starts with orb, sphere, ball or glow; "absorb" does not count) */
-static int asks_for_orb(const char *t) {
-    static const char *const W[] = { "orb", "sphere", "ball", "glow" };
-    for (const char *p = t; *p; p++) {
-        if (p != t && isalpha((unsigned char)p[-1])) continue;
-        for (int i = 0; i < 4; i++) if (strncasecmp(p, W[i], strlen(W[i])) == 0) return 1;
-    }
-    return 0;
+/* does the player's line ask for the orb? (chunk 47: on the understood text, whole words and their lemmas: orb, orbs, obr, "giveme the orb", sphere,
+ * ball, glow, glowing, "the thing you found" hit; "absorb", "orbit", "ballad" do not) */
+static int asks_for_orb(const char *understood) {
+    static const char *const W[] = { "orb", "sphere", "ball", "glow", "the thing you found", NULL };
+    return lang_has_word(understood, W);
 }
-static int alex_orb_ask(const char *text, char *reply, int cap) {
-    if (!asks_for_orb(text)) return 0;
+static int alex_orb_ask(const char *raw, const char *understood, char *reply, int cap) {
+    (void)raw;
+    if (!asks_for_orb(understood)) return 0;
     snprintf(reply, (size_t)cap, "%s", ALEX_NO[alex_no_n < ALEX_NO_COUNT ? alex_no_n : ALEX_NO_COUNT - 1]);
     alex_no_n++;
     alex_refused = 1;
@@ -812,7 +811,7 @@ static void alex_v2_end(void) {                         /* the chat is over: if 
 static void on_talk_alex(int npc_id) {
     (void)npc_id;
     if (lives >= 1) {                                       /* vessel 2 and later: her normal chat; asking for the orb gets a no */
-        convo_watch(alex_orb_ask, "Give me the orb");
+        convo_watch_text(alex_orb_ask, "Give me the orb");
         if (alex_no_n > 0) convo_open(&ALEX, &ALEX_MIND, 1, alex_v2_end);
         else               convo_open_line(&ALEX, &ALEX_MIND, "What do you need?", alex_v2_end);     /* she does not know us: a plain question first */
         return;

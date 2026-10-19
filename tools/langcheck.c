@@ -4341,6 +4341,7 @@ static int do_watch(void) {
       WTCHECK(lang_has_word("give me the thing you found", P) && !lang_has_word("give me the thing", P) && !lang_has_word("the you thing found", P), "a phrase needs all its words in order"); }
     /* the lemma: orbs / balls / glowing match through their lemma, but the entry stays a whole word */
     { static const char *const L[] = { "orb", NULL }; WTCHECK(lang_has_word("two orbs", L) && !lang_has_word("orbiting", L) && !lang_has_word("sorb", L), "lemma: whole words only"); }
+    { static const char *const L[] = { "orb", NULL }; WTCHECK(lang_has_word("ORB?", L) && lang_has_word("Give me the Orbs", L), "lang_has_word is case-insensitive"); }
     /* a very long line is cut at the table size and never crashes */
     { char big[1200]; memset(big, 0, sizeof big); for (int i = 0; i < 150; i++) strcat(big, "orb x "); lang_understood(big, u, (int)sizeof u); WTCHECK(strlen(u) < sizeof u, "long text"); lang_has_word(u, ORB); }
     /* self-harm text is not touched by the understood reading: still heard by the normal parse */

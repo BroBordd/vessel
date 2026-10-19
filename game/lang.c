@@ -1627,7 +1627,8 @@ int lang_has_word(const char *u, const char *const *list) {
         int n = (int)(q - p);
         if (n > 0) {
             if (n > 39) n = 39;
-            memcpy(tok[nt], p, (size_t)n); tok[nt][n] = 0;
+            for (int i = 0; i < n; i++) tok[nt][i] = (char)tolower((unsigned char)p[i]);
+            tok[nt][n] = 0;
             if (!lang_lemma(tok[nt], n, lem[nt], (int)sizeof lem[nt])) snprintf(lem[nt], sizeof lem[nt], "%s", tok[nt]);
             nt++;
         }

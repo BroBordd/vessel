@@ -115,8 +115,8 @@ typedef struct { const char *name; Persona p; } Actor;
 #define NACT 5
 static Actor ACT[NACT];
 static void build_actors(void) {
-    ACT[0].name = "Dea";  ACT[0].p = (Persona){ "Dea",  STYLE_DIVINE,  0, 30, 65,  8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED), .loves = { "god", "power" } };
-    ACT[1].name = "Alex"; ACT[1].p = (Persona){ "Alex", STYLE_STREET, 10, 70,  5, 12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS), .loves = { "grass", "flower" } };
+    ACT[0].name = "Dea";  ACT[0].p = (Persona){ "Dea",  STYLE_DIVINE,  0, 30, 65,  8, .lean = LEAN(TONE_SMUG) | LEAN(TONE_COLD) | LEAN(TONE_SARCASTIC) | LEAN(TONE_BORED), .hooks = { "mission", "obey" }, .loves = { "god", "power" } };
+    ACT[1].name = "Alex"; ACT[1].p = (Persona){ "Alex", STYLE_STREET, 10, 70,  5, 12, .lean = LEAN(TONE_PLAYFUL) | LEAN(TONE_WARM) | LEAN(TONE_WORRIED) | LEAN(TONE_CURIOUS), .quirk = Q_ASKS_BACK, .hooks = { "grass" }, .loves = { "grass", "flower" } };
     ACT[2].name = "Orrin";  persona_init(&ACT[2].p, PERSONA_OLD_KEEPER, "Orrin");
     ACT[3].name = "Pip";    persona_init(&ACT[3].p, PERSONA_LOST_CHILD, "Pip");
     ACT[4].name = "Unit 7"; persona_init(&ACT[4].p, PERSONA_MACHINE, "Unit 7");
