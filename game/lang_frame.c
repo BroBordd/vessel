@@ -330,7 +330,8 @@ int lang_frame_read(const char *lc, int a, int b, Frame *f, int *intent, int *co
     else if (n <= 3 && word_is(&w[0], "hi|hello|hey|yo|sup|hiya|howdy|heya|greetings|wassup|wazzup|salutations|morning|mornin|evening|afternoon|hallo|hullo|ahoy|welcome|whatsup") && !qshape) act = SA_GREET;
     else if (n <= 4 && word_is(&w[0], "hi|hello|hey|yo|hiya|howdy|heya|greetings|salutations|hallo|hullo|ahoy|good|welcome") && HAS("everyone|everybody|all|guys|folks|friends|yall|morning|mornin|evening|afternoon|day|again|back|there|lady|goddess")) act = SA_GREET;
     else if (HAS("bye|goodbye|farewell|cya|laters|goodnight|gnight|byebye|toodles|ciao|adios|cheerio|later|seeya|ttyl|gtg|brb|g2g") && n <= 6
-             || HAS("see&you|see&ya|take&care|sleep&well|sweet&dreams|so&long|be&well|safe&travels|until&next|catch&you|talk&to&you|good&night|get&lost|good&riddance|be&right&back|back&soon|piss&off")
+             || (HAS("talk&to&you") && HAS("later|soon|tomorrow|then|again|tonight"))      /* chunk 44: not any \"talking to you\" */
+             || HAS("see&you|see&ya|take&care|sleep&well|sweet&dreams|so&long|be&well|safe&travels|until&next|catch&you|good&night|get&lost|good&riddance|be&right&back|back&soon|piss&off")
              || (su == SU_I && HAS("leave|leaving|go|going|depart|head|heading|part") && HAS("now|soon|home|bye|tonight|today|away|must|need|have&to|got&to|gotta") && f->modality != MD_WANT && !HAS("where|why|how|what|who")))
         act = SA_FAREWELL;
     else if (HAS("thanks|thank|thx|ty|tysm|thankyou|thanku|appreciate|grateful|gratitude|cheers&mate|much&obliged") && !f->neg) act = SA_THANK;

@@ -112,13 +112,13 @@ static void on_reply(int page, const char *text) {
     }
     if (heard_has(&h, I_INSULT) && ps->mood <= -55) {        /* too far: demand an apology, and the player MUST talk */
         char dem[160]; lang_line(ps, "demand.sorry", dem, sizeof dem);
-        size_t n = strlen(reply); if (n + strlen(dem) + 2 < sizeof reply) { strcat(reply, " "); strcat(reply, dem); }
+        lang_append_flow(reply, sizeof reply, dem, 1);      /* chunk 44: inside the phone cap (an apology demand always stands) */
         C.stage = ST_SORRY; C.demands = 0;
         speak(reply, REPLY_REQUIRED, text); return;
     }
     if (C.turns >= ps->patience || (worn && h.rep_level >= 5)) {      /* the npc has had enough (chunk 38: rep.5 is the npc giving up) */
         char end[200]; lang_line(ps, "end.bored", end, sizeof end);
-        size_t n = strlen(reply); if (n + strlen(end) + 2 < sizeof reply) { strcat(reply, " "); strcat(reply, end); }
+        lang_append_flow(reply, sizeof reply, end, 1);      /* chunk 44: inside the phone cap */
         speak(reply, REPLY_NONE, text); return;
     }
     speak(reply, REPLY_OPTIONAL, text);

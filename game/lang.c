@@ -1158,6 +1158,21 @@ static int first_sentence(char *s) {
     s[n] = 0;
     return 1;
 }
+/* chunk 44: a flow line (demand.sorry, end.bored: convo.c adds them after a finished reply) joins the reply and the whole stays inside the phone cap.
+ * the reply loses trailing sentences first (whole sentences, the first stays); if even that does not fit, `must` = 1 lets the flow line stand alone
+ * (an apology demand must be read), 0 leaves the reply as it is. cap is the size of the buffer. returns 1 if the flow line is in `reply` */
+int lang_append_flow(char *reply, int cap, const char *extra, int must) {
+    int ne = (int)strlen(extra);
+    if (ne <= 0 || cap < 2) return 0;
+    int room = PHONE_CAP - ne - 1;
+    if (cap - ne - 2 < room) room = cap - ne - 2;
+    char t[600]; snprintf(t, sizeof t, "%s", reply);
+    if ((int)strlen(t) > room) { if (room <= 0 || !trim_to(t, room)) t[0] = 0; }
+    if (t[0] && (int)strlen(t) <= room) { snprintf(reply, cap, "%s %s", t, extra); return 1; }
+    if (!must) return 0;
+    snprintf(reply, cap, "%s", extra);
+    return 1;
+}
 /* ---------- chunk 43: what the character knows ---------- */
 static int thread_blocker(int in);
 int lang_topic_listed(const char *const *list, const char *name) {
@@ -1189,6 +1204,8 @@ static const char *g_opt1 = "", *g_opt2 = "";      /* chunk 32: the two options 
 static int g_pick;
 static const char *g_thing = "";     /* chunk 29: {thing} = the strongest topic word of the text (moon), "that" if none */
 static int g_tone;
+static int g_last_tone = -1;      /* chunk 44: the mood the last lang_reply spoke in (-1 before the first reply and for self-harm) */
+int lang_reply_tone(void) { return g_last_tone; }
 static char g_fact[24];      /* chunk 39: {fact} = what a callback recalls (a name, a topic word); only cb.* lines use it */
 static char g_name[CAP_TEXT], g_age[8], g_likes[CAP_TEXT], g_dislikes[CAP_TEXT], g_cthing[CAP_TEXT];   /* chunk 33: the captured facts as the slots {name} {age} {likes} {dislikes} {thing} print them ("" = none) */
 
@@ -1413,7 +1430,7 @@ static int silent_reply(Persona *ps, const Heard *h, char *out, int cap) {
     return 1;
 }
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_th_key[0] = 0; g_ab_key[0] = 0; g_hook[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
+    out[0] = 0; g_last_tone = -1; g_reply_key[0] = 0; g_cb_key[0] = 0; g_th_key[0] = 0; g_ab_key[0] = 0; g_hook[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1429,7 +1446,7 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (h->ntopic && ps->loves[0] && lang_topic_listed(ps->loves, lang_topic_name(h->topic[0]))) {      /* chunk 43: a topic it loves lifts the mood a notch (less for a toxic one) */
         int up = 4 * (100 - ps->toxic) / 100; ps->mood += up < 1 ? 1 : up; if (ps->mood > 100) ps->mood = 100;
     }
-    Tone tone = lang_mood_now(ps);
+    Tone tone = lang_mood_now(ps); g_last_tone = (int)tone;
     { const char *kn; int gate = knowledge_gate(ps, h, &kn);      /* chunk 43: dk.refuse / dk.unknown, one short line */
       if (gate) {
           const char *key = gate == 1 ? "dk.refuse" : "dk.unknown";

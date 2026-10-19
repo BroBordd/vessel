@@ -230,6 +230,8 @@ int lang_topic_listed(const char *const *list, const char *name);
 const char *lang_reply_askback(void);                     /* chunk 41: the key (ask.back.yn ...) of the question the last lang_reply asked back ("" none) */
 const char *lang_reply_hook(void);                        /* chunk 41: the hook (mission, orb ...) the last change of subject steered to ("" none) */
 const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */
+int lang_append_flow(char *reply, int cap, const char *extra, int must);   /* chunk 44: append a flow line (end.bored, demand.sorry) to a reply inside the phone cap; see lang.c */
+int lang_reply_tone(void);                                /* chunk 44: the mood (Tone) the last lang_reply spoke in, -1 for self-harm / dots / before any reply (tests) */
 const char *lang_reply_text(void);                        /* chunk 37: the last reply lang_reply said, whole ("" for self-harm) */
 const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */
 void lang_ask_sentence(const char *text, char *out, int cap);   /* the last question sentence of a spoken text ("" if it asks nothing) */
