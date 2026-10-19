@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
  * the mood state of the language engine (docs/convo_plan.md, chunk 8). no SDL:
- *   cc -O1 -Igame -o build/moodtest tools/moodtest.c game/lang*.c game/lines_*.c && build/moodtest
+ *   cc -O1 -Igame -o build/moodtest tools/moodtest.c game/lang*.c game/lines_*.c -lm && build/moodtest
  *   1. a character with no vector and no lean (Dea, Alex) keeps the old behaviour: only the 4 old moods, in the exact proportions of
  *      the old formula (checked against the formula itself, fixed seed), and an old-intent chat never makes a mood stick
  *   2. scripted nudges: the vector, the lean and the hard drop give the expected mood

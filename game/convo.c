@@ -106,6 +106,7 @@ static void on_reply(int page, const char *text) {
     if (worn) C.turns++;                                    /* chunk 38: the same line again and spam tire the npc twice as fast */
 
     if (heard_has(&h, I_SELFHARM)) { speak(reply, REPLY_OPTIONAL, text); return; }
+    if (!strcmp(lang_reply_key(), "end.silence")) { speak(reply, REPLY_NONE, text); return; }      /* chunk 41: four nudges and still only dots: the npc gives up and the chat ends */
     if (heard_has(&h, I_BYE)) {                                /* the player is leaving: wave and end */
         speak(reply, REPLY_NONE, text); return;
     }

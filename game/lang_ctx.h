@@ -45,6 +45,9 @@ typedef struct {
     uint8_t th_on, th_step; int16_t th_topic;     /* chunk 40: a topic thread is running (th_on), its topic id and the step the npc said last (1-4) */
     int16_t th_spent[4]; uint8_t th_nspent;       /* chunk 40: topics whose thread is over (said goodbye to, or changed away from): they never start another */
     char ask_text[96];                           /* the question sentence of that line as spoken (chunk 36: a choice needs its two options) */
+    uint8_t nudge_n;                             /* chunk 41: silent turns (only dots) in a row so far: the next one is nudge.<n+1>, after nudge.4 it is end.silence */
+    int ab_n, ab_next; char ab_tag[8];           /* chunk 41: questions the npc asked back this chat, the player turn from which the next may come, and the tag of the last one */
+    uint8_t hook_n;                              /* chunk 41: changes of subject that steered to a persona hook (they take the hooks in turn) */
 } LangCtx;
 
 void lang_ctx_reset(void);
@@ -80,6 +83,15 @@ typedef struct { int kind; int topic; int step; } ThreadPlan;       /* TH_STEP: 
 int  lang_ctx_thread(const Heard *h, int tone, ThreadPlan *out);    /* returns the kind; tone = the npc's mood this turn */
 int  lang_thread_ask(const char *lc);                               /* does the cleaned text ask to talk about something (tell me more about ..., lets talk about ...)? */
 int  lang_thread_active(void);                                      /* 1 while a thread runs */
+/* chunk 41: npc initiative. The pure planner for a question the npc asks back (call BEFORE the turn is noted; no random numbers, no state change).
+ * An npc asks back when it has the quirk Q_ASKS_BACK or is CURIOUS, SUSPICIOUS or PLAYFUL, from the third player turn on and then every 3 to 5 turns, never in
+ * a hostile mood (or right after one), never on a turn that is an insult, an apology, a goodbye, distress (sad, scared, confused, help), self-harm, a silent turn,
+ * a repeat, a follow-up or an answer to the npc's own question. Returns 1 and the tags to try, best first (name yn why choice more); the name is not asked
+ * when it is known, a why only when the player has just said how they feel or what they like or dislike, and never the tag of the last ask-back twice in a row. */
+typedef struct { int n; char tag[5][8]; } AskBackPlan;
+int  lang_ctx_askback(const Heard *h, int tone, int quirk, AskBackPlan *out);
+/* the nudge ladder for a player who sends only dots: the step this silent turn is on, 1-4 = nudge.<n>, 5 = end.silence (the npc gives up). 0 when the turn is not silent. Pure. */
+int  lang_ctx_nudge(const Heard *h);
 void lang_ctx_set_counts(int insulted, int thanked, int complimented, int lied, int scared);   /* tests */
 void lang_ctx_facts_save(CtxFacts *out);
 void lang_ctx_facts_load(const CtxFacts *in);    /* a NULL or empty struct forgets everything */

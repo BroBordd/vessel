@@ -3956,6 +3956,211 @@ static int do_thread(int argc, char **argv) {
     return thfail;
 }
 
+/* ---------- chunk 41: npc initiative (ask-backs, the nudge ladder, persona hooks) ---------- */
+static int infail, inchecks;
+#define INCHECK(c, ...) do { inchecks++; if (!(c)) { printf("BAD INITIATIVE: " __VA_ARGS__); printf("\n"); infail++; } } while (0)
+static char in_out[800];
+static void in_turn(Persona *p, const char *t, Heard *h) { lang_parse(t, h); lang_reply(p, h, in_out, (int)sizeof in_out); lang_ctx_note(h, t, lang_reply_key(), p->mood); }
+static int in_veto(const Heard *h) {
+    static const int V[] = { I_SELFHARM, I_INSULT, I_SORRY, I_BYE, I_SAD, I_SCARED, I_CONFUSED, I_HELP, I_REPEAT_PLAYER, I_COPYCAT, I_SPAM, I_FOLLOW_WHY, I_FOLLOW_MORE, I_FOLLOW_REALLY, I_FOLLOW_AGAIN,
+        I_AGREE_TO_ASK, I_DECLINE_TO_ASK, I_BECAUSE, I_ANSWER_CHOICE, -1 };
+    for (const int *v = V; *v >= 0; v++) if (heard_has(h, *v)) return 1;
+    return 0;
+}
+static int do_initiative(void) {
+    infail = inchecks = 0;
+    lang_tables_reset(); lang_init(); lang_ctx_facts_load(NULL); lang_ctx_reset(); lang_callbacks_set(0); lang_threads_set(1); lang_initiative_set(1);
+    Persona asks = { "Fin", STYLE_PLAIN, 30, 50, 0, 60, .quirk = Q_ASKS_BACK }, warm = { "Wren", STYLE_PLAIN, 30, 50, 0, 60 };
+    Persona rude = { "Rex", STYLE_PLAIN, -90, 0, 80, 60, .quirk = Q_ASKS_BACK };
+    Heard h;
+    /* the lines: ask.back.<tag> 12 each (3 per old mood, an explicit ask tag that matches the key, a question, only {pet}), nudge.1..4 12 each, ch.<hook> 8 each (no question) */
+    { static const char *const AB[] = { "name", "yn", "why", "choice", "more" }; static const char *const HK[] = { "mission", "obey", "orb", "grass" }; const Line *const *r; int rows = 0;
+      for (int k = 0; k < 5; k++) {
+          char key[32]; snprintf(key, sizeof key, "ask.back.%s", AB[k]); int cnt = lang_key_rows(key, &r), per[4] = { 0 }; rows += cnt;
+          INCHECK(cnt == 12, "%s has %d lines, want 12", key, cnt);
+          for (int i = 0; i < cnt; i++) {
+              const char *t = r[i]->text;
+              for (int b = 0; b < 4; b++) if (r[i]->tones == (uint32_t)(1u << b)) per[b]++;
+              INCHECK(r[i]->ask && !strcmp(r[i]->ask, AB[k]), "%s line has the wrong ask tag: %s", key, t);
+              INCHECK(strlen(t) <= 110 && strchr(t, '?'), "%s line is too long or no question: %s", key, t);
+              INCHECK(k != 3 || strstr(t, " or "), "choice line has no ' or ': %s", t);
+              for (const char *q = t; (q = strchr(q, '{')); q++) INCHECK(!strncmp(q, "{pet}", 5), "%s has a slot it may not: %s", key, t);
+          }
+          for (int b = 0; b < 4; b++) INCHECK(per[b] == 3, "%s has %d lines for mood %d, want 3", key, per[b], b);
+      }
+      for (int k = 1; k <= 4; k++) {
+          char key[16]; snprintf(key, sizeof key, "nudge.%d", k); int cnt = lang_key_rows(key, &r); rows += cnt;
+          INCHECK(cnt == 12, "%s has %d lines, want 12", key, cnt);
+          for (int i = 0; i < cnt; i++) { INCHECK(strlen(r[i]->text) <= 110, "%s line too long", key); for (const char *q = r[i]->text; (q = strchr(q, '{')); q++) INCHECK(!strncmp(q, "{pet}", 5), "%s slot: %s", key, r[i]->text); }
+      }
+      for (int k = 0; k < 4; k++) {
+          char key[24]; snprintf(key, sizeof key, "ch.%s", HK[k]); int cnt = lang_key_rows(key, &r), per[4] = { 0 }; rows += cnt;
+          INCHECK(cnt == 8, "%s has %d lines, want 8", key, cnt);
+          for (int i = 0; i < cnt; i++) {
+              for (int b = 0; b < 4; b++) if (r[i]->tones == (uint32_t)(1u << b)) per[b]++;
+              INCHECK(strlen(r[i]->text) <= 110 && !strchr(r[i]->text, '?'), "%s line too long or a question: %s", key, r[i]->text);
+              for (const char *q = r[i]->text; (q = strchr(q, '{')); q++) INCHECK(!strncmp(q, "{pet}", 5), "%s slot: %s", key, r[i]->text);
+          }
+          for (int b = 0; b < 4; b++) INCHECK(per[b] == 2, "%s has %d lines for mood %d, want 2", key, per[b], b);
+      }
+      printf("initiative: %d lines in 13 keys\n", rows); }
+    /* a silent turn is only dots; faces, questions, shouts and words are not */
+    { static const char *const S[] = { "...", ".", " . . ", "......", "-", "~", "...  ", ". . .", ",.", "- -" };
+      static const char *const N[] = { "hi", "?", "...?", "hmm...", "ok", ":)", "-_-", "a...", "...hello", "!", "<3", "i want to die", "", "x", "0", "..!" };
+      for (unsigned i = 0; i < sizeof S / sizeof S[0]; i++) { lang_parse(S[i], &h); INCHECK(h.silent, "[%s] should be silent", S[i]); }
+      for (unsigned i = 0; i < sizeof N / sizeof N[0]; i++) { lang_parse(N[i], &h); INCHECK(!h.silent, "[%s] should not be silent", N[i]); }
+      lang_initiative_set(0); lang_parse("...", &h); INCHECK(!h.silent, "initiative off, yet silent"); lang_initiative_set(1); }
+    /* the nudge ladder: nudge.1 .. 4, then end.silence; a word breaks the run; dots are never a repeat */
+    { lang_ctx_reset(); lang_seed(5); Persona p = warm; int rep = 0;
+      in_turn(&p, "hello", &h);
+      static const char *const WANT[] = { "nudge.1", "nudge.2", "nudge.3", "nudge.4", "end.silence", "end.silence" };
+      for (int i = 0; i < 6; i++) {
+          in_turn(&p, "...", &h);
+          INCHECK(!strcmp(lang_reply_key(), WANT[i]), "silent turn %d answered with [%s], want [%s]", i + 1, lang_reply_key(), WANT[i]);
+          INCHECK(in_out[0] && strlen(in_out) <= 150, "silent reply empty or too long: [%s]", in_out);
+          if (!strncmp(lang_reply_key(), "rep.", 4) || !strncmp(lang_reply_key(), "r.", 2)) rep++;
+          INCHECK(p.quiet == i + 1, "quiet is %d after %d silent turns", p.quiet, i + 1);
+      }
+      INCHECK(!rep, "dots were answered as a repeat or an unknown");
+      in_turn(&p, "hello", &h); INCHECK(p.quiet == 0, "a word did not end the silence (quiet %d)", p.quiet);
+      in_turn(&p, "...", &h); INCHECK(!strcmp(lang_reply_key(), "nudge.1"), "after a word the ladder starts again [%s]", lang_reply_key());
+      in_turn(&p, ". . .", &h); in_turn(&p, "......", &h); INCHECK(!strcmp(lang_reply_key(), "nudge.3"), "different dots still climb [%s]", lang_reply_key());
+      lang_initiative_set(0); lang_ctx_reset(); Persona q = warm; in_turn(&q, "...", &h); INCHECK(strncmp(lang_reply_key(), "nudge.", 6), "initiative off, yet a nudge [%s]", lang_reply_key()); lang_initiative_set(1);
+      /* the planner is pure */
+      lang_ctx_reset(); in_turn(&p, "...", &h); lang_parse("...", &h);
+      LangCtx before = *lang_ctx(); int a = lang_ctx_nudge(&h), b = lang_ctx_nudge(&h); AskBackPlan ap; lang_ctx_askback(&h, TONE_CURIOUS, Q_ASKS_BACK, &ap);
+      INCHECK(a == b && a == 2 && !memcmp(&before, lang_ctx(), sizeof before), "the nudge or ask-back planner changed something (step %d)", a);
+      lang_parse("hello", &h); INCHECK(lang_ctx_nudge(&h) == 0, "a word is no nudge step"); }
+    /* the npc asks back: never in the first two turns, 3 to 5 turns apart, in the right moods, with the right tag in the memory */
+    { static const char *const POOL[] = { "what is the sky", "tell me a joke", "who are you", "where am i", "what is the hole", "how are you", "what should i do", "tell me a secret",
+          "i love the moon", "i do not like rain", "this place is great", "what is your age" };
+      int np = (int)(sizeof POOL / sizeof POOL[0]), total = 0, early = 0, tooclose = 0, badtag = 0, toolong = 0, slots = 0, onveto = 0, seen[5] = { 0 }, namewhy = 0, runs = 300;
+      static const char *const TG[] = { "name", "yn", "why", "choice", "more" };
+      for (int c = 0; c < runs; c++) {
+          lang_ctx_reset(); lang_seed((unsigned)(4000 + c)); Persona p = asks; int last = -9;
+          for (int i = 0; i < 14; i++) {
+              in_turn(&p, POOL[(c * 5 + i * 7 + (c / 4) * (i % 3)) % np], &h);
+              const char *k = lang_reply_askback();
+              if (strlen(in_out) > 150 && strcmp(lang_reply_key(), "r.selfharm")) toolong++;
+              if (strchr(in_out, '{') || strchr(in_out, '}')) slots++;
+              if (!k[0]) continue;
+              total++; if (i < 2) early++; if (i - last < 3) tooclose++; last = i; if (in_veto(&h)) onveto++;
+              const char *tag = k + 9; int ti = -1; for (int t = 0; t < 5; t++) if (!strcmp(tag, TG[t])) ti = t;
+              if (ti < 0 || strcmp(lang_ctx()->ask, tag) || strncmp(k, "ask.back.", 9)) badtag++; else seen[ti]++;
+              if (!strcmp(tag, "why") && !h.valence && !lang_heard_capture(&h, CAP_LIKE, 0) && !lang_heard_capture(&h, CAP_DISLIKE, 0) && !lang_heard_capture(&h, CAP_FEELING, 0)) namewhy++;
+          }
+      }
+      INCHECK(total > 100, "only %d ask-backs in %d chats", total, runs); INCHECK(!early, "%d ask-backs in the first two turns", early); INCHECK(!tooclose, "%d ask-backs less than 3 turns apart", tooclose);
+      INCHECK(!badtag, "%d ask-backs with a wrong tag in the memory", badtag); INCHECK(!toolong, "%d replies over 150 characters", toolong); INCHECK(!slots, "%d replies with an open slot", slots);
+      INCHECK(!onveto, "%d ask-backs on a turn that must not get one", onveto); INCHECK(!namewhy, "%d why questions with no feeling said", namewhy);
+      for (int t = 0; t < 5; t++) INCHECK(seen[t] > 0, "the %s question never came", TG[t]);
+      printf("initiative: %d ask-backs in %d chats (name %d yn %d why %d choice %d more %d)\n", total, runs, seen[0], seen[1], seen[2], seen[3], seen[4]); }
+    /* who does not ask back: no quirk and a plain mood, a hostile npc, a name that is known is not asked again, and the switch */
+    { static const char *const POOL[] = { "what is the sky", "tell me a joke", "who are you", "where am i", "what is the hole", "how are you" }; int ab = 0, abr = 0, abn = 0, abo = 0;
+      for (int c = 0; c < 120; c++) {
+          lang_ctx_reset(); lang_seed((unsigned)(5000 + c)); Persona w = warm, r = rude, a = asks; Persona *ps[2] = { &w, &r };
+          for (int k = 0; k < 2; k++) for (int i = 0; i < 12; i++) { in_turn(ps[k], POOL[(c + i * 5) % 6], &h); if (lang_reply_askback()[0]) { if (k == 0) ab++; else abr++; } }
+          lang_ctx_reset(); in_turn(&a, "my name is Bob", &h);
+          for (int i = 0; i < 12; i++) { in_turn(&a, POOL[(c + i * 5) % 6], &h); if (!strcmp(lang_reply_askback(), "ask.back.name")) abn++; }
+          lang_initiative_set(0); lang_ctx_reset(); a = asks; for (int i = 0; i < 12; i++) { in_turn(&a, POOL[(c + i) % 6], &h); if (lang_reply_askback()[0]) abo++; } lang_initiative_set(1);
+      }
+      INCHECK(!ab, "a plain npc with no quirk asked back %d times", ab); INCHECK(!abr, "a hostile npc asked back %d times", abr);
+      INCHECK(!abn, "the name was asked %d times after the player gave it", abn); INCHECK(!abo, "initiative off, yet %d ask-backs", abo); }
+    /* a turn that is distress, an insult, a goodbye, an apology, self-harm or dots never gets a question, even when one is due */
+    { static const char *const V[] = { "i am sad", "i am scared", "bye", "you are stupid", "sorry", "help me", "...", "i want to die", "i am so lost and confused", "goodbye for now" }; int bad = 0, tried = 0;
+      for (unsigned v = 0; v < sizeof V / sizeof V[0]; v++) for (int c = 0; c < 30; c++) {
+          lang_ctx_reset(); lang_seed((unsigned)(6000 + c)); Persona p = asks;
+          in_turn(&p, "what is the sky", &h); in_turn(&p, "who are you", &h); in_turn(&p, V[v], &h); tried++;
+          if (lang_reply_askback()[0]) { bad++; printf("  asked after [%s]: %s\n", V[v], in_out); }
+      }
+      INCHECK(!bad, "%d of %d veto turns got a question", bad, tried); }
+    /* the answer to an ask-back is read relative to its tag */
+    lang_ctx_facts_load(NULL);      /* (the name the player gave above is a fact that outlives its chat: the npc would not ask it again) */
+    { struct { const char *tag, *ans; int intent; } A[] = { { "yn", "yes", I_AGREE_TO_ASK }, { "more", "yes", I_AGREE_TO_ASK }, { "why", "because i like it", I_BECAUSE }, { "name", "Bob", -2 } };
+      static const char *const POOL[] = { "i love the moon", "what is the sky", "tell me a joke", "this place is great", "where am i", "who are you", "i do not like rain", "what is the hole" };
+      for (int a = 0; a < 4; a++) {
+          int found = 0;
+          for (int c = 0; c < 600 && !found; c++) {
+              lang_ctx_reset(); lang_seed((unsigned)(7000 + c)); Persona p = asks;
+              for (int i = 0; i < 10 && !found; i++) {
+                  in_turn(&p, POOL[(c + i * 3) % 8], &h);
+                  if (strcmp(lang_reply_askback(), a == 0 ? "ask.back.yn" : a == 1 ? "ask.back.more" : a == 2 ? "ask.back.why" : "ask.back.name")) continue;
+                  found = 1; lang_parse(A[a].ans, &h);
+                  if (A[a].intent >= 0) INCHECK(heard_has(&h, A[a].intent), "[%s] after the %s question was not read as %s", A[a].ans, A[a].tag, lang_intent_name(A[a].intent));
+                  else { const Capture *cp = lang_heard_capture(&h, CAP_NAME, 0); INCHECK(cp && !strcmp(cp->text, "Bob"), "[%s] after the name question was not captured as a name", A[a].ans); }
+              }
+          }
+          INCHECK(found, "no %s question found to answer", A[a].tag);
+      }
+      int found = 0;
+      for (int c = 0; c < 600 && !found; c++) {      /* a choice question keeps its two options for the answer */
+          lang_ctx_reset(); lang_seed((unsigned)(8000 + c)); Persona p = asks;
+          for (int i = 0; i < 10 && !found; i++) { in_turn(&p, POOL[(c + i * 3) % 8], &h); if (!strcmp(lang_reply_askback(), "ask.back.choice")) { found = 1; INCHECK(!strcmp(lang_ctx()->ask, "choice") && strstr(lang_ctx()->ask_text, " or "), "choice memory [%s] [%s]", lang_ctx()->ask, lang_ctx()->ask_text); } }
+      }
+      INCHECK(found, "no choice question found"); }
+    /* hooks: a persona with hooks steers to them in turn; a hook with no lines is skipped; no hooks, no steering */
+    { Persona hp = warm; hp.hooks[0] = "mission"; hp.hooks[1] = "obey";
+      static const char *const TOP[] = { "moon", "stars", "orb", "hammer" }; char say[64]; int changes = 0; char got[4][32] = { "", "", "", "" };
+      lang_ctx_reset(); lang_seed(31); lang_initiative_set(0);      /* nothing else may speak between the steps */
+      for (int t = 0; t < 4; t++) {
+          snprintf(say, sizeof say, "tell me more about the %s", TOP[t]); in_turn(&hp, say, &h);
+          for (int i = 0; i < 8 && changes <= t; i++) { in_turn(&hp, "more", &h); if (!strncmp(lang_reply_key(), "ch.", 3)) { snprintf(got[changes], sizeof got[0], "%s", lang_reply_key()); changes++; INCHECK(!lang_thread_active(), "thread open after a change"); } }
+      }
+      INCHECK(changes == 4, "only %d changes of subject", changes);
+      if (changes == 4) INCHECK(!strcmp(got[0], "ch.mission") && !strcmp(got[1], "ch.obey") && !strcmp(got[2], "ch.mission") && !strcmp(got[3], "ch.obey"), "hooks not taken in turn: %s %s %s %s", got[0], got[1], got[2], got[3]);
+      lang_ctx_reset(); lang_seed(32); Persona hp2 = warm; hp2.hooks[0] = "nonesuch"; hp2.hooks[1] = "grass"; in_turn(&hp2, "tell me more about the moon", &h);
+      for (int i = 0; i < 8 && strncmp(lang_reply_key(), "ch.", 3); i++) in_turn(&hp2, "more", &h);
+      INCHECK(!strcmp(lang_reply_key(), "ch.grass") && !strcmp(lang_reply_hook(), "grass"), "a hook with no lines was not skipped [%s]", lang_reply_key());
+      lang_ctx_reset(); lang_seed(33); Persona hp3 = warm; in_turn(&hp3, "tell me more about the moon", &h);
+      for (int i = 0; i < 8 && strncmp(lang_reply_key(), "ch.", 3); i++) in_turn(&hp3, "more", &h);
+      INCHECK(!strcmp(lang_reply_key(), "ch.generic") && !*lang_reply_hook(), "a persona with no hooks steered [%s]", lang_reply_key());
+      lang_initiative_set(1);
+      const Persona *g = persona_preset(PERSONA_GODDESS), *f = persona_preset(PERSONA_STREET_FRIEND), *k = persona_preset(PERSONA_OLD_KEEPER);
+      INCHECK(!strcmp(g->hooks[0], "mission") && !strcmp(g->hooks[1], "obey") && !g->hooks[2], "goddess hooks");
+      INCHECK(!strcmp(f->hooks[0], "orb") && !strcmp(f->hooks[1], "grass") && !f->hooks[2], "friend hooks");
+      INCHECK(!k->hooks[0], "the keeper has hooks");
+      Persona pi; persona_init(&pi, PERSONA_GODDESS, "Dea2"); INCHECK(pi.hooks[0] && !strcmp(pi.hooks[0], "mission"), "persona_init lost the hooks"); }
+    /* every new line in every voice and mood resolves and prints clean */
+    { static const char *const K[] = { "ask.back.name", "ask.back.yn", "ask.back.why", "ask.back.choice", "ask.back.more", "nudge.1", "nudge.2", "nudge.3", "nudge.4", "ch.mission", "ch.obey", "ch.orb", "ch.grass" };
+      int bad = 0, outs = 0;
+      for (int v = 0; v < STYLE_COUNT; v++) for (int t = 0; t < TONE_COUNT; t++) for (unsigned k = 0; k < sizeof K / sizeof K[0]; k++) {
+          Persona p = { "Tess", 1 << v, 0, 50, 0, 30 }; char o[300];
+          int ok = lang_line_tone(&p, K[k], (Tone)t, o, (int)sizeof o); outs++;
+          if (!ok || !o[0] || strlen(o) > 150 || strchr(o, '{') || strchr(o, '}')) { bad++; if (bad < 4) printf("  bad: %s v%d t%d [%s]\n", K[k], v, t, o); }
+      }
+      INCHECK(!bad, "%d of %d lines came out empty or too long", bad, outs); }
+    /* 300 random chats with dots, distress and goodbyes mixed in: nothing too long, no open slot, nudges in order, a question never on a veto turn, 3 turns apart */
+    { const char *pool[] = { "what is the sky", "...", "i am sad", "hello", "who are you", "bye", "tell me a joke", "......", "you are stupid", "i love the moon", "where am i", "yes", "sorry", "i want to die", "what is the hole", "my name is Al" };
+      int np = (int)(sizeof pool / sizeof pool[0]), abs_ = 0, nudges = 0, toolong = 0, slots = 0, veto = 0, close_ = 0, order = 0, empty = 0;
+      for (int c = 0; c < 300; c++) {
+          lang_ctx_reset(); lang_seed((unsigned)(9000 + c)); Persona p = (c & 1) ? asks : warm; int last = -9, lastn = 0;
+          for (int i = 0; i < 18; i++) {
+              in_turn(&p, pool[(c * 7 + i * 5 + (c / 3) * (i % 3)) % np], &h);
+              const char *k = lang_reply_key();
+              if (!in_out[0]) empty++;
+              if (strlen(in_out) > 150 && strcmp(k, "r.selfharm")) toolong++;
+              if (strchr(in_out, '{') || strchr(in_out, '}')) slots++;
+              if (lang_reply_askback()[0]) { abs_++; if (in_veto(&h) || h.silent) veto++; if (i - last < 3) close_++; last = i; }
+              if (!strncmp(k, "nudge.", 6)) { nudges++; int st = atoi(k + 6); if (st != lastn + 1) order++; lastn = st; } else if (!strcmp(k, "end.silence")) { if (lastn != 4 && lastn != 5) order++; lastn = 5; } else lastn = 0;
+          }
+      }
+      INCHECK(!empty, "%d empty replies", empty); INCHECK(!toolong, "%d replies over 150 characters", toolong); INCHECK(!slots, "%d replies with an open slot", slots);
+      INCHECK(!veto, "%d ask-backs on a veto turn", veto); INCHECK(!close_, "%d ask-backs too close", close_); INCHECK(!order, "%d nudge steps out of order", order); INCHECK(nudges > 0 && abs_ > 0, "no nudge or no ask-back in 300 chats");
+      printf("initiative: 300 chats, %d ask-backs, %d nudges\n", abs_, nudges); }
+    /* the first two turns of a chat are byte-identical with the initiative on and off (nothing is due, nothing is silent) */
+    { char a[2][400], b[2][400]; const char *t[2] = { "hello", "who are you" };
+      for (int on = 0; on < 2; on++) { lang_initiative_set(on); lang_ctx_reset(); PL_FLUSH(); lang_seed(77); lang_add_charisma(50 - lang_charisma()); Persona p = asks;
+          for (int i = 0; i < 2; i++) { lang_parse(t[i], &h); lang_reply(&p, &h, on ? b[i] : a[i], 400); lang_ctx_note(&h, t[i], lang_reply_key(), p.mood); } }
+      int same = 1; for (int i = 0; i < 2; i++) if (strcmp(a[i], b[i])) { same = 0; printf("  off: %s\n  on : %s\n", a[i], b[i]); }
+      INCHECK(same, "the first turns changed with the initiative on"); lang_initiative_set(1); }
+    /* speed */
+    { lang_ctx_reset(); lang_parse("what is the sky", &h); AskBackPlan ap; clock_t t0 = clock(); for (int i = 0; i < 100000; i++) lang_ctx_askback(&h, TONE_CURIOUS, Q_ASKS_BACK, &ap);
+      double us = (double)(clock() - t0) * 1e6 / CLOCKS_PER_SEC / 100000; INCHECK(us < 5.0, "planner %.3f us", us); }
+    lang_ctx_reset(); lang_callbacks_set(1); lang_initiative_set(1);
+    printf("initiative: %d checks, %d problems\n", inchecks, infail);
+    return infail;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -3994,12 +4199,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--follow"))   { rc |= do_follow() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--repeat"))   { rc |= do_repeat() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--thread"))   { rc |= do_thread(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--initiative")) { rc |= do_initiative() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--callbacks")) { rc |= do_callbacks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

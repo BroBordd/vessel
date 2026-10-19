@@ -6,6 +6,7 @@
 #include "lang_clean.h"
 #include "lang_lex.h"
 #include "lang_frame.h"
+#include "lang_persona.h"      /* Q_ASKS_BACK (chunk 41) */
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -229,6 +230,39 @@ static void th_commit(const Heard *h, const char *key) {
     if (C.th_on && !(top == C.th_topic || heard_has(h, I_FOLLOW_MORE) || th_answer(h))) { C.th_on = 0; C.th_step = 0; }      /* the player left the topic (an answer to the npc's question does not count as leaving) */
 }
 
+/* ---------- chunk 41: npc initiative ---------- */
+int lang_ctx_nudge(const Heard *h) { return h->silent ? (C.nudge_n >= 4 ? 5 : C.nudge_n + 1) : 0; }
+
+static int ab_veto_intent(int in) {
+    return in == I_SELFHARM || in == I_INSULT || in == I_SORRY || in == I_BYE || in == I_SAD || in == I_SCARED || in == I_CONFUSED || in == I_HELP
+        || (in >= I_REPEAT_PLAYER && in <= I_SPAM) || in == I_FOLLOW_WHY || in == I_FOLLOW_MORE || in == I_FOLLOW_REALLY || in == I_FOLLOW_AGAIN
+        || in == I_AGREE_TO_ASK || in == I_DECLINE_TO_ASK || in == I_BECAUSE || in == I_ANSWER_CHOICE;
+}
+int lang_ctx_askback(const Heard *h, int tone, int quirk, AskBackPlan *out) {
+    out->n = 0;
+    if (h->silent) return 0;
+    if (!((quirk & Q_ASKS_BACK) || tone == TONE_CURIOUS || tone == TONE_SUSPICIOUS || tone == TONE_PLAYFUL)) return 0;
+    if (tone == TONE_HOSTILE) return 0;
+    const CtxReply *lr = lang_ctx_reply(0);
+    if (lr && lr->mood <= -55) return 0;                         /* right after a hostile stretch */
+    if (C.turns < (C.ab_n ? C.ab_next : 2)) return 0;           /* the third player turn at the earliest, then every 3 to 5 */
+    for (int i = 0; i < h->n; i++) if (ab_veto_intent(h->order[i])) return 0;
+    int known = C.name[0] || F.name[0] || C.prior.name[0] || lang_heard_capture(h, CAP_NAME, 0) != NULL;
+    int feeling = h->valence != 0 || lang_heard_capture(h, CAP_LIKE, 0) || lang_heard_capture(h, CAP_DISLIKE, 0) || lang_heard_capture(h, CAP_FEELING, 0);
+    static const char *const SUSP[] = { "why", "yn", "more", "choice", "name" }, *const PLAY[] = { "choice", "yn", "more", "name", "why" },
+                             *const CURI[] = { "name", "more", "why", "yn", "choice" }, *const ANY[] = { "name", "more", "yn", "choice", "why" };
+    const char *const *ord = tone == TONE_SUSPICIOUS ? SUSP : tone == TONE_PLAYFUL ? PLAY : tone == TONE_CURIOUS ? CURI : ANY;
+    int rot = ord == ANY ? (C.turns + C.ab_n) % 5 : 0;           /* a quirk with no mood to lead takes the tags in turn */
+    for (int i = 0; i < 5; i++) {
+        const char *t = ord[(i + rot) % 5];
+        if (!strcmp(t, "name") && known) continue;
+        if (!strcmp(t, "why") && !feeling) continue;
+        if (!strcmp(t, C.ab_tag)) continue;                      /* never the same kind twice in a row */
+        snprintf(out->tag[out->n++], sizeof out->tag[0], "%s", t);
+    }
+    return out->n > 0;
+}
+
 void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int mood) {
     if (I_LIED == -2) I_LIED = lang_intent_by_name("lie");
     /* the player's turn */
@@ -247,6 +281,13 @@ void lang_ctx_note(const Heard *h, const char *text, const char *reply_key, int 
     { int k = lang_cb_by_key(lang_reply_callback());      /* chunk 39: the reply carried a callback */
       if (k >= 0) { if (C.cb_cnt[k] < 255) C.cb_cnt[k]++; C.cb_n++; C.cb_at = C.reps; } }
     th_commit(h, lang_reply_thread());      /* chunk 40 */
+    C.nudge_n = h->silent ? (uint8_t)(C.nudge_n < 255 ? C.nudge_n + 1 : 255) : 0;      /* chunk 41: dots in a row; anything else breaks the run */
+    if (lang_reply_askback()[0]) {      /* chunk 41: the reply asked something back: the next one is 3 to 5 turns away, and not of the same kind */
+        const char *k = lang_reply_askback();
+        C.ab_n++; C.ab_next = C.turns + 2 + (int)(((unsigned)C.turns * 5u + (unsigned)C.ab_n * 3u) % 3u);
+        snprintf(C.ab_tag, sizeof C.ab_tag, "%s", strlen(k) > 9 ? k + 9 : "");
+    }
+    if (lang_reply_hook()[0]) C.hook_n++;      /* chunk 41: a change of subject took a hook: the next takes the next one */
     if (heard_has(h, I_SELFHARM)) C.rep_n = C.copy_n = 0;      /* chunk 38 */
     else { C.rep_n = (heard_has(h, I_REPEAT_PLAYER) || heard_has(h, I_SPAM)) ? h->rep_level : 0; C.copy_n = heard_has(h, I_COPYCAT) ? h->rep_level : 0; }
     if (heard_has(h, I_SELFHARM)) C.last_text[0] = 0; else snprintf(C.last_text, sizeof C.last_text, "%.159s", lang_reply_text());

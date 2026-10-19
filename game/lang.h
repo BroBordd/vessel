@@ -72,6 +72,9 @@ typedef struct {
     uint8_t hold;
     int8_t held;
     uint8_t quiet, flat, sour;      /* silent turns in a row, flattery turns in a row, turns left since the last insult (chunk 9) */
+    /* chunk 41: what this character steers the talk back to when it changes the subject (keys of ch.<hook> lines: mission, obey, orb, grass ...), tried in turn.
+     * NULL = the end of the list; a persona with no hooks never steers (it uses ch.generic). trailing, so every older initialiser compiles unchanged */
+    const char *hooks[4];
 } Persona;
 #define LEAN(t) (1u << (t))
 
@@ -125,6 +128,7 @@ typedef struct {
     uint8_t kind;       /* chunk 34: HK_* what the reading rests on */
     uint8_t rep_level;  /* chunk 38: with I_REPEAT_PLAYER / I_SPAM the step of the rep.1..5 ladder this turn is on, with I_COPYCAT the step of copycat.1..3 (0 = none) */
     uint8_t topic_ask;  /* chunk 40: the player asked to talk about a topic (tell me more about the moon, lets talk about the sky) and a topic was found: starts a thread at once */
+    uint8_t silent;     /* chunk 41: the player sent only dots (... / . / - -): a silent turn, answered by the nudge ladder (nudge.1 .. 4, then end.silence), never as a repeat */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
 } Heard;
 
@@ -211,6 +215,9 @@ const char *lang_reply_ask(void);                         /* the tag of the last
 void lang_callbacks_set(int on);                          /* chunk 39: tests switch the callbacks off (1 = on, the default) */
 const char *lang_reply_thread(void);                      /* chunk 40: the key (th.moon.2, th.generic.1, ch.generic) of the thread line the last lang_reply said ("" none) */
 void lang_threads_set(int on);                           /* chunk 40: tests switch the topic threads off (1 = on, the default) */
+void lang_initiative_set(int on);                         /* chunk 41: tests switch the npc initiative (ask-backs and the nudge ladder) off (1 = on, the default) */
+const char *lang_reply_askback(void);                     /* chunk 41: the key (ask.back.yn ...) of the question the last lang_reply asked back ("" none) */
+const char *lang_reply_hook(void);                        /* chunk 41: the hook (mission, orb ...) the last change of subject steered to ("" none) */
 const char *lang_reply_callback(void);                    /* chunk 39: the key (cb.insulted ...) of the callback the last lang_reply appended ("" none) */
 const char *lang_reply_text(void);                        /* chunk 37: the last reply lang_reply said, whole ("" for self-harm) */
 const char *lang_reply_ask_text(void);                    /* that question sentence as spoken, at most 95 bytes */

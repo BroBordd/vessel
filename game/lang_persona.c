@@ -32,6 +32,9 @@ static void build(void) {
     SET(PERSONA_POET,          "Poet",    STYLE_POET,                  10,  60, 10, 14, L(TONE_TENDER, TONE_SOLEMN, TONE_CURIOUS, TONE_SMUG),          Q_RHYMES | Q_LONG);
     SET(PERSONA_TRICKSTER,     "Trickster", STYLE_STREET | STYLE_POET,   5,  50, 40,  9, L(TONE_PLAYFUL, TONE_SARCASTIC, TONE_MANIC, TONE_SMUG),       Q_LIES | Q_ASKS_BACK);
     #undef SET
+    /* chunk 41: what each steers the talk back to when it changes the subject (ch.<hook> lines). only two presets so far: the others never steer */
+    P[PERSONA_GODDESS].hooks[0] = "mission"; P[PERSONA_GODDESS].hooks[1] = "obey";
+    P[PERSONA_STREET_FRIEND].hooks[0] = "orb"; P[PERSONA_STREET_FRIEND].hooks[1] = "grass";
 }
 
 const Persona *persona_preset(int id) { if (id < 0 || id >= PERSONA_COUNT) return NULL; build(); return &P[id]; }

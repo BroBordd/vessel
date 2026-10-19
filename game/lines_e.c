@@ -244,5 +244,72 @@ const Line LINES_E[] = {
     {"ch.generic", NEUT, ALLS, "Let us change the subject."}, {"ch.generic", NEUT, ALLS, "Another matter, then. Ask what you like."}, {"ch.generic", NEUT, ALLS, "That is done. Pick something else."},
     {"ch.generic", COLD, ALLS, "Let us speak of something that matters."}, {"ch.generic", COLD, ALLS, "Enough. Another subject."}, {"ch.generic", COLD, ALLS, "I am bored of this. Speak of something else."},
     {"ch.generic", HOST, ALLS, "Change the subject, or leave."}, {"ch.generic", HOST, ALLS, "I have heard enough on that. Find a new bone."}, {"ch.generic", HOST, ALLS, "Talk of something else, or do not talk at all."},
+    /* ---- chunk 41: npc initiative. ask.back.<tag> (name yn why choice more) = a question the npc asks back, each line carries its ask tag so the next bare answer is read relative to it;
+     * nudge.1..4 = the ladder for a player who sends only dots (end.silence follows the fourth); ch.<hook> = the change of subject of a persona with that hook (Persona.hooks). 12 / 12 / 8 lines per key. ---- */
+    /* ---- ask.back.name ---- */
+    {"ask.back.name", WARM, ALLS, "By the way, {pet}, what do I call you?", "name"}, {"ask.back.name", WARM, ALLS, "I never learned your name. What is it?", "name"}, {"ask.back.name", WARM, ALLS, "Would you tell me your name, {pet}?", "name"},
+    {"ask.back.name", NEUT, ALLS, "What is your name?", "name"}, {"ask.back.name", NEUT, ALLS, "I did not catch your name. What is it?", "name"}, {"ask.back.name", NEUT, ALLS, "Who are you, then? Give me a name.", "name"},
+    {"ask.back.name", COLD, ALLS, "Your name. What is it?", "name"}, {"ask.back.name", COLD, ALLS, "You never said who you are. Name?", "name"}, {"ask.back.name", COLD, ALLS, "Do you have a name, or must I guess?", "name"},
+    {"ask.back.name", HOST, ALLS, "And who are you supposed to be? Name.", "name"}, {"ask.back.name", HOST, ALLS, "Will you say your name, or stay nameless?", "name"}, {"ask.back.name", HOST, ALLS, "What do they call you, worm? Quickly.", "name"},
+    /* ---- ask.back.yn ---- */
+    {"ask.back.yn", WARM, ALLS, "Do you like it here, {pet}?", "yn"}, {"ask.back.yn", WARM, ALLS, "Are you well, {pet}?", "yn"}, {"ask.back.yn", WARM, ALLS, "Is this your first time wandering so far?", "yn"},
+    {"ask.back.yn", NEUT, ALLS, "Do you come here often?", "yn"}, {"ask.back.yn", NEUT, ALLS, "Are you comfortable?", "yn"}, {"ask.back.yn", NEUT, ALLS, "Is that all you wanted to know?", "yn"},
+    {"ask.back.yn", COLD, ALLS, "Are you finished?", "yn"}, {"ask.back.yn", COLD, ALLS, "Do you ever tire of asking?", "yn"}, {"ask.back.yn", COLD, ALLS, "Did you think I would not notice you?", "yn"},
+    {"ask.back.yn", HOST, ALLS, "Do you ever stop talking?", "yn"}, {"ask.back.yn", HOST, ALLS, "Are you always this dull?", "yn"}, {"ask.back.yn", HOST, ALLS, "Did anyone teach you manners?", "yn"},
+    /* ---- ask.back.why ---- */
+    {"ask.back.why", WARM, ALLS, "Why is that, {pet}? I would like to understand.", "why"}, {"ask.back.why", WARM, ALLS, "Will you tell me why, {pet}? I am listening.", "why"}, {"ask.back.why", WARM, ALLS, "Why do you say that, {pet}? Tell me more.", "why"},
+    {"ask.back.why", NEUT, ALLS, "Why do you say that?", "why"}, {"ask.back.why", NEUT, ALLS, "Why is that?", "why"}, {"ask.back.why", NEUT, ALLS, "And why would that be?", "why"},
+    {"ask.back.why", COLD, ALLS, "Why tell me this?", "why"}, {"ask.back.why", COLD, ALLS, "Why should I care about that?", "why"}, {"ask.back.why", COLD, ALLS, "Why bring it up?", "why"},
+    {"ask.back.why", HOST, ALLS, "Why would that matter to anyone?", "why"}, {"ask.back.why", HOST, ALLS, "Why do you even say these things?", "why"}, {"ask.back.why", HOST, ALLS, "Why? Never mind, I do not care.", "why"},
+    /* ---- ask.back.choice ---- */
+    {"ask.back.choice", WARM, ALLS, "Which is kinder, the day or the night?", "choice"}, {"ask.back.choice", WARM, ALLS, "Which do you love more, the sky or the grass?", "choice"}, {"ask.back.choice", WARM, ALLS, "Would you rather have the sun or the moon, {pet}?", "choice"},
+    {"ask.back.choice", NEUT, ALLS, "Which would you choose, the light or the dark?", "choice"}, {"ask.back.choice", NEUT, ALLS, "Rain or sun, which do you prefer?", "choice"}, {"ask.back.choice", NEUT, ALLS, "Would you rather walk or fly?", "choice"},
+    {"ask.back.choice", COLD, ALLS, "Quick, the door or the window?", "choice"}, {"ask.back.choice", COLD, ALLS, "Speak or stay silent, which is it?", "choice"}, {"ask.back.choice", COLD, ALLS, "The north or the south, which will it be?", "choice"},
+    {"ask.back.choice", HOST, ALLS, "Run or crawl, which suits you better?", "choice"}, {"ask.back.choice", HOST, ALLS, "Beg or leave, which will it be?", "choice"}, {"ask.back.choice", HOST, ALLS, "Fear or hunger, which is worse for you?", "choice"},
+    /* ---- ask.back.more ---- */
+    {"ask.back.more", WARM, ALLS, "There is more on your mind, {pet}. Will you tell me?", "more"}, {"ask.back.more", WARM, ALLS, "Go on, {pet}. Is there more you want to say?", "more"}, {"ask.back.more", WARM, ALLS, "I have time. Is there more to tell?", "more"},
+    {"ask.back.more", NEUT, ALLS, "Is there anything else you want to say?", "more"}, {"ask.back.more", NEUT, ALLS, "Is there more?", "more"}, {"ask.back.more", NEUT, ALLS, "Do you want to tell me more?", "more"},
+    {"ask.back.more", COLD, ALLS, "Anything more to say, or are we done?", "more"}, {"ask.back.more", COLD, ALLS, "Is that all?", "more"}, {"ask.back.more", COLD, ALLS, "Do you have more to say?", "more"},
+    {"ask.back.more", HOST, ALLS, "Is that all you have? Pathetic.", "more"}, {"ask.back.more", HOST, ALLS, "Anything else, or shall I enjoy the quiet?", "more"}, {"ask.back.more", HOST, ALLS, "More? Or is that your whole mind?", "more"},
+    /* ---- nudge.1 ---- */
+    {"nudge.1", WARM, ALLS, "I am here, {pet}. Take your time."}, {"nudge.1", WARM, ALLS, "Still thinking, {pet}? That is all right."}, {"nudge.1", WARM, ALLS, "No rush. I can wait."},
+    {"nudge.1", NEUT, ALLS, "You have gone quiet."}, {"nudge.1", NEUT, ALLS, "Nothing to say?"}, {"nudge.1", NEUT, ALLS, "Go on. I am listening."},
+    {"nudge.1", COLD, ALLS, "Well? I am waiting."}, {"nudge.1", COLD, ALLS, "Your silence is noted."}, {"nudge.1", COLD, ALLS, "Speak, or do not."},
+    {"nudge.1", HOST, ALLS, "Dots. How eloquent."}, {"nudge.1", HOST, ALLS, "Is that supposed to mean something?"}, {"nudge.1", HOST, ALLS, "Say something real, or go."},
+    /* ---- nudge.2 ---- */
+    {"nudge.2", WARM, ALLS, "Are you still with me, {pet}?"}, {"nudge.2", WARM, ALLS, "Say anything at all, {pet}. Even a small word."}, {"nudge.2", WARM, ALLS, "I am still here. Are you?"},
+    {"nudge.2", NEUT, ALLS, "Hello? Are you there?"}, {"nudge.2", NEUT, ALLS, "More dots. Try some words."}, {"nudge.2", NEUT, ALLS, "Say something. Anything."},
+    {"nudge.2", COLD, ALLS, "I do not have all day."}, {"nudge.2", COLD, ALLS, "Words. You have them somewhere."}, {"nudge.2", COLD, ALLS, "Do not test my patience."},
+    {"nudge.2", HOST, ALLS, "Stop wasting my time with dots."}, {"nudge.2", HOST, ALLS, "Open your mouth or leave."}, {"nudge.2", HOST, ALLS, "Dots again. You are tiresome."},
+    /* ---- nudge.3 ---- */
+    {"nudge.3", WARM, ALLS, "You are worrying me, {pet}. Please say something."}, {"nudge.3", WARM, ALLS, "Is something wrong, {pet}? Speak to me."}, {"nudge.3", WARM, ALLS, "I do not like this quiet. Tell me what is wrong."},
+    {"nudge.3", NEUT, ALLS, "This silence is getting long."}, {"nudge.3", NEUT, ALLS, "I am starting to wonder about you."}, {"nudge.3", NEUT, ALLS, "Say something, or I will go."},
+    {"nudge.3", COLD, ALLS, "This is growing tiresome."}, {"nudge.3", COLD, ALLS, "I will not wait much longer."}, {"nudge.3", COLD, ALLS, "Your quiet is becoming rude."},
+    {"nudge.3", HOST, ALLS, "One more dot and I am leaving."}, {"nudge.3", HOST, ALLS, "Speak, or I end this."}, {"nudge.3", HOST, ALLS, "I am close to leaving you in that silence."},
+    /* ---- nudge.4 ---- */
+    {"nudge.4", WARM, ALLS, "One more moment, {pet}. Then I will let you rest."}, {"nudge.4", WARM, ALLS, "Say goodbye if you must, {pet}. I will not be cross."}, {"nudge.4", WARM, ALLS, "I will wait a little longer, {pet}. Then I must go."},
+    {"nudge.4", NEUT, ALLS, "Last call. Speak now."}, {"nudge.4", NEUT, ALLS, "This is your last chance to say something."}, {"nudge.4", NEUT, ALLS, "I am leaving after this."},
+    {"nudge.4", COLD, ALLS, "That is enough. Speak now or never."}, {"nudge.4", COLD, ALLS, "Final warning. Words, now."}, {"nudge.4", COLD, ALLS, "Say something this instant, or I go."},
+    {"nudge.4", HOST, ALLS, "Last warning. Talk or be forgotten."}, {"nudge.4", HOST, ALLS, "Say a word or I walk away from you."}, {"nudge.4", HOST, ALLS, "Say something now, or crawl off in silence."},
+    /* ---- ch.mission ---- */
+    {"ch.mission", WARM, ALLS, "Come now, {pet}. Let us speak of your mission."}, {"ch.mission", WARM, ALLS, "That is enough, {pet}. Think of the task before you."},
+    {"ch.mission", NEUT, ALLS, "Back to the point. You have a task to finish."}, {"ch.mission", NEUT, ALLS, "Enough of that. Think of what you were sent to do."},
+    {"ch.mission", COLD, ALLS, "Enough chatter. Your mission awaits."}, {"ch.mission", COLD, ALLS, "Stop wandering. Do the thing you were told to do."},
+    {"ch.mission", HOST, ALLS, "Quit stalling and do your task."}, {"ch.mission", HOST, ALLS, "Your mission waits and you babble. Get moving."},
+    /* ---- ch.obey ---- */
+    {"ch.obey", WARM, ALLS, "Let us talk of trust, {pet}. Do as you are told and all will be well."}, {"ch.obey", WARM, ALLS, "Listen well, {pet}. Obedience will keep you safe."},
+    {"ch.obey", NEUT, ALLS, "Remember to do as you are told."}, {"ch.obey", NEUT, ALLS, "Now, listen. You are to follow what you are told."},
+    {"ch.obey", COLD, ALLS, "Obey. That is all you need to know."}, {"ch.obey", COLD, ALLS, "You will do as you are told. Nothing else matters."},
+    {"ch.obey", HOST, ALLS, "Obey me, or suffer for it."}, {"ch.obey", HOST, ALLS, "You obey, you do not ask. Remember that."},
+    /* ---- ch.orb ---- */
+    {"ch.orb", WARM, ALLS, "Let us talk of something shiny, {pet}. That orb has a story."}, {"ch.orb", WARM, ALLS, "Enough of that, {pet}. The orb is a far better thing to talk about."},
+    {"ch.orb", NEUT, ALLS, "Back to the orb. It matters more than this."}, {"ch.orb", NEUT, ALLS, "Let us talk about the orb instead."},
+    {"ch.orb", COLD, ALLS, "Forget that. The orb is what counts."}, {"ch.orb", COLD, ALLS, "The orb. Now that is worth your breath."},
+    {"ch.orb", HOST, ALLS, "Forget that nonsense. The orb is what matters."}, {"ch.orb", HOST, ALLS, "Talk about the orb or say nothing at all."},
+    /* ---- ch.grass ---- */
+    {"ch.grass", WARM, ALLS, "Let us talk about the grass, {pet}. It is soft, and it listens."}, {"ch.grass", WARM, ALLS, "Come, {pet}. Tell me what you think of the green hills."},
+    {"ch.grass", NEUT, ALLS, "Let us talk about the grass instead."}, {"ch.grass", NEUT, ALLS, "Back to the grass. It has more to say than this."},
+    {"ch.grass", COLD, ALLS, "Enough. The grass is a better listener."}, {"ch.grass", COLD, ALLS, "Talk of the grass, or do not talk."},
+    {"ch.grass", HOST, ALLS, "Go talk to the grass. It is smarter than you."}, {"ch.grass", HOST, ALLS, "The grass has better manners than you. Speak of it instead."},
 };
 const int LINES_E_N = (int)(sizeof LINES_E / sizeof LINES_E[0]);

@@ -542,6 +542,23 @@ static void follow_pass(Heard *h, const char *const *tx, const int *tl, int nt) 
     if (k != FU_NONE) heard_add(h, IN[k], SRC_FRAME, 85);
 }
 
+/* ---------- chunk 41: npc initiative switch, and the silent turn ---------- */
+static int g_init_on = 1;
+void lang_initiative_set(int on) { g_init_on = on; }
+/* the text is only dots, commas, dashes, tildes and spaces (at least one dot, dash or tilde): the player sends silence. a face such as -_- or :( has other
+ * characters, a ? or a ! is a question or a shout, so none of those are silent */
+static int is_silence(const char *lc, int len, const Heard *h) {
+    int marks = 0;
+    if (h->n || h->words || heard_has(h, I_SELFHARM)) return 0;
+    for (int i = 0; i < TK_COUNT; i++) if (h->tok[i]) return 0;
+    for (int i = 0; i < len; i++) {
+        char c = lc[i];
+        if (c == '.' || c == '-' || c == '~') marks++;
+        else if (c != ' ' && c != ',') return 0;
+    }
+    return marks > 0;
+}
+
 /* ---------- chunk 38: the same line again, a spammed word or character, the npc's own words typed back ---------- */
 static void repeat_pass(Heard *h, const char *raw, const char *lc) {
     int level = 0, k = lang_ctx_repeat_kind(h, raw, lc, &level);
@@ -715,7 +732,8 @@ void lang_parse(const char *text, Heard *h) {
     h->is_question = q;
     { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; ask_pass(h, tx, tl, 4, lc, len, src, &cs); follow_pass(h, tx, tl, 4); }      /* chunks 36, 37 */
     h->topic_ask = (uint8_t)(h->ntopic && lang_thread_ask(lc));      /* chunk 40 */
-    repeat_pass(h, text, lc);      /* chunk 38 */
+    h->silent = (uint8_t)(g_init_on && is_silence(lc, len, h));      /* chunk 41: only dots: the nudge ladder answers, never the repeat ladder */
+    if (!h->silent) repeat_pass(h, text, lc);      /* chunk 38 */
     confidence_of(h);      /* chunk 34 */
 }
 
@@ -1211,20 +1229,30 @@ void lang_set_heard_slots(const Heard *h) {
     if ((c = lang_heard_capture(h, CAP_THING, 0)) && echo_phrase(c->text)) snprintf(g_cthing, sizeof g_cthing, "%s", c->text);
 }
 
-static char g_reply_key[48], g_cb_key[24], g_th_key[48], g_th_word[24];
+static char g_reply_key[48], g_cb_key[24], g_th_key[48], g_th_word[24], g_ab_key[24], g_hook[24];
 static int g_cb_on = 1;
 void lang_callbacks_set(int on) { g_cb_on = on; }
 
 const char *lang_reply_key(void) { return g_reply_key; }
 const char *lang_reply_callback(void) { return g_cb_key; }
 const char *lang_reply_thread(void) { return g_th_key; }
+const char *lang_reply_askback(void) { return g_ab_key; }
+const char *lang_reply_hook(void) { return g_hook; }
 static int g_th_on = 1;
 void lang_threads_set(int on) { g_th_on = on; }
 /* chunk 40: one line of a topic thread: th.<topic>.<1..4> (th.generic.<n> when the topic has no lines of its own) or ch.generic, the npc changing the subject */
 static int thread_reply(Persona *ps, const Heard *h, Tone tone, const ThreadPlan *tp, char *out, int cap) {
     char key[48]; const Line *const *rows;
-    if (tp->kind == TH_CHANGE) snprintf(key, sizeof key, "ch.generic");
-    else {
+    if (tp->kind == TH_CHANGE) {
+        snprintf(key, sizeof key, "ch.generic");
+        const char *hk[4]; int nh = 0;      /* chunk 41: a persona with hooks steers to one of them (in turn); a hook with no lines is skipped, none left = the generic line */
+        for (int i = 0; i < 4; i++) {
+            if (!ps->hooks[i] || !ps->hooks[i][0]) continue;
+            char k2[48]; snprintf(k2, sizeof k2, "ch.%.40s", ps->hooks[i]);
+            if (lang_key_rows(k2, &rows)) hk[nh++] = ps->hooks[i];
+        }
+        if (nh) { const char *h1 = hk[lang_ctx()->hook_n % nh]; snprintf(key, sizeof key, "ch.%.40s", h1); snprintf(g_hook, sizeof g_hook, "%.23s", h1); }
+    } else {
         const char *tn = lang_topic_name(tp->topic);
         snprintf(key, sizeof key, "th.%.36s.%d", tn ? tn : "generic", tp->step);
         if (!tn || !lang_key_rows(key, &rows)) snprintf(key, sizeof key, "th.generic.%d", tp->step);
@@ -1296,8 +1324,26 @@ static int ladder_reply(Persona *ps, const Heard *h, Tone tone, char *out, int c
     ask_note(lang_line_ask(l), out);
     return 1;
 }
+/* chunk 41: the player sent only dots. nudge.1 .. 4 (are you there, come on, i am worried or annoyed, last call), then end.silence: the npc gives up and the chat ends.
+ * a silent turn is an idle turn for the mood (the vector drifts, a long silence worries a kind npc and bores a cold one), not an apply */
+static int silent_reply(Persona *ps, const Heard *h, char *out, int cap) {
+    int step = lang_ctx_nudge(h);
+    lang_idle_turn(ps);
+    Tone tone = lang_mood_now(ps);
+    char key[16]; snprintf(key, sizeof key, step >= 5 ? "end.silence" : "nudge.%d", step);
+    g_tone = (int)tone;
+    const Line *l = pick(ps, key, (int)tone);
+    if (!l) return 0;
+    int pass = g_pass; remember(l);
+    fmt(ps, l->text, out, cap, 0);
+    voice_line(ps, key, l, pass, (int)tone, out, cap);
+    snprintf(g_reply_key, sizeof g_reply_key, "%s", key);
+    snprintf(g_last_text, sizeof g_last_text, "%.159s", out);
+    ask_note(lang_line_ask(l), out);
+    return 1;
+}
 int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
-    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_th_key[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
+    out[0] = 0; g_reply_key[0] = 0; g_cb_key[0] = 0; g_th_key[0] = 0; g_ab_key[0] = 0; g_hook[0] = 0; g_fact[0] = 0; g_last_text[0] = 0; ask_note("", NULL); g_body_line = NULL;
     lang_set_heard_slots(h);
     g_topic = h->capture;
     g_opt1 = ""; g_opt2 = ""; g_pick = 0;
@@ -1306,6 +1352,8 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (choice_safe) { g_opt1 = h->opt1; g_opt2 = h->opt2; }
     /* a real person might be behind these words: step out of character, whoever is talking */
     if (heard_has(h, I_SELFHARM)) { lang_line_tone(ps, "r.selfharm", TONE_WARM, out, cap); snprintf(g_reply_key, sizeof g_reply_key, "r.selfharm"); ask_note("", NULL); return 1; }      /* a person may be behind the words: nothing is asked back */
+
+    if (h->silent && g_init_on && silent_reply(ps, h, out, cap)) return 1;      /* chunk 41: dots only */
 
     lang_apply(ps, h);
     Tone tone = lang_mood_now(ps);
@@ -1388,15 +1436,39 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
         }
     }
 
+    /* chunk 41: the npc asks something back (ask.back.<tag>: name yn why choice more): only after a plain answer with no hedge and no callback, when the planner says it is time,
+     * and only when the answer and the question fit one phone-sized reply (150 characters); a question that does not fit is tried again next turn. The line carries its ask tag,
+     * so the next bare yes / no / name / because / one of two options is read relative to it (chunk 36) */
+    char ab[120]; const Line *ab_l = NULL; ab[0] = 0;
+    if (g_init_on && !hed[0] && !cb[0] && answered && ladder < 0 && !strchr(body, '?')) {
+        AskBackPlan ap;
+        if (lang_ctx_askback(h, (int)tone, ps->quirk, &ap)) {
+            for (int t = 0; t < ap.n && !ab_l; t++) {
+                char k[24]; const Line *const *rows;
+                snprintf(k, sizeof k, "ask.back.%s", ap.tag[t]);
+                if (!lang_key_rows(k, &rows)) continue;
+                g_tone = (int)tone;
+                for (int tries = 0; tries < 3 && !ab_l; tries++) {
+                    const Line *l = pick(ps, k, (int)tone);
+                    if (!l) break;
+                    int pass = g_pass; remember(l);
+                    char one[120]; fmt(ps, l->text, one, (int)sizeof one, 0);
+                    voice_line(ps, k, l, pass, (int)tone, one, (int)sizeof one);
+                    if ((int)strlen(body) + 1 + (int)strlen(one) <= 150) { snprintf(ab, sizeof ab, "%s", one); ab_l = l; snprintf(g_ab_key, sizeof g_ab_key, "%s", k); }
+                }
+            }
+        }
+    }
+
     /* a little colour around the edges: an opener and/or a closer */
     int len = (int)strlen(body);
     char pre[80] = "", post[100] = "", full[800]; const Line *post_l = NULL;
     g_tone = (int)tone;
-    if (!hed[0] && !cb[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
+    if (!hed[0] && !cb[0] && !ab[0] && len < 110 && rn(100) < (tone_rude(tone) ? 45 : 25)) {
         const Line *l = pick(ps, "p.pre", (int)tone);
         if (l) { remember(l); fmt(ps, l->text, pre, (int)sizeof pre, 1); }
     }
-    if (!cb[0] && len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
+    if (!cb[0] && !ab[0] && len + (int)strlen(pre) + (int)strlen(hed) < 100 && rn(100) < (tone_rude(tone) ? 50 : 30)) {
         const Line *l = pick(ps, "p.post", (int)tone);
         if (l) { remember(l); post_l = l; fmt(ps, l->text, post, (int)sizeof post, 1); }
     }
@@ -1405,9 +1477,10 @@ int lang_reply(Persona *ps, const Heard *h, char *out, int cap) {
     if (pre[0]) cat(full, (int)sizeof full, pre);
     cat(full, (int)sizeof full, body);
     if (cb[0]) cat(full, (int)sizeof full, cb);
+    if (ab[0]) cat(full, (int)sizeof full, ab);
     if (post[0]) cat(full, (int)sizeof full, post);
     snprintf(out, (size_t)cap, "%s", full);
     snprintf(g_last_text, sizeof g_last_text, "%.159s", full);      /* chunk 37 */
-    { const char *tg = post_l ? lang_line_ask(post_l) : ""; if (!tg[0] && g_body_line) tg = lang_line_ask(g_body_line); ask_note(tg, full); }      /* chunk 36: what the npc just asked (the closer's tag, else the answer's) */
+    { const char *tg = ab_l ? lang_line_ask(ab_l) : post_l ? lang_line_ask(post_l) : ""; if (!tg[0] && g_body_line) tg = lang_line_ask(g_body_line); ask_note(tg, full); }      /* chunk 36: what the npc just asked (the closer's tag, else the answer's) */
     return answered;
 }
