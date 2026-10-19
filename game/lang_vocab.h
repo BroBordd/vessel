@@ -18,7 +18,7 @@
 #ifndef LANG_VOCAB_H
 #define LANG_VOCAB_H
 
-extern const char *const VOCAB_A[];      /* lang_vocab_a.c: ranks 1-826 */
+extern const char *const VOCAB_A[];      /* lang_vocab_a.c: ranks 1-1500 */
 extern const char *const NAMES_A[];      /* lang_vocab_names.c: starter first names */
 
 int  vocab_has(const char *w);                 /* 1 if w is a vocabulary word */
