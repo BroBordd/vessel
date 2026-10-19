@@ -45,6 +45,7 @@
 #include "heart.h"
 #include "hud.h"
 #include "lang_persona.h"
+#include "lang_ctx.h"
 #include "convo.h"
 #include "lang.h"
 #include <string.h>
@@ -1007,6 +1008,9 @@ void story_start(void) {
     memset(&limbo, 0, sizeof limbo);            /* a new game is not in limbo (the story enters it itself) */
     limbo_opening = 0;
     DEA_MIND.mood = 0; ALEX_MIND.mood = 10;
+    DEA_MIND.trust = DEA_MIND.fear = DEA_MIND.energy = DEA_MIND.amuse = DEA_MIND.grief = 0;         /* chunk 48: a new game starts from nothing: the vector and the facts too */
+    ALEX_MIND.trust = ALEX_MIND.fear = ALEX_MIND.energy = ALEX_MIND.amuse = ALEX_MIND.grief = 0;
+    lang_ctx_facts_load(NULL);
     convo_set_player(&VAS);
     world_set_controls_visible(0);
     world_summon(intro_done);                   /* the light, the sparks, the vessel; it starts when limbo hands over to the world (game.c) */
@@ -1018,7 +1022,10 @@ void story_start(void) {
  * manual save. LOAD (menu) puts them back, then plays a short limbo and goes on exactly like after a death: next_life_begin (the same
  * code, the same summoning). "save.dat" lives next to the game binary (the game runs in the app's files dir). it is written to a temp file
  * and renamed, so a crash in the middle never leaves a broken save. whoever adds persistent story state adds it to SaveFile and to
- * save_fill / save_apply, and bumps SAVE_VERSION when the layout changes (an old file is then ignored). */
+ * save_fill / save_apply, and bumps SAVE_VERSION when the layout changes (an old file is then ignored).
+ * chunk 48: what the talk engine adds (the mood vector of Dea and Alex, the facts that outlive a chat) is stored AFTER the v1 struct, in a block of its
+ * own with a version byte (SaveExt), so a save made before it (exactly the v1 struct) still loads: the vector is zero, no facts. the v1 part is
+ * unchanged byte for byte and keeps its own check; the block has its own check. a block this build does not know (another ext version) is skipped. */
 #define SAVE_FILE    "save.dat"
 #define SAVE_MAGIC   0x4C535356u            /* "VSSL" */
 #define SAVE_VERSION 1u
@@ -1038,14 +1045,28 @@ typedef struct {
     uint32_t check;                         /* FNV-1a of everything above */
 } SaveFile;
 
+#define SAVE_EXT_MAGIC   0x58455356u        /* "VSEX" */
+#define SAVE_EXT_VERSION 1u
+typedef struct {
+    uint32_t magic;
+    uint8_t  version, pad[3];
+    uint32_t len;                           /* the size of this whole block, so a later version can be told from garbage */
+    int8_t   dea_vec[5], alex_vec[5];       /* trust, fear, energy, amuse, grief (Persona, chunk 8) */
+    uint8_t  pad2[2];
+    CtxFacts facts;                         /* what Dea and Alex keep of the player between chats (chunk 39) */
+    uint32_t check;                         /* FNV-1a of everything above in this block */
+} SaveExt;
+
 static const Person *save_person(int i) { return i == 0 ? &VESSEL : i == 1 ? &VESSEL2 : i == 2 ? &VESSEL3 : NULL; }
 static int save_person_idx(const Person *p) { return p == &VESSEL ? 0 : p == &VESSEL2 ? 1 : p == &VESSEL3 ? 2 : -1; }
-static uint32_t save_check(const SaveFile *sf) {
-    const unsigned char *b = (const unsigned char *)sf;
+static uint32_t save_fnv(const void *p, size_t n) {
+    const unsigned char *b = (const unsigned char *)p;
     uint32_t h = 2166136261u;
-    for (size_t i = 0; i < offsetof(SaveFile, check); i++) { h ^= b[i]; h *= 16777619u; }
+    for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
     return h;
 }
+static uint32_t save_check(const SaveFile *sf) { return save_fnv(sf, offsetof(SaveFile, check)); }
+static uint32_t save_ext_check(const SaveExt *ex) { return save_fnv(ex, offsetof(SaveExt, check)); }
 
 static void save_fill(SaveFile *sf) {
     memset(sf, 0, sizeof *sf);
@@ -1075,28 +1096,53 @@ static void save_fill(SaveFile *sf) {
     sf->check = save_check(sf);
 }
 
-/* the file as it is on disk, checked: 1 = a save this build understands */
-static int save_read(SaveFile *sf) {
+static void save_fill_ext(SaveExt *ex) {
+    memset(ex, 0, sizeof *ex);
+    ex->magic = SAVE_EXT_MAGIC; ex->version = SAVE_EXT_VERSION; ex->len = sizeof *ex;
+    ex->dea_vec[0] = DEA_MIND.trust; ex->dea_vec[1] = DEA_MIND.fear; ex->dea_vec[2] = DEA_MIND.energy; ex->dea_vec[3] = DEA_MIND.amuse; ex->dea_vec[4] = DEA_MIND.grief;
+    ex->alex_vec[0] = ALEX_MIND.trust; ex->alex_vec[1] = ALEX_MIND.fear; ex->alex_vec[2] = ALEX_MIND.energy; ex->alex_vec[3] = ALEX_MIND.amuse; ex->alex_vec[4] = ALEX_MIND.grief;
+    lang_ctx_facts_save(&ex->facts);
+    ex->check = save_ext_check(ex);
+}
+
+/* the file as it is on disk, checked: 1 = a save this build understands. *ex is filled when the file has a block this build knows (*has_ext = 1), else
+ * *has_ext = 0 and the caller uses the defaults (a save from before chunk 48, or a block of a later version). any other size or a damaged tail = no save */
+static int save_read2(SaveFile *sf, SaveExt *ex, int *has_ext) {
+    unsigned char buf[sizeof(SaveFile) + sizeof(SaveExt) + 1];
+    if (has_ext) *has_ext = 0;
     FILE *f = fopen(SAVE_FILE, "rb");
     if (!f) return 0;
-    size_t n = fread(sf, 1, sizeof *sf, f);
+    size_t n = fread(buf, 1, sizeof buf, f);
     int extra = fgetc(f);
     fclose(f);
-    if (n != sizeof *sf || extra != EOF) return 0;
+    if (n < sizeof *sf || n > sizeof *sf + sizeof(SaveExt) || extra != EOF) return 0;
+    memcpy(sf, buf, sizeof *sf);
+    size_t rest = n - sizeof *sf;
+    if (rest) {
+        uint32_t magic, len;
+        if (rest < 12) return 0;                                   /* not even a block header */
+        memcpy(&magic, buf + sizeof *sf, 4); memcpy(&len, buf + sizeof *sf + 8, 4);
+        if (magic != SAVE_EXT_MAGIC || len != rest) return 0;      /* a tail that is not a block: damaged */
+        if (rest == sizeof(SaveExt) && ex) {
+            SaveExt e; memcpy(&e, buf + sizeof *sf, sizeof e);
+            if (e.version == SAVE_EXT_VERSION && e.check == save_ext_check(&e)) { *ex = e; if (has_ext) *has_ext = 1; }
+        }                                                          /* a bad check or another version: the defaults (the v1 part is still good) */
+    }
     if (sf->magic != SAVE_MAGIC || sf->version != SAVE_VERSION || sf->check != save_check(sf)) return 0;
     if (sf->lives < 1 || sf->lives > 9 || sf->grave_n < 0 || sf->grave_n > GRAVE_MAX || sf->found_graves_n < 0 || sf->found_graves_n > GRAVE_MAX) return 0;
     for (int i = 0; i < sf->grave_n; i++) if (!save_person(sf->graves[i].who)) return 0;
     for (int i = 0; i < sf->found_graves_n; i++) if (!save_person(sf->found_graves[i])) return 0;
     return 1;
 }
+static int save_read(SaveFile *sf) { return save_read2(sf, NULL, NULL); }
 
 static int autosave(void) {
-    SaveFile sf;
-    save_fill(&sf);
+    SaveFile sf; SaveExt ex;
+    save_fill(&sf); save_fill_ext(&ex);
     const char *tmp = SAVE_FILE ".tmp";
     FILE *f = fopen(tmp, "wb");
     if (!f) return 0;
-    int ok = fwrite(&sf, 1, sizeof sf, f) == sizeof sf && fflush(f) == 0 && fsync(fileno(f)) == 0;
+    int ok = fwrite(&sf, 1, sizeof sf, f) == sizeof sf && fwrite(&ex, 1, sizeof ex, f) == sizeof ex && fflush(f) == 0 && fsync(fileno(f)) == 0;
     ok = fclose(f) == 0 && ok;
     if (ok) ok = rename(tmp, SAVE_FILE) == 0;
     else remove(tmp);
@@ -1107,7 +1153,7 @@ int story_save_exists(void) { SaveFile sf; return save_read(&sf); }
 
 /* the state of a save is put back (the world has just been made by world_init, so story_start has already cleared everything and queued
  * the opening: next_life_begin cancels that and runs the summoning of the saved life) */
-static void save_apply(const SaveFile *sf) {
+static void save_apply(const SaveFile *sf, const SaveExt *ex) {
     lives = sf->lives;
     aonia_buried = sf->aonia_buried; hammer_taken = sf->hammer_taken; aonia_out = sf->aonia_out; aonia_searched = sf->aonia_searched;
     hammer_tx = sf->hammer_tx; hammer_ty = sf->hammer_ty;
@@ -1117,6 +1163,16 @@ static void save_apply(const SaveFile *sf) {
     shrine_repaired = sf->shrine_repaired; self_done = sf->self_done; secret_on = sf->secret_on;
     hammer_hinted = sf->hammer_hinted; hammer_said = sf->hammer_said;
     DEA_MIND.mood = sf->dea_mood; ALEX_MIND.mood = sf->alex_mood;
+    {   /* chunk 48: the vector and the facts. a save from before them (ex == NULL): the vector is zero, no facts */
+        int8_t *dv[5] = { &DEA_MIND.trust, &DEA_MIND.fear, &DEA_MIND.energy, &DEA_MIND.amuse, &DEA_MIND.grief };
+        int8_t *av[5] = { &ALEX_MIND.trust, &ALEX_MIND.fear, &ALEX_MIND.energy, &ALEX_MIND.amuse, &ALEX_MIND.grief };
+        for (int i = 0; i < 5; i++) {
+            int d = ex ? ex->dea_vec[i] : 0, a = ex ? ex->alex_vec[i] : 0;
+            *dv[i] = (int8_t)(d < -100 ? -100 : d > 100 ? 100 : d); *av[i] = (int8_t)(a < -100 ? -100 : a > 100 ? 100 : a);
+        }
+        DEA_MIND.hold = ALEX_MIND.hold = 0; DEA_MIND.held = ALEX_MIND.held = 0;
+        if (ex) { CtxFacts cf = ex->facts; cf.name[sizeof cf.name - 1] = 0; lang_ctx_facts_load(&cf); } else lang_ctx_facts_load(NULL);
+    }
     lang_add_charisma(sf->charisma - lang_charisma());
     green.house_tx = sf->green[0]; green.house_ty = sf->green[1]; green.alex_there = sf->green[2];
     green.shrine_tx = sf->green[3]; green.shrine_ty = sf->green[4]; green.shrine_there = sf->green[5]; green.shrine_polluted = sf->green[6];
@@ -1137,9 +1193,9 @@ static void load_hold_over(void) { next_life_begin(); }
 
 /* LOAD was pressed (game.c, after the menu has faded and world_init has run). 0 = no usable save: the caller starts a new game instead */
 int story_load_begin(void) {
-    SaveFile sf;
-    if (!save_read(&sf)) return 0;
-    save_apply(&sf);
+    SaveFile sf; SaveExt ex; int has_ext;
+    if (!save_read2(&sf, &ex, &has_ext)) return 0;
+    save_apply(&sf, has_ext ? &ex : NULL);
     limbo_opening = 0;
     limbo_run(NULL, 0, LIMBO_BEAT, load_hold_over);         /* a beat of stars with the soul's voice, then the summoning: like after a death, without the words */
     return 1;
