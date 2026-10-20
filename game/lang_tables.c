@@ -62,6 +62,7 @@ static void builtin(void) {
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_vocab(VOCAB_A2);                               /* chunk 49b */
     lang_register_vocab(VOCAB_A3);                               /* chunk 49c */
+    lang_register_vocab(VOCAB_A4);                               /* chunk 49d */
     lang_register_names(NAMES_A);
 }
 
