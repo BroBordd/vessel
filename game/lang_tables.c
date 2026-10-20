@@ -70,6 +70,7 @@ static void builtin(void) {
     lang_register_vocab(VOCAB_C1);                               /* chunk 51b */
     lang_register_vocab(VOCAB_C2);                               /* chunk 51c */
     lang_register_vocab(VOCAB_C3);                               /* chunk 51d */
+    lang_register_vocab(VOCAB_C4);                               /* chunk 51e */
     lang_register_names(NAMES_A);
     lang_register_names(NAMES_B);                                /* chunk 51a */
 }

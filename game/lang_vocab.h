@@ -29,6 +29,7 @@ extern const char *const VOCAB_B4[];     /* lang_vocab_b4.c: ranks 9501-10000 */
 extern const char *const VOCAB_C1[];     /* lang_vocab_c1.c: ranks 10001-11500 */
 extern const char *const VOCAB_C2[];     /* lang_vocab_c2.c: ranks 11501-13000 */
 extern const char *const VOCAB_C3[];     /* lang_vocab_c3.c: ranks 13001-14500 */
+extern const char *const VOCAB_C4[];     /* lang_vocab_c4.c: ranks 14501-15000 */
 extern const char *const NAMES_A[];      /* lang_vocab_names.c: starter first names */
 extern const char *const NAMES_B[];      /* lang_vocab_names.c: 1,300 more first names, many cultures (chunk 51a) */
 
