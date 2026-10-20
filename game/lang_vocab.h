@@ -27,6 +27,7 @@ extern const char *const VOCAB_B2[];     /* lang_vocab_b2.c: ranks 6501-8000 */
 extern const char *const VOCAB_B3[];     /* lang_vocab_b3.c: ranks 8001-9500 */
 extern const char *const VOCAB_B4[];     /* lang_vocab_b4.c: ranks 9501-10000 */
 extern const char *const NAMES_A[];      /* lang_vocab_names.c: starter first names */
+extern const char *const NAMES_B[];      /* lang_vocab_names.c: 1,300 more first names, many cultures (chunk 51a) */
 
 int  vocab_has(const char *w);                 /* 1 if w is a vocabulary word */
 int  vocab_has_n(const char *w, int n);        /* the same for w[0..n) */

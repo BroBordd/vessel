@@ -68,6 +68,7 @@ static void builtin(void) {
     lang_register_vocab(VOCAB_B3);                               /* chunk 50c */
     lang_register_vocab(VOCAB_B4);                               /* chunk 50d */
     lang_register_names(NAMES_A);
+    lang_register_names(NAMES_B);                                /* chunk 51a */
 }
 
 void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = 0; builtin_done = 0; dirty = 1; }
