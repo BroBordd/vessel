@@ -244,7 +244,7 @@ static int tfail;
 static const Line T6_LINES[] = { { "t6.key", ALLT, ALLS, "one" }, { "t6.key", ALLT, ALLS, "two" }, { "r.greet", WARM, PLAIN, "Extra greeting." } };
 static const Pat  T6_PATS[]  = { { "zzqx*", I_GREET }, { "zzqx hello", I_BYE } };
 static const char *const T6_LEX[]   = { "adore|love|4", "adore|praise|2", "moon|topic.moon|5", "meh|dontcare|3", 0 };
-static const char *const T6_VOCAB[] = { "the|1|x", "moon|2210|n", "wraith|9001|n", 0 };
+static const char *const T6_VOCAB[] = { "the|1|x", "moon|2210|n", "zorkmid|9001|n", 0 };
 
 static int do_tables(void) {
     tfail = 0;
@@ -308,8 +308,8 @@ keys_done:;
       TCHECK(lang_lex_find("adored", rows, 6) == 0 && lang_lex_find("ador", rows, 6) == 0 && lang_lex_find("", rows, 6) == 0, "lex find matched a non word");
       TCHECK(lang_lex_find("moon", rows, 1) == 1, "lex find max");
       TCHECK(lang_lex_count() == lex0 + 4 && lang_vocab_count() == voc0 + 3, "word counts %d %d", lang_lex_count(), lang_vocab_count());
-      const char *v = lang_vocab_find("wraith"); TCHECK(v && !strcmp(v, "wraith|9001|n"), "vocab find wraith");
-      TCHECK(!lang_vocab_find("wrait") && !lang_vocab_find("adore"), "vocab find matched a word it does not have"); }
+      const char *v = lang_vocab_find("zorkmid"); TCHECK(v && !strcmp(v, "zorkmid|9001|n"), "vocab find zorkmid");
+      TCHECK(!lang_vocab_find("zorkmi") && !lang_vocab_find("adore"), "vocab find matched a word it does not have"); }
     TCHECK(lang_init_ms() >= 0.0 && lang_line_count() == lines0 + 3, "a forced rebuild changed the counts");
 
     /* 4. reset: back to the built-in tables only, and nothing about the test is left */
