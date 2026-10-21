@@ -25,6 +25,7 @@ static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
 static const char *const *masktab[MAX_TABLES]; static int nmask_t;      /* chunk 54a: roots of censored words */
+static const char *const *emotab[MAX_TABLES]; static int nemo_t;        /* chunk 55: emoticons and emoji */
 static const char *const *mactab[MAX_TABLES]; static int nmac_t;        /* chunk 26: pattern macros */
 static int builtin_done, dirty = 1;
 
@@ -41,6 +42,7 @@ int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
 int lang_register_numbers(const char *const *rows) { builtin(); if (nnum_t >= MAX_TABLES) return -1; numtab_t[nnum_t++] = rows; dirty = 1; return 0; }
+int lang_register_emoji(const char *const *rows) { builtin(); if (nemo_t >= MAX_TABLES) return -1; emotab[nemo_t++] = rows; dirty = 1; return 0; }
 int lang_register_masks(const char *const *rows) { builtin(); if (nmask_t >= MAX_TABLES) return -1; masktab[nmask_t++] = rows; dirty = 1; return 0; }
 int lang_register_irregular(const char *const *rows) { builtin(); if (nirr_t >= MAX_TABLES) return -1; irrtab[nirr_t++] = rows; dirty = 1; return 0; }
 int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
@@ -67,6 +69,7 @@ static void builtin(void) {
     lang_register_lex(LEX_MASKS);                                /* chunk 54a: swears, rude insults, sexual words and their respellings */
     lang_register_names(NAMES_GUARD);                            /* chunk 54a: essex, assassin ... (never split or repaired into a profanity row) */
     lang_register_masks(MASKROOTS);                              /* chunk 54a: roots a censored token is matched against */
+    lang_register_emoji(EMOJI);                                  /* chunk 55: emoticons and emoji with their weights */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_vocab(VOCAB_A2);                               /* chunk 49b */
     lang_register_vocab(VOCAB_A3);                               /* chunk 49c */
@@ -83,7 +86,7 @@ static void builtin(void) {
     lang_register_names(NAMES_B);                                /* chunk 51a */
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = nmask_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = nmask_t = nemo_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -631,6 +634,110 @@ const char *lang_mask_row(int i) {
     return NULL;
 }
 
+/* ---------- emoticons and emoji (chunk 55): rows "form|kind|weight" ---------- */
+typedef struct { int cp, kind, weight; } EmojiEnt;
+static EmojiEnt *emj; static int emjcap, emjn;                     /* emoji: open addressing by code point */
+static LangEmo *emo_rows; static char *emo_text; static int emo_n;  /* emoticons, grouped by first character */
+static int emo_start[128], emo_cnt[128];
+static int emo_bad_n;
+static int emo_kind_of(char c) {
+    switch (c) { case 'p': return TK_POS; case 'n': return TK_NEG; case 'l': return TK_LOVE; case 's': return TK_SHOCK;
+                 case 'c': return TK_CRY; case 'a': return TK_ANGRY; case 'h': return TK_LAUGH; default: return 0; }
+}
+/* the single UTF-8 code point that fills s[0..n): its value, or -1 */
+static int emo_utf8(const unsigned char *s, int n) {
+    int cp, len;
+    if (n >= 2 && (s[0] & 0xE0) == 0xC0) { cp = s[0] & 0x1F; len = 2; }
+    else if (n >= 3 && (s[0] & 0xF0) == 0xE0) { cp = s[0] & 0x0F; len = 3; }
+    else if (n >= 4 && (s[0] & 0xF8) == 0xF0) { cp = s[0] & 0x07; len = 4; }
+    else return -1;
+    if (len != n) return -1;
+    for (int i = 1; i < len; i++) { if ((s[i] & 0xC0) != 0x80) return -1; cp = (cp << 6) | (s[i] & 0x3F); }
+    return cp < 0x80 ? -1 : cp;
+}
+typedef struct { const char *form; int fn, kind, weight, seq; } EmoRaw;
+static int cmp_emoraw(const void *a, const void *b) {
+    const EmoRaw *x = a, *y = b;
+    int c = strncmp(x->form, y->form, (size_t)(x->fn < y->fn ? x->fn : y->fn));
+    if (!c) c = x->fn - y->fn;
+    return c ? c : x->seq - y->seq;
+}
+static int cmp_emorows(const void *a, const void *b) {
+    const LangEmo *x = a, *y = b;
+    return strcmp(x->s, y->s);
+}
+static void build_emoji(void) {
+    free(emj); emj = NULL; emjcap = emjn = 0; free(emo_rows); emo_rows = NULL; free(emo_text); emo_text = NULL; emo_n = 0; emo_bad_n = 0;
+    memset(emo_start, 0, sizeof emo_start); memset(emo_cnt, 0, sizeof emo_cnt);
+    int rows = 0;
+    for (int t = 0; t < nemo_t; t++) for (const char *const *r = emotab[t]; *r; r++) rows++;
+    if (!rows) return;
+    EmoRaw *raw = calloc((size_t)rows, sizeof *raw);
+    emjcap = 16; while (emjcap < rows * 2) emjcap *= 2;
+    emj = calloc((size_t)emjcap, sizeof *emj);
+    if (!raw || !emj) { free(raw); free(emj); emj = NULL; emjcap = 0; return; }
+    int nraw = 0, seq = 0;
+    for (int t = 0; t < nemo_t; t++) for (const char *const *r = emotab[t]; *r; r++, seq++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        if (!b1 || !b2 || b1 == *r || b2 != b1 + 2) { emo_bad_n++; continue; }
+        int kind = emo_kind_of(b1[1]), w = 0, ok = *(b2 + 1) != 0;
+        for (const char *d = b2 + 1; *d; d++) { if (*d < '0' || *d > '9' || w > 99) { ok = 0; break; } w = w * 10 + (*d - '0'); }
+        if (!kind || !ok || w > 50) { emo_bad_n++; continue; }
+        int fn = (int)(b1 - *r);
+        if ((unsigned char)(*r)[0] >= 0x80) {                                  /* an emoji: exactly one code point */
+            int cp = emo_utf8((const unsigned char *)*r, fn);
+            if (cp < 0) { emo_bad_n++; continue; }
+            for (unsigned h = ((unsigned)cp * 2654435761u) & (unsigned)(emjcap - 1);; h = (h + 1) & (unsigned)(emjcap - 1)) {
+                if (!emj[h].cp) { emj[h].cp = cp; emj[h].kind = kind; emj[h].weight = w; emjn++; break; }
+                if (emj[h].cp == cp) { emj[h].kind = kind; emj[h].weight = w; break; }      /* a later row wins */
+            }
+        } else {                                                                /* an ASCII emoticon: lower case, 2-12 characters */
+            int ok2 = fn >= 2 && fn <= 12;
+            for (int i = 0; i < fn && ok2; i++) { unsigned char c = (unsigned char)(*r)[i]; if (c < 33 || c >= 127 || (c >= 'A' && c <= 'Z')) ok2 = 0; }
+            if (!ok2) { emo_bad_n++; continue; }
+            raw[nraw].form = *r; raw[nraw].fn = fn; raw[nraw].kind = kind; raw[nraw].weight = w; raw[nraw].seq = seq; nraw++;
+        }
+    }
+    if (nraw) {
+        qsort(raw, (size_t)nraw, sizeof *raw, cmp_emoraw);
+        emo_rows = calloc((size_t)nraw, sizeof *emo_rows); emo_text = malloc((size_t)nraw * 14);
+        if (!emo_rows || !emo_text) { free(emo_rows); free(emo_text); emo_rows = NULL; emo_text = NULL; free(raw); return; }
+        char *o = emo_text;
+        for (int i = 0; i < nraw; i++) {
+            if (i + 1 < nraw && raw[i].fn == raw[i + 1].fn && !strncmp(raw[i].form, raw[i + 1].form, (size_t)raw[i].fn)) continue;      /* a later row of the same form wins */
+            memcpy(o, raw[i].form, (size_t)raw[i].fn); o[raw[i].fn] = 0;
+            emo_rows[emo_n].s = o; emo_rows[emo_n].kind = raw[i].kind; emo_rows[emo_n].weight = raw[i].weight; emo_n++;
+            o += raw[i].fn + 1;
+        }
+        qsort(emo_rows, (size_t)emo_n, sizeof *emo_rows, cmp_emorows);          /* sorted by form, so equal first characters are together */
+        for (int i = 0; i < emo_n; i++) { int c = (unsigned char)emo_rows[i].s[0]; if (!emo_cnt[c]) emo_start[c] = i; emo_cnt[c]++; }
+    }
+    free(raw);
+}
+int lang_emoji_kind(int cp, int *weight) {
+    lang_init();
+    if (!emj || cp < 0x80) return 0;
+    for (unsigned h = ((unsigned)cp * 2654435761u) & (unsigned)(emjcap - 1);; h = (h + 1) & (unsigned)(emjcap - 1)) {
+        if (!emj[h].cp) return 0;
+        if (emj[h].cp == cp) { if (weight) *weight = emj[h].weight; return emj[h].kind; }
+    }
+}
+const LangEmo *lang_emoticons(int c, int *n) {
+    lang_init();
+    if (n) *n = 0;
+    if (c <= 0 || c >= 128 || !emo_cnt[c]) return NULL;
+    if (n) *n = emo_cnt[c];
+    return emo_rows + emo_start[c];
+}
+int lang_emoji_count(void) { lang_init(); return emjn; }
+int lang_emoticon_count(void) { lang_init(); return emo_n; }
+int lang_emoji_bad(void) { lang_init(); return emo_bad_n; }
+const char *lang_emoji_row(int i) {
+    builtin();
+    for (int t = 0; t < nemo_t; t++) for (const char *const *r = emotab[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -646,7 +753,9 @@ void lang_init(void) {
     build_irregular();
     build_numtab();
     build_masks();
+    build_emoji();
     lang_clean_set_numtab(lang_numtab);
+    lang_clean_set_emoji(lang_emoji_kind, lang_emoticons);
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
     tables_gen++;

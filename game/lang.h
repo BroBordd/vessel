@@ -110,6 +110,7 @@ typedef struct {
     uint8_t excl, quest;   /* number of ! and ? */
     uint8_t laugh;      /* the longest laugh in letters (a long laugh is more amused), 0 = none */
     uint8_t tok[TK_COUNT];   /* tokens seen per kind: emoticons, emoji, laughs, censored words (a run of the same emoji counts once) */
+    uint8_t tokv[TK_COUNT];  /* chunk 55: per kind the summed weight (tenths of a point) of the first two tokens: what the sentiment layer counts */
     /* chunk 19: numbers (see lang_clean.h). none of it changes which intents are heard */
     uint8_t nnum;       /* numbers captured (at most HEARD_NUM kept) */
     int16_t age;        /* the age the player said (1-120), 0 = none */

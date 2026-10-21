@@ -14,6 +14,7 @@
 #ifndef LANG_TABLES_H
 #define LANG_TABLES_H
 #include "lang_data.h"
+#include "lang_clean.h"
 
 /* ---- registry (each returns 0 on success, -1 if the registry is full) ---- */
 int  lang_register_lines(const Line *t, int n);
@@ -27,6 +28,7 @@ int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (l
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 int  lang_register_numbers(const char *const *rows); /* chunk 52: rows "form|result|kind" (see lang_lex_numbers.c), the array ends with 0 */
 int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
+int  lang_register_emoji(const char *const *rows);   /* chunk 55: rows "form|kind|weight" (an ASCII emoticon in lower case or one emoji code point as UTF-8; kind p n l s c a h; weight in tenths, see lang_lex_emoji.c), the array ends with 0 */
 int  lang_register_masks(const char *const *rows);   /* chunk 54a: rows "root|intent|weight": the words a censored token (f*ck) is matched against, the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
@@ -96,5 +98,16 @@ const char *lang_name_at(int i);
 int  lang_mask_match(const char *tok, int n, int *intent, int *weight);
 int  lang_mask_count(void);
 const char *lang_mask_row(int i);
+
+/* chunk 55: the emoticon and emoji table. lang_init plugs lang_emoji_kind and lang_emoticons into lang_clean_set_emoji. lang_emoji_kind(cp, &w) is the token
+ * kind (TK_*, 0 = none) and weight of an emoji code point; lang_emoticons(c, &n) the ASCII rows whose first character (lower case) is c, longest NOT guaranteed
+ * first (the matcher takes the longest). a later row of the same form wins. lang_emoji_count / lang_emoticon_count = rows in the maps, lang_emoji_bad = rows that did
+ * not parse (left out), lang_emoji_row(i) walks every registered row in order (tools) */
+int  lang_emoji_kind(int cp, int *weight);
+const LangEmo *lang_emoticons(int c, int *n);
+int  lang_emoji_count(void);
+int  lang_emoticon_count(void);
+int  lang_emoji_bad(void);
+const char *lang_emoji_row(int i);
 
 #endif

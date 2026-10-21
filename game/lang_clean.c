@@ -101,11 +101,23 @@ static int fold(int cp, int lower, char *buf) {
 static const char *const TOKEN_NAME[TK_COUNT] = { "none", "pos", "neg", "love", "shock", "cry", "angry", "laugh", "mask" };
 const char *lang_token_name(int kind) { return kind >= 0 && kind < TK_COUNT ? TOKEN_NAME[kind] : "none"; }
 
-/* a new token, or one more of the same kind right after the last one (a run of the same emoji is one token) */
-static void tok_add(LangInfo *f, int kind, int a, int b, int len) {
-    if (f->ntok && f->tok[f->ntok - 1].kind == kind && f->tok[f->ntok - 1].b == a) { f->tok[f->ntok - 1].b = b; f->tok[f->ntok - 1].len += len; return; }
+/* the weight (tenths of a point) a token has when the table gives none: what the sentiment layer used before chunk 55 */
+int lang_clean_default_weight(int kind) {
+    switch (kind) { case TK_POS: return 20; case TK_LOVE: return 30; case TK_LAUGH: return 10; case TK_NEG: return 20; case TK_ANGRY: return 25;
+                    case TK_CRY: return 20; case TK_MASK: return 30; default: return 0; }
+}
+/* a new token, or one more of the same kind right after the last one (a run of the same emoji is one token; the strongest of the run counts).
+ * tv[kind] keeps the summed weight of the first two tokens of a kind: the most the sentiment layer reads */
+static void tok_add(LangInfo *f, int kind, int a, int b, int len, int w) {
+    if (f->ntok && f->tok[f->ntok - 1].kind == kind && f->tok[f->ntok - 1].b == a) {
+        LangTok *t = &f->tok[f->ntok - 1];
+        t->b = b; t->len += len;
+        if (w > t->weight) { if (f->count[kind] <= 2) f->tv[kind] += w - t->weight; t->weight = w; }
+        return;
+    }
     f->count[kind]++;
-    if (f->ntok < LANG_MAX_TOK) { f->tok[f->ntok].kind = kind; f->tok[f->ntok].a = a; f->tok[f->ntok].b = b; f->tok[f->ntok].len = len; f->ntok++; }
+    if (f->count[kind] <= 2) f->tv[kind] += w;
+    if (f->ntok < LANG_MAX_TOK) { f->tok[f->ntok].kind = kind; f->tok[f->ntok].a = a; f->tok[f->ntok].b = b; f->tok[f->ntok].len = len; f->tok[f->ntok].weight = w; f->ntok++; }
 }
 /* an invisible character (a variation selector, a joiner) right after a token belongs to it */
 static void tok_touch(LangInfo *f, int at, int len) { if (f->ntok && f->tok[f->ntok - 1].b == at) f->tok[f->ntok - 1].b = at + len; }
@@ -131,7 +143,8 @@ static int emoji_kind(int cp) {
     return 0;
 }
 
-/* emoticons and kaomoji in ASCII, matched case-insensitively, the longest wins. a mouth may repeat (:))) :((( xDDD <333). */
+/* emoticons and kaomoji in ASCII, matched case-insensitively, the longest wins. a mouth may repeat (:))) :((( xDDD <333).
+ * the built-in list (the fallback; lang_lex_emoji.c holds these and many more) */
 static const struct { const char *s; int kind; } EMO[] = {
     { ">:(", TK_ANGRY }, { ">:-(", TK_ANGRY }, { ">:[", TK_ANGRY }, { ">=(", TK_ANGRY }, { ":@", TK_ANGRY },
     { ":'(", TK_CRY }, { ":'-(", TK_CRY }, { ";(", TK_CRY }, { ";_;", TK_CRY }, { ";-;", TK_CRY }, { ";^;", TK_CRY }, { ":,(", TK_CRY },
@@ -154,23 +167,49 @@ static const char EMO_FIRST[] = ">:;'=<xX^-(.\\oO0@_tTqQuU";      /* every first
 static int ci(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 static int alnum_c(int c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 
-/* the emoticon that starts at byte i of s: its length (0 = none) and its kind */
-static int emoticon_at(const unsigned char *s, int i, int *kind) {
-    int best = 0, bk = 0, prev = i ? s[i - 1] : 0;
-    for (int k = 0; k < N_EMO; k++) {
-        const char *e = EMO[k].s; int n = 0;
-        while (e[n] && ci(s[i + n]) == e[n]) n++;
-        if (e[n] || n <= best) continue;
-        if (alnum_c(e[0]) ? alnum_c(prev) : (prev >= '0' && prev <= '9')) continue;    /* "axd", "10:30", "5:3" are not faces */
-        best = n; bk = EMO[k].kind;
-    }
+/* chunk 55: the table. NULL = the built-in lists above and in emoji_kind */
+static LangEmojiFn EMOJI_FN; static LangEmoticonFn EMOTICON_FN;
+void lang_clean_set_emoji(LangEmojiFn emoji, LangEmoticonFn emoticons) { EMOJI_FN = emoji; EMOTICON_FN = emoticons; }
+int lang_clean_builtin_emoji(int cp, int *weight) { int k = emoji_kind(cp); if (k && weight) *weight = lang_clean_default_weight(k); return k; }
+int lang_clean_builtin_emoticon(int i, const char **s, int *kind, int *weight) {
+    if (i < 0 || i >= N_EMO) return 0;
+    if (s) *s = EMO[i].s;
+    if (kind) *kind = EMO[i].kind;
+    if (weight) *weight = lang_clean_default_weight(EMO[i].kind);
+    return 1;
+}
+static int emoji_lookup(int cp, int *w) {
+    if (EMOJI_FN) { *w = 0; return EMOJI_FN(cp, w); }
+    int k = emoji_kind(cp); *w = k ? lang_clean_default_weight(k) : 0; return k;
+}
+/* can an emoticon start with this character? */
+static int emo_first(int cp) {
+    if (cp <= 0 || cp >= 0x80) return 0;
+    if (EMOTICON_FN) { int n = 0; EMOTICON_FN(ci(cp), &n); return n > 0; }
+    return strchr(EMO_FIRST, cp) != NULL;
+}
+
+/* does the emoticon row e start at byte i of s, and is it a face there? its length (0 = no). "axd", "10:30", "5:3" are not faces */
+static int emo_try(const unsigned char *s, int i, int prev, const char *e) {
+    int n = 0;
+    while (e[n] && ci(s[i + n]) == e[n]) n++;
+    if (e[n]) return 0;
+    if (alnum_c(e[0]) ? alnum_c(prev) : (prev >= '0' && prev <= '9')) return 0;
+    return n;
+}
+/* the emoticon that starts at byte i of s: its length (0 = none), its kind and its weight */
+static int emoticon_at(const unsigned char *s, int i, int *kind, int *weight) {
+    int best = 0, bk = 0, bw = -1, prev = i ? s[i - 1] : 0, nrows = 0;
+    const LangEmo *rows = EMOTICON_FN ? EMOTICON_FN(ci(s[i]), &nrows) : NULL;
+    if (rows) { for (int k = 0; k < nrows; k++) { int n = emo_try(s, i, prev, rows[k].s); if (n > best) { best = n; bk = rows[k].kind; bw = rows[k].weight; } } }
+    else for (int k = 0; k < N_EMO; k++) { int n = emo_try(s, i, prev, EMO[k].s); if (n > best) { best = n; bk = EMO[k].kind; bw = -1; } }
     if (!best) return 0;
     int last = ci(s[i + best - 1]), L = best, next;
     if (last == '/' || last == '\\') { if (s[i + L] == last) return 0; }                /* "://" in an address */
     else while (ci(s[i + L]) == last && (!alnum_c(last) || last == 'd' || last == 'p' || last == 'o' || last == '3')) L++;   /* :))) xDDD <333 */
     next = s[i + L];
     if (alnum_c(last) && alnum_c(next) && !(s[i] == '<' && last == '3' && !(next >= '0' && next <= '9'))) return 0;   /* "<3u" is love, ":dog" is not a face */
-    *kind = bk;
+    *kind = bk; *weight = bw >= 0 ? bw : lang_clean_default_weight(bk);
     return L;
 }
 
@@ -235,7 +274,7 @@ static void read_words(const char *out, int n, const int *map, const char *text,
         if (is_laugh(out + i, len)) {
             int a = map[i], b = map[j - 1] + lang_clean_orig_len(text, map[j - 1]), seen = 0;
             for (int k = 0; k < f->ntok; k++) if (f->tok[k].kind == TK_LAUGH && f->tok[k].a <= a && f->tok[k].b >= b) { if (f->tok[k].len < len) f->tok[k].len = len; seen = 1; }   /* "xD" is both */
-            if (!seen) tok_add(f, TK_LAUGH, a, b, len);
+            if (!seen) tok_add(f, TK_LAUGH, a, b, len, lang_clean_default_weight(TK_LAUGH));
             if (len > f->laugh) f->laugh = len;
         } else if (is_noise(out + i, len)) noisy += len;
         i = j;
@@ -252,8 +291,8 @@ static int clean(const char *text, char *out, int cap, int *map, int lower, Lang
     while (s[i]) {
         int cp, len = decode(s + i, &cp);
         if (info) {
-            if (cp >= 0x80) { int k = emoji_kind(cp); if (k) tok_add(info, k, i, i + len, 1); }
-            else if (i >= skip && strchr(EMO_FIRST, cp)) { int k, L = emoticon_at(s, i, &k); if (L) { tok_add(info, k, i, i + L, 1); skip = i + L; } }
+            if (cp >= 0x80) { int w, k = emoji_lookup(cp, &w); if (k) tok_add(info, k, i, i + len, 1, w); }
+            else if (i >= skip && emo_first(cp)) { int k, w, L = emoticon_at(s, i, &k, &w); if (L) { tok_add(info, k, i, i + L, 1, w); skip = i + L; } }
         }
         char buf[4]; int bn = fold(cp, 0, buf);                  /* the case is kept here, lowered below: the capitals are counted */
         if (bn < 0) {
@@ -495,7 +534,7 @@ static void do_token(const char *t, const int *it, int m, const int *inmap, Out 
         for (int q = 0; q < n; q++) { c[q] = t[lo + q]; x[q] = it[lo + q]; if (!(is_aq(c[q]) || c[q] == '@' || c[q] == '$' || c[q] == '!' || is_mask(c[q]))) ok = 0; }
         c[n] = 0;                                                  /* leet_safe compares tails as strings */
         if (ok && is_masked_word(c, n)) {
-            tok_add(f, TK_MASK, inmap[x[0]], inmap[x[n - 1] + 1], n);
+            tok_add(f, TK_MASK, inmap[x[0]], inmap[x[n - 1] + 1], n, lang_clean_default_weight(TK_MASK));
         } else {
             if (ok && leet_fix(c, n)) f->nleet++;
             elong_fix(c, x, &n, f);

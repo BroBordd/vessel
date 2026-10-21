@@ -1,0 +1,42 @@
+# chunk 55: emoji and emoticons as tokens (lines with only a face read through the valence; faces next to words keep the words)
+😊	pos
+🥳	pos
+🥳🥳🥳 yay	pos
+🙂	pos
+🤩	pos
+😍	pos
+🥰	pos
+🫶	pos
+^w^	pos
+:^)	pos
+(^o^)/	pos
+\(^o^)/	pos
+(*^_^*)	pos
+🎉	pos
+😢	neg
+😭	neg
+🥺 pls	please
+😡	neg
+😠	neg
+>:@	neg
+🤦	neg
+😞	neg
+(;_;)	neg
+qq	none
+orz	neg
+(-_-#)	neg
+😱	none
+😮	none
+o_0	none
+(@_@)	none
+🌍	none
+10:30	none
+x=3	none
+tot	none
+hello 🥳	greet
+hi ^w^	greet
+thanks 😊	thanks
+bye 👋	bye
+hello (^o^)/	greet
+who are you 🥺	whoru
+sorry 😢	sorry

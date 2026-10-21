@@ -65,6 +65,7 @@ extern const char *const MACROS_A[];    /* chunk 26: rows "name|alt|alt|..." (th
 extern const char *const LEX_MASKS[];     /* chunk 54a: rows "word|intent|weight" (swear_only, insult, sexual_blocked, slur_blocked spellings), game/lang_lex_masks.c */
 extern const char *const NAMES_GUARD[];   /* chunk 54a: real words and places that contain a profanity row (essex, assassin ...): registered as names so they are never split or repaired, game/lang_lex_masks.c */
 extern const char *const MASKROOTS[];    /* chunk 54a: rows "root|intent|weight" a censored token (f*ck) is matched against by its letters, game/lang_lex_masks.c */
+extern const char *const EMOJI[];      /* chunk 55: rows "form|kind|weight" (emoticons and emoji as sentiment tokens), game/lang_lex_emoji.c */
 extern const char *const NUMBERS[];    /* chunk 52: rows "form|result|kind" (number-letter words, number-word and ordinal aliases), game/lang_lex_numbers.c */
 extern const char *const IRREGULAR[];  /* chunk 24: rows "form|lemma" ("form|form" = never touched), game/lang_lex_irregular.c */
 extern const char *const TEXTSPEAK[];   /* chunk 18: rows "from|to", game/lang_lex_textspeak.c */

@@ -41,9 +41,10 @@ typedef struct {
     int ctx;                /* 1 = the cue was a praise-shaped one that only counts next to a negative word (great job + idiot) */
     int to;                 /* the intent the cue points at (I_THANKS_SARCASTIC, I_NO_WAY, I_FINE_WHATEVER), -1 = none */
 } SentInfo;
-/* lc: a cleaned text (lower case). flags, excl, stretch, tok[TK_COUNT]: what lang_parse already knows of the typed text (Heard.flags, .excl, .stretch, .tok);
- * tok may be NULL. fills si, returns the valence */
-int  lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretch, const unsigned char *tok, SentInfo *si);
+/* lc: a cleaned text (lower case). flags, excl, stretch, tok[TK_COUNT], tokv[TK_COUNT]: what lang_parse already knows of the typed text (Heard.flags, .excl,
+ * .stretch, .tok, .tokv); tok may be NULL. tokv (chunk 55) = per kind the summed weight in tenths of the first two tokens (the sign comes from the kind);
+ * NULL = the built-in weight times the count, at most two. fills si, returns the valence */
+int  lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretch, const unsigned char *tok, const unsigned char *tokv, SentInfo *si);
 int  lang_sent_value(const char *word, int n, int *val);     /* the valence row of a word (or of its lemma): 1 and *val if there is one */
 int  lang_sent_cue_count(void);
 const char *lang_sent_cue_name(int i);

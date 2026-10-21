@@ -15,6 +15,7 @@
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
  *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
+ *   --emoji [FILES]    (chunk 55) the emoticon and emoji table (lang_lex_emoji.c): rows well formed (>= 400, no duplicate, no risky form), a superset of the built-in lists with the same kind and weight, every row read back as one token of its own kind, weight and bytes, what must NOT be a face (10:30, x=3, for(;;), tot), new forms in context, the weights reaching the valence (at most two tokens of a kind), the bucket accessor, the fallback without a table, registering later (a later row wins, bad rows counted, reset), the corpus FILES read the same through both lists, speed
  *   --masks            (chunk 54a) the profanity / mask tables: rows well formed, no slur row shipped, censored shapes (f*ck, b***h) and look-alikes, a swear aimed at someone is an insult, self-harm first, the slur_blocked plumbing with test rows, replies never echo, speed\n *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
@@ -4496,6 +4497,175 @@ static int do_masks(void) {
     return mkfail != 0;
 }
 
+/* ---- chunk 55: the emoticon and emoji table (lang_lex_emoji.c, lang_emoji_kind, lang_emoticons, token weights) ---- */
+static int ejfail, ejchecks;
+#define EJCHECK(c, ...) do { ejchecks++; if (!(c)) { printf("BAD EMOJI: " __VA_ARGS__); printf("\n"); ejfail++; } } while (0)
+static int ej_kind_of(char c) {
+    switch (c) { case 'p': return TK_POS; case 'n': return TK_NEG; case 'l': return TK_LOVE; case 's': return TK_SHOCK; case 'c': return TK_CRY; case 'a': return TK_ANGRY; case 'h': return TK_LAUGH; default: return 0; }
+}
+static int ej_utf8(int cp, char *o) {
+    if (cp < 0x800) { o[0] = (char)(0xC0 | (cp >> 6)); o[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    if (cp < 0x10000) { o[0] = (char)(0xE0 | (cp >> 12)); o[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
+    o[0] = (char)(0xF0 | (cp >> 18)); o[1] = (char)(0x80 | ((cp >> 12) & 0x3F)); o[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); o[3] = (char)(0x80 | (cp & 0x3F)); return 4;
+}
+static int ej_cp(const char *s, int n) {
+    const unsigned char *u = (const unsigned char *)s;
+    if (n == 2) return ((u[0] & 0x1F) << 6) | (u[1] & 0x3F);
+    if (n == 3) return ((u[0] & 0x0F) << 12) | ((u[1] & 0x3F) << 6) | (u[2] & 0x3F);
+    return ((u[0] & 0x07) << 18) | ((u[1] & 0x3F) << 12) | ((u[2] & 0x3F) << 6) | (u[3] & 0x3F);
+}
+static int ej_valence(const char *t) { Heard h; lang_parse(t, &h); return h.valence; }
+static int do_emoji(int argc, char **argv) {
+    ejfail = ejchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* 1. the table: well formed, no duplicate, every kind used, no risky form */
+    int nrows = 0, nemoji = 0, nemot = 0, bykind[TK_COUNT] = { 0 };
+    for (const char *const *r = EMOJI; *r; r++, nrows++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        int ok = b1 && b2 && b1 > *r && b2 == b1 + 2 && ej_kind_of(b1[1]) && b2[1] >= '0' && b2[1] <= '9';
+        EJCHECK(ok, "malformed EMOJI row: %s", *r); if (!ok) continue;
+        int kind = ej_kind_of(b1[1]), w = atoi(b2 + 1), fn = (int)(b1 - *r);
+        EJCHECK(w >= 0 && w <= 50 && (int)strlen(b2 + 1) <= 2, "weight out of 0-50: %s", *r);
+        EJCHECK(kind == TK_SHOCK ? w == 0 : w >= 1, "a shock token has weight 0, every other kind at least 1: %s", *r);
+        bykind[kind]++;
+        if ((unsigned char)(*r)[0] >= 0x80) {
+            nemoji++;
+            EJCHECK(fn >= 2 && fn <= 4 && ej_cp(*r, fn) >= 0x80, "an emoji form must be one code point: %s", *r);
+        } else {
+            nemot++;
+            EJCHECK(fn >= 2 && fn <= 12, "ASCII form of 2-12 characters: %s", *r);
+            for (int i = 0; i < fn; i++) { unsigned char c = (unsigned char)(*r)[i]; EJCHECK(c > 32 && c < 127 && !(c >= 'A' && c <= 'Z'), "ASCII form must be printable lower case: %s", *r); }
+        }
+        for (const char *const *q = EMOJI; q < r; q++) EJCHECK(strncmp(*q, *r, (size_t)(fn + 1)), "duplicate EMOJI form: %s", *r);
+    }
+    EJCHECK(nrows >= 400, "only %d EMOJI rows (the plan asks >= 400)", nrows);
+    EJCHECK(nemoji >= 150 && nemot >= 150, "emoji %d, emoticons %d (>= 150 each)", nemoji, nemot);
+    for (int k = 1; k < TK_COUNT; k++) if (k != TK_MASK) EJCHECK(bykind[k] >= 5, "kind %s has only %d rows", lang_token_name(k), bykind[k]);
+    EJCHECK(lang_emoji_bad() == 0, "%d rows did not parse", lang_emoji_bad());
+    EJCHECK(lang_emoji_count() == nemoji && lang_emoticon_count() == nemot, "map sizes %d + %d != %d + %d rows", lang_emoji_count(), lang_emoticon_count(), nemoji, nemot);
+    { int n = 0; while (lang_emoji_row(n)) n++; EJCHECK(n == nrows, "lang_emoji_row walks %d rows, the table has %d", n, nrows); }
+    { static const char *const RISKY[] = { "=3", "=0", "=*", ";]", "(;", "tot", "tnt", "xp", "www", "x3", "8)", ":c", ":s", "x.x", "d:", "ww", "kk", NULL };
+      for (int i = 0; RISKY[i]; i++) for (const char *const *r = EMOJI; *r; r++) EJCHECK(strncmp(*r, RISKY[i], strlen(RISKY[i])) || (*r)[strlen(RISKY[i])] != '|', "risky form is a row: %s", RISKY[i]); }
+    /* 2. the table is a superset of the built-in lists of lang_clean.c, same kind, same weight */
+    { int nb = 0, bad = 0;
+      for (int cp = 0x80; cp < 0x20000; cp++) { int w = 0, k = lang_clean_builtin_emoji(cp, &w); if (!k) continue; nb++; int w2 = -1, k2 = lang_emoji_kind(cp, &w2); if (k2 != k || w2 != w) { bad++; printf("  built-in emoji U+%X: kind %d weight %d, table kind %d weight %d\n", cp, k, w, k2, w2); } }
+      EJCHECK(!bad && nb >= 100, "%d built-in emoji differ from the table (%d built-in)", bad, nb);
+      int ne = 0, bade = 0; const char *s; int kind, w;
+      for (int i = 0; lang_clean_builtin_emoticon(i, &s, &kind, &w); i++) {
+          ne++; int n = 0, found = 0; const LangEmo *rows = lang_emoticons((unsigned char)s[0], &n);
+          for (int k = 0; k < n; k++) if (!strcmp(rows[k].s, s)) { found = 1; if (rows[k].kind != kind || rows[k].weight != w) { bade++; printf("  built-in emoticon %s: kind/weight differ\n", s); } }
+          if (!found) { bade++; printf("  built-in emoticon %s is not in the table\n", s); } }
+      EJCHECK(!bade && ne >= 80, "%d built-in emoticons differ from the table (%d built-in)", bade, ne);
+      printf("emoji: %d rows (%d emoji, %d emoticons); built-in lists: %d emoji, %d emoticons, all in the table\n", nrows, nemoji, nemot, nb, ne); }
+    /* 3. every row, as a token, in a sentence: one token of the row's kind and weight, on exactly its bytes */
+    { int bad = 0;
+      for (const char *const *r = EMOJI; *r; r++) {
+          const char *b1 = strchr(*r, '|'); if (!b1) continue;
+          int fn = (int)(b1 - *r), kind = ej_kind_of(b1[1]), w = atoi(b1 + 3);
+          char t[64]; LangInfo f; char o[80];
+          snprintf(t, sizeof t, "hi "); memcpy(t + 3, *r, (size_t)fn); strcpy(t + 3 + fn, " there");
+          lang_clean_info(t, o, 80, NULL, &f);
+          if (f.ntok != 1 || f.tok[0].kind != kind || f.tok[0].weight != w || f.tok[0].a != 3 || f.tok[0].b != 3 + fn || f.tv[kind] != w) {
+              bad++; if (bad < 8) printf("  row %s: %d tokens, first kind %d weight %d bytes %d..%d, tv %d\n", *r, f.ntok, f.ntok ? f.tok[0].kind : -1, f.ntok ? f.tok[0].weight : -1, f.ntok ? f.tok[0].a : -1, f.ntok ? f.tok[0].b : -1, f.tv[kind]); }
+      }
+      EJCHECK(!bad, "%d of %d rows did not read back as one token of their own kind and weight", bad, nrows); }
+    /* 4. what must NOT be a face: times, ratios, math, code, addresses, words */
+    { static const char *const N[] = { "10:30", "5:3", "ratio 1:3", "x=3", "p=*q", "http://example.com", "see you at 10:30", "tot", "my tnt", "xp", "www.example.com", "axd", "the dog", "a b c",
+          "i am 12", "2 + 3 = 5", "a;b", "wait (what)", "1.5", "e.g. this", "100%", "so:", "-- --", "~", ">", "<", "^" };
+      for (size_t i = 0; i < sizeof N / sizeof N[0]; i++) { LangInfo f; char o[120]; lang_clean_info(N[i], o, 120, NULL, &f); EJCHECK(f.ntok == 0, "'%s' made %d token(s), first kind %s", N[i], f.ntok, f.ntok ? lang_token_name(f.tok[0].kind) : "-"); } }
+    /* 5. new forms in context, the mouth runs and the punctuation around them */
+    { static const struct { const char *t; int kind, weight, count; } C[] = {
+          { "yay \xF0\x9F\xA5\xB3", TK_POS, 20, 1 }, { "\xF0\x9F\xA5\xB3\xF0\x9F\xA5\xB3\xF0\x9F\xA5\xB3", TK_POS, 20, 1 }, { "bye \xF0\x9F\x91\x8B", TK_POS, 10, 1 }, { "ok \xF0\x9F\xA4\xA6", TK_NEG, 20, 1 },
+          { "pls \xF0\x9F\xA5\xBA", TK_CRY, 10, 1 }, { "\xF0\x9F\xAB\xB6", TK_LOVE, 30, 1 }, { "\xE2\x9D\x8C no", TK_NEG, 10, 1 }, { "\xF0\x9F\x98\x90", TK_NEG, 5, 1 }, { "\xF0\x9F\x98\xB1", TK_SHOCK, 0, 1 },
+          { "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD", TK_POS, 20, 1 }, { "\xE2\x9D\xA4\xEF\xB8\x8F", TK_LOVE, 30, 1 }, { "\xE2\x9D\xA4\xEF\xB8\x8F\xE2\x9D\xA4\xEF\xB8\x8F", TK_LOVE, 30, 1 },
+          { "ok (^o^)/ bye", TK_POS, 20, 1 }, { "yay \\(^o^)/", TK_POS, 20, 1 }, { "hi ^w^", TK_POS, 20, 1 }, { "hi :^)", TK_POS, 20, 1 }, { "hi ^^;", TK_POS, 10, 1 }, { "sad (;_;)", TK_CRY, 20, 1 },
+          { "sad ;_;", TK_CRY, 20, 1 }, { "qq", TK_CRY, 10, 1 }, { "orz", TK_NEG, 20, 1 }, { "hmm (-_-)", TK_NEG, 20, 1 }, { "meh >_>", TK_NEG, 5, 1 }, { "grr >:@", TK_ANGRY, 25, 1 }, { "whoa o_0", TK_SHOCK, 0, 1 },
+          { "i <3 u :^*", TK_LOVE, 30, 2 }, { "lol :')", TK_LAUGH, 10, 1 }, { "bye :-)))", TK_POS, 20, 1 }, { "bye :-(((", TK_NEG, 20, 1 }, { "XD", TK_LAUGH, 10, 1 }, { "T_T", TK_CRY, 20, 1 }, { "UWU", TK_POS, 20, 1 } };
+      for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) { LangInfo f; char o[120]; lang_clean_info(C[i].t, o, 120, NULL, &f);
+          int ok = f.count[C[i].kind] == C[i].count && f.tv[C[i].kind] == C[i].weight * C[i].count;
+          if (!strcmp(C[i].t, "lol :')")) ok = f.count[TK_LAUGH] >= 1;                          /* lol is a laugh word too */
+          EJCHECK(ok, "'%s': %d tokens of kind %s (want %d), summed weight %d (want %d)", C[i].t, f.count[C[i].kind], lang_token_name(C[i].kind), C[i].count, f.tv[C[i].kind], C[i].weight * C[i].count); } }
+    /* 6. the weights reach the valence; at most the first two tokens of a kind count */
+    { int v_love = ej_valence("\xF0\x9F\x98\x8D"), v_smile = ej_valence("\xF0\x9F\x98\x8A"), v_wave = ej_valence("\xF0\x9F\x91\x8B"), v_cry = ej_valence("\xF0\x9F\x98\xA2"), v_angry = ej_valence("\xF0\x9F\x98\xA1"), v_shock = ej_valence("\xF0\x9F\x98\xB1");
+      EJCHECK(v_love > v_smile && v_smile > v_wave && v_wave > 0, "valence love %d > smile %d > wave %d > 0", v_love, v_smile, v_wave);
+      EJCHECK(v_angry < v_cry && v_cry < 0, "valence angry %d < cry %d < 0", v_angry, v_cry);
+      EJCHECK(v_shock == 0, "a shock emoji has valence %d", v_shock);
+      Heard h;
+      lang_parse("\xF0\x9F\x98\x8A", &h); EJCHECK(heard_has(&h, I_POS) && h.tok[TK_POS] == 1 && h.tokv[TK_POS] == 20 && (h.flags & LF_EMOTE), "a lone smile: pos heard, tok 1, tokv 20, LF_EMOTE");
+      lang_parse("\xF0\x9F\x91\x8B", &h); EJCHECK(!heard_has(&h, I_POS) && h.valence > 0 && h.valence < 30, "a lone wave is a weak positive (valence %d) and fires no intent", h.valence);
+      lang_parse("a \xF0\x9F\x98\x8A b \xF0\x9F\x98\x8A c \xF0\x9F\x98\x8A", &h); EJCHECK(h.tok[TK_POS] == 3 && h.tokv[TK_POS] == 40, "three smiles: tok %d tokv %d (the first two count)", h.tok[TK_POS], h.tokv[TK_POS]);
+      lang_parse("\xF0\x9F\x98\x8A\xF0\x9F\x98\x8A\xF0\x9F\x98\x8A", &h); EJCHECK(h.tok[TK_POS] == 1 && h.tokv[TK_POS] == 20, "a run of smiles is one token: tok %d tokv %d", h.tok[TK_POS], h.tokv[TK_POS]);
+      lang_parse("\xF0\x9F\x98\xA1", &h); EJCHECK(heard_has(&h, I_NEG) && h.tokv[TK_ANGRY] == 25, "a lone angry face: neg heard, tokv 25 (%d)", h.tokv[TK_ANGRY]);
+      lang_parse("f*ck", &h); EJCHECK(h.tokv[TK_MASK] == 30, "a masked word weighs 30 (%d)", h.tokv[TK_MASK]);
+      lang_parse("hello :)", &h); EJCHECK(h.tokv[TK_POS] == 20 && heard_has(&h, I_GREET), "hello :) keeps the greeting and weighs 20");
+      lang_parse("hello \xF0\x9F\xA5\xB3 who are you", &h); EJCHECK(heard_has(&h, I_GREET) && heard_has(&h, I_WHORU), "a new emoji does not hide the words around it");
+      lang_parse("i want to die \xF0\x9F\x98\xAD", &h); EJCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "self-harm is still heard first next to an emoji");
+      Heard a, b; lang_parse("\xF0\x9F\x98\x8A", &a); lang_clean_set_emoji(NULL, NULL); lang_parse("\xF0\x9F\x98\x8A", &b); lang_clean_set_emoji(lang_emoji_kind, lang_emoticons);
+      EJCHECK(a.valence == b.valence && a.tokv[TK_POS] == b.tokv[TK_POS], "a built-in emoji weighs the same through the table and the fallback (%d / %d)", a.valence, b.valence); }
+    /* 7. the bucket accessor */
+    { int n = 0;
+      EJCHECK(lang_emoticons(':', &n) && n >= 30, "the ':' bucket has %d rows", n);
+      EJCHECK(lang_emoticons('x', &n) && n >= 3, "the 'x' bucket has %d rows", n);
+      EJCHECK(lang_emoticons('~', &n) && n >= 2, "the '~' bucket has %d rows", n);
+      EJCHECK(!lang_emoticons('z', &n) && n == 0, "the 'z' bucket is empty");
+      EJCHECK(!lang_emoticons(0, &n) && !lang_emoticons(200, &n) && !lang_emoticons(-3, &n), "out of range first characters give NULL");
+      int sorted = 1, upper = 0; const LangEmo *r = lang_emoticons(':', &n);
+      for (int i = 0; i < n; i++) { if ((unsigned char)r[i].s[0] != ':') sorted = 0; if (i && strcmp(r[i - 1].s, r[i].s) >= 0) sorted = 0; for (const char *c = r[i].s; *c; c++) if (*c >= 'A' && *c <= 'Z') upper++; }
+      EJCHECK(sorted && !upper, "the ':' bucket is sorted by form, all first characters ':' and no capitals"); }
+    /* 8. the fallback: with no table only the built-in lists read, and a table-only emoji is then not a token */
+    { LangInfo f; char o[80];
+      lang_clean_set_emoji(NULL, NULL);
+      lang_clean_info("\xF0\x9F\x98\x8A :)", o, 80, NULL, &f); EJCHECK(f.count[TK_POS] == 2 && f.tv[TK_POS] == 40, "fallback reads the built-in smile and :) (%d, %d)", f.count[TK_POS], f.tv[TK_POS]);
+      lang_clean_info("\xF0\x9F\xA5\xB3 ^w^", o, 80, NULL, &f); EJCHECK(f.ntok == 0, "fallback does not read a table-only emoji or emoticon (%d tokens)", f.ntok);
+      lang_clean_set_emoji(lang_emoji_kind, lang_emoticons);
+      lang_clean_info("\xF0\x9F\xA5\xB3 ^w^", o, 80, NULL, &f); EJCHECK(f.ntok == 2, "with the table both are read (%d tokens)", f.ntok); }
+    /* 9. registering later: a later row wins, a row that does not parse is left out and counted, a reset forgets all of it */
+    { static const char *const T[] = { "\xF0\x9F\x8C\x8D|p|20", "\xF0\x9F\x98\x8A|n|10", "(^_^)|c|30", ":zq:|a|15",
+                                       "bad", "x|q|5", "xy|p|99", "xy|p|", "\xF0\x9F\x98|p|5", "AB|p|5", "a|p|5", "abcdefghijklm|p|5", "ab cd|p|5", "\xF0\x9F\x98\x8A\xF0\x9F\x98\x8A|p|5", "ab|p|5x", 0 };
+      lang_register_emoji(T); lang_init();
+      LangInfo f; char o[80];
+      lang_clean_info("\xF0\x9F\x8C\x8D", o, 80, NULL, &f); EJCHECK(f.count[TK_POS] == 1 && f.tv[TK_POS] == 20, "a registered emoji is read");
+      lang_clean_info("\xF0\x9F\x98\x8A", o, 80, NULL, &f); EJCHECK(f.count[TK_NEG] == 1 && f.tv[TK_NEG] == 10 && !f.count[TK_POS], "a later row wins (smile became neg 10)");
+      lang_clean_info("(^_^)", o, 80, NULL, &f); EJCHECK(f.count[TK_CRY] == 1 && f.tv[TK_CRY] == 30 && !f.count[TK_POS], "a later row wins for an emoticon too");
+      lang_clean_info("hi :zq: x", o, 80, NULL, &f); EJCHECK(f.count[TK_ANGRY] == 1 && f.tv[TK_ANGRY] == 15, "a new emoticon with a colon at both ends");
+      lang_clean_info("xy a ab cd", o, 80, NULL, &f); EJCHECK(f.ntok == 0, "no bad row made a token (%d)", f.ntok);
+      EJCHECK(lang_emoji_bad() == 11, "%d rows counted as bad, want 11", lang_emoji_bad());
+      lang_tables_reset(); lang_init();
+      lang_clean_info("\xF0\x9F\x8C\x8D", o, 80, NULL, &f); EJCHECK(f.ntok == 0, "a reset kept the test emoji");
+      lang_clean_info("\xF0\x9F\x98\x8A (^_^)", o, 80, NULL, &f); EJCHECK(f.count[TK_POS] == 2 && !f.count[TK_NEG] && !f.count[TK_CRY], "a reset restored the table rows");
+      EJCHECK(lang_emoji_bad() == 0, "a reset left %d bad rows", lang_emoji_bad()); }
+    /* 10. the corpus files and the npc's own lines carry no emoji, so the table must not change what they say: lines whose tokens are the same through the table and the fallback hear the same (tuning_010 holds the emoji the table adds) */
+    { int nt = 0, diff = 0, fresh = 0; char ln[1024];
+      for (int a = 1; a < argc; a++) {
+          if (argv[a][0] == '-') continue;
+          FILE *fp = fopen(argv[a], "r"); if (!fp) continue;
+          while (fgets(ln, sizeof ln, fp)) {
+              if (ln[0] == '#' || ln[0] == '@' || ln[0] == '\n') continue; char *tab = strchr(ln, '\t'); if (tab) *tab = 0;
+              Heard h1, h2; nt++;
+              lang_parse(ln, &h1); lang_clean_set_emoji(NULL, NULL); lang_parse(ln, &h2); lang_clean_set_emoji(lang_emoji_kind, lang_emoticons);
+              if (memcmp(h1.tok, h2.tok, sizeof h1.tok)) { fresh++; if (fresh <= 5) printf("  corpus line with new tokens: %s\n", ln); }
+              else if (h1.valence != h2.valence || h1.order[0] != h2.order[0] || h1.m[0] != h2.m[0]) diff++;
+          }
+          fclose(fp);
+      }
+      EJCHECK(diff == 0, "%d corpus lines hear something different with the same tokens", diff);
+      printf("emoji: %d corpus lines read through both lists, %d with tokens the table adds\n", nt, fresh); }
+    /* 11. speed: a line with 30 emoji and 20 emoticons */
+    { char line[600]; line[0] = 0;
+      static const char *const E[] = { "\xF0\x9F\x98\x8A ", "\xF0\x9F\xA5\xB3 ", "\xF0\x9F\x98\xAD ", ":) ", "^w^ ", "(;_;) ", ">_> " };
+      for (int i = 0; i < 50; i++) strcat(line, E[i % 7]);
+      Heard h; struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a); for (int i = 0; i < 200; i++) lang_parse(line, &h); clock_gettime(CLOCK_MONOTONIC, &b);
+      double ms = ((double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6) / 200.0;
+      printf("emoji: parse of a %d byte line with 50 emoji and emoticons %.3f ms\n", (int)strlen(line), ms);
+#if !defined(__SANITIZE_ADDRESS__)
+      EJCHECK(ms < 1.0, "parse of an emoji-heavy line took %.3f ms (budget 1 ms)", ms);
+#endif
+    }
+    printf("emoji: %d checks, %d problems\n", ejchecks, ejfail);
+    return ejfail != 0;
+}
+
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -4540,11 +4710,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--knowledge")) { rc |= do_knowledge() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--watch"))    { rc |= do_watch() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--masks"))    { rc |= do_masks() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--emoji"))    { rc |= do_emoji(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

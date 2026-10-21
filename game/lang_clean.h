@@ -32,7 +32,8 @@
 
 /* sentiment token kinds (chunk 16); the printed names are lang_token_name: pos neg love shock cry angry laugh */
 enum { TK_NONE, TK_POS, TK_NEG, TK_LOVE, TK_SHOCK, TK_CRY, TK_ANGRY, TK_LAUGH, TK_MASK, TK_COUNT };   /* TK_MASK (chunk 17): a censored word like f*ck, b***h (never rebuilt, the lexicon matches it) */
-typedef struct { int kind, a, b, len; } LangTok;     /* original bytes [a, b); len = letters of a laugh, or how many of the same emoji in a row (1 for an emoticon) */
+typedef struct { int kind, a, b, len, weight; } LangTok;     /* original bytes [a, b); len = letters of a laugh, or how many of the same emoji in a row (1 for an emoticon);
+                                                               * weight = tenths of a point of valence (0-50, chunk 55; the sign comes from the kind, shock has none) */
 #define LANG_MAX_TOK 24
 /* shape flags */
 #define LF_SHOUT  1u    /* >= 60 % capitals over >= 4 letters */
@@ -62,6 +63,7 @@ typedef struct {
     int stretch, nstretch, nleet, nspaced, npunct, nexpand;   /* chunk 17: longest elongated run, and how many words / runs each rule changed */
     int nnum; LangNum num[LANG_MAX_NUM];   /* chunk 19: set by lang_clean_numbers */
     int ntok, count[TK_COUNT];        /* tokens kept (the first LANG_MAX_TOK) and how many of each kind were seen */
+    int tv[TK_COUNT];                 /* chunk 55: per kind, the summed weight (tenths) of the first TWO tokens of the kind: what the sentiment layer counts */
     LangTok tok[LANG_MAX_TOK];
 } LangInfo;
 
@@ -121,6 +123,19 @@ void lang_clean_set_numbers(int on);
  * lang_numtab. NULL = only the built-in number-letter words */
 typedef const char *(*LangNumFn)(const char *w, int n, int *kind);
 void lang_clean_set_numtab(LangNumFn fn);
+
+/* ---- chunk 55: the emoticon and emoji table (lang_lex_emoji.c, registered by lang_tables.c) ----
+ * LangEmoticonFn(c, &n): the ASCII emoticons whose first character (lower case) is c, n rows (n = 0: none). A row's form is NUL ended and lower case.
+ * LangEmojiFn(cp, &w): the token kind (TK_*, 0 = not one we read) of an emoji code point and its weight. lang_init plugs both in;
+ * lang_clean_set_emoji(NULL, NULL) = only the built-in lists (they hold the same rows as the chunk 16 code; the table is a superset, langcheck --emoji tests it).
+ * lang_clean_builtin_emoji / lang_clean_builtin_emoticon read the built-in lists (tests): the kind and the default weight, 0 / past the end = none. */
+typedef struct { const char *s; int kind, weight; } LangEmo;
+typedef const LangEmo *(*LangEmoticonFn)(int c, int *n);
+typedef int (*LangEmojiFn)(int cp, int *weight);
+void lang_clean_set_emoji(LangEmojiFn emoji, LangEmoticonFn emoticons);
+int  lang_clean_builtin_emoji(int cp, int *weight);
+int  lang_clean_builtin_emoticon(int i, const char **s, int *kind, int *weight);
+int  lang_clean_default_weight(int kind);     /* tenths: pos 20, love 30, laugh 10, neg 20, angry 25, cry 20, shock 0, mask 30 */
 
 /* the same characters at the same places (same length, same map), but the case kept: for names (the capture of "im Alice") */
 int lang_clean_case(const char *text, char *out, int cap, int *map);

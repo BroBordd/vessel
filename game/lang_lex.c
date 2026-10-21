@@ -165,7 +165,7 @@ static int token_value(int kind) {
     }
 }
 
-int lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretch, const unsigned char *tok, SentInfo *si) {
+int lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretch, const unsigned char *tok, const unsigned char *tokv, SentInfo *si) {
     memset(si, 0, sizeof *si); si->cue = -1; si->to = -1;
     Clause cl[CLAUSE_MAX]; int ncl = len > 0 ? lang_clauses(lc, len, cl, CLAUSE_MAX) : 0;
     int cp[CLAUSE_MAX] = {0}, cn[CLAUSE_MAX] = {0};
@@ -192,7 +192,10 @@ int lang_sent_scan(const char *lc, int len, unsigned flags, int excl, int stretc
     if (P + N > 0) { P = P * bp / 100; N = N * bp / 100; }
     int Nwords = N;                                                              /* the negative evidence of the WORDS: a :( or a skull after nice job is a sad face, not mockery */
     if (tok) for (int k = 1; k < TK_COUNT; k++) {
-        int t = tok[k] > 2 ? 2 : tok[k], v = token_value(k) * t;
+        int base = token_value(k), v;
+        if (!base) continue;                                                     /* shock has no valence */
+        if (tokv) v = (base < 0 ? -1 : 1) * (int)tokv[k];                        /* chunk 55: the weights of the table (the first two tokens of a kind) */
+        else v = base * (tok[k] > 2 ? 2 : tok[k]);
         if (v > 0) P += v; else N -= v;
     }
     si->evidence = P + N;

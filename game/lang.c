@@ -410,7 +410,7 @@ static void sent_pass(Heard *h, const char *const *tx, const int *tl, int nt) {
     SentInfo best = {0}; int have = 0, bscore = 0;
     for (int k = 0; k < nt; k++) {
         if (!tx[k]) continue;
-        SentInfo si; lang_sent_scan(tx[k], tl[k], h->flags, h->excl, h->stretch, h->tok, &si);
+        SentInfo si; lang_sent_scan(tx[k], tl[k], h->flags, h->excl, h->stretch, h->tok, h->tokv, &si);
         int score = si.evidence + (si.sarcasm ? 1000 : 0);
         if (k == 0) { best = si; bscore = score; have = 1; continue; }         /* the typed text is the default */
         if (bscore == 0 && score > 0) { best = si; bscore = score; }          /* a variant only speaks when the typed text said nothing */
@@ -668,7 +668,7 @@ void lang_parse(const char *text, Heard *h) {
     h->stretch = (uint8_t)(info.stretch > 255 ? 255 : info.stretch);
     h->nnum = (uint8_t)(info.nnum > HEARD_NUM ? HEARD_NUM : info.nnum);
     for (int k = 0; k < info.nnum; k++) { if (k < HEARD_NUM) h->num[k] = info.num[k]; if (info.num[k].kind == NK_AGE && !h->age) h->age = (int16_t)info.num[k].value; }
-    for (int k = 0; k < TK_COUNT; k++) h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]);
+    for (int k = 0; k < TK_COUNT; k++) { h->tok[k] = (uint8_t)(info.count[k] > 255 ? 255 : info.count[k]); h->tokv[k] = (uint8_t)(info.tv[k] > 255 ? 255 : info.tv[k]); }
     Case cs; cs.text = text; cs.t1 = t1; cs.have = 0;
     Span sp[MAX_SPANS];
     int ns = scan(lc, len, sp, MAX_SPANS);
