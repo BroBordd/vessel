@@ -1773,7 +1773,7 @@ static int do_lemma(int argc, char **argv) {
     #define LCHECK(c, ...) do { checks++; if (!(c)) { printf("BAD LEMMA: " __VA_ARGS__); printf("\n"); bad++; } } while (0)
     /* the irregular table: well formed, no duplicate key, no chains */
     int nir = lang_irregular_count();
-    LCHECK(nir >= 300, "the irregular table has only %d rows", nir);
+    LCHECK(nir >= 1200, "the irregular table has only %d rows (chunk 53 needs 1,200)", nir);
     for (int i = 0; i < nir; i++) {
         const char *r = lang_irregular_row(i); if (!r) break;
         const char *bar = strchr(r, '|');
@@ -1823,6 +1823,16 @@ static int do_lemma(int argc, char **argv) {
         {"brought","bring"},{"lost","lose"},{"sat","sit"},{"ran","run"},{"ate","eat"},{"eaten","eat"},{"fell","fall"},{"spoke","speak"},{"spoken","speak"},
         {"broke","break"},{"broken","break"},{"wrote","write"},{"children","child"},{"men","man"},{"women","woman"},{"feet","foot"},{"teeth","tooth"},{"mice","mouse"},
         {"wolves","wolf"},{"knives","knife"},{"wives","wife"},
+        /* chunk 53: more verbs, plurals, comparatives, spellings, contractions */
+        {"bought","buy"},{"caught","catch"},{"taught","teach"},{"fought","fight"},{"sought","seek"},{"froze","freeze"},{"chose","choose"},{"stole","steal"},{"swore","swear"},
+        {"woke","wake"},{"drank","drink"},{"drunk","drink"},{"sang","sing"},{"swam","swim"},{"flew","fly"},{"drew","draw"},{"threw","throw"},{"grew","grow"},{"understood","understand"},
+        {"forgot","forget"},{"forgave","forgive"},{"hidden","hide"},{"slept","sleep"},{"wept","weep"},{"swept","sweep"},{"crept","creep"},{"spun","spin"},{"dug","dig"},{"hung","hang"},
+        {"running","run"},{"sitting","sit"},{"getting","get"},{"lying","lie"},{"dying","die"},{"cacti","cactus"},{"fungi","fungus"},{"criteria","criterion"},{"bacteria","bacterium"},
+        {"crises","crisis"},{"vertices","vertex"},{"mice","mouse"},{"lice","louse"},{"geese","goose"},{"heroes","hero"},{"cities","city"},{"babies","baby"},{"shelves","shelf"},
+        {"bigger","big"},{"hottest","hot"},{"thinner","thin"},{"happier","happy"},{"scariest","scary"},{"creepier","creepy"},{"nicest","nice"},{"farthest","far"},
+        {"colour","color"},{"colours","color"},{"coloured","color"},{"honour","honor"},{"neighbour","neighbor"},{"realise","realize"},{"realised","realize"},{"recognising","recognize"},
+        {"centre","center"},{"theatre","theater"},{"defence","defense"},{"grey","gray"},{"travelled","travel"},{"travelling","travel"},{"analysing","analyze"},{"jewellery","jewelry"},
+        {"im","be"},{"youre","be"},{"ive","have"},{"dont","do"},{"didnt","do"},{"isnt","be"},{"havent","have"},{"aint","be"},
     };
     int nf = (int)(sizeof F / sizeof F[0]), nok = 0;
     LCHECK(nf >= 100, "only %d test forms", nf);
@@ -1841,6 +1851,8 @@ static int do_lemma(int argc, char **argv) {
         "monster","corner","dinner","letter","summer","winter","river","silver","paper","answer","wonder","thunder","anger","danger","stranger","shadow","super","user",
         "hardly","barely","nothing","nobody","without","hello","hey","yeah","okay","please","sorry","love","hate","kill","help","good","bad","lovely","friendly","lonely",
         "ghostly","deadly","hundred","bus","gas","class","kiss","focus","virus","lens","chaos","glass","dress","hers","ours","yours","theirs","saw","left","found","rose",
+        /* chunk 53: nouns the suffix rules would cut (butter -> but), and a lemma must never drop a negation */
+        "butter","shower","teacher","building","officer","shoulder","bother","supper","center","career","cant","wont","couldnt","shouldnt","worst",
     };
     for (size_t i = 0; i < sizeof KEEP / sizeof KEEP[0]; i++) {
         char out[40]; int r = lang_lemma(KEEP[i], (int)strlen(KEEP[i]), out, 40);

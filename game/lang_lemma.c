@@ -115,7 +115,7 @@ int lang_lemma_ex(const char *w, int n, char *out, int cap, int *past) {
     s[n] = 0;
     char res[LEMMA_MAX_LEN + 4]; res[0] = 0;
     int pst = 0;
-    if (lang_textspeak(s, n) || lang_dialect(s, n)) return 0;       /* hows, wanna, wassup: the clean-up and spell layers read those, not the suffix rules */
+    if (!lang_irregular(s, n) && (lang_textspeak(s, n) || lang_dialect(s, n))) return 0;   /* hows, wanna, wassup: the clean-up and spell layers read those, not the suffix rules (a row of the irregular table still wins: dont -> do, chunk 53) */
     const char *ir = lang_irregular(s, n);
     if (ir) {                                                    /* a row of the irregular table: "form|lemma" or "form|lemma|p" (a past form); "form|form" means: never touched */
         const char *bar = strchr(ir, '|');
