@@ -3,6 +3,7 @@
  *
  * The clean-up layer, part 1 (docs/convo_plan.md, chunk 15). See lang_clean.h for what it does and promises.
  */
+#include <stdlib.h>
 #include "lang_clean.h"
 #include <string.h>
 #include <stdio.h>
@@ -580,6 +581,15 @@ int lang_clean_expand(const char *in, const int *inmap, char *out, int cap, int 
 static int NUMBERS_ON = 1;
 void lang_clean_set_numbers(int on) { NUMBERS_ON = on; }
 
+static LangNumFn NUMTAB;
+void lang_clean_set_numtab(LangNumFn fn) { NUMTAB = fn; }
+static const char *numtab_row(const char *w, int n, int *kind) { return NUMTAB ? NUMTAB(w, n, kind) : NULL; }
+/* an alias row of kind k (u t y o): its value */
+static int numtab_val(const char *w, int n, int k, long *v) {
+    int kd = 0; const char *r = numtab_row(w, n, &kd);
+    if (!r || kd != k) return 0;
+    *v = atol(r); return 1;
+}
 static const char *const NW_UNIT[] = { "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", NULL };
 static const char *const NW_TEEN[] = { "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", NULL };
 static const char *const NW_TENS[] = { "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", NULL };
@@ -593,6 +603,12 @@ static int nw_kind(const char *w, int n, long *v) {
     if (weq(w, n, "thousand")) { *v = 1000; return NWK_SCALE; }
     if (weq(w, n, "million")) { *v = 1000000; return NWK_SCALE; }
     if (weq(w, n, "and")) { *v = 0; return NWK_AND; }
+    if (NUMTAB && n <= 24) {                                                                     /* chunk 52: aliases (twenny, fivteen, naught) */
+        long a;
+        if (numtab_val(w, n, 'u', &a)) { *v = a; return NWK_UNIT; }
+        if (numtab_val(w, n, 't', &a)) { *v = a; return NWK_TEEN; }
+        if (numtab_val(w, n, 'y', &a)) { *v = a; return NWK_TENS; }
+    }
     return NWK_NONE;
 }
 /* the state of a number in words being read: last = kind of the last word (7 = closed by a lone zero) */
@@ -778,6 +794,8 @@ int lang_clean_numbers(const char *orig, const char *t, const int *map, LangInfo
         else if (tin(t, tk[i], ORD_W)) {
             kind = NK_ORDINAL;
             for (int q = 0; ORD_W[q]; q++) if (weq(w, wl, ORD_W[q])) { static const int OV[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 40, 50, 100, 1000 }; val = OV[q]; }
+        } else if (numtab_val(w, wl, 'o', &val)) {                  /* chunk 52: an ordinal alias (sixtieth) */
+            kind = NK_ORDINAL;
         } else {                                                     /* number words: the longest valid run */
             NW s; nw_init(&s); int best = -1; long bv = 0, v2;
             for (int k = i; k < nt; k++) {
@@ -823,6 +841,7 @@ static int wlist(const char *w, int n, const char *const *l) { for (; *l; l++) i
 static const char *numexpand(const char *in, int n, int i, int a, int b, int j) {
     int wl = b - a; const char *w = in + a;
     if (!NUMBERS_ON) return NULL;
+    { int kd = 0; const char *r = numtab_row(w, wl, &kd); if (r && kd == 'l') return r; }                          /* chunk 52: the table */
     for (int k = 0; NLW[k][0]; k++) if (weq(w, wl, NLW[k][0])) return NLW[k][1];
     if (!(wl == 1 && (w[0] == '2' || w[0] == '4'))) return NULL;
     int p = i - 1; while (p >= 0 && in[p] == ' ') p--;                 /* the word before */

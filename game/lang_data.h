@@ -62,6 +62,7 @@ extern const char *const LEX_CORE[];      /* chunk 27: rows "word|intent|weight"
 extern const char *const TOPIC_CORE[];     /* chunk 29: rows "word|topic.<n>|weight", game/lang_lex_topic_core.c */
 extern const char *const SENT_CORE[];      /* chunk 28: rows "word|sent|N" (-5..5), game/lang_lex_sent_core.c */
 extern const char *const MACROS_A[];    /* chunk 26: rows "name|alt|alt|..." (the pattern macros <name>), game/lang_pats_macros.c */
+extern const char *const NUMBERS[];    /* chunk 52: rows "form|result|kind" (number-letter words, number-word and ordinal aliases), game/lang_lex_numbers.c */
 extern const char *const IRREGULAR[];  /* chunk 24: rows "form|lemma" ("form|form" = never touched), game/lang_lex_irregular.c */
 extern const char *const TEXTSPEAK[];   /* chunk 18: rows "from|to", game/lang_lex_textspeak.c */
 extern const int  PATS_N;

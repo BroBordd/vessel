@@ -25,6 +25,7 @@ int  lang_register_vocab(const char *const *rows);   /* rows "word|rank|pos", th
 int  lang_register_irregular(const char *const *rows); /* chunk 24: rows "form|lemma" (an irregular form, its dictionary form; "form|form" = never touched), the array ends with 0 */
 int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (lower case first names), the array ends with 0 */
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
+int  lang_register_numbers(const char *const *rows); /* chunk 52: rows "form|result|kind" (see lang_lex_numbers.c), the array ends with 0 */
 int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
@@ -68,6 +69,11 @@ const char *lang_irregular(const char *w, int n);    /* chunk 24: the row's lemm
 int  lang_irregular_count(void);
 const char *lang_irregular_row(int i);
 int  lang_dialect_count(void);
+/* chunk 52: the numbers table: the row of w[0..n) as its result text (words or digits) and kind (l u t y o), or NULL; lang_init plugs it into lang_clean_set_numtab.
+ * lang_numtab_count = rows in the map, lang_numtab_row(i) walks every registered row in order (tools) */
+const char *lang_numtab(const char *w, int n, int *kind);
+int  lang_numtab_count(void);
+const char *lang_numtab_row(int i);
 const char *lang_dialect_row(int i);
 /* chunk 21: is w[0..n) a word of a pattern or a lexicon row (the spell repair prefers those); every known word with that flag (the spell dictionary is built
  * from it); a counter that changes whenever the tables were rebuilt (the spell index rebuilds itself when it sees a new number) */

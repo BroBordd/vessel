@@ -20,6 +20,7 @@ static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
 static const char *const *tstab[MAX_TABLES]; static int nts_t;       /* chunk 18: text-speak rows */
 static const char *const *dialtab[MAX_TABLES]; static int ndial_t;     /* chunk 22: dialect and phonetic spellings */
+static const char *const *numtab_t[MAX_TABLES]; static int nnum_t;      /* chunk 52: number-letter words and number aliases */
 static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 24: irregular forms and never-touched words */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
@@ -38,6 +39,7 @@ int lang_register_macros(const char *const *rows) { builtin(); if (nmac_t >= MAX
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
+int lang_register_numbers(const char *const *rows) { builtin(); if (nnum_t >= MAX_TABLES) return -1; numtab_t[nnum_t++] = rows; dirty = 1; return 0; }
 int lang_register_irregular(const char *const *rows) { builtin(); if (nirr_t >= MAX_TABLES) return -1; irrtab[nirr_t++] = rows; dirty = 1; return 0; }
 int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
@@ -59,6 +61,7 @@ static void builtin(void) {
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */
+    lang_register_numbers(NUMBERS);                              /* chunk 52 */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_vocab(VOCAB_A2);                               /* chunk 49b */
     lang_register_vocab(VOCAB_A3);                               /* chunk 49c */
@@ -75,7 +78,7 @@ static void builtin(void) {
     lang_register_names(NAMES_B);                                /* chunk 51a */
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -487,6 +490,47 @@ const char *lang_dialect_row(int i) {
     return NULL;
 }
 
+/* ---------- the numbers table (chunk 52): "form|result|kind" ---------- */
+typedef struct { const char *from; int n; const char *to; int rn; int kind; } NT;
+static NT *ntm; static int ntcap, ntn;
+static const NT *nt_find(const char *w, int n) {
+    if (!ntcap) return NULL;
+    for (unsigned h = whash(w, n) & (unsigned)(ntcap - 1);; h = (h + 1) & (unsigned)(ntcap - 1)) {
+        if (!ntm[h].from) return NULL;
+        if (ntm[h].n == n && !memcmp(ntm[h].from, w, (size_t)n)) return &ntm[h];
+    }
+}
+static void nt_put(const char *from, int n, const char *to, int rn, int kind) {
+    for (unsigned h = whash(from, n) & (unsigned)(ntcap - 1);; h = (h + 1) & (unsigned)(ntcap - 1)) {
+        if (!ntm[h].from) { ntm[h].from = from; ntm[h].n = n; ntm[h].to = to; ntm[h].rn = rn; ntm[h].kind = kind; ntn++; return; }
+        if (ntm[h].n == n && !memcmp(ntm[h].from, from, (size_t)n)) { ntm[h].to = to; ntm[h].rn = rn; ntm[h].kind = kind; return; }     /* a later row wins */
+    }
+}
+static char *nt_text; static size_t nt_cap;
+static void build_numtab(void) {
+    free(ntm); ntm = NULL; ntcap = ntn = 0; free(nt_text); nt_text = NULL; nt_cap = 0;
+    size_t rows = 0, bytes = 0;
+    for (int t = 0; t < nnum_t; t++) for (const char *const *r = numtab_t[t]; *r; r++) { rows++; bytes += strlen(*r) + 1; }
+    if (!rows) return;
+    ntcap = 16; while ((size_t)ntcap < rows * 2) ntcap *= 2;
+    ntm = calloc((size_t)ntcap, sizeof *ntm); nt_text = malloc(bytes + 1);
+    if (!ntm || !nt_text) { free(ntm); ntm = NULL; ntcap = 0; return; }
+    char *o = nt_text;
+    for (int t = 0; t < nnum_t; t++) for (const char *const *r = numtab_t[t]; *r; r++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        if (!b1 || !b2 || b1 == *r || b2 == b1 + 1 || !b2[1]) continue;
+        int rn = (int)(b2 - b1 - 1); memcpy(o, b1 + 1, (size_t)rn); o[rn] = 0;                  /* the result as its own NUL ended string */
+        nt_put(*r, (int)(b1 - *r), o, rn, b2[1]); o += rn + 1;
+    }
+}
+const char *lang_numtab(const char *w, int n, int *kind) { lang_init(); const NT *e = nt_find(w, n); if (!e) return NULL; if (kind) *kind = e->kind; return e->to; }
+int lang_numtab_count(void) { lang_init(); return ntn; }
+const char *lang_numtab_row(int i) {
+    builtin();
+    for (int t = 0; t < nnum_t; t++) for (const char *const *r = numtab_t[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- the irregular forms (chunk 24): "form|lemma"; "form|form" = never lemmatised ---------- */
 static TS *irm; static int ircap, irn;
 static const char *ir_find(const char *w, int n) {
@@ -536,6 +580,8 @@ void lang_init(void) {
     build_textspeak();
     build_dialect();
     build_irregular();
+    build_numtab();
+    lang_clean_set_numtab(lang_numtab);
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
     tables_gen++;

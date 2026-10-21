@@ -892,7 +892,7 @@ static int do_textspeak(int argc, char **argv) {
         for (const char *const *r2 = r + 1; ok && *r2; r2++) { const char *b2 = strchr(*r2, '|'); if (b2 && b2 - *r2 == kn && !strncmp(*r, *r2, (size_t)kn)) { printf("BAD TEXTSPEAK: duplicate key in \"%s\"\n", *r); bad++; } }
         if (!ok) { printf("BAD TEXTSPEAK: row \"%s\"\n", *r); bad++; }
     }
-    if (rows < 150) { printf("BAD TEXTSPEAK: only %d rows, the first batch has at least 150\n", rows); bad++; }
+    if (rows < 1500) { printf("BAD TEXTSPEAK: only %d rows, chunk 52 needs at least 1,500\n", rows); bad++; }
     static const struct { const char *in, *out; } P[] = {
         { "u r cool", "you are cool" }, { "ur cool", "your cool" }, { "ya know", "you know" }, { "yer mad", "your mad" }, { "pls help", "please help" },
         { "plz plz", "please please" }, { "thx", "thanks" }, { "ty so much", "thank you so much" }, { "idk", "i do not know" }, { "idc about it", "i do not care about it" },
@@ -1052,7 +1052,7 @@ static int do_numbers(int argc, char **argv) {
             { "any1 there?", "anyone there?" }, { "no1", "no one" }, { "i luv u 2", "i love you too" }, { "str8 up", "straight up" }, { "m8", "mate" }, { "2nite?", "tonight?" }, { "i cant 4get", "i cannot forget" },
             /* what must stay */
             { "i am 12", "i am 12" }, { "im 4", "i am 4" }, { "i have 2 dogs", "i have 2 dogs" }, { "1 2 3", "1 2 3" }, { "3pm", "3pm" }, { "2", "2" }, { "4", "4" }, { "i am 2", "i am 2" }, { "room 2", "room 2" },
-            { "one 2 three", "one 2 three" }, { "gr8t", "gr8t" }, { "user4", "user4" }, { "12 2 go", "12 2 go" }, { "age 4 me", "age 4 me" } };
+            { "one 2 three", "one 2 three" }, { "gr8t", "great" }, { "user4", "user4" }, { "12 2 go", "12 2 go" }, { "age 4 me", "age 4 me" } };
         for (unsigned i = 0; i < sizeof P / sizeof *P; i++) {
             char o[410]; int map[410], src[410]; LangInfo f; int n = xp(P[i].in, o, 410, map, src, &f); npairs++;
             if (strcmp(o, P[i].out)) { printf("BAD NUMBERS: expand \"%s\" -> \"%s\" (wanted \"%s\")\n", P[i].in, o, P[i].out); bad++; }
@@ -1098,6 +1098,34 @@ static int do_numbers(int argc, char **argv) {
         free(txt);
         printf("numbers over %d texts (reply lines, patterns, corpus): %d carry a number, %d intents gained, %d lost\n", lines, withnum, gained, lost);
         if (lost) { printf("BAD NUMBERS: the number rules must never take a heard intent away (%d)\n", lost); bad++; }
+    }
+    /* chunk 52: the numbers table (lang_lex_numbers.c): rows, aliases in numbers in words, ordinal aliases, the extra number-letter words, the cap on a reset */
+    {   int rows = 0, kinds[256] = {0};
+        for (const char *const *r = NUMBERS; *r; r++) {
+            rows++;
+            const char *b1 = strchr(*r, '|'), *b2 = b1 ? strchr(b1 + 1, '|') : NULL; int ok = b1 && b2 && b1 > *r && b2 > b1 + 1 && b2[1] && !b2[2] && strchr("lutyo", b2[1]);
+            for (const char *q = *r; ok && q < b1; q++) if (!((*q >= 'a' && *q <= 'z') || (*q >= '0' && *q <= '9'))) ok = 0;
+            if (ok && b2[1] != 'l') for (const char *q = b1 + 1; q < b2; q++) if (*q < '0' || *q > '9') ok = 0;
+            if (ok && b2[1] == 'l') for (const char *q = b1 + 1; q < b2; q++) if (!((*q >= 'a' && *q <= 'z') || *q == ' ')) ok = 0;
+            if (ok && vocab_has_n(*r, (int)(b1 - *r)) && b2[1] != 'l') ok = 0;                      /* an alias is never a real word */
+            if (ok) kinds[(unsigned char)b2[1]]++;
+            for (const char *const *r2 = r + 1; ok && *r2; r2++) { const char *c = strchr(*r2, '|'); if (c && c - *r2 == b1 - *r && !strncmp(*r, *r2, (size_t)(b1 - *r))) { printf("BAD NUMBERS: duplicate key in \"%s\"\n", *r); bad++; ok = 1; } }
+            if (!ok) { printf("BAD NUMBERS: table row \"%s\"\n", *r); bad++; }
+        }
+        if (rows < 200 || kinds['l'] < 100 || kinds['y'] < 5 || kinds['t'] < 10 || kinds['u'] < 3 || kinds['o'] < 5) { printf("BAD NUMBERS: the table has %d rows (l %d u %d t %d y %d o %d)\n", rows, kinds['l'], kinds['u'], kinds['t'], kinds['y'], kinds['o']); bad++; }
+        if (lang_numtab_count() < rows - 2 || !lang_numtab_row(0) || lang_numtab_row(rows) || strcmp(lang_numtab_row(0), NUMBERS[0])) { printf("BAD NUMBERS: the table map or row walker\n"); bad++; }
+        static const struct { const char *in, *out; } X[] = { { "g2g now", "got to go now" }, { "sum1 there", "someone there" }, { "w84me", "wait for me" }, { "i h8 u", "i hate you" }, { "cul8r", "see you later" },
+            { "2go there", "to go there" }, { "me2", "me too" }, { "u2", "you too" }, { "4eber", "forever" }, { "2bad", "too bad" }, { "user1", "user1" }, { "g2gx", "g2gx" } };
+        for (unsigned i = 0; i < sizeof X / sizeof *X; i++) { char o[410]; int m[410], sr[410]; LangInfo f; xp(X[i].in, o, 410, m, sr, &f); npairs++;
+            if (strcmp(o, X[i].out)) { printf("BAD NUMBERS: expand \"%s\" -> \"%s\" (wanted \"%s\")\n", X[i].in, o, X[i].out); bad++; } }
+        static const struct { const char *w; long v; } A[] = { { "twenny", 20 }, { "twenny five", 25 }, { "fivteen", 15 }, { "thirdy two", 32 }, { "ninty nine", 99 }, { "one hundred and sevnty", 170 }, { "naught", 0 }, { "elevn", 11 }, { "two thousand twenny six", 2026 } };
+        for (unsigned i = 0; i < sizeof A / sizeof *A; i++) { long b = -1; npairs++;
+            if (!lang_num_words(A[i].w, (int)strlen(A[i].w), &b) || b != A[i].v) { printf("BAD NUMBERS: \"%s\" is %ld, wanted %ld\n", A[i].w, b, A[i].v); bad++; } }
+        { LangInfo f; char t[200]; int m[200]; lang_clean_info("im twenny five and the sixtieth", t, 200, m, &f); lang_clean_numbers("im twenny five and the sixtieth", t, m, &f); int age = 0, ord = 0;
+          for (int i = 0; i < f.nnum; i++) { if (f.num[i].kind == NK_AGE && f.num[i].value == 25) age = 1; if (f.num[i].kind == NK_ORDINAL && f.num[i].value == 60) ord = 1; }
+          npairs++; if (!age || !ord) { printf("BAD NUMBERS: the aliases in a sentence (age %d, ordinal %d, %d numbers)\n", age, ord, f.nnum); bad++; } }
+        { long b; npairs++; if (lang_num_words("zorp", 4, &b)) { printf("BAD NUMBERS: zorp is a number\n"); bad++; } }
+        lang_tables_reset(); { int kd; npairs++; if (!lang_numtab("gr8", 3, &kd) || kd != 'l') { printf("BAD NUMBERS: the built-in rows after a reset\n"); bad++; } }
     }
     printf("numbers: %d detector / range / expansion checks and the checks around them. %s\n", npairs, bad ? "PROBLEMS" : "ok");
     return bad;
@@ -1456,7 +1484,7 @@ static int do_phonetic(int argc, char **argv) {
         if (!allknown) unknown_out++;
         PCHECK(lang_dialect(*r, kn) != NULL, "row \"%s\" is not in the map", *r);
     }
-    PCHECK(rows >= 150, "only %d dialect rows (the first batch has at least 150)", rows);
+    PCHECK(rows >= 800, "only %d dialect rows (chunk 52 needs at least 800)", rows);
     PCHECK(lang_dialect_count() >= rows - 2 && lang_dialect_count() <= rows, "the map has %d rows for %d table rows", lang_dialect_count(), rows);
     PCHECK(lang_dialect_row(0) != NULL && lang_dialect_row(rows - 1) != NULL && lang_dialect_row(rows) == NULL && !strcmp(lang_dialect_row(0), DIALECT[0]), "the row walker");
     PCHECK(unknown_out * 100 <= rows * 40, "%d of %d dialect results have a word the engine does not know yet", unknown_out, rows);

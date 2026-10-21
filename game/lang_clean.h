@@ -117,6 +117,10 @@ int  lang_num_words(const char *w, int n, long *v);
 int  lang_num_to_words(long v, char *out, int cap);
 int  lang_num_ordinal(long v, char *out, int cap);
 void lang_clean_set_numbers(int on);
+/* chunk 52: the numbers table (lang_lex_numbers.c): the row of the token w[0..n) as its result text and kind (l u t y o), or NULL; lang_init plugs in
+ * lang_numtab. NULL = only the built-in number-letter words */
+typedef const char *(*LangNumFn)(const char *w, int n, int *kind);
+void lang_clean_set_numtab(LangNumFn fn);
 
 /* the same characters at the same places (same length, same map), but the case kept: for names (the capture of "im Alice") */
 int lang_clean_case(const char *text, char *out, int cap, int *map);
