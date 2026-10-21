@@ -27,6 +27,7 @@ int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (l
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 int  lang_register_numbers(const char *const *rows); /* chunk 52: rows "form|result|kind" (see lang_lex_numbers.c), the array ends with 0 */
 int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
+int  lang_register_masks(const char *const *rows);   /* chunk 54a: rows "root|intent|weight": the words a censored token (f*ck) is matched against, the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
 
 /* ---- init ---- */
@@ -87,5 +88,13 @@ const char *lang_name_find(const char *name);
 int  lang_name_count(void);
 const char *lang_vocab_at(int i);
 const char *lang_name_at(int i);
+
+/* chunk 54a: censored words. lang_mask_match(tok, n, &intent, &weight): tok[0..n) is a censored token as typed (f*ck, b***h, s#!t, a$$hole). every
+ * character that is not a letter stands for one or more letters of a root; at least two letters must be typed; the first and the last character of
+ * the token must agree with the root's (a mask run may not open or close the match). 1 = a root of the mask table fits (the strongest wins),
+ * *intent is an Intent id, *weight the row's weight. lang_mask_count = rows registered, lang_mask_row(i) walks them (tools). */
+int  lang_mask_match(const char *tok, int n, int *intent, int *weight);
+int  lang_mask_count(void);
+const char *lang_mask_row(int i);
 
 #endif

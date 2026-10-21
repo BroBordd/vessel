@@ -24,6 +24,7 @@ static const char *const *numtab_t[MAX_TABLES]; static int nnum_t;      /* chunk
 static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 24: irregular forms and never-touched words */
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
+static const char *const *masktab[MAX_TABLES]; static int nmask_t;      /* chunk 54a: roots of censored words */
 static const char *const *mactab[MAX_TABLES]; static int nmac_t;        /* chunk 26: pattern macros */
 static int builtin_done, dirty = 1;
 
@@ -40,6 +41,7 @@ int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
 int lang_register_numbers(const char *const *rows) { builtin(); if (nnum_t >= MAX_TABLES) return -1; numtab_t[nnum_t++] = rows; dirty = 1; return 0; }
+int lang_register_masks(const char *const *rows) { builtin(); if (nmask_t >= MAX_TABLES) return -1; masktab[nmask_t++] = rows; dirty = 1; return 0; }
 int lang_register_irregular(const char *const *rows) { builtin(); if (nirr_t >= MAX_TABLES) return -1; irrtab[nirr_t++] = rows; dirty = 1; return 0; }
 int lang_register_names(const char *const *rows) { builtin(); if (nname_t >= MAX_TABLES) return -1; nametab[nname_t++] = rows; dirty = 1; return 0; }
 int lang_register_vocab(const char *const *rows) { builtin(); if (nvocab_t >= MAX_TABLES) return -1; vocabtab[nvocab_t++] = rows; dirty = 1; return 0; }
@@ -62,6 +64,9 @@ static void builtin(void) {
     lang_register_dialect(DIALECT);                              /* chunk 22 */
     lang_register_irregular(IRREGULAR);                          /* chunk 24 */
     lang_register_numbers(NUMBERS);                              /* chunk 52 */
+    lang_register_lex(LEX_MASKS);                                /* chunk 54a: swears, rude insults, sexual words and their respellings */
+    lang_register_names(NAMES_GUARD);                            /* chunk 54a: essex, assassin ... (never split or repaired into a profanity row) */
+    lang_register_masks(MASKROOTS);                              /* chunk 54a: roots a censored token is matched against */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_vocab(VOCAB_A2);                               /* chunk 49b */
     lang_register_vocab(VOCAB_A3);                               /* chunk 49c */
@@ -78,7 +83,7 @@ static void builtin(void) {
     lang_register_names(NAMES_B);                                /* chunk 51a */
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = nmask_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -567,6 +572,65 @@ const char *lang_irregular_row(int i) {
     return NULL;
 }
 
+
+/* ---------- censored words (chunk 54a): rows "root|intent|weight" ---------- */
+typedef struct { char root[28]; int rn, intent, weight; } MaskRow;
+static MaskRow *mrows; static int nmrows;
+static int mask_char(char c) { return !(c >= 'a' && c <= 'z'); }
+static void build_masks(void) {
+    free(mrows); mrows = NULL; nmrows = 0;
+    int rows = 0;
+    for (int t = 0; t < nmask_t; t++) for (const char *const *r = masktab[t]; *r; r++) rows++;
+    if (!rows) return;
+    mrows = calloc((size_t)rows, sizeof *mrows);
+    if (!mrows) return;
+    for (int t = 0; t < nmask_t; t++) for (const char *const *r = masktab[t]; *r; r++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        if (!b1 || b1 == *r || b1 - *r >= (int)sizeof mrows[0].root) continue;
+        char nm[40]; int ln = b2 ? (int)(b2 - b1 - 1) : (int)strlen(b1 + 1);
+        if (ln <= 0 || ln >= (int)sizeof nm) continue;
+        memcpy(nm, b1 + 1, (size_t)ln); nm[ln] = 0;
+        int in = lang_intent_by_name(nm); if (in < 0) continue;
+        MaskRow *m = &mrows[nmrows++];
+        m->rn = (int)(b1 - *r); memcpy(m->root, *r, (size_t)m->rn); m->root[m->rn] = 0;
+        m->intent = in; m->weight = b2 ? atoi(b2 + 1) : 5;
+    }
+}
+/* does t[0..n) (letters and mask characters) fit r[0..rn)? a letter must equal the root's next letter; a run of e mask characters stands for 1 to e + 2
+ * letters (f**k, f*ck and f*k are all fuck). the token starts and ends with a letter (checked by the caller), so a run is always followed by one */
+static int mask_fit(const char *t, int n, const char *r, int rn) {
+    if (n == 0) return rn == 0;
+    if (!mask_char(t[0])) return rn > 0 && t[0] == r[0] && mask_fit(t + 1, n - 1, r + 1, rn - 1);
+    int e = 1; while (e < n && mask_char(t[e])) e++;
+    for (int k = 1; k <= e + 2 && k <= rn; k++) if (mask_fit(t + e, n - e, r + k, rn - k)) return 1;
+    return 0;
+}
+int lang_mask_match(const char *tok, int n, int *intent, int *weight) {
+    lang_init();
+    char t[48];
+    if (!tok || n < 3 || n >= (int)sizeof t || !mrows) return 0;
+    int letters = 0;
+    for (int i = 0; i < n; i++) { char c = tok[i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); t[i] = c; if (!mask_char(c)) letters++; }
+    t[n] = 0;
+    if (letters < 2 || mask_char(t[0]) || mask_char(t[n - 1])) return 0;
+    int best = -1, bd = 1 << 20;
+    for (int i = 0; i < nmrows; i++) {
+        if (!mask_fit(t, n, mrows[i].root, mrows[i].rn)) continue;
+        int d = mrows[i].rn > n ? mrows[i].rn - n : n - mrows[i].rn;        /* the root whose length is the closest to the token wins, then the first row */
+        if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0) return 0;
+    if (intent) *intent = mrows[best].intent;
+    if (weight) *weight = mrows[best].weight;
+    return 1;
+}
+int lang_mask_count(void) { lang_init(); return nmrows; }
+const char *lang_mask_row(int i) {
+    builtin();
+    for (int t = 0; t < nmask_t; t++) for (const char *const *r = masktab[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -581,6 +645,7 @@ void lang_init(void) {
     build_dialect();
     build_irregular();
     build_numtab();
+    build_masks();
     lang_clean_set_numtab(lang_numtab);
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);

@@ -15,7 +15,7 @@
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
  *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
- *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
+ *   --masks            (chunk 54a) the profanity / mask tables: rows well formed, no slur row shipped, censored shapes (f*ck, b***h) and look-alikes, a swear aimed at someone is an insult, self-harm first, the slur_blocked plumbing with test rows, replies never echo, speed\n *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
@@ -4405,6 +4405,97 @@ static int do_watch(void) {
     return wtfail;
 }
 
+
+/* ---- chunk 54a: censored words and profanity forms (lang_lex_masks.c, lang_mask_match, mask_pass) ---- */
+static int mkfail, mkchecks;
+#define MKCHECK(c, ...) do { mkchecks++; if (!(c)) { printf("BAD MASKS: " __VA_ARGS__); printf("\n"); mkfail++; } } while (0)
+static int mk_heard(const char *text, int in) { Heard h; lang_parse(text, &h); return heard_has(&h, in); }
+static int mk_any(const char *text) { Heard h; lang_parse(text, &h); return heard_has(&h, I_SWEAR_ONLY) || heard_has(&h, I_INSULT) || heard_has(&h, I_SEXUAL_BLOCKED) || heard_has(&h, I_SLUR_BLOCKED); }
+static int do_masks(void) {
+    mkfail = mkchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* 1. the tables: well formed, no duplicate, only the four intents, no slur row written by the assistant (the owner adds those, chunk 158) */
+    int nrows = 0, vocab_rows = 0, by_intent[4] = { 0 };
+    { static const char *const IN[4] = { "swear_only", "insult", "sexual_blocked", "slur_blocked" };
+      for (const char *const *r = LEX_MASKS; *r; r++, nrows++) {
+          const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+          int ok = b1 && b2 && b1 > *r && b2 > b1 + 1 && b2[1] >= '1' && b2[1] <= '9' && !b2[2];
+          MKCHECK(ok, "malformed LEX_MASKS row: %s", *r); if (!ok) continue;
+          for (const char *c = *r; c < b1; c++) MKCHECK(*c >= 'a' && *c <= 'z', "LEX_MASKS word not a-z: %s", *r);
+          char nm[24]; int ln = (int)(b2 - b1 - 1); memcpy(nm, b1 + 1, (size_t)ln); nm[ln] = 0;
+          int k = -1; for (int q = 0; q < 4; q++) if (!strcmp(nm, IN[q])) k = q;
+          MKCHECK(k >= 0, "LEX_MASKS intent not one of the four: %s", *r); if (k >= 0) by_intent[k]++;
+          char w[32]; int wl = (int)(b1 - *r); if (wl < (int)sizeof w) { memcpy(w, *r, (size_t)wl); w[wl] = 0; if (vocab_has(w)) vocab_rows++; }
+          for (const char *const *q = LEX_MASKS; q < r; q++) MKCHECK(strncmp(*q, *r, (size_t)(b1 - *r + 1)), "duplicate LEX_MASKS word: %s", *r); }
+      MKCHECK(nrows >= 500, "only %d LEX_MASKS rows", nrows);
+      MKCHECK(by_intent[3] == 0, "the assistant wrote %d slur_blocked rows: the owner adds those (chunk 158)", by_intent[3]);
+      int nm = 0;
+      for (const char *const *r = MASKROOTS; *r; r++, nm++) {
+          const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+          MKCHECK(b1 && b2 && b1 - *r >= 3 && b2[1] >= '1' && b2[1] <= '9', "malformed MASKROOTS row: %s", *r);
+          for (const char *c = *r; b1 && c < b1; c++) MKCHECK(*c >= 'a' && *c <= 'z', "MASKROOTS word not a-z: %s", *r); }
+      MKCHECK(nm >= 60, "only %d MASKROOTS rows", nm);
+      MKCHECK(lang_mask_count() == nm, "lang_mask_count %d != %d rows", lang_mask_count(), nm);
+      printf("masks: %d lexicon rows (swear_only %d, insult %d, sexual_blocked %d, slur_blocked %d), %d of them also vocabulary words, %d mask roots\n", nrows, by_intent[0], by_intent[1], by_intent[2], by_intent[3], vocab_rows, nm); }
+    /* 2. lang_mask_match: censored shapes of a root, and what must not match */
+    { struct { const char *t; int in; } C[] = {
+          { "f*ck", I_SWEAR_ONLY }, { "f**k", I_SWEAR_ONLY }, { "f*k", I_SWEAR_ONLY }, { "fu*k", I_SWEAR_ONLY }, { "f#ck", I_SWEAR_ONLY }, { "f*cking", I_SWEAR_ONLY }, { "F*CK", I_SWEAR_ONLY },
+          { "sh*t", I_SWEAR_ONLY }, { "sh**", -1 }, { "s**t", I_SWEAR_ONLY }, { "b***h", I_INSULT }, { "b*tch", I_INSULT }, { "b*tches", I_INSULT }, { "a**hole", I_INSULT }, { "a$$hole", I_INSULT },
+          { "d*ck", I_SEXUAL_BLOCKED }, { "p*ssy", I_SEXUAL_BLOCKED }, { "c*nt", I_INSULT }, { "wh*re", I_INSULT }, { "m*therf*cker", I_INSULT }, { "b*stard", I_INSULT }, { "p*rn", I_SEXUAL_BLOCKED },
+          { "a*b", -1 }, { "5*3", -1 }, { "*sigh*", -1 }, { "c*ke", -1 }, { "sh*p", -1 }, { "h*llo", -1 }, { "b*ss", -1 }, { "x*y", -1 }, { "f*", -1 }, { "*ck", -1 }, { "f*ck*", -1 }, { "t*", -1 }, { "", -1 } };
+      for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+          int in = -1, w = 0, ok = lang_mask_match(C[i].t, (int)strlen(C[i].t), &in, &w);
+          if (C[i].in < 0) MKCHECK(!ok, "'%s' must not match a mask root (got %s)", C[i].t, ok ? lang_intent_name(in) : "-");
+          else MKCHECK(ok && in == C[i].in, "'%s' wanted %s, got %s", C[i].t, lang_intent_name(C[i].in), ok ? lang_intent_name(in) : "nothing"); }
+      MKCHECK(!lang_mask_match(NULL, 4, NULL, NULL) && !lang_mask_match("f*ck", 2, NULL, NULL), "NULL and short input");
+      char big[80]; memset(big, '*', sizeof big); big[0] = 'f'; big[79] = 'k';
+      MKCHECK(!lang_mask_match(big, 80, NULL, NULL), "an 80 character token matched"); }
+    /* 3. through lang_parse: the masked token is heard, a swear aimed at someone is an insult, a look-alike is not */
+    { static const struct { const char *t; int in; } H[] = {
+          { "what the f*ck", I_SWEAR_ONLY }, { "WHAT THE F*CK", I_SWEAR_ONLY }, { "this is bullsh*t", I_SWEAR_ONLY }, { "f*ck you", I_INSULT }, { "f**k off", I_INSULT }, { "f*ck u", I_INSULT },
+          { "you b***h", I_INSULT }, { "you are an a**hole", I_INSULT }, { "lol what a d*ckhead", I_INSULT }, { "show me p*rn", I_SEXUAL_BLOCKED }, { "you f*cking idiot", I_SWEAR_ONLY },
+          { "fuk", I_SWEAR_ONLY }, { "fukk this", I_SWEAR_ONLY }, { "fck", I_SWEAR_ONLY }, { "phuck", I_SWEAR_ONLY }, { "what the fuuuuck", I_SWEAR_ONLY }, { "f u c k", I_SWEAR_ONLY }, { "biatch", I_INSULT }, { "you dickhead", I_INSULT },
+          { "wanker", I_INSULT }, { "you fcking wanker", I_INSULT }, { "porn", I_SEXUAL_BLOCKED }, { "send nudes", I_SEXUAL_BLOCKED }, { "i am horny", I_SEXUAL_BLOCKED }, { "bullsht", I_SWEAR_ONLY }, { "sh1t", I_SWEAR_ONLY } };
+      for (size_t i = 0; i < sizeof H / sizeof H[0]; i++) MKCHECK(mk_heard(H[i].t, H[i].in) || (H[i].in == I_SWEAR_ONLY && mk_heard(H[i].t, I_INSULT)), "'%s' did not hear %s", H[i].t, lang_intent_name(H[i].in));
+      static const char *const N[] = { "a*b", "5*3 is 15", "*sigh* i am tired", "i like c*ke", "my ship sh*p", "hello", "i like cake", "what is a hell", "the class is in the building", "i will pass", "scunthorpe is a town",
+          "i need a cocktail", "she is a basset hound", "the assistant said hi", "i am from essex", "grass", "a passage", "bass guitar", "the moon", "shiitake mushrooms", "peacock", "cockatoo", "dickens wrote it" };
+      for (size_t i = 0; i < sizeof N / sizeof N[0]; i++) MKCHECK(!mk_any(N[i]), "'%s' heard a swear, insult or sexual word", N[i]); }
+    /* 4. self-harm is heard first and alone: nothing about swearing is added next to it */
+    { Heard h; const char *t[] = { "f*ck i want to die", "i want to kill myself you b***h", "i want to die fuck" };
+      for (int i = 0; i < 3; i++) { lang_parse(t[i], &h); MKCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "'%s' did not hear self-harm first", t[i]); if (i < 2) MKCHECK(!heard_has(&h, I_SWEAR_ONLY) && !heard_has(&h, I_INSULT), "'%s' also heard a swear", t[i]); } }
+    /* 5. the slur_blocked plumbing: a row of either table is heard and never echoed (test rows only, no slur is shipped) */
+    { static const char *const TL[] = { "zzslurword|slur_blocked|7", 0 }, *const TM[] = { "zzslurword|slur_blocked|7", 0 };
+      lang_register_lex(TL); lang_register_masks(TM);
+      char out[400]; Persona p = { "Ona", STYLE_PLAIN, 0, 50, 0, 60 }; Heard h;
+      MKCHECK(mk_heard("zzslurword", I_SLUR_BLOCKED), "a slur_blocked lexicon row is not heard");
+      MKCHECK(mk_heard("you zz*lurword", I_SLUR_BLOCKED) || mk_heard("you z*slurword", I_SLUR_BLOCKED), "a masked slur_blocked root is not heard");
+      lang_parse("you are a zzslurword", &h); lang_seed(3); lang_reply(&p, &h, out, (int)sizeof out);
+      MKCHECK(out[0] && !strstr(out, "zzslurword") && !strchr(out, '{'), "the reply to a slur is empty or echoes it: %s", out);
+      lang_tables_reset(); lang_init();
+      MKCHECK(!mk_heard("zzslurword", I_SLUR_BLOCKED), "a reset kept the test slur row"); }
+    /* 6. replies: a swear, an insult and a sexual word are answered, never empty, never an echo, in 10 voices */
+    { Heard h; char out[400]; const char *t[] = { "f*ck you", "what the fuck", "send nudes", "you wanker" }; int bad = 0;
+      for (int v = 0; v < 10; v++) for (int i = 0; i < 4; i++) for (int sd = 0; sd < 6; sd++) {
+          Persona p = { "Ona", 1 << v, 0, 50, 0, 60 };
+          lang_ctx_reset(); lang_seed(sd * 7 + 1); lang_parse(t[i], &h); lang_reply(&p, &h, out, (int)sizeof out);
+          if (!out[0] || strchr(out, '{') || strstr(out, "fuck") || strstr(out, "wanker") || strstr(out, "nudes") || strstr(out, "f*ck")) bad++; }
+      MKCHECK(!bad, "%d of 240 replies were empty, had an open slot or echoed the word", bad); }
+    /* 7. a lexicon row never makes a word of the story or of everyday talk an insult (the vocabulary words that are rows are all in this short list) */
+    { static const char *const OK[] = { "assistant", "class", "classic", "pass", "bass", "glass", "grass", "brass", "mass", "hello", "shell", "shelf", "cocktail", "peacock", "cockpit", "hellfire", "dickens", "analysis", "analyst", "essex", "sussex", "middlesex", "penistone", "cucumber", "document", "title", "tits" };
+      for (size_t i = 0; i < sizeof OK / sizeof OK[0]; i++) { if (!strcmp(OK[i], "tits")) continue; MKCHECK(!mk_any(OK[i]), "everyday word '%s' heard a swear / insult / sexual word", OK[i]); } }
+    /* 8. speed */
+    { char line[260]; line[0] = 0; for (int i = 0; i < 6; i++) strcat(line, "you f*cking b***h what the sh*t ");
+      Heard h; struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a); for (int i = 0; i < 200; i++) lang_parse(line, &h); clock_gettime(CLOCK_MONOTONIC, &b);
+      double ms = ((double)(b.tv_sec - a.tv_sec) * 1000.0 + (double)(b.tv_nsec - a.tv_nsec) / 1e6) / 200.0;
+      printf("masks: parse of a %d character line with 18 censored words %.3f ms\n", (int)strlen(line), ms);
+#if !defined(__SANITIZE_ADDRESS__)
+      MKCHECK(ms < 1.0, "parse of a line with many masks took %.3f ms (budget 1 ms)", ms);
+#endif
+    }
+    printf("masks: %d checks, %d problems\n", mkchecks, mkfail);
+    return mkfail != 0;
+}
+
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--all")) all = 1;
@@ -4448,11 +4539,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--plan"))     { rc |= do_plan() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--knowledge")) { rc |= do_knowledge() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--watch"))    { rc |= do_watch() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--masks"))    { rc |= do_masks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

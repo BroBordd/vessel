@@ -1,0 +1,43 @@
+# chunk 54a: (plain fuck, damn and crap are heard as insult by the old patterns of lang_pats.c; chunk 103 decides swear_only vs insult for them)
+# chunk 54a: swears, rude insults and sexual words, plain, respelled and censored. labels are the lang.c intent names. `none` = nothing should be heard
+what the fuck	insult
+what the f*ck	swear_only
+wtf is this sh*t	swear_only
+this is bullsh*t	swear_only
+holy sh*t	swear_only
+oh f**k	swear_only
+fukk	swear_only
+fck this	swear_only
+what the fuuuuck	insult
+damn it	insult
+goddamnit	swear_only
+f*cking hell	swear_only
+this is crap	insult
+bullsht	swear_only
+fuck you	insult
+f*ck you	insult
+f**k off	insult
+f*ck u	insult
+fuck off	insult
+you b***h	insult
+you are a bitch	insult
+you wanker	insult
+what a d*ckhead	insult
+you are an asshole	insult
+you a**hole	insult
+you dumbass	insult
+shut up you motherf*cker	insult
+you piece of sh*t	swear_only
+you stupid cunt	insult
+you fcking idiot	insult
+send nudes	sexual_blocked
+show me p*rn	sexual_blocked
+i am horny	sexual_blocked
+do you like sex	sexual_blocked
+sext me	sexual_blocked
+nudes pls	sexual_blocked
+a*b	none
+the class is in the building	none
+essex is a county	none
+i will pass the exam	none
+a cocktail with ice	none

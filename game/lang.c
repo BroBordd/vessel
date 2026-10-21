@@ -366,6 +366,27 @@ static void heard_add(Heard *h, int in, int src, int conf) {
     if (heard_has(h, in) || h->n >= HEARD_ORDER) return;
     heard_set(h, in); h->src[h->n] = (uint8_t)src; h->conf[h->n] = (uint8_t)conf; h->order[h->n++] = in;
 }
+/* chunk 54a: censored words. a token like f*ck or b***h is never rebuilt in the text (chunk 17), so the lexicon cannot see it: its LETTERS are matched
+ * against the mask roots (lang_mask_match). a swear that is aimed at someone (f*ck you, f*ck off) is an insult; everything else is the row's own
+ * intent. weaker than every phrase (conf 60, 70 when aimed). never after self-harm: the reply is the kind one whatever else was typed. */
+static void mask_pass(Heard *h, const char *text, const LangInfo *info) {
+    if (!info->count[TK_MASK] || heard_has(h, I_SELFHARM)) return;
+    for (int k = 0; k < info->ntok; k++) {
+        const LangTok *t = &info->tok[k];
+        if (t->kind != TK_MASK || t->b <= t->a || t->b - t->a > 40) continue;
+        int in, w; if (!lang_mask_match(text + t->a, t->b - t->a, &in, &w)) continue;
+        int conf = 60;
+        if (in == I_SWEAR_ONLY) {
+            const char *p = text + t->b; while (*p == ' ') p++;
+            char wd[12]; int n = 0; while (n < 11 && ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z'))) { wd[n++] = (char)((*p >= 'A' && *p <= 'Z') ? *p + 32 : *p); p++; }
+            wd[n] = 0;
+            if (!strcmp(wd, "you") || !strcmp(wd, "u") || !strcmp(wd, "ya") || !strcmp(wd, "off") || !strcmp(wd, "yourself") || !strcmp(wd, "urself") || !strcmp(wd, "ur")) { in = I_INSULT; conf = 70; }
+        }
+        if (w < 5 && in != I_INSULT) continue;                      /* a weak row (a word that is often innocent) never fires alone, masked or not */
+        heard_add(h, in, SRC_LEX, conf);
+    }
+}
+
 /* an intent the text was read as is replaced by its mocking twin (I_POS -> I_NEG); if the twin is already heard the old one just goes */
 static void heard_swap(Heard *h, int from, int to) {
     if (!heard_has(h, from)) return;
@@ -707,6 +728,7 @@ void lang_parse(const char *text, Heard *h) {
     lex_pass(h, lc, len, 0);                                   /* chunk 27: the lexicon layer, weaker than every phrase */
     if (has_x) lex_pass(h, lx, lenx, 0);
     if (has_s) lex_pass(h, ls, lens, spell_conf_of(h));
+    mask_pass(h, text, &info);                                  /* chunk 54a: censored words (f*ck) */
     { const char *tx[4] = { lc, has_x ? lx : NULL, has_s ? ls : NULL, has_sx ? lsx : NULL }; int tl[4] = { len, lenx, lens, lensx }; sent_pass(h, tx, tl, 4);      /* chunk 28 */
       for (int k = 0; k < 4 && !h->ntopic; k++) {                /* chunk 29: the topics of the typed text, or of a variant when the typed text has none */
           if (!tx[k]) continue;
