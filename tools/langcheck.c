@@ -2676,6 +2676,27 @@ static int do_topic(void) {
         for (const char *const *q = r + 1; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r)) && !strncmp(b2 + 1, "topic.", 6)), "row [%s] is there twice", *r); }
     }
     OCHECK(nrows >= 400 && nn >= 150, "only %d rows over %d topics", nrows, nn);
+    /* chunk 59: the world topic rows (TOPIC_A): well formed, a known topic or temple, none already in the core file, and they read through the scan */
+    { int na = 0;
+      for (const char *const *r = TOPIC_A; *r; r++) {
+          na++;
+          const char *a = strchr(*r, '|'), *b = a ? strchr(a + 1, '|') : NULL;
+          OCHECK(a && b && !strncmp(a + 1, "topic.", 6), "TOPIC_A row [%s] is not word|topic.name|weight", *r);
+          if (!a || !b) continue;
+          for (const char *c = *r; c < a; c++) OCHECK(islower((unsigned char)*c), "TOPIC_A row [%s]: the word is not lower case letters", *r);
+          int w = atoi(b + 1); OCHECK(w >= 1 && w <= 9, "TOPIC_A row [%s]: weight %d", *r, w);
+          for (const char *const *q = TOPIC_CORE; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r)) && !strncmp(b2 + 1, a + 1, (size_t)(b - a - 1))), "TOPIC_A row [%s] is already in the core file", *r); }
+          for (const char *const *q = r + 1; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r)) && !strncmp(b2 + 1, a + 1, (size_t)(b - a - 1))), "TOPIC_A row [%s] is there twice", *r); }
+      }
+      OCHECK(na >= 300, "TOPIC_A has only %d rows", na);
+      static const struct { const char *t, *topic; } A[] = {
+          { "the cathedral", "temple" }, { "the graveyard", "grave" }, { "an anvil", "hammer" }, { "the lighthouse", "sea" }, { "the meadow", "grass" },
+          { "the cottage", "house" }, { "the doorway", "door" }, { "the harvest", "season" }, { "a lantern", "light" }, { "the pilgrimage", "shrine" },
+          { "the thunderstorm", "weather" }, { "the nebula", "stars" }, { "the crescent", "moon" }, { "the daylight", "day" }, { "the gloomy hall", "dark" },
+      };
+      for (int i = 0; i < (int)(sizeof A / sizeof A[0]); i++) { Heard ha; const char *t = top0(A[i].t, &ha); OCHECK(t && !strcmp(t, A[i].topic), "\"%s\": topic %s, wanted %s", A[i].t, t ? t : "none", A[i].topic); }
+      OCHECK(lang_topic_id("temple") >= 0, "the temple topic has no id after a scan");
+    }
     Heard h;
     static const struct { const char *t, *topic, *thing; } C[] = {
         { "what about the moon", "moon", "moon" }, { "tell me about the stars", "stars", "stars" }, { "i saw a dragon", "dragon", "dragon" }, { "the shrine is old", "shrine", "shrine" },

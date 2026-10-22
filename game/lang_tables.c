@@ -68,6 +68,7 @@ static void builtin(void) {
     lang_register_lex(SENT_POS_C);                               /* chunk 56c */
     lang_register_lex(SENT_NEG_A);                               /* chunk 57a */
     lang_register_lex(TOPIC_CORE);                               /* chunk 29 */
+    lang_register_lex(TOPIC_A);                                  /* chunk 59 */
     lang_register_lex(lang_frame_wordrows());                    /* chunk 30: the words of the frame table (rows "word|frame|1", read by no layer, known to the spell repair) */
     lang_register_textspeak(TEXTSPEAK);
     lang_register_dialect(DIALECT);                              /* chunk 22 */
