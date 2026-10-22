@@ -54,7 +54,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int g15_n(void) { int n = 0; while (PATROWS_G15[n]) n++; return n; }      /* chunk 31: the rows registered next to PATS (one pattern each) */
+static int g15_n(void) { int n = 0, m = 0; while (PATROWS_G15[n]) n++; while (PATROWS_SAFETY[m]) m++; return n + m; }      /* chunk 31 + 54b: the rows registered next to PATS (the G15 rows and the widened self-harm rows, one pattern each) */
 #define NT 4
 #define NS 10
 static const Line *const TAB[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E };
@@ -291,7 +291,8 @@ keys_done:;
         if (!got || !asc) { TCHECK(0, "pattern %d [%s]: reachable %d, ascending %d", k, lang_pat(k)->pat, got, asc); bad_p++; }
     }
     { const int *ids; int ns = lang_pat_safety(&ids), want = 0; for (int k = 0; k < PATS_N; k++) if (PATS[k].intent == I_SELFHARM) want++;
-      TCHECK(ns == want && ns > 0, "safety list has %d patterns, PATS has %d", ns, want); }
+      { int sn = 0; while (PATROWS_SAFETY[sn]) sn++; want += sn; }
+      TCHECK(ns == want && ns > 0, "safety list has %d patterns, PATS and the 54b rows have %d", ns, want); }
     { PatCur c; lang_pat_cursor(&c, "qqqq"); int n = 0; while (lang_pat_next(&c) >= 0) n++; TCHECK(n <= 3, "a word nothing starts with met %d candidates", n); }
 
     /* 3. registering later: the indexes rebuild and the old answers stay */
@@ -2263,7 +2264,8 @@ static int do_pats(int argc, char **argv) {
       uint8_t m[64]; memset(m, 0, sizeof m); lang_highlight("so qzgood evening you", m);
       PCHECK(m[0] == 0 && m[2] == 0 && m[3] == 1 && m[16] == 1 && m[17] == 0, "highlight of a compiled pattern: %d %d %d %d %d", m[0], m[2], m[3], m[16], m[17]); }
     { const int *ids; int ns = lang_pat_safety(&ids), want = 0; for (int k = 0; k < PATS_N; k++) if (PATS[k].intent == I_SELFHARM) want++;
-      PCHECK(ns == want + 1, "the safety list has %d patterns (want %d, one of them compiled)", ns, want + 1); }
+      { int sn = 0; while (PATROWS_SAFETY[sn]) sn++; want += sn; }
+      PCHECK(ns == want + 1, "the safety list has %d patterns (want %d: the old ones, the 54b rows, and one compiled test row)", ns, want + 1); }
 
     /* ---- 4. the index: every surface form of every compiled row finds its row once, and the matcher takes the whole form ---- */
     { int checked = 0, comp = 0;

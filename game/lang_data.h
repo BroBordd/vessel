@@ -56,6 +56,7 @@ const char *lang_line_ask(const Line *l);      /* chunk 36: the line's own ask t
 extern const Line LINES_A[], LINES_B[], LINES_C[], LINES_D[], LINES_E[];
 extern const int  LINES_A_N, LINES_B_N, LINES_C_N, LINES_D_N, LINES_E_N;
 extern const char *const PATROWS_G15[];       /* chunk 31: the fourth wall */
+extern const char *const PATROWS_SAFETY[];   /* chunk 54b: widened self-harm detection rows, game/lang_pats_safety.c */
 extern const Pat  PATS[];
 extern const char *const DIALECT[];     /* chunk 22: rows "from|to" (a dialect or phonetic spelling, the standard words), game/lang_lex_dialect.c */
 extern const char *const LEX_CORE[];      /* chunk 27: rows "word|intent|weight", game/lang_lex_core.c */
