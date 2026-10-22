@@ -65,6 +65,7 @@ extern const char *const SENT_CORE[];      /* chunk 28: rows "word|sent|N" (-5..
 extern const char *const SENT_POS_A[];     /* chunk 56a: positive valence words, game/lang_lex_sent_pos_a.c */
 extern const char *const SENT_POS_B[];     /* chunk 56b: more positive valence words, game/lang_lex_sent_pos_b.c */
 extern const char *const SENT_POS_C[];     /* chunk 56c: positive valence words picked from the VADER lexicon, game/lang_lex_sent_pos_c.c */
+extern const char *const SENT_NEG_A[];     /* chunk 57a: negative valence words, game/lang_lex_sent_neg_a.c */
 extern const char *const MACROS_A[];    /* chunk 26: rows "name|alt|alt|..." (the pattern macros <name>), game/lang_pats_macros.c */
 extern const char *const LEX_MASKS[];     /* chunk 54a: rows "word|intent|weight" (swear_only, insult, sexual_blocked, slur_blocked spellings), game/lang_lex_masks.c */
 extern const char *const NAMES_GUARD[];   /* chunk 54a: real words and places that contain a profanity row (essex, assassin ...): registered as names so they are never split or repaired, game/lang_lex_masks.c */
