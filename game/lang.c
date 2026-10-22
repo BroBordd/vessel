@@ -45,6 +45,10 @@ static const char *const INTENT_LABEL[I_COUNT] = {
 #undef X
 };
 
+const char *lang_foreign_name(int lang) {     /* chunk 61 */
+    static const char *const N[LANG_COUNT] = { "", "spanish", "french", "german", "portuguese", "italian", "turkish", "russian", "arabic", "japanese", "hindi" };
+    return lang > 0 && lang < LANG_COUNT ? N[lang] : "";
+}
 const char *lang_intent_name(int in) { return in >= 0 && in < I_COUNT ? INTENT_NAME[in] : NULL; }
 const char *lang_intent_label(int in) { return in >= 0 && in < I_COUNT ? INTENT_LABEL[in] : NULL; }
 int lang_intent_by_name(const char *name) { for (int i = 0; i < I_COUNT; i++) if (!strcmp(INTENT_NAME[i], name)) return i; return -1; }
@@ -183,7 +187,7 @@ static int stars(const char *p) { int n = 0; for (; *p; p++) if (*p == '*') n++;
 static int prefix_len(const char *p);
 static int prefix_len(const char *p) { int n = 0; while (p[n] && p[n] != '*' && p[n] != '$') n++; return n; }
 
-typedef struct { int start, end, intent, prefix; } Span;
+typedef struct { int start, end, intent, prefix, lang; } Span;   /* lang: chunk 61, the LANG_* of the pattern that matched (0 = English) */
 #define MAX_TEXT 400        /* chunk 5: was 200 */
 #define MAX_SPANS 80        /* chunk 5: was 40 */
 
@@ -207,7 +211,7 @@ static int scan(const char *lc, int len, Span *sp, int maxsp) {
             if (e > best || (e == best && bk >= 0 && (w > bw || (w == bw && st < bstars)))) { best = e; bk = k; bstars = st; bw = w; bpref = pref; }
         }
         if (bk >= 0) {
-            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = lang_pat(bk)->intent; sp[n].prefix = bpref;
+            sp[n].start = i; sp[n].end = (int)(best - lc); sp[n].intent = lang_pat(bk)->intent; sp[n].prefix = bpref; sp[n].lang = lang_pat_lang(bk);
             n++; i = (int)(best - lc);
         } else i++;
     }
@@ -226,7 +230,7 @@ static int safety_scan(const char *lc, int len, Span *out, int maxo) {
             const LPat *lp = lang_pat_compiled(ids[j]);
             if (lp) lpat_match(lp, lc + i, lc, &e, NULL);
             else { if (*p != lc[i]) continue; mt(p, lc + i, lc, &e, p); }
-            if (e > lc + i) { out[n].start = i; out[n].end = (int)(e - lc); out[n].intent = I_SELFHARM; out[n].prefix = 0; n++; break; }
+            if (e > lc + i) { out[n].start = i; out[n].end = (int)(e - lc); out[n].intent = I_SELFHARM; out[n].prefix = 0; out[n].lang = 0; n++; break; }
         }
     }
     return n;
@@ -278,6 +282,7 @@ static void absorb(Heard *h, const char *lc, const Span *sp, int ns, const int *
     int cint[CLAUSE_MAX][4];
     for (int k = 0; k < ns; k++) {
         int in = sp[k].intent, ci = 0;
+        if (sp[k].lang && !h->foreign) h->foreign = (uint8_t)sp[k].lang;     /* chunk 61: a phrase of another tongue */
         while (ci + 1 < ncl && sp[k].start >= cl[ci].b) ci++;
         if (ncl > 0 && (lang_neg_count(lc, sp[k].start, cl[ci].a) & 1)) { int f = flip(in); if (f != in) cflip[ci] = 1; in = f; }
         if (primary == 1 || !heard_has(h, in)) { if (in == I_POS) { h->positive++; cpos[ci]++; } else if (in == I_NEG) { h->negative++; cneg[ci]++; } }

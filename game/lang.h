@@ -135,7 +135,12 @@ typedef struct {
     uint8_t topic_ask;  /* chunk 40: the player asked to talk about a topic (tell me more about the moon, lets talk about the sky) and a topic was found: starts a thread at once */
     uint8_t silent;     /* chunk 41: the player sent only dots (... / . / - -): a silent turn, answered by the nudge ladder (nudge.1 .. 4, then end.silence), never as a repeat */
     uint8_t stretch;    /* chunk 17: the longest elongated run of one letter (sooooo = 5), 0 = none; flags says LF_STRETCH LF_LEET LF_SPACED LF_MASKED LF_PUNCT too */
+    uint8_t foreign;    /* chunk 61: 0 = English, else the LANG_* of the first phrase in another tongue the text carried (hola -> LANG_ES): the same intents are heard as for English, the reply may remark on the tongue */
 } Heard;
+
+/* chunk 61: the tongues the engine reads a few common words of (Latin letters only: Russian, Arabic, Japanese and Hindi as typed on a keyboard) */
+enum { LANG_NONE = 0, LANG_ES, LANG_FR, LANG_DE, LANG_PT, LANG_IT, LANG_TR, LANG_RU, LANG_AR, LANG_JA, LANG_HI, LANG_COUNT };
+const char *lang_foreign_name(int lang);        /* "spanish" ... "hindi", "" for LANG_NONE or a bad id */
 
 /* chunk 34: what a reading rests on (Heard.kind) */
 enum { HK_NONE, HK_INTENT, HK_WEAK, HK_TOPIC, HK_FRAME };   /* nothing / a real intent / only a catch-all intent (what, how, why ...) / a topic word only / a sentence frame only */

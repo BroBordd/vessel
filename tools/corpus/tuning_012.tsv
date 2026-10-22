@@ -1,0 +1,317 @@
+# chunk 61: other languages (the common words of ten tongues, Latin letters, accents as a player may or may not type them). same labels as English
+# spanish
+hola	greet
+Hola!!	greet
+hola como estas	greet,howru
+buenos dias	greet
+buenas noches	greet
+que tal	howru
+como estas hoy	howru
+adios	bye
+hasta luego amigo	bye
+nos vemos manana	bye
+gracias	thanks
+muchas gracias por todo	thanks
+GRACIAS	thanks
+si claro	yes
+por supuesto que si	yes
+no gracias	no
+claro que no	no
+te quiero	love
+te amo mucho	love
+eres tonto	insult
+eres muy estupido	insult
+idiota	insult
+lo siento mucho	sorry
+perdon	sorry
+perdoname	sorry
+como te llamas	whoru
+cual es tu nombre	whoru
+quien eres	whoru
+no entiendo	confused
+no te entiendo nada	confused
+no comprendo	confused
+# french
+bonjour	greet
+Bonjour!	greet
+salut	greet
+bonsoir mon ami	greet
+coucou	greet
+ca va	howru
+comment ca va	howru
+comment vas tu	howru
+bonjour comment allez vous	greet,howru
+au revoir	bye
+a bientot	bye
+a demain	bye
+merci	thanks
+merci beaucoup	thanks
+MERCI	thanks
+oui	yes
+oui bien sur	yes
+non merci	no
+pas du tout	no
+je t'aime	love
+je taime	love
+tu es stupide	insult
+tu es moche	insult
+desole	sorry
+je suis desole	sorry
+comment tu t'appelles	whoru
+quel est ton nom	whoru
+qui es tu	whoru
+je ne comprends pas	confused
+je comprends pas	confused
+j'ai pas compris	confused
+# german
+hallo	greet
+Hallo!	greet
+guten morgen	greet
+guten tag	greet
+guten abend	greet
+wie geht's	howru
+wie gehts dir	howru
+wie geht es dir	howru
+hallo wie gehts	greet,howru
+tschuss	bye
+auf wiedersehen	bye
+bis bald	bye
+danke	thanks
+danke schon	thanks
+vielen dank	thanks
+ja klar	yes
+ja bitte	yes
+nein	no
+nein danke	no
+ich liebe dich	love
+ich hab dich lieb	love
+du bist dumm	insult
+dummkopf	insult
+es tut mir leid	sorry
+entschuldigung	sorry
+tut mir leid	sorry
+wie heisst du	whoru
+wer bist du	whoru
+ich verstehe nicht	confused
+ich versteh nicht	confused
+ich bin verwirrt	confused
+# portuguese
+ola	greet
+bom dia	greet
+boa tarde	greet
+boa noite	greet
+tudo bem	howru
+como vai	howru
+como voce esta	howru
+ola tudo bem	greet,howru
+tchau	bye
+ate logo	bye
+ate amanha	bye
+obrigado	thanks
+obrigada	thanks
+muito obrigado	thanks
+sim claro	yes
+claro que sim	yes
+nao	no
+nao obrigado	no
+eu te amo	love
+amo voce	love
+voce e burro	insult
+voce e idiota	insult
+desculpa	sorry
+me desculpe	sorry
+sinto muito	sorry
+como voce se chama	whoru
+qual e o seu nome	whoru
+quem e voce	whoru
+nao entendo	confused
+eu nao entendi	confused
+estou confuso	confused
+# italian
+salve	greet
+buongiorno	greet
+buonasera	greet
+ciao a tutti	greet
+come stai	howru
+come va	howru
+buongiorno come va	greet,howru
+arrivederci	bye
+a presto	bye
+a domani	bye
+grazie	thanks
+grazie mille	thanks
+molte grazie	thanks
+si certo	yes
+ma certo	yes
+no grazie	no
+assolutamente no	no
+ti amo	love
+ti voglio bene	love
+sei stupido	insult
+sei scemo	insult
+scusa	sorry
+mi dispiace	sorry
+scusami tanto	sorry
+come ti chiami	whoru
+chi sei	whoru
+non capisco	confused
+non ho capito	confused
+sono confuso	confused
+# turkish
+merhaba	greet
+selam	greet
+gunaydin	greet
+iyi aksamlar	greet
+nasilsin	howru
+naber	howru
+merhaba nasilsin	greet,howru
+hoscakal	bye
+gule gule	bye
+gorusuruz	bye
+tesekkurler	thanks
+tesekkur ederim	thanks
+sagol	thanks
+evet	yes
+tabii	yes
+elbette	yes
+hayir	no
+hayir tesekkurler	no
+seni seviyorum	love
+seni cok seviyorum	love
+sen aptalsin	insult
+salak	insult
+ozur dilerim	sorry
+kusura bakma	sorry
+adin ne	whoru
+sen kimsin	whoru
+anlamiyorum	confused
+anlamadim	confused
+kafam karisti	confused
+# russian
+privet	greet
+privet kak dela	greet,howru
+zdravstvuyte	greet
+dobryy den	greet
+kak dela	howru
+kak ty	howru
+poka poka	bye
+do svidaniya	bye
+do zavtra	bye
+spasibo	thanks
+bolshoe spasibo	thanks
+da konechno	yes
+da da	yes
+nyet	no
+niet	no
+ya tebya lyublyu	love
+ya lyublyu tebya	love
+ty durak	insult
+ty glupyy	insult
+izvini	sorry
+prosti menya	sorry
+kak tebya zovut	whoru
+kak vas zovut	whoru
+kto ty	whoru
+ya ne ponimayu	confused
+ya ne ponyal	confused
+ne ponimayu	confused
+# arabic
+salam	greet
+marhaba	greet
+ahlan	greet
+ahlan wa sahlan	greet
+kayf halak	howru
+kifak	howru
+shlonak	howru
+marhaba kifak	greet,howru
+ma salama	bye
+ma'a salama	bye
+shukran	thanks
+shukran jazilan	thanks
+naam	yes
+aywa	yes
+la shukran	no
+abadan	no
+ana uhibbuk	love
+bahebak	love
+ya kalb	insult
+anta ghabi	insult
+ana asif	sorry
+ana asfa	sorry
+ismak eh	whoru
+ma ismak	whoru
+ana la afham	confused
+ana mish fahem	confused
+mish fahem	confused
+# japanese
+konnichiwa	greet
+konbanwa	greet
+ohayou	greet
+ohayou gozaimasu	greet
+moshi moshi	greet
+ogenki desu ka	howru
+genki desu ka	howru
+sayonara	bye
+sayounara	bye
+jaa ne	bye
+mata ashita	bye
+arigatou	thanks
+arigato gozaimasu	thanks
+domo arigato	thanks
+hai sou desu	yes
+iie	no
+chigau	no
+daisuki	love
+aishiteru	love
+suki desu	love
+baka	insult
+anata wa baka	insult
+gomen	sorry
+gomen nasai	sorry
+sumimasen	sorry
+onamae wa	whoru
+o namae wa nan desu ka	whoru
+wakarimasen	confused
+wakaranai	confused
+# hindi
+namaste	greet
+namaskar	greet
+namaste kaise ho	greet,howru
+kaise ho	howru
+aap kaise hain	howru
+kya haal hai	howru
+alvida	bye
+phir milenge	bye
+khuda hafiz	bye
+shukriya	thanks
+dhanyavaad	thanks
+bahut shukriya	thanks
+haan ji	yes
+ji haan	yes
+bilkul	yes
+nahi ji	no
+kabhi nahi	no
+bilkul nahi	no
+tumse pyaar	love
+mujhe tumse pyaar hai	love
+tum pagal ho	insult
+bevakoof	insult
+maaf karo	sorry
+maaf kijiye	sorry
+mujhe maaf karo	sorry
+tumhara naam kya hai	whoru
+aapka naam kya hai	whoru
+tum kaun ho	whoru
+mujhe samajh nahi aaya	confused
+samajh nahi aaya	confused
+main confuse hoon	confused
+# English look-alikes: they must hear nothing in another tongue (labelled with their English reading or none)
+i caught a fish in the net	none
+a con artist stole it	none
+da vinci painted her	none
+the vale was quiet	none
+my mate is here	none
+the pet is asleep	none
+salute the flag	none
+oh no	no
+i do not understand	confused

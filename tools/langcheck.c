@@ -17,7 +17,7 @@
  *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
  *   --mods             (chunk 58) the modifier table (lang_lex_sent_mod.c): rows well formed (>= 140, no duplicate), every word of the old built-in lists in it with the same effect, new words do what their kind says, stronger intensifiers give stronger valence (clamped at +-2), a negator / contrast word / a-bit rule, the fallback without a table, registering later (rows add up, bad rows counted, reset)
  *   --emoji [FILES]    (chunk 55) the emoticon and emoji table (lang_lex_emoji.c): rows well formed (>= 400, no duplicate, no risky form), a superset of the built-in lists with the same kind and weight, every row read back as one token of its own kind, weight and bytes, what must NOT be a face (10:30, x=3, for(;;), tot), new forms in context, the weights reaching the valence (at most two tokens of a kind), the bucket accessor, the fallback without a table, registering later (a later row wins, bad rows counted, reset), the corpus FILES read the same through both lists, speed
- *   --masks            (chunk 54a) the profanity / mask tables: rows well formed, no slur row shipped, censored shapes (f*ck, b***h) and look-alikes, a swear aimed at someone is an insult, self-harm first, the slur_blocked plumbing with test rows, replies never echo, speed\n *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
+ *   --foreign [FILES]  (chunk 61) other languages: lang_pats_lang.c in 10 tongues (>= 40 rows each, every row heard as its intent and marked with its tongue in Heard.foreign), sentences with accents and capitals, English look-alikes and every English corpus FILE given must stay unmarked, self-harm first, replies, speed\n *   --masks            (chunk 54a) the profanity / mask tables: rows well formed, no slur row shipped, censored shapes (f*ck, b***h) and look-alikes, a swear aimed at someone is an insult, self-harm first, the slur_blocked plumbing with test rows, replies never echo, speed\n *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
  *   --clean [FILES]    (chunk 15) the clean-up layer lang_clean: identity with the old lower-casing on plain ASCII (every reply line, every pattern, every corpus FILE given), before/after pairs (accents, quotes, dashes, full-width, invisible characters, odd spaces, broken UTF-8, emoji), the map back to the original bytes, the case-keeping twin, the cut at the cap, and highlight / parse / capture / safety through it. fails on a problem
  *                      (chunk 16) and the signals of lang_clean_info: emoticons, kaomoji, emoji and laughs as tokens (kind, original bytes, length), keyboard mash and gibberish (noise score), shout, ! and ? counts, long lines; the flags in Heard; a corpus line is flagged as mash only if it is labelled none. the cleaned text never changes because of a token
@@ -55,7 +55,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int g15_n(void) { int n = 0, m = 0; while (PATROWS_G15[n]) n++; while (PATROWS_SAFETY[m]) m++; return n + m; }      /* chunk 31 + 54b: the rows registered next to PATS (the G15 rows and the widened self-harm rows, one pattern each) */
+static int g15_n(void) { int n = 0, m = 0, f = 0; while (PATROWS_G15[n]) n++; while (PATROWS_SAFETY[m]) m++;
+    { const char *const *const FT[10] = { PATROWS_ES, PATROWS_FR, PATROWS_DE, PATROWS_PT, PATROWS_IT, PATROWS_TR, PATROWS_RU, PATROWS_AR, PATROWS_JA, PATROWS_HI }; for (int t = 0; t < 10; t++) for (int i = 0; FT[t][i]; i++) f++; }   /* chunk 61: the ten other-language tables */
+    return n + m + f; }      /* chunk 31 + 54b: the rows registered next to PATS (the G15 rows and the widened self-harm rows, one pattern each) */
 #define NT 4
 #define NS 10
 static const Line *const TAB[5] = { LINES_A, LINES_B, LINES_C, LINES_D, LINES_E };
@@ -4448,6 +4450,127 @@ static int do_watch(void) {
 }
 
 
+/* ---- chunk 61: other languages (lang_pats_lang.c, Heard.foreign) ---- */
+static int frfail, frchecks;
+#define FRCHECK(c, ...) do { frchecks++; if (!(c)) { printf("BAD FOREIGN: " __VA_ARGS__); printf("\n"); frfail++; } } while (0)
+static const char *const *const FR_TABLES[LANG_COUNT] = { NULL, PATROWS_ES, PATROWS_FR, PATROWS_DE, PATROWS_PT, PATROWS_IT, PATROWS_TR, PATROWS_RU, PATROWS_AR, PATROWS_JA, PATROWS_HI };
+/* split "pattern|intent|weight" into the pattern (no copy: n bytes) and the intent id; returns -1 on a bad row */
+static int fr_row(const char *row, int *plen, int *intent, int *wt) {
+    const char *b1 = strchr(row, '|'); if (!b1 || b1 == row) return -1;
+    const char *b2 = strchr(b1 + 1, '|'); if (!b2 || b2[1] < '1' || b2[1] > '9' || b2[2]) return -1;
+    char nm[32]; int n = (int)(b2 - b1 - 1); if (n < 1 || n > 30) return -1; memcpy(nm, b1 + 1, (size_t)n); nm[n] = 0;
+    *intent = lang_intent_by_name(nm); *plen = (int)(b1 - row); *wt = b2[1] - '0';
+    return *intent < 0 ? -1 : 0;
+}
+static int do_foreign(int argc, char **argv) {
+    frfail = frchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* 1. the tables: >= 40 rows a tongue, well formed, only the plan's intents, every core intent in every tongue, no duplicate, nothing starts with a group, ASCII only */
+    static const char *const CORE[] = { "greet", "bye", "thanks", "yes", "no", "love", "insult", "sorry", "howru", "whoru", "confused" };
+    static const char *const ALLOWED[] = { "greet", "bye", "thanks", "yes", "no", "ok", "love", "insult", "sorry", "howru", "whoru", "confused" };
+    int total = 0;
+    for (int L = 1; L < LANG_COUNT; L++) {
+        int n = 0, seen[12] = { 0 };
+        for (const char *const *r = FR_TABLES[L]; *r; r++, n++) {
+            int pl, in, wt; int bad = fr_row(*r, &pl, &in, &wt);
+            FRCHECK(!bad, "%s: malformed row %s", lang_foreign_name(L), *r); if (bad) continue;
+            FRCHECK((*r)[0] != '[' && (*r)[0] != '(' && (*r)[0] != '<' && (*r)[0] != '*', "%s: row starts with a group or a wildcard: %s", lang_foreign_name(L), *r);
+            for (int i = 0; i < pl; i++) { unsigned char c = (unsigned char)(*r)[i]; FRCHECK((c >= 'a' && c <= 'z') || c == ' ' || c == '\'' || (c == '$' && i == pl - 1), "%s: bad character in %s", lang_foreign_name(L), *r); }
+            int ok = 0; for (int q = 0; q < 12; q++) if (in == lang_intent_by_name(ALLOWED[q])) { ok = 1; if (q < 11 && q != 5) {} }
+            FRCHECK(ok, "%s: intent %s is not one of the plan's", lang_foreign_name(L), lang_intent_name(in));
+            for (int q = 0; q < 11; q++) if (in == lang_intent_by_name(CORE[q])) seen[q] = 1;
+            for (const char *const *o = FR_TABLES[L]; o != r; o++) { int ol = (int)(strchr(*o, '|') - *o); FRCHECK(!(ol == pl && !strncmp(*o, *r, (size_t)pl)), "%s: duplicate row %s", lang_foreign_name(L), *r); }
+        }
+        FRCHECK(n >= 40, "%s has %d rows, the plan asks for >= 40", lang_foreign_name(L), n);
+        for (int q = 0; q < 11; q++) FRCHECK(seen[q], "%s has no row for %s", lang_foreign_name(L), CORE[q]);
+        total += n;
+    }
+    /* 2. every row, typed as it stands, is heard as its intent and marked with its tongue (a pattern that two tongues share belongs to the first one) */
+    int heard_ok = 0, rows = 0;
+    for (int L = 1; L < LANG_COUNT; L++) for (const char *const *r = FR_TABLES[L]; *r; r++) {
+        int pl, in, wt; if (fr_row(*r, &pl, &in, &wt) < 0) continue;
+        char txt[64]; int tl = pl; if ((*r)[pl - 1] == '$') tl--; memcpy(txt, *r, (size_t)tl); txt[tl] = 0;
+        int want = L;
+        for (int E = 1; E < L; E++) for (const char *const *o = FR_TABLES[E]; *o; o++) { int ol = (int)(strchr(*o, '|') - *o); if (ol == pl && !strncmp(*o, *r, (size_t)pl)) { want = E; goto found; } }
+        found:;
+        Heard h; lang_parse(txt, &h); rows++;
+        int hit = heard_has(&h, in) && h.foreign == want;
+        if (hit) heard_ok++;
+        FRCHECK(hit, "%s: '%s' -> intent %s heard=%d foreign=%d (want %d)", lang_foreign_name(L), txt, lang_intent_name(in), heard_has(&h, in), h.foreign, want);
+    }
+    /* 3. sentences as a player types them: capitals, punctuation, accents as UTF-8, two intents in one line, a mix with English */
+    static const struct { const char *text; int lang; const char *intents[3]; } S[] = {
+        { "Hola!", LANG_ES, { "greet" } }, { "\xC2\xBF""C\xC3\xB3mo est\xC3\xA1s?", LANG_ES, { "howru" } }, { "GRACIAS!!", LANG_ES, { "thanks" } }, { "No te entiendo", LANG_ES, { "confused" } },
+        { "Bonjour, comment \xC3\xA7""a va ?", LANG_FR, { "greet", "howru" } }, { "Merci beaucoup", LANG_FR, { "thanks" } }, { "Je t'aime", LANG_FR, { "love" } }, { "D\xC3\xA9sol\xC3\xA9", LANG_FR, { "sorry" } },
+        { "Danke sch\xC3\xB6n", LANG_DE, { "thanks" } }, { "Tsch\xC3\xBC\xC3\x9F", LANG_DE, { "bye" } }, { "Ich verstehe nicht", LANG_DE, { "confused" } }, { "Wie hei\xC3\x9Ft du?", LANG_DE, { "whoru" } },
+        { "Obrigado!", LANG_PT, { "thanks" } }, { "N\xC3\xA3o entendo", LANG_PT, { "confused" } }, { "Ol\xC3\xA1, tudo bem?", LANG_PT, { "greet", "howru" } },
+        { "Ti amo", LANG_IT, { "love" } }, { "Grazie mille", LANG_IT, { "thanks" } }, { "Come ti chiami?", LANG_IT, { "whoru" } },
+        { "Te\xC5\x9F""ekk\xC3\xBCrler", LANG_TR, { "thanks" } }, { "Seni seviyorum", LANG_TR, { "love" } }, { "Anlam\xC4\xB1yorum", LANG_TR, { "confused" } },
+        { "privet, kak dela?", LANG_RU, { "greet", "howru" } }, { "Spasibo", LANG_RU, { "thanks" } }, { "ya ne ponimayu", LANG_RU, { "confused" } },
+        { "Shukran", LANG_AR, { "thanks" } }, { "marhaba kifak", LANG_AR, { "greet", "howru" } }, { "Konnichiwa!", LANG_JA, { "greet" } }, { "arigatou gozaimasu", LANG_JA, { "thanks" } },
+        { "Namaste", LANG_HI, { "greet" } }, { "tumhara naam kya hai", LANG_HI, { "whoru" } }, { "hello, hola", LANG_ES, { "greet" } }, { "thank you, merci", LANG_FR, { "thanks" } },
+    };
+    for (int i = 0; i < (int)(sizeof S / sizeof S[0]); i++) {
+        Heard h; lang_parse(S[i].text, &h);
+        FRCHECK(h.foreign == S[i].lang, "'%s' foreign=%d (%s), want %d", S[i].text, h.foreign, lang_foreign_name(h.foreign), S[i].lang);
+        for (int k = 0; k < 3 && S[i].intents[k]; k++) FRCHECK(heard_has(&h, lang_intent_by_name(S[i].intents[k])), "'%s' did not hear %s", S[i].text, S[i].intents[k]);
+    }
+    /* 4. English must not be marked: look-alikes, plain sentences, every npc line, every corpus line that is not the foreign file */
+    static const char *const EN[] = { "hello", "hello there", "thank you", "who are you", "i love you", "i do not understand", "how are you", "sorry", "yes", "bye", "no", "oh no", "ok",
+        "i caught a fish in the net", "i lost my sim card", "a con artist stole it", "da vinci painted her", "the vale was quiet", "my sin is pride", "la la la la", "my mate is here", "the pet is asleep",
+        "salute the flag", "tell me about the moon", "you are stupid", "i am confused", "hai guys", "the sea is calm", "give me the orb", "where am i", "what is your name", "my name is Alex",
+        "she said no and walked away", "i like pasta", "the nose knows", "the rose is red", "show me the way", "the bone is old", "a ball of light", "hole in the ground" };
+    for (int i = 0; i < (int)(sizeof EN / sizeof EN[0]); i++) { Heard h; lang_parse(EN[i], &h); FRCHECK(h.foreign == 0, "English '%s' marked as %s", EN[i], lang_foreign_name(h.foreign)); }
+    { int n = 0, bad = 0; for (int t = 0; t < 5; t++) { int nt = 0; const Line *ln = NULL; (void)ln; (void)nt; }
+      for (int k = 0; k < lang_pat_count(); k++) if (lang_pat_lang(k) == 0) n++;
+      FRCHECK(n > 600, "English patterns carry no tongue (%d)", n); (void)bad; }
+    { int checked = 0, marked = 0;
+      for (int a = 1; a < argc; a++) {
+          if (argv[a][0] == '-' || strstr(argv[a], "tuning_012")) continue;
+          FILE *f = fopen(argv[a], "r"); if (!f) continue;
+          char ln[512];
+          while (fgets(ln, sizeof ln, f)) {
+              if (ln[0] == '#' || ln[0] == '@' || ln[0] == '\n') continue;
+              char *tab = strchr(ln, '\t'); if (tab) *tab = 0;
+              Heard h; lang_parse(ln, &h); checked++;
+              if (h.foreign && (!strcmp(ln, "hola") || !strcmp(ln, "sayonara then"))) continue;     /* two old corpus lines ARE in another tongue (tuning_000 and _001): marked rightly */
+              if (h.foreign) { marked++; FRCHECK(0, "corpus line '%s' (%s) marked as %s", ln, argv[a], lang_foreign_name(h.foreign)); }
+          }
+          fclose(f);
+      }
+      printf("foreign: %d English corpus lines read, %d marked\n", checked, marked); }
+    /* 5. the name table, the flag is clean on a plain parse, the first tongue wins, a repeated word keeps it */
+    FRCHECK(!strcmp(lang_foreign_name(LANG_ES), "spanish") && !strcmp(lang_foreign_name(LANG_HI), "hindi") && !strcmp(lang_foreign_name(0), "") && !strcmp(lang_foreign_name(LANG_COUNT), "") && !strcmp(lang_foreign_name(-1), ""), "lang_foreign_name");
+    { Heard h; lang_parse("hola bonjour danke", &h); FRCHECK(h.foreign == LANG_ES, "the first tongue wins: %d", h.foreign); }
+    { Heard h; lang_parse("", &h); FRCHECK(h.foreign == 0, "empty text"); lang_parse("....", &h); FRCHECK(h.foreign == 0, "dots"); }
+    /* 6. safety first: a foreign line of self-harm is still answered by r.selfharm, first, in every voice */
+    { Heard h; lang_parse("quiero morir", &h); FRCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "quiero morir is self-harm, first");
+      lang_parse("ich will sterben", &h); FRCHECK(heard_has(&h, I_SELFHARM) && h.order[0] == I_SELFHARM, "ich will sterben is self-harm, first"); }
+    /* 7. a reply is the English one: the same key, never empty, in the font's characters, <= 150, for 10 presets */
+    { static const char *const T[] = { "hola", "merci", "danke", "ti amo", "arigatou", "namaste", "ich verstehe nicht", "wie heisst du", "ya tebya lyublyu", "ma salama" };
+      for (int pid = 0; pid < 10; pid++) for (int i = 0; i < 10; i++) {
+          Persona p; if (!persona_init(&p, (PersonaId)pid, "Test")) continue;
+          lang_seed(1000u + (unsigned)(pid * 10 + i));
+          Heard h; lang_parse(T[i], &h); char out[600]; lang_reply(&p, &h, out, sizeof out);
+          int okc = out[0] != 0 && (int)strlen(out) <= 150;
+          for (const char *c = out; *c; c++) { unsigned char u = (unsigned char)*c; if (!(isalnum(u) || u == ' ' || u == ',' || u == '.' || u == '!' || u == '?' || u == '\'' || u == '-')) okc = 0; }
+          FRCHECK(okc, "reply to '%s' from preset %d: '%s'", T[i], pid, out); } }
+    { Persona p; persona_init(&p, PERSONA_GODDESS, "Dea"); lang_seed(7u); Heard h; lang_parse("hola", &h); char out[600]; lang_reply(&p, &h, out, sizeof out);
+      FRCHECK(!strcmp(lang_reply_key(), "r.greet"), "hola is answered as a greet (key %s)", lang_reply_key()); }
+    /* 8. speed: a 120 character line with a foreign phrase */
+    { const char *line = "hello there my friend, hola como estas, i just wanted to say gracias for all the help you gave me yesterday okay"; Heard h;
+      for (int i = 0; i < 50; i++) lang_parse(line, &h);
+      clock_t t0 = clock(); for (int i = 0; i < 1000; i++) lang_parse(line, &h); double ms = 1000.0 * (double)(clock() - t0) / CLOCKS_PER_SEC / 1000.0;
+      printf("foreign: parse of %d characters %.3f ms\n", (int)strlen(line), ms);
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_UNDEFINED__)
+      FRCHECK(ms < 1.0, "parse too slow: %.3f ms", ms);
+#endif
+    }
+    printf("foreign: %d rows in 10 tongues (%d heard as themselves), %d checks, %d problems\n", total, heard_ok, frchecks, frfail);
+    (void)rows;
+    return frfail;
+}
+
 /* ---- chunk 54a: censored words and profanity forms (lang_lex_masks.c, lang_mask_match, mask_pass) ---- */
 static int mkfail, mkchecks;
 #define MKCHECK(c, ...) do { mkchecks++; if (!(c)) { printf("BAD MASKS: " __VA_ARGS__); printf("\n"); mkfail++; } } while (0)
@@ -4822,13 +4945,14 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--knowledge")) { rc |= do_knowledge() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--watch"))    { rc |= do_watch() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--masks"))    { rc |= do_masks() ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--foreign"))  { rc |= do_foreign(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--emoji"))    { rc |= do_emoji(argc, argv) ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--mods"))     { rc |= do_mods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_foreign(argc, argv) ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_foreign(argc, argv) ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }

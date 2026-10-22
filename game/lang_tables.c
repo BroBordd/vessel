@@ -14,7 +14,7 @@
 #define MAX_TABLES 128
 
 typedef struct { const Line *t; int n; } LineTab;
-typedef struct { const Pat *t; int n; const char *const *rows; } PatTab;     /* chunk 26: rows != NULL = a table of "pattern|intent|weight" strings */
+typedef struct { const Pat *t; int n; const char *const *rows; int lang; } PatTab;     /* chunk 26: rows != NULL = a table of "pattern|intent|weight" strings */
 static LineTab ltab[MAX_TABLES]; static int nlt;
 static PatTab  ptab[MAX_TABLES]; static int npt;
 static const char *const *lextab[MAX_TABLES]; static int nlex_t;
@@ -32,11 +32,15 @@ static int builtin_done, dirty = 1;
 
 static void builtin(void);
 int lang_register_lines(const Line *t, int n) { builtin(); if (nlt >= MAX_TABLES) return -1; ltab[nlt].t = t; ltab[nlt].n = n; nlt++; dirty = 1; return 0; }
-int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; ptab[npt].rows = NULL; npt++; dirty = 1; return 0; }
+int lang_register_pats(const Pat *t, int n)   { builtin(); if (npt >= MAX_TABLES) return -1; ptab[npt].t = t; ptab[npt].n = n; ptab[npt].rows = NULL; ptab[npt].lang = 0; npt++; dirty = 1; return 0; }
 int lang_register_patrows(const char *const *rows) {
     builtin(); if (npt >= MAX_TABLES || !rows) return -1;
     int n = 0; while (rows[n]) n++;
-    ptab[npt].t = NULL; ptab[npt].n = n; ptab[npt].rows = rows; npt++; dirty = 1; return 0;
+    ptab[npt].t = NULL; ptab[npt].n = n; ptab[npt].rows = rows; ptab[npt].lang = 0; npt++; dirty = 1; return 0;
+}
+/* chunk 61: a table of rows in another language (LANG_ES ...): every pattern of it is a FOREIGN hit, Heard.foreign says which tongue */
+int lang_register_patrows_lang(const char *const *rows, int lang) {
+    int r = lang_register_patrows(rows); if (r == 0) ptab[npt - 1].lang = lang; return r;
 }
 int lang_register_macros(const char *const *rows) { builtin(); if (nmac_t >= MAX_TABLES) return -1; mactab[nmac_t++] = rows; dirty = 1; return 0; }
 int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_TABLES) return -1; lextab[nlex_t++] = rows; dirty = 1; return 0; }
@@ -60,6 +64,16 @@ static void builtin(void) {
     lang_register_pats(PATS, PATS_N);
     lang_register_patrows(PATROWS_G15);                          /* chunk 31 */
     lang_register_patrows(PATROWS_SAFETY);                       /* chunk 54b */
+    lang_register_patrows_lang(PATROWS_ES, LANG_ES);             /* chunk 61: the common words of ten other tongues, game/lang_pats_lang.c */
+    lang_register_patrows_lang(PATROWS_FR, LANG_FR);
+    lang_register_patrows_lang(PATROWS_DE, LANG_DE);
+    lang_register_patrows_lang(PATROWS_PT, LANG_PT);
+    lang_register_patrows_lang(PATROWS_IT, LANG_IT);
+    lang_register_patrows_lang(PATROWS_TR, LANG_TR);
+    lang_register_patrows_lang(PATROWS_RU, LANG_RU);
+    lang_register_patrows_lang(PATROWS_AR, LANG_AR);
+    lang_register_patrows_lang(PATROWS_JA, LANG_JA);
+    lang_register_patrows_lang(PATROWS_HI, LANG_HI);
     lang_register_macros(MACROS_A);                              /* chunk 26 */
     lang_register_lex(LEX_CORE);                                 /* chunk 27 */
     lang_register_lex(SENT_CORE);                                /* chunk 28 */
@@ -155,7 +169,7 @@ int lang_line_count(void) { lang_init(); return nlines; }
 #define NB2 4093
 static const int NB[3] = { NB0, NB1, NB2 };
 static const Pat **pats; static int npats;
-static const LPat **cpat; static unsigned char *pwt;        /* chunk 26: the compiled form (NULL = classic) and the weight of every pattern */
+static const LPat **cpat; static unsigned char *pwt, *plang;        /* chunk 26: the compiled form (NULL = classic) and the weight of every pattern */
 static Pat *rowpat; static char **rowtxt; static int nrowtxt;   /* chunk 26: the Pat structs and the pattern texts made from string rows */
 static struct { const char *row; const char *why; } perr[64]; static int nperr, nperr_total;
 static int *tbl_start[3], *tbl_ids[3];       /* CSR: bucket b holds ids tbl_ids[tbl_start[b] .. tbl_start[b + 1]) */
@@ -173,10 +187,10 @@ static int head_len(const char *p) {
 }
 
 static void free_pats(void) {
-    free(pats); free(wild); free(safety); free(cpat); free(pwt); free(rowpat);
+    free(pats); free(wild); free(safety); free(cpat); free(pwt); free(plang); free(rowpat);
     for (int i = 0; i < nrowtxt; i++) free(rowtxt[i]);
     free(rowtxt);
-    pats = NULL; wild = safety = NULL; cpat = NULL; pwt = NULL; rowpat = NULL; rowtxt = NULL;
+    pats = NULL; wild = safety = NULL; cpat = NULL; pwt = NULL; plang = NULL; rowpat = NULL; rowtxt = NULL;
     npats = nwild = nsafety = nrowtxt = 0;
     for (int t = 0; t < 3; t++) { free(tbl_start[t]); free(tbl_ids[t]); tbl_start[t] = tbl_ids[t] = NULL; }
 }
@@ -215,7 +229,7 @@ static void build_pats(void) {
     int total = 0;
     for (int t = 0; t < npt; t++) total += ptab[t].n;
     size_t cap = (size_t)(total ? total : 1);
-    pats = malloc(cap * sizeof *pats); cpat = calloc(cap, sizeof *cpat); pwt = malloc(cap);
+    pats = malloc(cap * sizeof *pats); cpat = calloc(cap, sizeof *cpat); pwt = malloc(cap); plang = calloc(cap, 1);
     wild = malloc(cap * sizeof *wild); safety = malloc(cap * sizeof *safety);
     rowpat = malloc(cap * sizeof *rowpat); rowtxt = malloc(cap * sizeof *rowtxt);
     int *cnt[3];
@@ -224,7 +238,7 @@ static void build_pats(void) {
         tbl_ids[t] = NULL;
         cnt[t] = calloc((size_t)NB[t], sizeof(int));
     }
-    if (!pats || !cpat || !pwt || !wild || !safety || !rowpat || !rowtxt || !tbl_start[0] || !tbl_start[1] || !tbl_start[2] || !cnt[0] || !cnt[1] || !cnt[2]) {
+    if (!pats || !cpat || !pwt || !plang || !wild || !safety || !rowpat || !rowtxt || !tbl_start[0] || !tbl_start[1] || !tbl_start[2] || !cnt[0] || !cnt[1] || !cnt[2]) {
         for (int t = 0; t < 3; t++) free(cnt[t]);
         free_pats(); return;
     }
@@ -249,7 +263,7 @@ static void build_pats(void) {
                 if (lpat_is_v2(txt)) { lp = lpat_compile(txt, &why); if (!lp) { perr_add(row, why); free(txt); continue; } }
                 rowtxt[nrowtxt++] = txt;
                 rowpat[nrow].pat = txt; rowpat[nrow].intent = in;
-                pats[n] = &rowpat[nrow++]; cpat[n] = lp; pwt[n] = (unsigned char)w; n++;
+                pats[n] = &rowpat[nrow++]; cpat[n] = lp; pwt[n] = (unsigned char)w; plang[n] = (unsigned char)ptab[t].lang; n++;
             }
         }
     }
@@ -291,6 +305,7 @@ const Pat *lang_pat(int id) { return pats[id]; }
 int lang_pat_safety(const int **ids) { lang_init(); *ids = safety; return nsafety; }
 const struct LPat *lang_pat_compiled(int id) { lang_init(); return id >= 0 && id < npats ? cpat[id] : NULL; }
 int lang_pat_weight(int id) { lang_init(); return id >= 0 && id < npats ? pwt[id] : 5; }
+int lang_pat_lang(int id) { lang_init(); return id >= 0 && id < npats ? plang[id] : 0; }   /* chunk 61: 0 = English, else LANG_* */
 int lang_pat_error_count(void) { lang_init(); return nperr_total; }
 const char *lang_pat_error(int i, const char **why) { lang_init(); if (i < 0 || i >= nperr) return NULL; if (why) *why = perr[i].why; return perr[i].row; }
 

@@ -20,6 +20,8 @@
 /* ---- registry (each returns 0 on success, -1 if the registry is full) ---- */
 int  lang_register_lines(const Line *t, int n);
 int  lang_register_pats(const Pat *t, int n);
+int  lang_register_patrows_lang(const char *const *rows, int lang);   /* chunk 61: like _patrows, every pattern of the table is a hit in the tongue LANG_* (Heard.foreign) */
+int  lang_pat_lang(int id);                          /* chunk 61: 0 = an English pattern, else the LANG_* of its table */
 int  lang_register_patrows(const char *const *rows); /* chunk 26: rows "pattern|intent name|weight" (weight 1-9, optional; [a|b] (x) <m> allowed), the array ends with 0 */
 int  lang_register_macros(const char *const *rows);  /* chunk 26: rows "name|alt|alt|..." (the macros <name> of a pattern), the array ends with 0 */
 int  lang_register_lex(const char *const *rows);     /* rows "word|intent|weight", the array ends with 0 */
