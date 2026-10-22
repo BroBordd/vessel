@@ -2689,6 +2689,23 @@ static int do_topic(void) {
           for (const char *const *q = r + 1; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a - *r && !strncmp(*r, *q, (size_t)(a - *r)) && !strncmp(b2 + 1, a + 1, (size_t)(b - a - 1))), "TOPIC_A row [%s] is there twice", *r); }
       }
       OCHECK(na >= 300, "TOPIC_A has only %d rows", na);
+      { int nb = 0;  /* chunk 60: TOPIC_B, same rules, none in the core file or TOPIC_A */
+        for (const char *const *r = TOPIC_B; *r; r++) {
+            nb++;
+            const char *a1 = strchr(*r, '|'), *b1 = a1 ? strchr(a1 + 1, '|') : NULL;
+            OCHECK(a1 && b1 && !strncmp(a1 + 1, "topic.", 6), "TOPIC_B row [%s] is not word|topic.name|weight", *r);
+            if (!a1 || !b1) continue;
+            for (const char *c = *r; c < a1; c++) OCHECK(islower((unsigned char)*c), "TOPIC_B row [%s]: the word is not lower case letters", *r);
+            int w = atoi(b1 + 1); OCHECK(w >= 1 && w <= 9, "TOPIC_B row [%s]: weight %d", *r, w);
+            const char *const *tabs[2] = { TOPIC_CORE, TOPIC_A };
+            for (int k = 0; k < 2; k++) for (const char *const *q = tabs[k]; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a1 - *r && !strncmp(*r, *q, (size_t)(a1 - *r)) && !strncmp(b2 + 1, a1 + 1, (size_t)(b1 - a1 - 1))), "TOPIC_B row [%s] is already in an earlier table", *r); }
+            for (const char *const *q = r + 1; *q; q++) { const char *b2 = strchr(*q, '|'); OCHECK(!(b2 && b2 - *q == a1 - *r && !strncmp(*r, *q, (size_t)(a1 - *r)) && !strncmp(b2 + 1, a1 + 1, (size_t)(b1 - a1 - 1))), "TOPIC_B row [%s] is there twice", *r); }
+        }
+        OCHECK(nb >= 300, "TOPIC_B has only %d rows", nb);
+        static const struct { const char *t, *topic; } B[] = { { "the goddess", "god" }, { "the corpse", "death" }, { "the skeleton", "bone" }, { "the grandmother", "family" }, { "the soldier", "war" },
+            { "the wizard", "magic" }, { "the piano", "music" }, { "the werewolf", "wolf" }, { "the kitten", "cat" }, { "the puppy", "dog" }, { "the smartphone", "phone" }, { "the browser", "internet" } };
+        for (int i = 0; i < (int)(sizeof B / sizeof B[0]); i++) { Heard hb; const char *t = top0(B[i].t, &hb); OCHECK(t && !strcmp(t, B[i].topic), "\"%s\": topic %s, wanted %s", B[i].t, t ? t : "none", B[i].topic); }
+      }
       static const struct { const char *t, *topic; } A[] = {
           { "the cathedral", "temple" }, { "the graveyard", "grave" }, { "an anvil", "hammer" }, { "the lighthouse", "sea" }, { "the meadow", "grass" },
           { "the cottage", "house" }, { "the doorway", "door" }, { "the harvest", "season" }, { "a lantern", "light" }, { "the pilgrimage", "shrine" },
