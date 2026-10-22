@@ -2165,10 +2165,12 @@ static int do_pats(int argc, char **argv) {
     printf("pats: %d rows (%d compiled v2), %d macros, %d rows left out; %d surface forms (%d rows hit the cap of 200), longest row %d characters [%s]; %d rows can start with anything, %d have a huge first word set; %d ambiguous surface forms\n",
         np, ncomp, lpat_macro_count(), lang_pat_error_count(), tot_forms, over, longest, np ? lang_pat(longest_id)->pat : "", nwild, nhuge, amb);
     PCHECK(lang_pat_error_count() == 0, "the shipped tables leave %d rows out (first: %s)", lang_pat_error_count(), lang_pat_error_count() ? lang_pat_error(0, NULL) : "");
-    PCHECK(lpat_macro_count() >= 25, "only %d macros are registered", lpat_macro_count());
+    PCHECK(lpat_macro_count() >= 150, "only %d macros are registered (chunk 62 asks for >= 150)", lpat_macro_count());
     for (int m = 0; m < lpat_macro_count(); m++) {
         const char *nm = lpat_macro_name(m);
         PCHECK(lpat_macro_alts(m) > 0 || !strcmp(nm, "x"), "macro <%s> has no alternative", nm);
+        PCHECK(lpat_macro_alts(m) >= 5 && lpat_macro_alts(m) <= 60, "macro <%s> has %d alternatives (chunk 62: 5 to 60)", nm, lpat_macro_alts(m));
+        for (int m2 = 0; m2 < m; m2++) PCHECK(strcmp(nm, lpat_macro_name(m2)), "macro <%s> is registered twice", nm);
         for (int j = 0; j < lpat_macro_alts(m); j++) {
             const char *a = lpat_macro_alt(m, j);
             PCHECK(a && *a && !strpbrk(a, "*?$[](<>|") && strcmp(a, "") != 0, "macro <%s> alternative %d [%s] is empty or holds a pattern character", nm, j, a ? a : "(null)");
@@ -2176,6 +2178,23 @@ static int do_pats(int argc, char **argv) {
             for (int i2 = 0; i2 < j; i2++) PCHECK(strcmp(a, lpat_macro_alt(m, i2)), "macro <%s> holds [%s] twice", nm, a);
         }
     }
+
+    /* chunk 62: every alternative of every macro is matched, whole, through its own macro (and the macro keeps working inside a longer pattern) */
+    { int alts = 0;
+      for (int m = 0; m < lpat_macro_count(); m++) {
+          const char *nm = lpat_macro_name(m);
+          if (!strcmp(nm, "number") || !strcmp(nm, "time") || !strcmp(nm, "npc")) continue;     /* these also match more than their row */
+          char pat[64]; snprintf(pat, sizeof pat, "<%s>", nm);
+          char pat2[96]; snprintf(pat2, sizeof pat2, "qzq <%s> zqz", nm);
+          for (int j = 0; j < lpat_macro_alts(m); j++) {
+              const char *a = lpat_macro_alt(m, j); alts++;
+              PCHECK(pm(pat, a, NULL) == (int)strlen(a), "macro <%s> does not match its own alternative [%s]", nm, a);
+              char txt[160]; snprintf(txt, sizeof txt, "qzq %s zqz", a);
+              PCHECK(pm(pat2, txt, NULL) == (int)strlen(txt), "macro <%s> inside a pattern does not match [%s]", nm, a);
+          }
+      }
+      PCHECK(alts >= 1500, "only %d macro alternatives in all", alts);
+      printf("  macros: %d, alternatives checked: %d\n", lpat_macro_count(), alts); }
 
     /* ---- 1. the syntax: pattern, text, how much of the text it reaches ---- */
     static const PCase C[] = {
