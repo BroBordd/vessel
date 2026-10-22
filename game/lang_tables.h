@@ -15,6 +15,7 @@
 #define LANG_TABLES_H
 #include "lang_data.h"
 #include "lang_clean.h"
+#include "lang_clause.h"
 
 /* ---- registry (each returns 0 on success, -1 if the registry is full) ---- */
 int  lang_register_lines(const Line *t, int n);
@@ -28,6 +29,7 @@ int  lang_register_names(const char *const *rows);   /* chunk 20: rows "name" (l
 int  lang_register_textspeak(const char *const *rows); /* chunk 18: rows "from|to" (a token as typed, its standard form), the array ends with 0 */
 int  lang_register_numbers(const char *const *rows); /* chunk 52: rows "form|result|kind" (see lang_lex_numbers.c), the array ends with 0 */
 int  lang_register_dialect(const char *const *rows); /* chunk 22: rows "from|to" (a dialect or phonetic spelling, its standard words), the array ends with 0 */
+int  lang_register_mods(const char *const *rows);    /* chunk 58: rows "word|mod|kind", kind n (negator) c (contrast: the clause that opens with it wins) j (conjunction: opens a new clause) b1 b2 b3 (intensifier, +1..+3) d1 d2 (diminisher, -1 -2) d1a d2a (diminisher that counts only after \"a\": a bit); a word may have several rows (they add up), see lang_lex_sent_mod.c */
 int  lang_register_emoji(const char *const *rows);   /* chunk 55: rows "form|kind|weight" (an ASCII emoticon in lower case or one emoji code point as UTF-8; kind p n l s c a h; weight in tenths, see lang_lex_emoji.c), the array ends with 0 */
 int  lang_register_masks(const char *const *rows);   /* chunk 54a: rows "root|intent|weight": the words a censored token (f*ck) is matched against, the array ends with 0 */
 void lang_tables_reset(void);                        /* tests: forget everything registered but the built-in tables */
@@ -110,4 +112,9 @@ int  lang_emoticon_count(void);
 int  lang_emoji_bad(void);
 const char *lang_emoji_row(int i);
 
+/* chunk 58: the modifier table. lang_init plugs lang_mod_find into lang_clause_set_mods. lang_mod_count = distinct words, lang_mod_bad = rows that did not parse, lang_mod_row(i) walks the rows */
+int  lang_mod_find(const char *w, int n, LangMod *m);
+int  lang_mod_count(void);
+int  lang_mod_bad(void);
+const char *lang_mod_row(int i);
 #endif

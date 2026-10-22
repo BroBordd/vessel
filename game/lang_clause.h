@@ -33,4 +33,17 @@ int lang_neg_count(const char *lc, int start, int clause_a);
 /* is this word (lower case, w[0..n)) a negator? */
 int lang_is_negator(const char *w, int n);
 
+/* ---- chunk 58: the modifier table (lang_lex_sent_mod.c, registered by lang_tables.c) ----
+ * LangModFn(w, n, &m): what the word w[0..n) does in a clause: MOD_NEG = a negator, MOD_CONTRAST = a clause that opens with it wins (but), MOD_CONJ = it opens a new clause
+ * (but although because); boost = the intensity it adds to the clause (+1..+3 very, extremely; -1..-2 a bit, slightly), needs_a = the boost counts only after the word "a"
+ * (a bit, a little, a tad). returns 1 when the word is a modifier. lang_init plugs it in; lang_clause_set_mods(NULL) = the built-in lists (the fallback: the table holds
+ * all of their words with the same effect, langcheck --mods tests it); lang_clause_builtin_mod reads the built-in lists (tests). */
+#define MOD_NEG      1
+#define MOD_CONTRAST 2
+#define MOD_CONJ     4
+typedef struct { unsigned char flags, needs_a; signed char boost; } LangMod;
+typedef int (*LangModFn)(const char *w, int n, LangMod *m);
+void lang_clause_set_mods(LangModFn fn);
+int  lang_clause_builtin_mod(const char *w, int n, LangMod *m);
+
 #endif

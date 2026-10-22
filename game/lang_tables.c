@@ -25,6 +25,7 @@ static const char *const *irrtab[MAX_TABLES]; static int nirr_t;       /* chunk 
 static const char *const *vocabtab[MAX_TABLES]; static int nvocab_t;
 static const char *const *nametab[MAX_TABLES]; static int nname_t;     /* chunk 20: known first names */
 static const char *const *masktab[MAX_TABLES]; static int nmask_t;      /* chunk 54a: roots of censored words */
+static const char *const *modtab[MAX_TABLES]; static int nmod_t;        /* chunk 58: modifiers */
 static const char *const *emotab[MAX_TABLES]; static int nemo_t;        /* chunk 55: emoticons and emoji */
 static const char *const *mactab[MAX_TABLES]; static int nmac_t;        /* chunk 26: pattern macros */
 static int builtin_done, dirty = 1;
@@ -42,6 +43,7 @@ int lang_register_lex(const char *const *rows)   { builtin(); if (nlex_t >= MAX_
 int lang_register_textspeak(const char *const *rows) { builtin(); if (nts_t >= MAX_TABLES) return -1; tstab[nts_t++] = rows; dirty = 1; return 0; }
 int lang_register_dialect(const char *const *rows) { builtin(); if (ndial_t >= MAX_TABLES) return -1; dialtab[ndial_t++] = rows; dirty = 1; return 0; }
 int lang_register_numbers(const char *const *rows) { builtin(); if (nnum_t >= MAX_TABLES) return -1; numtab_t[nnum_t++] = rows; dirty = 1; return 0; }
+int lang_register_mods(const char *const *rows) { builtin(); if (nmod_t >= MAX_TABLES) return -1; modtab[nmod_t++] = rows; dirty = 1; return 0; }
 int lang_register_emoji(const char *const *rows) { builtin(); if (nemo_t >= MAX_TABLES) return -1; emotab[nemo_t++] = rows; dirty = 1; return 0; }
 int lang_register_masks(const char *const *rows) { builtin(); if (nmask_t >= MAX_TABLES) return -1; masktab[nmask_t++] = rows; dirty = 1; return 0; }
 int lang_register_irregular(const char *const *rows) { builtin(); if (nirr_t >= MAX_TABLES) return -1; irrtab[nirr_t++] = rows; dirty = 1; return 0; }
@@ -74,6 +76,7 @@ static void builtin(void) {
     lang_register_lex(LEX_MASKS);                                /* chunk 54a: swears, rude insults, sexual words and their respellings */
     lang_register_names(NAMES_GUARD);                            /* chunk 54a: essex, assassin ... (never split or repaired into a profanity row) */
     lang_register_masks(MASKROOTS);                              /* chunk 54a: roots a censored token is matched against */
+    lang_register_mods(MODS);                                    /* chunk 58: intensifiers, diminishers, negators, contrast words */
     lang_register_emoji(EMOJI);                                  /* chunk 55: emoticons and emoji with their weights */
     lang_register_vocab(VOCAB_A);                                /* chunk 20 */
     lang_register_vocab(VOCAB_A2);                               /* chunk 49b */
@@ -91,7 +94,7 @@ static void builtin(void) {
     lang_register_names(NAMES_B);                                /* chunk 51a */
 }
 
-void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = nmask_t = nemo_t = 0; builtin_done = 0; dirty = 1; }
+void lang_tables_reset(void) { nlt = npt = nlex_t = nvocab_t = nts_t = nname_t = ndial_t = nirr_t = nmac_t = nnum_t = nmask_t = nemo_t = nmod_t = 0; builtin_done = 0; dirty = 1; }
 
 /* ---------- the key index ---------- */
 typedef struct { const char *key; int start, n; } KeyRange;
@@ -743,6 +746,54 @@ const char *lang_emoji_row(int i) {
     return NULL;
 }
 
+/* ---------- modifiers (chunk 58): rows "word|mod|kind" ---------- */
+typedef struct { char w[20]; unsigned char flags, needs_a; int boost; } ModEnt;
+static ModEnt *mods; static int nmods, mod_bad_n;
+static int cmp_modent(const void *a, const void *b) { return strcmp(((const ModEnt *)a)->w, ((const ModEnt *)b)->w); }
+static void build_mods(void) {
+    free(mods); mods = NULL; nmods = 0; mod_bad_n = 0;
+    int rows = 0;
+    for (int t = 0; t < nmod_t; t++) for (const char *const *r = modtab[t]; *r; r++) rows++;
+    if (!rows) return;
+    ModEnt *tmp = calloc((size_t)rows, sizeof *tmp); if (!tmp) return;
+    int n = 0;
+    for (int t = 0; t < nmod_t; t++) for (const char *const *r = modtab[t]; *r; r++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        int wl = b1 ? (int)(b1 - *r) : 0, ok = b1 && b2 && wl >= 1 && wl < 20 && !strncmp(b1 + 1, "mod", 3) && b1[4] == '|';
+        for (int i = 0; ok && i < wl; i++) { char c = (*r)[i]; if (!((c >= 'a' && c <= 'z') || c == '\'' || c == '-')) ok = 0; }
+        if (!ok) { mod_bad_n++; continue; }
+        const char *k = b2 + 1; ModEnt e; memset(&e, 0, sizeof e); memcpy(e.w, *r, (size_t)wl);
+        if (!strcmp(k, "n")) e.flags = MOD_NEG; else if (!strcmp(k, "c")) e.flags = MOD_CONTRAST; else if (!strcmp(k, "j")) e.flags = MOD_CONJ;
+        else if ((k[0] == 'b' || k[0] == 'd') && k[1] >= '1' && k[1] <= (k[0] == 'b' ? '3' : '2') && (!k[2] || (k[2] == 'a' && !k[3] && k[0] == 'd'))) {
+            e.boost = (k[0] == 'b' ? 1 : -1) * (k[1] - '0'); e.needs_a = k[2] == 'a';
+        } else { mod_bad_n++; continue; }
+        int j; for (j = 0; j < n; j++) if (!strcmp(tmp[j].w, e.w)) break;       /* several rows of a word add up; a later boost row replaces an earlier one */
+        if (j == n) tmp[n++] = e;
+        else { tmp[j].flags |= e.flags; if (e.boost) { tmp[j].boost = e.boost; tmp[j].needs_a = e.needs_a; } }
+    }
+    qsort(tmp, (size_t)n, sizeof *tmp, cmp_modent);
+    mods = tmp; nmods = n;
+}
+int lang_mod_find(const char *w, int n, LangMod *m) {
+    lang_init();
+    if (n < 1 || n >= 20 || !mods) return 0;
+    char k[20]; memcpy(k, w, (size_t)n); k[n] = 0;
+    int lo = 0, hi = nmods - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2, c = strcmp(k, mods[mid].w);
+        if (!c) { m->flags = mods[mid].flags; m->needs_a = mods[mid].needs_a; m->boost = (signed char)mods[mid].boost; return 1; }
+        if (c < 0) hi = mid - 1; else lo = mid + 1;
+    }
+    return 0;
+}
+int lang_mod_count(void) { lang_init(); return nmods; }
+int lang_mod_bad(void) { lang_init(); return mod_bad_n; }
+const char *lang_mod_row(int i) {
+    builtin();
+    for (int t = 0; t < nmod_t; t++) for (const char *const *r = modtab[t]; *r; r++) { if (!i--) return *r; }
+    return NULL;
+}
+
 /* ---------- init ---------- */
 void lang_init(void) {
     if (!dirty) return;
@@ -759,8 +810,10 @@ void lang_init(void) {
     build_numtab();
     build_masks();
     build_emoji();
+    build_mods();
     lang_clean_set_numtab(lang_numtab);
     lang_clean_set_emoji(lang_emoji_kind, lang_emoticons);
+    lang_clause_set_mods(lang_mod_find);
     lang_clean_set_known(lang_known_word);
     lang_clean_set_expand(lang_textspeak);
     tables_gen++;

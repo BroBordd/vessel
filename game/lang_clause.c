@@ -16,7 +16,13 @@ static const char *const NEG[] = { "not", "no", "never", "dont", "don't", "cant"
     "didnt", "didn't", "hardly", "without", "aint", "ain't", "doesnt", "doesn't", "wasnt", "wasn't", "werent", "weren't", "havent", "haven't",
     "hasnt", "hasn't", "hadnt", "hadn't", "shouldnt", "shouldn't", "wouldnt", "wouldn't", "couldnt", "couldn't", "cannot", "barely",
     "scarcely", "nor", "neither", NULL };
-int lang_is_negator(const char *w, int n) { return is_w(w, n, NEG); }
+/* the built-in lists above are the fallback: with no table plugged (chunk 58) they say what each word does */
+static LangModFn MODFN;
+void lang_clause_set_mods(LangModFn fn) { MODFN = fn; }
+static int builtin_mod(const char *w, int n, LangMod *m);
+int lang_clause_builtin_mod(const char *w, int n, LangMod *m) { return builtin_mod(w, n, m); }
+static int mod_of(const char *w, int n, LangMod *m) { memset(m, 0, sizeof *m); return MODFN ? MODFN(w, n, m) : builtin_mod(w, n, m); }
+int lang_is_negator(const char *w, int n) { LangMod m; mod_of(w, n, &m); return (m.flags & MOD_NEG) != 0; }
 
 /* words that start a new clause when a comma or "so" comes before them */
 static const char *const SUBJ[] = { "i", "you", "we", "they", "he", "she", "it", "im", "ive", "id", "ill", "u", "ur", "dont", "do", "lets", "let", "now",
@@ -26,6 +32,18 @@ static const char *const CONJ[] = { "but", "however", "yet", "although", "though
 static const char *const BOOST[] = { "very", "so", "really", "extremely", "super", "totally", "absolutely", "deeply", "incredibly", "terribly",
     "truly", "utterly", "completely", "awfully", "insanely", "hella", NULL };
 static const char *const DIM[] = { "kinda", "sorta", "somewhat", "slightly", "barely", "bit", "little", "mildly", "semi", NULL };
+
+static int builtin_mod(const char *w, int n, LangMod *m) {
+    memset(m, 0, sizeof *m);
+    if (is_w(w, n, NEG)) m->flags |= MOD_NEG;
+    if (is_w(w, n, CONTRAST)) m->flags |= MOD_CONTRAST;
+    if (is_w(w, n, CONJ)) m->flags |= MOD_CONJ;
+    if (is_w(w, n, BOOST)) m->boost = 1;
+    else if (is_w(w, n, DIM) && !(n == 6 && !memcmp(w, "barely", 6))) {       /* barely is a negator, not a diminisher */
+        m->boost = -1; m->needs_a = (n == 3 && !memcmp(w, "bit", 3)) || (n == 6 && !memcmp(w, "little", 6));      /* "a bit", "a little" */
+    }
+    return m->flags || m->boost;
+}
 
 static int next_word(const char *lc, int len, int i, int *a, int *b) {       /* the word starting at or after i */
     while (i < len && !wc(lc[i])) { if (stop(lc[i])) return 0; i++; }
@@ -38,7 +56,7 @@ int lang_clauses(const char *lc, int len, Clause *cl, int max) {
     if (len <= 0 || max <= 0) return 0;
     int starts[CLAUSE_MAX * 4], ns = 0;                 /* byte where a clause begins; the word that opens it is the first word at or after it */
     starts[ns++] = 0;
-    int i = 0, prev_comma = 0, skip_then = -1;
+    int i = 0, prev_comma = 0, skip_then = -1; LangMod mw;
     while (i < len) {
         char c = lc[i];
         if (stop(c)) { int k = i + 1; while (k < len && (stop(lc[k]) || lc[k] == ' ')) k++; if (k < len && ns < (int)(sizeof starts / sizeof *starts)) starts[ns++] = k; i = k; prev_comma = 0; continue; }
@@ -48,7 +66,7 @@ int lang_clauses(const char *lc, int len, Clause *cl, int max) {
         int n = j - i; const char *w = lc + i;
         int split = 0;
         if (i == skip_then) split = 0;                                   /* the then of "and then" */
-        else if (is_w(w, n, CONJ)) split = 1;
+        else if (mod_of(w, n, &mw), mw.flags & MOD_CONJ) split = 1;
         else if (n == 3 && !memcmp(w, "and", 3)) { int a, b; if (next_word(lc, len, j, &a, &b) && b - a == 4 && !memcmp(lc + a, "then", 4)) { split = 1; skip_then = a; } }
         else if (n == 2 && !memcmp(w, "so", 2)) { int a, b; if (next_word(lc, len, j, &a, &b) && is_w(lc + a, b - a, SUBJ)) split = 1; }
         else if (prev_comma && is_w(w, n, SUBJ)) split = 1;
@@ -66,19 +84,19 @@ int lang_clauses(const char *lc, int len, Clause *cl, int max) {
         cl[k].contrast = 0; cl[k].boost = 0;
         /* a clause that is only spaces and punctuation still counts, it just says nothing */
         int a, b;
-        if (next_word(lc, cl[k].b, cl[k].a, &a, &b) && is_w(lc + a, b - a, CONTRAST)) cl[k].contrast = 1;
+        if (next_word(lc, cl[k].b, cl[k].a, &a, &b) && (mod_of(lc + a, b - a, &mw), mw.flags & MOD_CONTRAST)) cl[k].contrast = 1;
         int p = cl[k].a, pa = 0, pb = 0;                         /* pa..pb: the word before */
         while (p < cl[k].b) {
             if (!next_word(lc, cl[k].b, p, &a, &b)) break;
             const char *w = lc + a; int n = b - a;
             int after_a = pb > pa && pb - pa == 1 && lc[pa] == 'a';
-            if (is_w(w, n, BOOST)) {
+            LangMod mm; mod_of(w, n, &mm);
+            if (mm.boost > 0) {
                 int a2, b2;                                      /* "so" that opens a clause is a conjunction, not an intensifier */
                 int conj_so = n == 2 && !memcmp(w, "so", 2) && next_word(lc, cl[k].b, b, &a2, &b2) && is_w(lc + a2, b2 - a2, SUBJ);
-                if (!conj_so) cl[k].boost++;
-            } else if (is_w(w, n, DIM)) {
-                int needs_a = (n == 3 && !memcmp(w, "bit", 3)) || (n == 6 && !memcmp(w, "little", 6));     /* "a bit", "a little"; barely is a negator */
-                if (!(n == 6 && !memcmp(w, "barely", 6)) && (!needs_a || after_a)) cl[k].boost--;
+                if (!conj_so) cl[k].boost += mm.boost;
+            } else if (mm.boost < 0) {
+                if (!mm.needs_a || after_a) cl[k].boost += mm.boost;
             }
             pa = a; pb = b; p = b;
         }

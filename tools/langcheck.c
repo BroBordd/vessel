@@ -15,6 +15,7 @@
  *   --intents          (chunk 12) the intent catalogue (380 names, unique, well formed) and the intent -> reply key map (KEYMAP): a mapping to a key with no lines fails; an intent with neither lines nor a mapping is a NOTE until its group chunk
  *   --ask              (chunk 36) ask tags: the tag a question gets by rule, the Line's own tag, answers (yes / no / name / because / a pick) read relative to the tag, the additive and self-harm rules, the tag through lang_reply -> lang_ctx_note, the four answer keys, speed
  *   --callbacks       (chunk 39) the npc remembers: which callbacks fit a turn (insult, thanks, praise, name, fear, lie, topic, apology, earlier chats), the gap of 4, the caps, distress and self-harm, the lines, the reply
+ *   --mods             (chunk 58) the modifier table (lang_lex_sent_mod.c): rows well formed (>= 140, no duplicate), every word of the old built-in lists in it with the same effect, new words do what their kind says, stronger intensifiers give stronger valence (clamped at +-2), a negator / contrast word / a-bit rule, the fallback without a table, registering later (rows add up, bad rows counted, reset)
  *   --emoji [FILES]    (chunk 55) the emoticon and emoji table (lang_lex_emoji.c): rows well formed (>= 400, no duplicate, no risky form), a superset of the built-in lists with the same kind and weight, every row read back as one token of its own kind, weight and bytes, what must NOT be a face (10:30, x=3, for(;;), tot), new forms in context, the weights reaching the valence (at most two tokens of a kind), the bucket accessor, the fallback without a table, registering later (a later row wins, bad rows counted, reset), the corpus FILES read the same through both lists, speed
  *   --masks            (chunk 54a) the profanity / mask tables: rows well formed, no slur row shipped, censored shapes (f*ck, b***h) and look-alikes, a swear aimed at someone is an insult, self-harm first, the slur_blocked plumbing with test rows, replies never echo, speed\n *   --watch            (chunk 45) what a story watch sees: lang_understood (cleaned, typos / glued words repaired) and lang_has_word (whole words and lemmas: orb, orbs, obr, giveme the orb hit; absorb, orbit do not), the cap, NULL safety, and the npc name reaching <npc> patterns\n *   --follow           (chunk 37) bare follow-ups (why / and / really / what / say that again) read against the last reply: the reader, the look-alikes, ask tags and distress, replies x.<key> / y.<key> / generic, repeat, voices
  *   --matrix           (chunk 14) the phase 1 gate: every key x 10 voices x 20 moods (200 cells) must resolve (through the fallbacks, and through the real picker for every voice), and the matrix of cells with HANDWRITTEN lines per key (a row that covers the cell's mood and voice; rows made only for some voices are counted apart from ALLS rows). fails if a cell is silent
@@ -4667,6 +4668,77 @@ static int do_emoji(int argc, char **argv) {
     return ejfail != 0;
 }
 
+/* ---- chunk 58: the modifier table (lang_lex_sent_mod.c, lang_mod_find, lang_clause_set_mods) ---- */
+static int mdfail, mdchecks;
+#define MDCHECK(c, ...) do { mdchecks++; if (!(c)) { printf("BAD MODS: " __VA_ARGS__); printf("\n"); mdfail++; } } while (0)
+static int do_mods(void) {
+    mdfail = mdchecks = 0;
+    lang_tables_reset(); lang_init();
+    /* 1. the table is well formed */
+    int nrows = 0;
+    for (const char *const *r = MODS; *r; r++, nrows++) {
+        const char *b1 = strchr(*r, '|'); const char *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        MDCHECK(b1 && b2 && !strncmp(b1 + 1, "mod|", 4), "malformed row: %s", *r); if (!b1 || !b2) continue;
+        for (const char *c = *r; c < b1; c++) MDCHECK((*c >= 'a' && *c <= 'z') || *c == '\'' || *c == '-', "bad character in the word of row %s", *r);
+        const char *k = b2 + 1;
+        int okk = !strcmp(k, "n") || !strcmp(k, "c") || !strcmp(k, "j") || ((k[0] == 'b' && k[1] >= '1' && k[1] <= '3' && !k[2]) || (k[0] == 'd' && (k[1] == '1' || k[1] == '2') && (!k[2] || (k[2] == 'a' && !k[3]))));
+        MDCHECK(okk, "unknown kind in row %s", *r);
+        for (const char *const *q = MODS; q < r; q++) MDCHECK(strcmp(*q, *r), "duplicate row %s", *r);
+    }
+    MDCHECK(nrows >= 140, "only %d rows", nrows);
+    MDCHECK(lang_mod_bad() == 0, "%d rows did not parse", lang_mod_bad());
+    { int n = 0; while (lang_mod_row(n)) n++; MDCHECK(n == nrows, "lang_mod_row walks %d rows, the table has %d", n, nrows); }
+    MDCHECK(lang_mod_count() > 100 && lang_mod_count() <= nrows, "%d distinct words", lang_mod_count());
+    /* 2. every word the built-in lists of lang_clause.c know is in the table with the same effect */
+    { static const char *const OLD = "not no never dont don't cant can't wont won't isnt isn't arent aren't didnt didn't hardly without aint ain't doesnt doesn't wasnt wasn't werent weren't havent haven't hasnt hasn't hadnt hadn't shouldnt shouldn't wouldnt wouldn't couldnt couldn't cannot barely scarcely nor neither but however yet although though because then very so really extremely super totally absolutely deeply incredibly terribly truly utterly completely awfully insanely hella kinda sorta somewhat slightly mildly semi bit little";
+      char buf[1200]; strcpy(buf, OLD); int nw = 0, bad = 0;
+      for (char *w = strtok(buf, " "); w; w = strtok(NULL, " ")) {
+          LangMod a, b; int ia = lang_clause_builtin_mod(w, (int)strlen(w), &a), ib = lang_mod_find(w, (int)strlen(w), &b); nw++;
+          if (!ia || !ib || a.flags != b.flags || a.boost != b.boost || a.needs_a != b.needs_a) { bad++; printf("  old word %s: built-in %d/%d/%d table %d/%d/%d\n", w, a.flags, a.boost, a.needs_a, b.flags, b.boost, b.needs_a); }
+      }
+      MDCHECK(!bad && nw >= 70, "%d of %d old words differ from the table", bad, nw); }
+    /* 3. new words do what their kind says */
+    { LangMod m;
+      MDCHECK(lang_mod_find("exceedingly", 11, &m) && m.boost == 2 && !m.needs_a, "exceedingly is b2");
+      MDCHECK(lang_mod_find("infinitely", 10, &m) && m.boost == 3, "infinitely is b3");
+      MDCHECK(lang_mod_find("fairly", 6, &m) && m.boost == -1 && !m.needs_a, "fairly is d1");
+      MDCHECK(lang_mod_find("minimally", 9, &m) && m.boost == -2 && !m.needs_a, "minimally is d2");
+      MDCHECK(lang_mod_find("scarcely", 8, &m) && m.boost == 0 && (m.flags & MOD_NEG), "scarcely is only a negator, as before");
+      MDCHECK(lang_mod_find("smidgeon", 8, &m) && m.boost == -2 && m.needs_a, "smidgeon is d2a");
+      MDCHECK(lang_mod_find("bit", 3, &m) && m.boost == -1 && m.needs_a, "bit is d1a");
+      MDCHECK(lang_mod_find("nonetheless", 11, &m) && (m.flags & (MOD_CONTRAST | MOD_CONJ)) == (MOD_CONTRAST | MOD_CONJ), "nonetheless is c and j");
+      MDCHECK(lang_mod_find("barely", 6, &m) && (m.flags & MOD_NEG) && m.boost == 0, "barely is only a negator");
+      MDCHECK(lang_mod_find("mustn't", 7, &m) && (m.flags & MOD_NEG), "mustn't is a negator");
+      MDCHECK(!lang_mod_find("good", 4, &m) && !lang_mod_find("", 0, &m) && !lang_mod_find("abcdefghijklmnopqrstuvwxyz", 26, &m), "not modifiers: good, empty, too long");
+      MDCHECK(lang_is_negator("mustn't", 7) && lang_is_negator("not", 3) && !lang_is_negator("good", 4), "lang_is_negator reads the table"); }
+    /* 4. through the valence: stronger words, stronger valence; the clause total stays within +-2 */
+    { int g = ej_valence("good"), vg = ej_valence("very good"), tg = ej_valence("exceedingly good"), fg = ej_valence("fairly good"), ab = ej_valence("a bit good"), tad = ej_valence("a smidgeon good"), tad0 = ej_valence("smidgeon good");
+      MDCHECK(tg > vg && vg > g && g > fg && fg > 0 && g > ab, "valence: exceedingly %d > very %d > plain %d > fairly %d > 0, a bit %d", tg, vg, g, fg, ab);
+      MDCHECK(tad == ab || (tad < g && tad > 0), "a smidgeon good (%d) is milder than good (%d)", tad, g);
+      MDCHECK(tad0 == g, "'smidgeon' without 'a' does not diminish (%d vs %d)", tad0, g);
+      MDCHECK(ej_valence("very very very very good") == ej_valence("very very good"), "boost is clamped at +2");
+      MDCHECK(ej_valence("i am unable to be happy") < 0, "unable flips happy: %d", ej_valence("i am unable to be happy"));
+      MDCHECK(ej_valence("this is awful nevertheless i love it") > 0 && ej_valence("i love it nonetheless this is awful") < 0, "nevertheless / nonetheless: the clause after the contrast wins");
+      MDCHECK(ej_valence("not bad") > 0 && ej_valence("not not bad") < 0, "negation flips and cancels (%d, %d)", ej_valence("not bad"), ej_valence("not not bad"));
+      int t1 = ej_valence("exceedingly good"); lang_clause_set_mods(NULL); int t2 = ej_valence("exceedingly good"), g2 = ej_valence("good"); lang_clause_set_mods(lang_mod_find);
+      MDCHECK(t2 == g2 && t1 > t2, "with no table 'exceedingly' is just a word (%d = %d), with the table it boosts (%d)", t2, g2, t1);
+      int v1 = ej_valence("very good"); lang_clause_set_mods(NULL); int v2 = ej_valence("very good"); lang_clause_set_mods(lang_mod_find);
+      MDCHECK(v1 == v2, "an old word works the same through the table and the fallback (%d / %d)", v1, v2); }
+    /* 5. registering later: rows add up, a later boost replaces an earlier one, bad rows are left out and counted, a reset forgets them */
+    { static const char *const T[] = { "zorkle|mod|b3", "zorkle|mod|c", "borkle|mod|n", "borkle|mod|d1a", "borkle|mod|d2a", "x|mod|b9", "|mod|n", "Aa|mod|n", "ab|mod|q", "ab|mod|", "ab|mox|n", "ab cd|mod|n", "ab|mod|b4", "ab|mod|d3", "ab|mod|b1a", 0 };
+      lang_register_mods(T); lang_init();
+      LangMod m;
+      MDCHECK(lang_mod_find("zorkle", 6, &m) && m.boost == 3 && (m.flags & MOD_CONTRAST), "two rows of a word add up");
+      MDCHECK(lang_mod_find("borkle", 6, &m) && (m.flags & MOD_NEG) && m.boost == -2 && m.needs_a, "a later boost row replaces an earlier one, the negator stays");
+      MDCHECK(lang_mod_bad() == 10, "%d rows counted as bad, want 10", lang_mod_bad());
+      MDCHECK(!lang_mod_find("x", 1, &m) && !lang_mod_find("ab", 2, &m), "a bad row made no word");
+      lang_tables_reset(); lang_init();
+      MDCHECK(!lang_mod_find("zorkle", 6, &m) && lang_mod_find("very", 4, &m) && lang_mod_bad() == 0, "a reset forgot the test words and kept the table"); }
+    printf("mods: %d rows, %d distinct words, %d checks, %d problems\n", nrows, lang_mod_count(), mdchecks, mdfail);
+    return mdfail != 0;
+}
+
+
 
 int main(int argc, char **argv) {
     int all = argc < 2, rc = 0;
@@ -4713,11 +4785,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--watch"))    { rc |= do_watch() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--masks"))    { rc |= do_masks() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--emoji"))    { rc |= do_emoji(argc, argv) ? 1 : 0; any = 1; }
+        else if (!strcmp(a, "--mods"))     { rc |= do_mods() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--reply-len")) { rc |= do_replylen() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--matrix"))   { rc |= do_matrix() ? 1 : 0; any = 1; }
         else if (!strcmp(a, "--bench"))    { do_bench(); any = 1; }
     }
-    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
-    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    if (all && !any) { rc |= do_check() ? 1 : 0; do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
+    else if (all) { do_stats(); do_coverage(quota); do_dupes(); do_length(); rc |= do_tables() ? 1 : 0; rc |= do_moods() ? 1 : 0; rc |= do_voices() ? 1 : 0; rc |= do_matrix() ? 1 : 0; rc |= do_clean(argc, argv) ? 1 : 0; rc |= do_signals(argc, argv) ? 1 : 0; rc |= do_words(argc, argv) ? 1 : 0; rc |= do_textspeak(argc, argv) ? 1 : 0; rc |= do_numbers(argc, argv) ? 1 : 0; rc |= do_vocab() ? 1 : 0; rc |= NOFRAME(do_spell(argc, argv)) ? 1 : 0; rc |= do_phonetic(argc, argv) ? 1 : 0; rc |= NOFRAME(do_glue(argc, argv)) ? 1 : 0; rc |= do_lemma(argc, argv) ? 1 : 0; rc |= do_clause() ? 1 : 0; rc |= do_pats(argc, argv) ? 1 : 0; rc |= NOFRAME(do_lex(argc, argv)) ? 1 : 0; rc |= do_sent(argc, argv) ? 1 : 0; rc |= do_topic() ? 1 : 0; rc |= do_frame(argc, argv) ? 1 : 0; rc |= do_fourth() ? 1 : 0; rc |= do_question(argc, argv) ? 1 : 0; rc |= do_capture(argc, argv) ? 1 : 0; rc |= do_plan() ? 1 : 0; rc |= do_ctx() ? 1 : 0; rc |= do_ask(argc, argv) ? 1 : 0; rc |= do_follow() ? 1 : 0; rc |= do_repeat() ? 1 : 0; rc |= do_callbacks() ? 1 : 0; rc |= do_thread(argc, argv) ? 1 : 0; rc |= do_initiative() ? 1 : 0; rc |= do_replylen() ? 1 : 0; rc |= do_knowledge() ? 1 : 0; rc |= do_watch() ? 1 : 0; rc |= do_masks() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_mods() ? 1 : 0; rc |= do_emoji(argc, argv) ? 1 : 0; rc |= do_intents() ? 1 : 0; do_bench(); }
     return rc;
 }
