@@ -8,20 +8,11 @@ mkdir -p build
 
 command -v readelf >/dev/null || pkg install -y binutils
 
-cat > build/iconv_stub.c <<'EOF'
-#include <stddef.h>
-#include <errno.h>
-void *libiconv_open(const char *t, const char *f) { errno = EINVAL; return (void *)-1; }
-int libiconv_close(void *cd) { return 0; }
-size_t libiconv(void *cd, char **i, size_t *il, char **o, size_t *ol) { errno = EILSEQ; return (size_t)-1; }
-EOF
+command -v make >/dev/null || pkg install -y make
 
-LIBS=$($SDL/bin/sdl2-config --cflags --static-libs | tr ' ' '\n' \
-  | grep -vE 'iconv|pipewire|samplerate' | tr '\n' ' ')
-
-# -DGFX_REDIRECT -include game/gfx.h: the SDL render calls go through game/gfx.c (GPU recording, or plain SDL in cpu mode)
-cc -O2 -s -U__ANDROID__ -DGFX_REDIRECT -include game/gfx.h -o build/game game/*.c build/iconv_stub.c \
-  $LIBS -lm -Wl,--as-needed
+# incremental: only changed .c files (and files that include a changed header) are recompiled, objects live in build/obj
+# JOBS=2 ./scripts/run.sh  to use fewer cores; rm -rf build/obj  to force a full rebuild
+make -f scripts/game.mk -j"${JOBS:-$(nproc)}" SDL="$SDL"
 
 BAD=$(readelf -d build/game | grep NEEDED | grep -vE '\[(libc|libm|libdl|liblog)\.so\]' || true)
 if [ -n "$BAD" ]; then
