@@ -33,11 +33,11 @@ Vessel 2 wakes standing on a **magic circle drawn in blood**, inside a ruin. The
 Vas: "...Where is this? Why is it so wet?" Task: **Read the note**.
 
 ### 3. The note (once only)
-Written in blood. It is Vessel 1's note to Vessel 2 only: reading it flips the card to **Doia** (name flash, coin ding, toast)
+Written in blood. Aonia knows the name his successor will have, so the note addresses **Doia directly**. It is Vessel 1's note to Vessel 2 only: reading it flips the card to **Doia** (name flash, coin ding, toast)
 and the paper **disappears**. No more notes after this.
 
-> Hello, vessel.
-> If you are reading this, it worked. You are Vessel 2. Your name is Doia.
+> Hello, Doia.
+> If you are reading this, it worked. You are Vessel 2.
 > I am Aonia, Vessel 1, the one lying beside you. I died so that you could live.
 > Do not be afraid. I am you.
 > We are trapped in these ruins. Past the fallen hall, the ground has broken open. There is a pit with no bottom, and I could
@@ -49,7 +49,7 @@ Vas: "Doia. ...Fine. It's a name." Task: **Escape the ruins**.
 
 ### 4. A world that remembers
 - Death never resets the map: it adds one more body. Everything stays where it is; a body dragged somewhere stays there forever.
-- A new body wakes **in the circle**.
+- A new body wakes at the **latest filled circle**: the first circle at the start, a later one once a checkpoint is made (section 8).
 - Every body keeps its **own inventory**. **Inspect** shows it (Aonia carries the **knife**).
 - **Bodies can be dragged** by the leg anywhere; they leave a **blood trail** that fades after a while.
 - The **big rock** can be dragged too, but it is heavy and slows the player.
@@ -61,7 +61,7 @@ Per item: **image**, **description**, **special actions**.
 - Knife: **Stab**, pick any entity, **including yourself** (that is how Aonia died).
 - Body pieces: collectable, used in crafting.
 
-Stabbing a body cuts it into pieces. Stabbing yourself = death: limbo, next index, new body in the circle; the knife stays in
+Stabbing a body cuts it into pieces. Stabbing yourself = death: limbo, next index, new body at the latest filled circle; the knife stays in
 the dead body's inventory for the next vessel to take.
 
 ### 6. Crafting (new)
@@ -78,12 +78,24 @@ Craft menu, two slots.
 3. **The bridge.** Die as often as needed, drag every body to the edge and push it in, until the bodies **stack into a vertical
    bridge** across. Costs the most vessels, needs only the knife.
 
+### 8. Checkpoints: the second circle (end of part 1)
+After the pit is crossed (by any of the three ways) the player walks on a bit and finds **magic circle carvings in the ground**,
+like the one Aonia found and filled with his blood.
+1. Use the **knife on yourself** to fill the carvings with blood.
+2. Wait a moment. The thought: **"My consciousness is fading."**
+3. You fall **face down** on the ground, the blood **flows into the lines**, and you die.
+4. The soul goes to limbo and the next vessel wakes **at this new circle**.
+
+That is how a **checkpoint** is made: **by consuming a life**. The old circle, the pit and every body stay behind as they were.
+This is the end of the first part of the story.
+
 ## Rules
-- Death can happen any time: limbo, short Vas conversation, next index, new generated look, new body in the circle.
+- Death can happen any time: limbo, short Vas conversation, next index, new generated look, new body at the latest filled circle.
 - Bodies and their inventories stay exactly where they were.
 - No goddess, no NPCs, no old maps, no more notes. The ruins are the one map.
 
 ## Open questions (owner to decide)
+- How many circles are there, and does every circle need a life? What comes after the second circle (part 2)?
 - Is Doia the only vessel told its name by a note, or do all bodies, Doia included, know it from the start?
 - Does the circle's blood flow again at each wake-up, or has it dried?
 - Do later deaths (accidents in the pit) get different Vas lines?
@@ -102,4 +114,5 @@ Craft menu, two slots.
 - [ ] **8. Cutting and pieces:** stab a body into collectable pieces; rock thrown at a body breaks it and scatters its items.
 - [ ] **9. Crafting and Swing:** craft menu, rock + intestine, intestine + intestine, Swing across the pit, climb out.
 - [ ] **10. The bridge:** bodies pushed into the pit stack up into a walkable bridge.
-- [ ] **11. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
+- [ ] **11. Checkpoint circles:** carved circle found past the pit, knife on self fills it, "My consciousness is fading", fall face down, blood flows, death; the next vessel wakes at this circle.
+- [ ] **12. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
