@@ -386,8 +386,9 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
         GLES30.glViewport(0, 0, gw, gh);
     }
 
-    /** Draws the scene texture on the screen, as big as fits and centred (black bars round it, nothing stretched or cut off).
-     *  Runs every vsync, new game frame or not. */
+    /** Draws the scene texture on the screen where the host's fit() says: 1:1 (SCALE screen px per game px, no bars) when the picture's size matches this
+     *  screen, else as big as fits and centred (black bars, nothing stretched or cut off). That second case is also the TURN: until the first frame of the
+     *  new size arrives the old picture stays in the scene texture and fit() letterboxes it on the turned surface. Runs every vsync, new game frame or not. */
     private void present() {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
         setBlend(false);
