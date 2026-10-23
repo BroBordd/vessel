@@ -6,6 +6,7 @@
 #include "char.h"
 
 void world_init(int w, int h);
+void world_resize(int w, int h);               /* the screen changed shape: new layout, the world / player / windows / zoom / story all stay (call at a frame boundary) */
 /* a = Android MotionEvent action (0 down, 1 up, 2 move, 3 cancel) */
 void world_touch(int a, int x, int y);
 void world_touch_p(int pid, int a, int x, int y);       /* one finger of several: 0 = the primary, else the app's pointer id + 1 (a thumb on the stick, one on the button) */

@@ -575,20 +575,19 @@ static void load_map(int which) {
 
 const char *world_map_name(int which) { return which == MAP_CLOUD ? SKYLAND_NAME : GRASSLANDS; }
 
-void world_init(int w, int h) {
+/* the layout numbers of the world that depend on the screen (size, density unit, stick, buttons). world_init and world_resize share it. a changed
+ * tile size (only when the SHORT side changed: a rotation keeps it) moves everything kept in world px with it, so the player stays on the same tile */
+static float cam_axis(float c, int map_px, int screen);
+static void world_layout(int w, int h) {
+    int old_tile = tile;
     W = w; H = h;
     float u = (w < h ? w : h) / 360.0f;
     px = (int)(u * 3.0f * ZOOM); if (px < 2) px = 2;
     tile = TILE_U * px;
-    t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
-    controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
-    phase = PH_PLAY; ph_t = 0; up_cb = NULL;
-    zoom = zoom_target = 1.0f; talk_npc = -1;
-    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
-    summon_cancel(); summon_cb = NULL; summon_chime = 0;
-    blackout_t = -1; blackout_cb = NULL;
-    dawn_on = 0; dawn_t = 0; col_mul = 255;
-
+    if (old_tile > 0 && tile != old_tile) {
+        float k = (float)tile / (float)old_tile;
+        pxp *= k; pyp *= k; zoom_fx *= k; zoom_fy *= k;
+    }
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
     int margin = (int)(26 * u);
@@ -597,6 +596,43 @@ void world_init(int w, int h) {
     br = (int)(44 * u);
     bcx = W - margin - br; bcy = H - margin - br;
     hbr = br * 3 / 4; hbx = bcx - br - hbr - (int)(10 * u); hby = bcy + br - hbr;                      /* chunk 68: the hand, on the interact button's left, resting on the same line */
+}
+
+/* the screen changed shape (a rotation, a resize): layout only, every bit of state stays (the map, the player, npcs, windows, the zoom, the story).
+ * the resizes run in world_init's order: hud, then minimap (needs the card), then item_ui (needs minimap_bottom) */
+void world_resize(int w, int h) {
+    if (w == W && h == H) return;
+    world_layout(w, h);
+    if (stick_on) { stick_on = 0; kx = ky = 0; }                /* a finger held on a control is let go (game.c also cancels the touches) */
+    dialog_resize(w, h);
+    missions_resize(w, h);
+    toast_resize(w, h);
+    thought_resize(w, h);
+    hud_resize(w, h);
+    {
+        int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
+        minimap_resize(w, h, cx + cw, cy + ch + (int)(5 * ui), cw);
+        mapwin_resize(w, h);
+        item_ui_resize(w, h, cx + cw, minimap_bottom() + (int)(5 * ui), cw);
+    }
+    if (ztex) { SDL_DestroyTexture(ztex); ztex = NULL; }          /* the zoom target is W x H: draw makes it again at the new size (zoom / zoom_target / talk_npc are untouched) */
+    cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;              /* the camera stays on the player (world_update does the same every frame) */
+    cam_x = cam_axis(cam_x, mw * tile, W);
+    cam_y = cam_axis(cam_y, mh * tile, H);
+}
+
+void world_init(int w, int h) {
+    tile = 0;                                                   /* a fresh start: nothing to rescale */
+    world_layout(w, h);
+    t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
+    controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
+    phase = PH_PLAY; ph_t = 0; up_cb = NULL;
+    zoom = zoom_target = 1.0f; talk_npc = -1;
+    death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
+    summon_cancel(); summon_cb = NULL; summon_chime = 0;
+    blackout_t = -1; blackout_cb = NULL;
+    dawn_on = 0; dawn_t = 0; col_mul = 255;
+    float u = ui;
 
     dialog_init(w, h);
     missions_init(w, h);
