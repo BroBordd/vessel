@@ -15,6 +15,8 @@ Goal of part 1: **escape the ruins**. A huge crack in the ground with a bottomle
 - **Names:** vessel 2 learns its name by reading the note (the card says Vas until then). From vessel 3 on a body knows its
   name from the moment it wakes.
 - **Death is a choice.** Aonia was running out of time, so he and Vas decided he would die. He stabbed himself.
+- **The soul talks, the body thinks.** In limbo Vas has no thoughts (nothing to think with), so it speaks as a conversation. Every body
+  thinks through the **brain button**, as in the old game, but the thoughts are fired by **events**, not by story beats.
 - **Memory loss:** each death wipes what the body knew. The only thing ever passed on is Aonia's note.
 
 ## Critic pass: what was weak, and the fix
@@ -25,13 +27,13 @@ Goal of part 1: **escape the ruins**. A huge crack in the ground with a bottomle
 3. **Too few things to do with a body.** Fix: a full cut order, many body parts, many recipes (some useless on purpose).
 4. **No feedback while building the bridge.** Fix: the pit echoes. Dropping something in gets a longer or shorter echo, and as
    the pile rises the echo comes back sooner (section 9).
-5. **The story was told by one note.** Fix: Vas speaks all the time, by events (section 10), and the world says things too.
+5. **The story was told by one note.** Fix: the body thinks all the time through the brain button, fired by events (section 10), and in limbo Vas talks.
 6. **Nothing rewarded curiosity.** Fix: secrets (section 11): odd things the player tries get a reaction or a small reward.
 7. **The rope was the only real tool.** Fix: a second tool (spine hook) and a few more that help a little.
 
 ## Story
 ### 1. Limbo (press PLAY)
-The menu logo and buttons fade out over the drifting stars. No ID card, no map. Vas speaks as a conversation, one line per tap:
+The menu logo and buttons fade out over the drifting stars. No ID card, no map. Vas speaks as a conversation (a soul has no thoughts, so it talks), one line per tap:
 1. "Well. We did it. We died."
 2. "So this is what being dead feels like. Quiet. Almost restful."
 3. "Now it's up to him. Or should I say... me."
@@ -44,7 +46,7 @@ Then the text clears, the stars fade, and we cut to the ruins. **Later deaths:**
 ### 2. The circle
 Vessel 2 wakes standing on a **magic circle drawn in blood**, inside a ruin. The blood still flows into the lines from **Vessel 1
 (Aonia)**, who lies dead on his face at the edge, still bleeding. A **paper** lies next to him. The ID card says **Vas**.
-Vas: "...Where is this? Why is it so wet?" Task: **Read the note**.
+Thought: "...Where is this? Why is it so wet?" Task: **Read the note**.
 
 ### 3. The note (once only)
 Written in blood. Aonia knows the name his successor will have, so it addresses **Doia directly**. It is Vessel 1's note to
@@ -59,7 +61,7 @@ Vessel 2 only: reading it flips the card to **Doia** (name flash, coin ding, toa
 > Every time we die, we lose what we knew. That is the price. I paid it. Now you have to.
 > I left you everything I had. Find a way out.
 
-Vas: "Doia. ...Fine. It's a name." Task: **Escape the ruins**.
+Thought: "Doia. ...Fine. It's a name." Task: **Escape the ruins**.
 
 ### 4. A world that remembers
 - Death never resets the map: it adds one more body. Everything stays where it is; a body dragged somewhere stays forever.
@@ -91,7 +93,7 @@ More from the parts: a knife on a **hand** takes the **fingers** (small); a knif
 (small); clean a head with the knife for a **skull**; a knife on a leg or arm takes the **bone** (medium).
 
 ### 7. Crafting
-Craft menu, two slots. Some recipes are tools, some are useless on purpose; every first craft gets a Vas line.
+Craft menu, two slots. Some recipes are tools, some are useless on purpose; every first craft gets a thought.
 | Recipe | Result | Use |
 |---|---|---|
 | rock + intestine | **tied rock** | **Swing** across the pit (section 9) |
@@ -130,10 +132,11 @@ pile of bodies rises the echo comes back **sooner and louder**. That is how the 
 4. **The bridge.** Die as often as needed, drag every body to the edge and push it in, until the bodies **stack into a vertical
    bridge**. Costs the most vessels, needs only the knife. A fall into the pit by accident also adds a body to the pile.
 
-## 10. Thoughts: Vas speaks by events
-**No scripted brain-button thoughts any more.** Vas speaks in short lines shown **while the player acts**, without pausing the
-player, triggered by what the player does or what happens. Each line fires **once** unless marked (repeat). Lines are short.
-| Event | Vas says |
+## 10. Thoughts: the body thinks, fired by events
+Thoughts use the **brain button** (the card with the portrait that opens and folds on its own, never pausing the player). **No story
+beat scripts them any more**: each one is fired by an **event** (something the player does, or something that happens) **while the
+player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas never thinks; it only talks in limbo.
+| Event | Thought |
 |---|---|
 | wakes in the circle (vessel 2) | "...Where is this? Why is it so wet?" |
 | steps off the circle first time | "Out. Slowly." |
@@ -162,25 +165,24 @@ player, triggered by what the player does or what happens. Each line fires **onc
 ## 11. Secrets: odd things get reactions
 | What the player does | What happens |
 |---|---|
-| stabs themselves in the first circle before reading the note | no note; the next vessel wakes beside two bodies. Vas: "That was fast. Too fast." |
-| drags Aonia back onto the circle | the carvings glow. Vas: "He looks comfortable." |
-| puts every part of one body back in the circle in a human shape | Vas: "He's not coming back. But he looks better." |
-| wears the necklaces and the skull on a string together | Vas: "I look... festive." |
-| draws a mark in blood next to every body | Vas: "A little memorial." |
-| reaches vessel 5 / 10 / 20 | Vas: "I'm getting good at this." / "A crowd." / "There's no room left." |
-| throws the knife into the pit | it is gone; Vas: "That was dumb." (the knife is also in Aonia's inventory only, so a lost knife means the bridge by falls only) |
-| stands still on the circle for a minute | Vas hums |
+| stabs themselves in the first circle before reading the note | no note; the next vessel wakes beside two bodies. Thought: "That was fast. Too fast." |
+| drags Aonia back onto the circle | the carvings glow. Thought: "He looks comfortable." |
+| puts every part of one body back in the circle in a human shape | Thought: "He's not coming back. But he looks better." |
+| wears the necklaces and the skull on a string together | Thought: "I look... festive." |
+| draws a mark in blood next to every body | Thought: "A little memorial." |
+| reaches vessel 5 / 10 / 20 | Thought: "I'm getting good at this." / "A crowd." / "There's no room left." |
+| throws the knife into the pit | it is gone; Thought: "That was dumb." (the knife is also in Aonia's inventory only, so a lost knife means the bridge by falls only) |
+| stands still on the circle for a minute | the body hums |
 | smashes the big rock with the club | it breaks into small rocks (it can't be a throw weapon, but it gives more to throw) |
 
 ## Rules
 - Death can happen any time: limbo, next index, new generated look, new body at the latest filled circle.
 - Bodies, parts and inventories stay exactly where they were.
 - No goddess, no NPCs, no old maps, no more notes. The ruins are the one map.
-- Vas never lectures: no more than one line at a time, and nothing blocks play.
+- Thoughts never block play: one line at a time, and the brain button opens and folds on its own. Vas (the soul) only speaks in limbo, as a conversation.
 
 ## Open questions (owner to decide)
 - Is Doia the only vessel told its name by a note, or do all bodies, Doia included, know it from the start?
-- Do the thoughts appear as a line over the player, or in a corner bar? ("No brain button" is how I read your request.)
 - Does the circle's blood flow again at each wake-up, or has it dried?
 - How many circles are there, and does every circle need a life? What comes after the second circle (part 2)?
 - What the long intestine rope is for later.
@@ -189,7 +191,7 @@ player, triggered by what the player does or what happens. Each line fires **onc
 ## Chunk checklist
 - [ ] **1. Seeded looks:** `Person` generated from a vessel index, names from the Irish-number table (Aonia, Doia, Tria, Ceathia ... with a rule past ten).
 - [ ] **2. Ruins map:** one map with the circle, the fallen hall and the pit; remove the old maps.
-- [ ] **3. Event thoughts engine:** Vas lines fired by events while the player acts, once-flags saved; the brain-button story thoughts removed.
+- [ ] **3. Event thoughts engine:** brain-button thoughts fired by events while the player acts, once-flags saved; the story-beat scripted thoughts replaced by this.
 - [ ] **4. Limbo and the first wake-up:** conversation, fade, circle, Aonia with flowing blood, the paper; the short skippable limbo after later deaths, by cause.
 - [ ] **5. The note:** blood-written, names Doia, card flip, paper disappears, task list.
 - [ ] **6. Persistent bodies:** death adds a body in place, bodies keep their inventory, **Inspect**.
