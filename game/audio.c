@@ -173,36 +173,60 @@ void sfx_thought(void) {
  * a pure sine at a steady pitch (no square wave, no pitch slide: nothing to make it buzzy or noisy),
  * with a quick attack and a smooth fade so it never clicks.
  * its own voice, so it never cuts off the coin ding (and the coin never cuts off a deek). */
-static int   blip_on, blip_pos;
-static float blip_phase, blip_f;
+/* TWO voices, taken in turns. the old code restarted its one voice on every letter: a new blip began (phase 0, envelope 0) while the last one was still
+ * ringing, which is a hard jump in the waveform = a click, and typing is fast enough to do that on most letters. now a new blip takes the other voice and
+ * the old one finishes its own fade-out. the sum is soft-limited, not hard-clipped (a hard clip against the music is the crackle a small phone speaker
+ * makes so obvious) and the peak is lower. */
+#define BLIP_VOICES 2
+static int   blip_on, blip_next;                 /* blip_on: any voice alive (the mixer's cheap switch) */
+static int   bv_pos[BLIP_VOICES];                /* -1 = free */
+static float bv_phase[BLIP_VOICES], bv_f[BLIP_VOICES];
 #define BLIP_T    0.060f                       /* seconds per deek */
-#define BLIP_HZ   256.5f                       /* base pitch at pitch 1.0 (was 190 Hz; +35% = 256.5 Hz) */
-#define BLIP_GAIN 0.50f                        /* peak level, fraction of full scale (was 0.20; the coin is 0.30) */
+#define BLIP_HZ   256.5f                       /* base pitch at pitch 1.0 */
+#define BLIP_GAIN 0.30f                        /* peak level, fraction of full scale (was 0.50: with the music under it that clipped) */
 
 void sfx_blip(float pitch) {
     if (!dev) return;
     if (pitch < 0.4f) pitch = 0.4f;
     if (pitch > 3.0f) pitch = 3.0f;
     SDL_LockAudioDevice(dev);
-    blip_on = 1; blip_pos = 0; blip_phase = 0.0f; blip_f = BLIP_HZ * pitch;
+    int v = blip_next;
+    for (int k = 0; k < BLIP_VOICES; k++) { int c = (blip_next + k) % BLIP_VOICES; if (!blip_on || bv_pos[c] < 0) { v = c; break; } }
+    if (!blip_on) for (int k = 0; k < BLIP_VOICES; k++) bv_pos[k] = -1;
+    bv_pos[v] = 0; bv_phase[v] = 0.0f; bv_f[v] = BLIP_HZ * pitch;
+    blip_next = (v + 1) % BLIP_VOICES;           /* the next blip, if both are busy, steals the older one (it is the one nearest its end) */
+    blip_on = 1;
     SDL_UnlockAudioDevice(dev);
+}
+
+/* a smooth knee instead of a wall: below 24000 untouched, above it bends towards full scale and never passes it */
+static inline Sint16 soft_limit(int o) {
+    const float knee = 24000.0f, room = 32767.0f - knee;
+    float a = (float)(o < 0 ? -o : o);
+    if (a > knee) { float x = (a - knee) / room; a = knee + room * (x / (1.0f + x)); }   /* x/(1+x): smooth, tends to 1 */
+    if (a > 32767.0f) a = 32767.0f;
+    return (Sint16)(o < 0 ? -a : a);
 }
 
 static void blip_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
-        float tt = (float)blip_pos / (float)OUT_RATE;
-        if (tt >= BLIP_T) { blip_on = 0; return; }
-        float env = expf(-tt * 22.0f);                               /* crisp decay: a tick, not a ring */
-        if (tt < 0.003f) env *= tt / 0.003f;                         /* no click on the way in */
-        if (tt > BLIP_T - 0.010f) env *= (BLIP_T - tt) / 0.010f;     /* no click on the way out */
-        blip_phase += blip_f / (float)OUT_RATE;                      /* steady pitch, no sag */
-        if (blip_phase >= 1.0f) blip_phase -= 1.0f;
-        int v = (int)(sinf(6.2831853f * blip_phase) * env * BLIP_GAIN * 32767.0f);   /* pure sine */
-        for (int ch = 0; ch < 2; ch++) {
-            int o = out[i * 2 + ch] + v;
-            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        float sum = 0.0f; int alive = 0;
+        for (int k = 0; k < BLIP_VOICES; k++) {
+            if (bv_pos[k] < 0) continue;
+            float tt = (float)bv_pos[k] / (float)OUT_RATE;
+            if (tt >= BLIP_T) { bv_pos[k] = -1; continue; }
+            alive = 1;
+            float env = expf(-tt * 22.0f);                               /* crisp decay: a tick, not a ring */
+            if (tt < 0.004f) env *= tt / 0.004f;                         /* no click on the way in */
+            if (tt > BLIP_T - 0.015f) env *= (BLIP_T - tt) / 0.015f;     /* no click on the way out */
+            bv_phase[k] += bv_f[k] / (float)OUT_RATE;
+            if (bv_phase[k] >= 1.0f) bv_phase[k] -= 1.0f;
+            sum += sinf(6.2831853f * bv_phase[k]) * env;
+            bv_pos[k]++;
         }
-        blip_pos++;
+        if (!alive) { blip_on = 0; return; }
+        int v = (int)(sum * BLIP_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) out[i * 2 + ch] = soft_limit(out[i * 2 + ch] + v);
     }
 }
 
