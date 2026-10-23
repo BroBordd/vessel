@@ -256,7 +256,7 @@ int main(int argc, char **argv) {
 
         /* the screen turned: at the top of the frame, after every pending line is read, only the LAST size counts (a burst of "r" lines = one resize).
          * only when the app said it follows our size (the old app letterboxes our picture, and the CPU path never resizes) */
-        if (gfx_app_resizes() && screen_changes() != seen_screen) {
+        if (screen_resizable() && screen_changes() != seen_screen) {
             seen_screen = screen_changes();
             int sw = screen_width(), sh = screen_height();
             if (sw > 0 && sh > 0) {

@@ -24,5 +24,8 @@ int  screen_landscape(void);                      /* 1 when the real screen is w
 int  screen_width(void);
 int  screen_height(void);
 int  screen_changes(void);                        /* how many times it has changed since the start: poll it to notice a rotation */
+/* 1 only when the game may change its own size: the GPU path AND the app announced that it follows our size (gfx.h, header [9]). always 0 on the
+ * CPU path (one mmap'd W*H framebuffer made at the start, the app letterboxes it) and with an old app. every resize in game.c goes through this. */
+int  screen_resizable(void);
 
 #endif

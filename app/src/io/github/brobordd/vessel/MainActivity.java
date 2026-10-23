@@ -213,6 +213,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void surfaceChanged(SurfaceHolder holder, int fmt, int width, int height) {
         if (gpu) return;                          // the GPU path is driven by GfxRenderer.onSurfaceChanged
+        // CPU path: the game's size is the first surface's and NEVER changes (one shared W*H framebuffer, game never resizes: screen_resizable() is 0 there);
+        // a rotation only re-fits (letterbox) below
         if (w == 0) { w = width / SCALE; h = height / SCALE; }   // the first surface decides the game's size
         fit(width, height);
         if (!alive()) start(holder);              // first time (or the game died): start it
