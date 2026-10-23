@@ -82,16 +82,22 @@ static void layout(void) {
     c2 = (int)(1.5f * u); if (c2 < 2) c2 = 2;
     tc = (int)(1.6f * u); if (tc < 2) tc = 2;
 
+    /* landscape: the keys, chips and boxes stay in one readable column (at most 560u wide, centred); the dark panel behind still spans the screen. a portrait
+     * phone is narrower than that, so there cw == W and ox == 0: nothing changes */
+    int cw = W, cmax = (int)(560 * u);
+    if (cw > cmax) cw = cmax;
+    int ox = (W - cw) / 2;
+
     int kb_h = 5 * kh + 4 * g;
     int kb_y = H - bpad - kb_h;
-    int kw = (W - 2 * m - 9 * g) / 10;
+    int kw = (cw - 2 * m - 9 * g) / 10;
     nkeys = 0;
     static const char *ROWS[5] = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", NULL };
     for (int row = 0; row < 4; row++) {
         int n = (int)strlen(ROWS[row]);
         int extra = row == 3 ? 2 : 0;                       /* the backspace key is 2 slots wide (row 3 only) */
         int total = n * kw + (n - 1) * g + (extra ? g + kw * 3 / 2 : 0);
-        int x = (W - total) / 2, y = kb_y + row * (kh + g);
+        int x = ox + (cw - total) / 2, y = kb_y + row * (kh + g);
         for (int i = 0; i < n; i++, x += kw + g) keys[nkeys++] = (Key){ { x, y, kw, kh }, ROWS[row][i], 0 };
         if (extra) keys[nkeys++] = (Key){ { x, y, kw * 3 / 2, kh }, 8, 1 };
     }
@@ -99,21 +105,21 @@ static void layout(void) {
     {
         static const char PUNCT[7] = { '\'', '-', ',', ' ', '.', '?', '!' };
         static const int  WT[7] = { 1, 1, 1, 4, 1, 1, 1 };
-        int y = kb_y + 4 * (kh + g), x = m;
-        int unit = (W - 2 * m - 6 * g) / 10;
+        int y = kb_y + 4 * (kh + g), x = ox + m;
+        int unit = (cw - 2 * m - 6 * g) / 10;
         for (int i = 0; i < 7; i++) {
             int w = unit * WT[i] + (WT[i] - 1) * g / 1;
-            if (i == 6) w = W - m - x;
+            if (i == 6) w = ox + cw - m - x;
             keys[nkeys++] = (Key){ { x, y, w, kh }, PUNCT[i], PUNCT[i] == ' ' ? 2 : 0 };
             x += w + g;
         }
     }
 
     /* chips: wrap rows */
-    int chip_h = 11 * c2 + 2 * c2; int cx = m, rows = nchips ? 1 : 0;
+    int chip_h = 11 * c2 + 2 * c2; int cx = ox + m, rows = nchips ? 1 : 0;
     for (int i = 0; i < nchips; i++) {
         int w = font_width(chips[i], c2) + 6 * c2;
-        if (cx + w > W - m) { cx = m; rows++; }
+        if (cx + w > ox + cw - m) { cx = ox + m; rows++; }
         chip_r[i] = (SDL_Rect){ cx, rows - 1, w, chip_h };      /* y is the row for now */
         cx += w + g;
     }
@@ -127,16 +133,16 @@ static void layout(void) {
     int py = kb_y - total;
     panel = (SDL_Rect){ 0, py - pad, W, H - (py - pad) };
     int y = py;
-    title_r = (SDL_Rect){ m, y, W - 2 * m, title_h };
-    back_r = (SDL_Rect){ m, y, font_width("BACK", c2) + 8 * c2, title_h };
+    title_r = (SDL_Rect){ ox + m, y, cw - 2 * m, title_h };
+    back_r = (SDL_Rect){ ox + m, y, font_width("BACK", c2) + 8 * c2, title_h };
     y += title_h + g;
     for (int i = 0; i < nchips; i++) { int row = chip_r[i].y; chip_r[i].y = y + row * (chip_h + g); }
     if (chips_h) y += chips_h + g;
     int sw = font_width("SEND", c2) + 10 * c2;
-    input_r = (SDL_Rect){ m, y, W - 2 * m - sw - g, ib_h };
-    send_r = (SDL_Rect){ W - m - sw, y, sw, ib_h };
+    input_r = (SDL_Rect){ ox + m, y, cw - 2 * m - sw - g, ib_h };
+    send_r = (SDL_Rect){ ox + cw - m - sw, y, sw, ib_h };
     y += ib_h + g;
-    heard_r = (SDL_Rect){ m, y, W - 2 * m, heard_h };
+    heard_r = (SDL_Rect){ ox + m, y, cw - 2 * m, heard_h };
 }
 
 void talk_resize(int w, int h) {
