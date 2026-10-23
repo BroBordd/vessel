@@ -83,7 +83,7 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
 (the capability int is never set), so each one is safe to push and look at. Chunks 7-8 touch Java and need a rebuilt
 `vessel.apk` (see chunk 12). Numbering starts at 1.
 
-- [ ] **1. The contract.** Docs and the frame format, no behaviour change. `game/gfx.h` layout comment: slot header
+- [x] **1. The contract.** Docs and the frame format, no behaviour change. `game/gfx.h` layout comment: slot header
   `[2]`/`[3]` = that frame's `W`/`H`, header `[8]` = size generation, header `[9]` = the app's capability version (0 =
   letterbox only). `game/gfx.c` writes the current `W`/`H` into every slot header it fills and keeps `hdr[8]` at 0 for
   now. Rewrite `game/screen.h`'s opening comment: the picture now follows the screen when the app asks for it, and the
@@ -159,3 +159,4 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
 ## Status log
 
 (One line per finished chunk: what changed, "not compiled" if it was not, what to look at. Newest last.)
+- 1: contract in gfx.h (slot hdr [2]/[3] = frame W/H, hdr[8] size gen, hdr[9] app capability); gfx.c stamps W/H into every slot and zeroes hdr[8]; screen.h intro rewritten. Not compiled (no SDL headers here). Look at: nothing should change on the phone.

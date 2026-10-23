@@ -72,6 +72,7 @@ static void begin_frame(void) {
     slothdr = (uint32_t *)(map + GFX_HDR_BYTES + (size_t)cur * GFX_SLOT_BYTES);
     rec = slothdr + GFX_SLOT_HDR / 4;
     __atomic_store_n(&slothdr[0], 0u, __ATOMIC_RELEASE);     /* "being written" */
+    slothdr[2] = (uint32_t)W; slothdr[3] = (uint32_t)H;      /* the size this frame is recorded for */
     nrec = 0; rects_frame = 0;
     emit(blend, 0, 0, GFX_BLEND);
     emit_clip();
@@ -91,7 +92,7 @@ int gfx_init_gpu(const char *path, int w, int h) {
     map = (uint8_t *)m; hdr = (uint32_t *)m;
     W = w; H = h;
     hdr[1] = (uint32_t)w; hdr[2] = (uint32_t)h; hdr[3] = GFX_NSLOTS; hdr[4] = GFX_CAP;
-    hdr[5] = 0; hdr[6] = 0; hdr[7] = 0xFFFFFFFFu;
+    hdr[5] = 0; hdr[6] = 0; hdr[7] = 0xFFFFFFFFu; hdr[8] = 0;   /* hdr[9] is the app's, leave it alone */
     cur = 0; frame_no = 0; blend = 0; clip_on = 0; target = 0;
     begin_frame();
     __atomic_store_n(&hdr[0], GFX_MAGIC, __ATOMIC_RELEASE);  /* the app starts reading once this is set */

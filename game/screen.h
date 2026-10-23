@@ -1,9 +1,11 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
- * WHAT THE APP TELLS US ABOUT THE SCREEN. the game keeps the pixel size it started with (everything is laid out for it once), and the app
- * letterboxes that picture on whatever the screen turns into (rotation, split screen, a resized window). so a rotation never changes our
- * layout - but the app does tell us, and this is where a screen that wants to react to it (a landscape layout, say) can ask.
+ * WHAT THE APP TELLS US ABOUT THE SCREEN. the app sends the real screen size (the "r" message) on start, rotation, split screen and window
+ * resizes. when the app has announced that it follows the game's size (gfx.h, header [9]), the picture follows the screen: the game takes
+ * W = screen width / SCALE, H = screen height / SCALE and the app draws it 1:1, no bars. only in the FALLBACK (old app, the CPU path, the
+ * frames before the new size arrives) does the old rule hold: the game keeps the size it started with and the app letterboxes that picture
+ * on the turned screen, so a rotation changes nothing in our layout.
  *
  * ROTATION WORK (docs/rotation_plan.md): TESTS WASTE TIME HERE. do not write or run test binaries for it, just write the code and push; the owner
  * pulls and tries it himself on his phone, as the user. a compile check is the most a chunk does on its own. */

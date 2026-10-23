@@ -22,8 +22,12 @@
 /* ---- shared file layout (little endian, 4-byte ints) -------------------------------------
  * header, 64 bytes:  [0] magic  [1] W  [2] H  [3] nslots  [4] cap (records per slot)
  *                    [5] latest slot  [6] frame counter (written last)  [7] slot the app is reading
+ *                    [8] size generation (bumped by the game each time W/H change; 0 = never changed)
+ *                    [9] the APP's capability version (written by the app BEFORE it sets the magic word):
+ *                        0 = letterbox only, the game never resizes;  non-zero = the app follows the game's size
  * slot s at 64 + s * GFX_SLOT_BYTES:
  *   16-byte slot header: [0] gen (0 while being written, else the frame number)  [1] nrec
+ *                        [2] W and [3] H that this frame was recorded for (the app replays a slot at the size written in it)
  *   then nrec records of 16 bytes (4 ints: a b c type)
  * records:
  *   type 0 RECT   a = (x+32768) | (y+32768) << 16     b = w | h << 16     c = r | g << 8 | b << 16 | a << 24
