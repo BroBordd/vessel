@@ -598,6 +598,14 @@ static void world_layout(int w, int h) {
     hbr = br * 3 / 4; hbx = bcx - br - hbr - (int)(10 * u); hby = bcy + br - hbr;                      /* chunk 68: the hand, on the interact button's left, resting on the same line */
 }
 
+/* where the inventory hangs. portrait (tall): under the minimap, same right edge and width, as it always did. a wide, short screen (landscape, a
+ * short split-screen window) has no room under the minimap: card + minimap + bag already reach ~230u of 360u and the open panel would run over the
+ * interact button, so there the bag and its panel sit BESIDE the minimap instead: same top, same width, just left of it. cx, cy, cw, ch = the ID card. */
+static void item_anchor(int cx, int cy, int cw, int ch, int *right_edge, int *top) {
+    if (H < (int)(480 * ui)) { *right_edge = cx - (int)(5 * ui); *top = cy + ch + (int)(5 * ui); }
+    else                     { *right_edge = cx + cw;            *top = minimap_bottom() + (int)(5 * ui); }
+}
+
 /* the screen changed shape (a rotation, a resize): layout only, every bit of state stays (the map, the player, npcs, windows, the zoom, the story).
  * the resizes run in world_init's order: hud, then minimap (needs the card), then item_ui (needs minimap_bottom) */
 void world_resize(int w, int h) {
@@ -613,7 +621,8 @@ void world_resize(int w, int h) {
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
         minimap_resize(w, h, cx + cw, cy + ch + (int)(5 * ui), cw);
         mapwin_resize(w, h);
-        item_ui_resize(w, h, cx + cw, minimap_bottom() + (int)(5 * ui), cw);
+        int ire, itop; item_anchor(cx, cy, cw, ch, &ire, &itop);
+        item_ui_resize(w, h, ire, itop, cw);
     }
     if (ztex) { SDL_DestroyTexture(ztex); ztex = NULL; }          /* the zoom target is W x H: draw makes it again at the new size (zoom / zoom_target / talk_npc are untouched) */
     cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;              /* the camera stays on the player (world_update does the same every frame) */
@@ -643,7 +652,8 @@ void world_init(int w, int h) {
         int cx, cy, cw, ch; hud_card_rect(&cx, &cy, &cw, &ch);
         minimap_init(w, h, cx + cw, cy + ch + (int)(5 * u), cw);
         mapwin_init(w, h); mapwin_set_source(map_source);
-        item_ui_init(w, h, cx + cw, minimap_bottom() + (int)(5 * u), cw);       /* the inventory hangs under the minimap */
+        int ire, itop; item_anchor(cx, cy, cw, ch, &ire, &itop);
+        item_ui_init(w, h, ire, itop, cw);       /* the inventory hangs under the minimap (beside it on a wide, short screen: item_anchor) */
     }
     load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
     story_start();                              /* the script takes it from here (story.c) */
