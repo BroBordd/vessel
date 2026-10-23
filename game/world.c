@@ -104,7 +104,9 @@ static int   near_shrine;           /* Dia's shrine is in reach and usable: the 
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
 
-static float cam_x, cam_y;
+static float cam_x, cam_y;          /* the camera's top-left on screen (what draw reads) */
+static float cam_cx, cam_cy;        /* the lazy camera's own centre, in world px (see camera_update) */
+static int   cam_snap = 1;          /* 1 = put the camera on the player next frame, no easing (a new map, a door, a teleport) */
 
 /* talking to an npc: the view lerps in on the point halfway between the player and the npc, and back out afterwards */
 #define ZOOM_TALK  1.6f             /* how far we zoom in while talking */
@@ -556,7 +558,7 @@ static int mm_down;                                         /* a finger went dow
 /* ---------- API ---------- */
 /* swaps in a whole new map: npcs and the hole are cleared, the player goes to that map's spawn */
 static void load_map(int which) {
-    cur_map = which;
+    cur_map = which; cam_snap = 1;
     if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
     gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0; gore_indoors = 1;
@@ -586,7 +588,7 @@ static void world_layout(int w, int h) {
     tile = TILE_U * px;
     if (old_tile > 0 && tile != old_tile) {
         float k = (float)tile / (float)old_tile;
-        pxp *= k; pyp *= k; zoom_fx *= k; zoom_fy *= k;
+        pxp *= k; pyp *= k; zoom_fx *= k; zoom_fy *= k; cam_cx *= k; cam_cy *= k;
     }
     ui = u;
     ucell = (int)(3.2f * u); if (ucell < 3) ucell = 3;
@@ -625,9 +627,9 @@ void world_resize(int w, int h) {
         item_ui_resize(w, h, ire, itop, cw);
     }
     if (ztex) { SDL_DestroyTexture(ztex); ztex = NULL; }          /* the zoom target is W x H: draw makes it again at the new size (zoom / zoom_target / talk_npc are untouched) */
-    cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;              /* the camera stays on the player (world_update does the same every frame) */
-    cam_x = cam_axis(cam_x, mw * tile, W);
-    cam_y = cam_axis(cam_y, mh * tile, H);
+    cam_x = cam_axis(cam_cx - W / 2.0f, mw * tile, W);           /* the lazy camera keeps its centre (cam_cx) and is only re-clamped to the new view */
+    cam_y = cam_axis(cam_cy - H / 2.0f, mh * tile, H);
+    cam_cx = cam_x + W / 2.0f; cam_cy = cam_y + H / 2.0f;
 }
 
 void world_init(int w, int h) {
@@ -800,12 +802,14 @@ static void enter_house(void) {
     memcpy(outside_map, map, sizeof map); out_mw = mw; out_mh = mh;
     gen_house_map();
     indoors = 1;
+    cam_snap = 1;
     pxp = (HOUSE_IN_DOOR_X + 0.5f) * tile; pyp = (HOUSE_IN_H - 1 + 0.0f) * tile - 0.1f * tile; facing = FACE_UP;
     near_door = door_in_range = 0; near_id = -1; btn_down = btn_inside = 0;
 }
 static void leave_house(void) {
     memcpy(map, outside_map, sizeof map); mw = out_mw; mh = out_mh;
     indoors = 0;
+    cam_snap = 1;
     pxp = (house_sx + 0.5f) * tile; pyp = (house_sy + 0.9f) * tile; facing = FACE_DOWN;
     near_door = door_in_range = 0; near_id = -1; btn_down = btn_inside = 0;
 }
@@ -1241,6 +1245,27 @@ static float cam_axis(float c, int map_px, int screen) {
     return c;
 }
 
+/* the lazy camera, the pixel-game standard: a DEAD ZONE (the player walks about inside a box around the view's centre and the camera does not
+ * move at all) plus SMOOTHING (once he leaves the box the camera eases after him, it does not snap). CAM_DEAD: half the box as a share of the view,
+ * 0.125 = a box a quarter of the screen wide and tall. CAM_SMOOTH: ease rate per second, 6 = the classic lerp 0.1 per frame at 60 fps. */
+#define CAM_DEAD   0.125f
+#define CAM_SMOOTH 6.0f
+static void camera_update(float dt) {
+    float dx = pxp - cam_cx, dy = pyp - cam_cy;
+    if (cam_snap || fabsf(dx) > W || fabsf(dy) > H) {           /* a new map / a door / a far jump: no easing across the world */
+        cam_cx = pxp; cam_cy = pyp; cam_snap = 0;
+    } else {
+        float dzx = W * CAM_DEAD, dzy = H * CAM_DEAD;
+        float gx = dx > dzx ? dx - dzx : dx < -dzx ? dx + dzx : 0.0f;       /* how far he is outside the box, per axis */
+        float gy = dy > dzy ? dy - dzy : dy < -dzy ? dy + dzy : 0.0f;
+        float k = 1.0f - expf(-CAM_SMOOTH * dt);
+        cam_cx += gx * k; cam_cy += gy * k;
+    }
+    cam_x = cam_axis(cam_cx - W / 2.0f, mw * tile, W);           /* never past the map's edge; a small map (the room) stays centred */
+    cam_y = cam_axis(cam_cy - H / 2.0f, mh * tile, H);
+    cam_cx = cam_x + W / 2.0f; cam_cy = cam_y + H / 2.0f;        /* the clamped place is the state, so the camera never winds up behind an edge */
+}
+
 void world_update(float dt) {
     if (mapwin_active() && (dialog_active() || !controls_visible || phase != PH_PLAY)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     if (death_msg[0]) death_msg_t += dt;
@@ -1367,9 +1392,7 @@ void world_update(float dt) {
     }
     if (death_on && death_cb && death_t >= DEATH_SETTLE_T) { void (*cb)(void) = death_cb; death_cb = NULL; cb(); }
 
-    cam_x = pxp - W / 2.0f; cam_y = pyp - H / 2.0f;
-    cam_x = cam_axis(cam_x, mw * tile, W);
-    cam_y = cam_axis(cam_y, mh * tile, H);
+    camera_update(dt);
 }
 
 /* the hole in the clouds, built from the same square pixels as everything else: every cell is one
