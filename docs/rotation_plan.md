@@ -1,0 +1,161 @@
+# Rotation: the engine follows the screen (a plan in chunks, starting at chunk 1)
+
+> **Handoff file.** If you are an LLM picking this up mid-work: read this whole file, then `game/screen.h`, `game/gfx.h`,
+> the `r` handler in `game/game.c`, and `fit()` / `onViewSized()` in `app/src/io/github/brobordd/vessel/MainActivity.java`.
+> Find the first unchecked chunk in [Chunk checklist](#chunk-checklist), implement ONLY that chunk, commit, tick its box
+> in this file **in the same commit**, push, then go to the next one. One chunk = one commit = one push. Do not skip
+> ahead, do not batch chunks.
+
+## Rule for this plan: no tests, just code
+
+**Tests waste time here.** Do not write test binaries, do not run `tools/*test.c`, do not build a harness for rotation.
+Write the code, push it, and the owner pulls and tries it on his phone as the user (`git pull` + `scripts/run.sh`,
+plus a fresh `vessel.apk` for the chunks that say so). The only check a chunk makes on its own is that it still
+**compiles** (`cc -fsyntax-only` on the touched files if SDL headers are around; skip it silently if they are not, and say
+"not compiled" in the status line). A compile is not a test. If a chunk needs a decision the owner has to make by
+looking at the screen, push anyway and say what to look at.
+
+Replies in the chat stay short: what was done, what to look at on the phone, what is next. No complaints about the
+token or the process.
+
+## What the owner asked for
+
+The **apk already rotates** (commit `574a487`: the manifest follows the OS auto-rotate / rotate button instead of forcing
+a sensor orientation, and `MainActivity` handles the config change itself). The **game engine does not**: it keeps the
+pixel size it started with and the app letterboxes that picture on the turned screen. Make the engine follow the screen:
+turn the phone and the game re-lays itself out for the new shape and fills it, with no restart and no lost state.
+
+## What the code does today (checked, with where to look)
+
+- `game/game.c` `main`: `W` and `H` come from `argv[1]`/`argv[2]` once and never change. Every module gets them once:
+  `menu_init`, `nowplaying_init`, `musicwin_init`, `brainwin_init`, `pausebtn_init`, `space_init`, `world_init`.
+- The `r <landscape> <w> <h>` line from the app only calls `screen_set()` (`game/screen.c`) and prints it. Nothing reads
+  `screen_landscape()` / `screen_changes()` yet. `game/screen.h` says on purpose "a rotation never changes our layout".
+- The app (`MainActivity.java`): the **first** surface decides the game size, `w = width / SCALE`, `h = height / SCALE`
+  (`SCALE = 2`), and it never changes. `fit()` letterboxes that picture on the current surface and sets `viewScale`,
+  `viewX`, `viewY`. `onTouchEvent` undoes the letterbox with those three numbers, so touches already arrive in game pixels.
+- GPU path: `game/gfx.c` records draw calls into a shared file; header ints `[1]`/`[2]` are `W`/`H`, written once in
+  `gfx_init_gpu`. `GfxRenderer.java` has `gw`/`gh` fixed on the first surface, makes the scene and zoom render targets
+  at that size once (`makeTarget`), and draws the scene letterboxed with `glViewport`.
+- CPU path: `game.c` mmaps a `W*H*4` framebuffer once and `MainActivity.startBlit` copies it letterboxed. Resizing that
+  needs a new shared file; it is the fallback path, so it **stays letterboxed** (chunk 9 pins that down).
+- Every UI module stores `W`/`H` (and usually `u = min(w, h) / 360.0f`, the density unit) in `*_init(w, h)` and lays
+  itself out right there. `u` uses the **short side**, so a rotation keeps `u`, and with it text size, tile size
+  (`world.c`: `px`, `tile`) and button sizes. Only the positions and the visible area change.
+- `*_init` is also used as a **reset**: `world.c` calls `toast_init(W, H)` on a new life to drop a half-shown panel.
+  So a resize must be its own function; do not just call `*_init` again on rotation (it would wipe open windows,
+  dialogs, the zoom, the world itself: `world_init` also reloads the map and restarts the story).
+- The talk zoom render target is created lazily in `world.c` (`ztex = SDL_CreateTexture(r, ..., W, H)`, around line
+  1839) at the current `W x H`. It has to be recreated when `W`/`H` change.
+- Old and new must keep working together: the owner updates the game binary with `scripts/run.sh` (C only) and the apk
+  separately. **A new game on the old apk, and a new apk on an old game, must both still run (letterboxed).** The existing
+  protocol already ignores lines it does not know, so new capabilities are announced, never assumed.
+
+## Design (decided, so the chunks do not have to re-argue it)
+
+1. **The game's logical size follows the screen**: on a rotation or a resize the app sends the real screen size, the game
+   picks `W = sw / SCALE`, `H = sh / SCALE`, the app draws it 1:1 (scale `SCALE`, no bars). The letterbox stays only as
+   the fallback (old game, CPU path, the frames before the new size arrives).
+2. **Capability handshake, in the shared gfx file** (no new pipe lines needed for it): the app writes "I follow the
+   game's size" into a spare header int (`hdr[9]`, version number) before it opens the magic word. The game only
+   resizes when that int is non-zero. Old app: it is never set, nothing changes.
+3. **Every frame carries its own size.** Each slot header (16 bytes: `[0]` gen, `[1]` nrec, `[2]` and `[3]` are free) gets
+   the `W` and `H` that frame was recorded for. The app replays a slot at the size written in it, remakes its render
+   targets when that changes, and keeps showing the last old-size frame letterboxed until the first new-size frame
+   arrives. That kills the race between "the app turned" and "the game caught up" without any lock.
+   (`hdr[8]` = a size generation counter, for the app to notice cheaply.) Update the layout comment in `game/gfx.h`
+   **and** `GfxRenderer.java` together; the file says they must match.
+4. **Resize is layout only.** Every module that has an `*_init(w, h)` gets a `*_resize(w, h)` that recomputes positions
+   and sizes from `w`, `h` and `u` and **keeps all state** (open windows, scroll, dialog text, timers). `*_init` becomes
+   "reset state, then `*_resize`". The world keeps the player, map, NPCs, zoom and story.
+5. **Resize happens at one place, at a frame boundary**: top of the main loop in `game.c`, never inside a message
+   handler, never mid-draw. Burst of `r` lines (split-screen drag, animation) = only the **last** size is applied.
+   Sizes are clamped (a sane minimum short side so `u` never collapses; a maximum so the framebuffer / textures stay
+   small). A size equal to the current one is ignored.
+6. **Fingers on resize**: a resize cancels the held touches (`world_touch(3, 0, 0)`, same as pausing does) so the stick
+   is never stuck after a rotate.
+7. **CPU path stays letterboxed** and the game does not resize in it (`hdr[9]` simply never exists there).
+8. The vessel.apk in the repo root is rebuilt only by the chunks that touch `app/`.
+
+## Chunk checklist
+
+Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the current apk nothing changes on screen
+(the capability int is never set), so each one is safe to push and look at. Chunks 7-8 touch Java and need a rebuilt
+`vessel.apk` (see chunk 12). Numbering starts at 1.
+
+- [ ] **1. The contract.** Docs and the frame format, no behaviour change. `game/gfx.h` layout comment: slot header
+  `[2]`/`[3]` = that frame's `W`/`H`, header `[8]` = size generation, header `[9]` = the app's capability version (0 =
+  letterbox only). `game/gfx.c` writes the current `W`/`H` into every slot header it fills and keeps `hdr[8]` at 0 for
+  now. Rewrite `game/screen.h`'s opening comment: the picture now follows the screen when the app asks for it, and the
+  old "never changes our layout" only holds in fallback (the "no tests" note at its top is already there, keep it).
+- [ ] **2. `gfx_resize` and mutable size.** `game/gfx.c`: `gfx_resize(w, h)` sets `W`/`H`, bumps `hdr[8]`, rewrites the
+  header `[1]`/`[2]`, and the next `begin_frame()` stamps the new size into the slot. Add `gfx_app_resizes()` (reads
+  `hdr[9]`). `game/game.c`: `W`/`H` stop being fixed after startup (they are already locals; make them what the whole
+  loop reads), add `static void apply_size(int nw, int nh, ...)` that for now only calls `gfx_resize` and prints
+  `resize: WxH`. Not called yet.
+- [ ] **3. Resize for the small modules.** Split `*_init` into reset + `*_resize` for: `loading`, `toast`, `pausebtn`,
+  `nowplaying`, `brainwin`, `musicwin`, `menu`, `space` (the stars: keep their motion, spread new ones when the area
+  grows, drop the ones off the edge). `*_init` calls its `*_resize`. Keep `W`/`H`/`u` statics up to date. No call sites
+  yet besides `*_init`. (If a module's layout is baked into a table or a texture at init, rebuild it in `*_resize` and say
+  so in the status line.)
+- [ ] **4. Resize for the in-world UI.** Same split for `dialog` (it calls `talk_init`, so `talk` too), `missions`,
+  `thought`, `hud`, `minimap`, `mapwin`, `item_ui`. **Order matters** and is the one in `world_init`: `hud` first, then
+  `minimap` (needs `hud_card_rect`), then `item_ui` (needs `minimap_bottom`). Open windows (`mapwin`, `talk`) keep their
+  open/closing/animation state; `talk` keeps its `pos`/`target` ratio, not the pixel value.
+- [ ] **5. `world_resize(w, h)`.** `game/world.c`: new function (and a line in `world.h`) that sets `W`/`H`, recomputes
+  `ui`, `ucell`, stick position, interact button, hand button (`sx`, `sy`, `bcx`, `bcy`, `hbx`...), then calls the chunk 3/4
+  resizes in the `world_init` order, destroys and recreates `ztex` (the zoom target) at the new size without touching
+  `zoom`/`zoom_target`/`talk_npc`, and keeps the camera on the player (check how the camera is derived from `W`/`H` and
+  that map-edge clamping still behaves in a wide, short view). Grep `game/story.c` (it still reads `W` twice) and the rest
+  of `game/` for any other cached `W`/`H` and fix them. `world_init` must not change behaviour.
+- [ ] **6. Wire it up in `game.c`.** Top of the main loop: if the app announced resize support (`gfx_app_resizes()`) and
+  `screen_changes()` moved, take the latest `screen_width/height`, compute `nw = sw / 2`, `nh = sh / 2` (the same `SCALE`
+  as the app; put it in one constant in `screen.h`), clamp, skip if unchanged, then `apply_size`: cancel held touches,
+  `gfx_resize`, and resize by state: `ST_MENU` -> `menu_resize` + `space_resize`; `ST_LIMBO` -> `space_resize` + dialog;
+  `ST_WORLD` -> `world_resize`; always `nowplaying`/`musicwin`/`brainwin`/`pausebtn`/`loading`. States that are created
+  later (`menu_init(W, H)` at the start, `world_init(W, H)` after the menu fades, `space_init` at game.c:272) must read the
+  **current** `W`/`H`, not the startup ones. Still inert on the old apk.
+- [ ] **7. App: the GPU path follows the game's size** (Java, needs the apk). `GfxRenderer.java`: replace the fixed
+  `gw`/`gh` with the size in the slot being replayed; remake `sceneTex`/`zoomTex` (`makeTarget`) when it changes; set
+  `hdr[9]` before the magic word. `MainActivity.java`: stop treating the first surface as the permanent size for the GPU
+  path (`w`/`h` follow the renderer), keep sending `r` on every `onViewSized`, and make `fit()` give `viewScale = SCALE`,
+  `viewX = viewY = 0` when `w*SCALE == surface width` and `h*SCALE == surface height` (so the touch mapping, which already
+  uses those three numbers, becomes 1:1 with no further change). The game is still *started* with the first size.
+- [ ] **8. Transition frames.** Between the turn and the first new-size frame the app keeps showing the last old-size frame
+  letterboxed (existing `fit()` maths on the old `gw`/`gh`), never black, never stretched; the switch happens exactly when
+  a slot with the new `W`/`H` becomes the latest. Check the `onSurfaceChanged` path in `GfxRenderer.java` for a clear or
+  a viewport reset that flashes. Also re-check `hideSystemUi()` and the display-cutout mode (`SHORT_EDGES`) after a
+  rotation: the game's UI must not end up under the notch in landscape (if it does, give the game a safe inset via a
+  new `s <l> <t> <r> <b>` line and clamp the HUD to it: only if it is actually a problem).
+- [ ] **9. CPU fallback pinned down.** `scripts`/`game.c`/`MainActivity.java`: in CPU mode nothing resizes, the letterbox
+  stays exactly as before. Make that explicit (`screen_resizable()` in `screen.h`, false unless the GPU path announced
+  support) so a later reader does not try to resize the mmap'd framebuffer. Docs/comments only unless chunk 6/7 leaked a
+  resize into CPU mode.
+- [ ] **10. The state edge pass.** Read, do not test, each of these against the resize code and fix what is wrong:
+  turning during the talk zoom (and during its open/close animation), with the music window open (piano keys, the
+  pinch/chord touches), the map window (pinch), the brain window, a dialog line mid-typing, the death cutscene, the
+  summoning and the dawn, limbo's first conversation, the pause screen, the load-game fade, the loading screen, a
+  toast on screen. Rotating twice quickly (the burst rule). A split-screen window that is both narrow and short (the
+  clamp).
+- [ ] **11. Landscape polish.** What a wide, short screen needs that "same layout, new numbers" does not give:
+  HUD card / minimap / inventory stack down the right edge and may not fit the short side (cap, or put the inventory
+  beside the minimap), dialog and talk panels capped to a readable width and centred, the music window's piano keys and
+  waves laid out for the wide shape, the menu title and buttons, the stars, the story's full-screen moments
+  (`story.c`, `summon.c`, death). One commit per screen if it is more than a few lines; list what was changed in the
+  status line so the owner knows what to look at.
+- [ ] **12. Rebuild the apk.** `scripts/build-apk.sh` (it downloads the Android SDK from dl.google.com, which this sandbox's
+  network policy may block: if it cannot run, say so in one line and the owner builds it himself, he has Codespaces for
+  that) and commit `vessel.apk` as `build` like the earlier `build` commits. Chunks 7-8 do not tick as "tried" until this
+  is done.
+
+## Things to look at on the phone, per stage
+
+- After 1-6: nothing should look different at all (old apk), and the log line `screen: WxH ...` still prints on a turn.
+- After 7-8 (new apk): turn the phone, the picture fills the screen, no bars, no restart, music keeps playing; turn it
+  back, same. Open a dialog / the map / the music window and turn: they stay open and re-fit. Hold the stick and turn: it
+  lets go. Talk to someone (zoom) and turn.
+- After 9: force the CPU path: it letterboxes exactly as before.
+
+## Status log
+
+(One line per finished chunk: what changed, "not compiled" if it was not, what to look at. Newest last.)
