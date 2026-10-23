@@ -1,5 +1,6 @@
 build/
 *.apk
+!/vessel.apk
 *.idsig
 debug.jks
 __pycache__/
