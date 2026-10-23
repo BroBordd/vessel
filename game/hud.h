@@ -8,6 +8,7 @@
 /* the ID card, top-right: portrait, name and an HP bar, all on one chunky pixel grid.
  * when the name changes (hud_set_person with a different name) the name flashes, a coin
  * "YOU ARE NOW <NAME>" toast (toast.h, the same panel as "New task added", under the mission list) drops in with the coin ding. */
+void hud_resize(int w, int h);                      /* the screen changed shape: new layout, hp and the face stay */
 void hud_init(int w, int h, const Person *who);   /* shows `who` straight away, no announcement */
 void hud_set_person(const Person *who);           /* different name -> flash + ding + toast */
 void hud_set_hp(int hp, int hp_max);

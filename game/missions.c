@@ -17,8 +17,10 @@ static int   y_off, bottom;
 void missions_set_offset(int px) { y_off = px; }
 int  missions_bottom(void) { return bottom; }
 
+void missions_resize(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; }    /* the list stays */
+
 void missions_init(int w, int h) {
-    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    missions_resize(w, h);
     for (int i = 0; i < MAX_MISSIONS; i++) m[i].used = 0;
 }
 

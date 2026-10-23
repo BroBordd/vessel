@@ -58,6 +58,7 @@ void  item_draw_hand_icon(SDL_Renderer *r, int x, int y, int cell);
 void  item_draw_bag_icon(SDL_Renderer *r, int x, int y, int cell);
 
 /* the inventory widget. the box is `width` px wide (the minimap's width) and right-aligned to right_edge, starts at top */
+void  item_ui_resize(int w, int h, int right_edge, int top, int width);   /* the screen changed shape: same arguments as item_ui_init (after minimap_resize); the bag and its panel keep their state */
 void  item_ui_init(int w, int h, int right_edge, int top, int width);
 int   item_ui_touch(int action, int x, int y);          /* Android MotionEvent action. 1 = this touch is the inventory's (do not pass it on) */
 void  item_ui_draw(SDL_Renderer *r, float t);

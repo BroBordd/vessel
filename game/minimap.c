@@ -13,7 +13,7 @@ static int W, H, cell, side, bx, by, bt;
  * ox + round((e - fx0) * side / VIEW); neighbouring runs share the same edge value, so there are no gaps or overlaps. */
 #define EDGE(e, f0) ((int)floorf(((e) - (f0)) * side / VIEW + 0.5f))
 
-void minimap_init(int w, int h, int right_edge, int top, int width) {
+void minimap_resize(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
     float u = (w < h ? w : h) / 360.0f;
     bt = (int)(1.5f * u); if (bt < 1) bt = 1;
@@ -22,6 +22,7 @@ void minimap_init(int w, int h, int right_edge, int top, int width) {
     bx = right_edge - width;
     by = top;
 }
+void minimap_init(int w, int h, int right_edge, int top, int width) { minimap_resize(w, h, right_edge, top, width); }
 int minimap_bottom(void) { return by + side + 2 * bt; }
 int minimap_hit(int x, int y) { return x >= bx && y >= by && x < bx + side + 2 * bt && y < by + side + 2 * bt; }
 

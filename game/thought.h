@@ -52,6 +52,7 @@ void thought_rect(int *x, int *y, int *w, int *h);
 int  thought_offset(void);
 
 /* engine hooks, called by game.c every frame, after the music button's own update / draw */
+void thought_resize(int w, int h);           /* the screen changed shape: new layout, the card and the queue stay (after nowplaying_resize) */
 void thought_init(int w, int h);            /* needs nowplaying_init and hud_init first. also clears anything pending */
 void thought_set_enabled(int on);           /* the game world is on screen (the button only shows then, like the pause button) */
 void thought_update(float dt);              /* dt = 0 while paused: the card freezes and the thought keeps its time */

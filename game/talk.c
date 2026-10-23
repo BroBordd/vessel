@@ -139,6 +139,14 @@ static void layout(void) {
     heard_r = (SDL_Rect){ m, y, W - 2 * m, heard_h };
 }
 
+void talk_resize(int w, int h) {
+    float old_h = (float)(panel.h + 8);
+    float kp = old_h > 0 ? pos / old_h : 1.0f, kt = old_h > 0 ? target / old_h : 1.0f;     /* how far the panel has slid, as a share of its height */
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    layout();                                                /* the typed text, the chips, open/closing and the clocks stay */
+    pos = kp * (float)(panel.h + 8); target = kt * (float)(panel.h + 8);
+}
+
 void talk_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = closing = 0; layout(); pos = target = (float)(panel.h + 8); }
 
 void talk_open(const char *name, const char *line, const char *const *sugg, int ns, int req, void (*done)(const char *)) {

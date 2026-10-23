@@ -23,6 +23,7 @@ int  talk_active(void);
 
 /* engine hooks (called by the dialog, which owns the overlay) */
 void talk_init(int w, int h);
+void talk_resize(int w, int h);              /* the screen changed shape: new layout, the slide keeps its share, the text stays */
 void talk_touch(int a, int x, int y);
 void talk_update(float dt);
 void talk_draw(SDL_Renderer *r);

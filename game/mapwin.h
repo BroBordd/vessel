@@ -21,6 +21,7 @@ typedef struct {
 } MapView;
 
 void mapwin_init(int w, int h);
+void mapwin_resize(int w, int h);            /* the screen changed shape: new layout, an open map keeps its centre and relative zoom */
 void mapwin_set_source(void (*fill)(MapView *v));
 void mapwin_open(void);                             /* zoomed out, the whole map */
 void mapwin_close(void);

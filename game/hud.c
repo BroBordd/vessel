@@ -34,11 +34,15 @@ static void cl(SDL_Renderer *r, int cx, int cy, int w, int h) {
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int mix(int a, int b, float k) { return (int)(a + (b - a) * k); }
 
-void hud_init(int w, int h, const Person *p) {
+void hud_resize(int w, int h) {                      /* needs nowplaying_resize first (the card hangs at its button size) */
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     q = (int)(1.7f * u); if (q < 2) q = 2;
     card_x = W - (int)(10 * u) - CW * q;
     card_y = (int)(8 * u) + nowplaying_button_size() / 2;   /* same top margin as the now-playing card (incl. the notch shift) */
+}
+
+void hud_init(int w, int h, const Person *p) {
+    hud_resize(w, h);
     t = 0; who = p;
     hp = hp_max = START_HP; hp_shown = (float)hp;
     flash_t = -1;

@@ -98,7 +98,7 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
   grows, drop the ones off the edge). `*_init` calls its `*_resize`. Keep `W`/`H`/`u` statics up to date. No call sites
   yet besides `*_init`. (If a module's layout is baked into a table or a texture at init, rebuild it in `*_resize` and say
   so in the status line.)
-- [ ] **4. Resize for the in-world UI.** Same split for `dialog` (it calls `talk_init`, so `talk` too), `missions`,
+- [x] **4. Resize for the in-world UI.** Same split for `dialog` (it calls `talk_init`, so `talk` too), `missions`,
   `thought`, `hud`, `minimap`, `mapwin`, `item_ui`. **Order matters** and is the one in `world_init`: `hud` first, then
   `minimap` (needs `hud_card_rect`), then `item_ui` (needs `minimap_bottom`). Open windows (`mapwin`, `talk`) keep their
   open/closing/animation state; `talk` keeps its `pos`/`target` ratio, not the pixel value.
@@ -162,3 +162,4 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
 - 1: contract in gfx.h (slot hdr [2]/[3] = frame W/H, hdr[8] size gen, hdr[9] app capability); gfx.c stamps W/H into every slot and zeroes hdr[8]; screen.h intro rewritten. Not compiled (no SDL headers here). Look at: nothing should change on the phone.
 - 2: `gfx_resize(w,h)` (frame boundary only: sets W/H, rewrites hdr[1]/[2], re-stamps the open slot, bumps hdr[8] last) and `gfx_app_resizes()` (hdr[9] != 0, false on CPU) in gfx.c/.h; `apply_size(&W,&H,nw,nh)` in game.c (W/H are main's locals, so the loop and the later `*_init(W, H)` calls already read the current values), prints `resize: WxH`, not called yet. Not compiled. Look at: nothing changes.
 - 3: `*_resize(w,h)` added to loading, toast, pausebtn, nowplaying, brainwin, musicwin (re-clamps the track list scroll), menu (calls `space_resize`, then `menu_layout`), space (flakes keep their place in proportion, same count); each `*_init` = reset state + resize. `u` stays short-side based. Nothing baked into a texture in these modules. Not called anywhere yet. Not compiled. Look at: nothing changes.
+- 4: `*_resize` added to talk (keeps its slide as a share of the panel height, text/chips stay), dialog (re-wraps and re-boxes the open page, typing clock/page/hooks stay; calls `talk_resize`), missions, thought (after `nowplaying_resize`), hud (after `nowplaying_resize`), minimap and item_ui (same args as their inits, after hud/minimap), mapwin (an open map keeps centre and relative zoom, min/max zoom recomputed). Inits = reset + resize. Order for chunk 5/6: nowplaying, thought, hud, minimap, item_ui. Not called yet. Not compiled. Look at: nothing changes.

@@ -12,6 +12,7 @@ int  mission_flashing(int id);            /* tests: the line is flashing right n
 #define MISSION_FLASH_T 0.6f
 
 /* engine hooks, called by the world */
+void missions_resize(int w, int h);         /* the screen changed shape: new layout, the list stays */
 void missions_init(int w, int h);         /* also clears the list */
 void missions_clear(void);                /* empties the list (a new life), keeps the layout */
 int  missions_count(void);                /* entries on the list right now, ticked ones that have not faded yet included */

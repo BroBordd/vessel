@@ -259,7 +259,7 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
 #define INV_COLS 3
 static int W, H, ux, uy, uw, bt, bag, icell, pad, psl, pcell, qs;
 
-void item_ui_init(int w, int h, int right_edge, int top, int width) {
+void item_ui_resize(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
     float u = (w < h ? w : h) / 360.0f;
     bt = (int)(1.5f * u); if (bt < 1) bt = 1;
@@ -270,6 +270,10 @@ void item_ui_init(int w, int h, int right_edge, int top, int width) {
     icell = (bag - 2 * bt - 2 * pad) / ITEM_ICON_CELLS; if (icell < 1) icell = 1;
     psl = (uw - 2 * bt - (INV_COLS + 1) * pad) / INV_COLS; if (psl < 24) psl = 24;
     pcell = (psl - 2 * bt - pad) / ITEM_ICON_CELLS; if (pcell < 1) pcell = 1;
+}
+
+void item_ui_init(int w, int h, int right_edge, int top, int width) {
+    item_ui_resize(w, h, right_edge, top, width);
     ui_open = ui_down = 0; ui_p = ui_idle = 0; ui_sel = -1;
 }
 

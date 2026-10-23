@@ -64,6 +64,19 @@ static void layout(void) {
     view = (SDL_Rect){ win.x + bt, hdr.y + hb + bt, win.w - 2 * bt, cy - pad - (hdr.y + hb + bt) };
 }
 
+static void clamp_view(void);
+void mapwin_resize(int w, int h) {
+    float k = min_ppt > 0 ? ppt / min_ppt : 1.0f;            /* how far in the map is zoomed, as a multiple of "whole map fits" */
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    layout();
+    if (is_open && mv.mw > 0 && mv.mh > 0) {                 /* the same map, the same centre, the same relative zoom in the new view */
+        float fx = (float)view.w / mv.mw, fy = (float)view.h / mv.mh;
+        min_ppt = fx < fy ? fx : fy; if (min_ppt < 1) min_ppt = 1;
+        max_ppt = MAX_UNITS * u; if (max_ppt < min_ppt * 2) max_ppt = min_ppt * 2;
+        ppt = k * min_ppt; clamp_view();
+    }
+}
+
 void mapwin_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; is_open = drag = pressed = 0; p2 = pinch = drag_pid = 0; layout(); }
 void mapwin_set_source(void (*fn)(MapView *v)) { source = fn; }
 int  mapwin_active(void) { return is_open; }

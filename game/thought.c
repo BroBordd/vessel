@@ -51,16 +51,11 @@ static const char *BRAIN[10] = {
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 void thought_init(int w, int h) {
-    W = w; H = h; u = (w < h ? w : h) / 360.0f;
-    q    = (int)(1.7f * u); if (q < 2)   q = 2;          /* the same pixel size as the ID card and the music card's text */
-    pad  = (int)(6 * u);    if (pad < 3) pad = 3;        /* the music card's padding */
-    port = 12 * q;                                       /* portrait window: 12 cells, the face is 10 inside it */
-    tgap = 3 * q;                                        /* portrait <-> text */
-    lgap = 2 * q;                                        /* between text lines */
     nq = 0; active = closing = 0; hold_t = 0;
     c = 1.0f;
     vis = enabled ? 1.0f : 0.0f;
     nl = 0;
+    thought_resize(w, h);
     thought_update(0);                                   /* fills in the layout, so thought_rect is right from the start */
 }
 
@@ -155,6 +150,17 @@ static void relayout(void) {
     ph = 2 * pad + (th > port ? th : port);
     if (pw < bs) pw = bs;
     if (ph < bs) ph = bs;
+}
+
+/* the screen changed shape (needs nowplaying_resize first): the sizes again, and the layout rebuilt now. the queue, the card and its clocks stay */
+void thought_resize(int w, int h) {
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    q    = (int)(1.7f * u); if (q < 2)   q = 2;          /* the same pixel size as the ID card and the music card's text */
+    pad  = (int)(6 * u);    if (pad < 3) pad = 3;        /* the music card's padding */
+    port = 12 * q;                                       /* portrait window: 12 cells, the face is 10 inside it */
+    tgap = 3 * q;                                        /* portrait <-> text */
+    lgap = 2 * q;                                        /* between text lines */
+    relayout();
 }
 
 void thought_update(float dt) {

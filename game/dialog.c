@@ -148,6 +148,18 @@ static void start_page(void) {
 static int typing_done(void) { return (int)(ty * DIALOG_CPS) >= total; }
 
 /* ---------- public API ---------- */
+void dialog_resize(int w, int h) {
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    if (active && lines) {                                   /* the page on screen is wrapped and boxed again; the typing clock, the page and the hooks stay */
+        layout_base(lines[idx].who != NULL);
+        parse_markup(lines[idx].text);
+        wrap_text(L.maxchars);
+        layout_box();
+        if (blipped > total) blipped = total;
+    }
+    talk_resize(w, h);
+}
+
 void dialog_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     active = armed = 0; lines = NULL; on_done = NULL; page_hook = NULL; reply_hook = NULL; hl_hook = NULL; sugg = NULL; nsugg = 0; reply_mode = 0;

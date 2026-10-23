@@ -48,6 +48,7 @@ void dialog_suggest(const char *const *list, int count);
 
 /* engine hooks, called by the world */
 void dialog_init(int w, int h);
+void dialog_resize(int w, int h);            /* the screen changed shape: the open page is re-wrapped, nothing restarts (also resizes talk) */
 void dialog_touch(int a, int x, int y);
 void dialog_update(float dt);
 void dialog_draw(SDL_Renderer *r);
