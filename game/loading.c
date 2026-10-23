@@ -7,7 +7,8 @@
 static int   W, H;
 static float t;
 
-void loading_init(int w, int h) { W = w; H = h; t = 0; }
+void loading_resize(int w, int h) { W = w; H = h; }                    /* layout only: the clock keeps running */
+void loading_init(int w, int h) { t = 0; loading_resize(w, h); }
 
 int loading_update(float dt) {
     t += dt;

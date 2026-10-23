@@ -7,6 +7,7 @@
 #define LOADING_SECONDS 1.0f
 
 void loading_init(int w, int h);
+void loading_resize(int w, int h);              /* the screen changed shape: new layout, state kept */
 /* returns 1 once LOADING_SECONDS have elapsed */
 int  loading_update(float dt);
 void loading_draw(SDL_Renderer *r);

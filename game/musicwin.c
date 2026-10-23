@@ -176,6 +176,13 @@ static void layout(void) {
         pause_r.y += dy; vol_r.y += dy; seek_r.y += dy; loop_r.y += dy; mode_r[0].y += dy; mode_r[1].y += dy; stat_r.y += dy; list_r.y += dy; }
 }
 
+void musicwin_resize(int w, int h) {
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    layout();                                               /* the piano range, the rows and the rects are rebuilt; open/closing, volume and the lists stay */
+    if (list_scroll > scroll_max) list_scroll = scroll_max;
+    if (list_scroll < 0) list_scroll = 0;
+}
+
 void musicwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     is_open = closing = 0; anim = 0; t = 0; grab = 0; held_midi = -1; flash = 0; list_scroll = 0; fling_on = 0;

@@ -25,12 +25,7 @@ static int hit(int x, int y) {
 
 void menu_set_load_enabled(int on) { load_on = on != 0; }
 
-void menu_init(int w, int h) {
-    W = w; H = h;
-    u = (w < h ? w : h) / 360.0f;
-    pressed = -1; inside = 0; fade = -1;
-    space_init(w, h);                           /* the stars behind the menu */
-
+static void menu_layout(void) {
     int bw = (int)(200 * u), bh = (int)(52 * u), gap = (int)(16 * u);
     int cy = (int)(H * 0.62f);
     int top = cy - (NBTN * bh + (NBTN - 1) * gap) / 2;          /* the stack is centred on cy */
@@ -43,6 +38,21 @@ void menu_init(int w, int h) {
     title_cell = (int)(7 * u); if (title_cell < 2) title_cell = 2;
     title_x = (W - font_width("VESSEL", title_cell)) / 2;
     title_y = (int)(H * 0.22f) - font_height(title_cell) / 2;
+}
+
+void menu_resize(int w, int h) {
+    W = w; H = h;
+    u = (w < h ? w : h) / 360.0f;
+    space_resize(w, h);                         /* the stars keep falling, the fade and the pressed button stay */
+    menu_layout();
+}
+
+void menu_init(int w, int h) {
+    pressed = -1; inside = 0; fade = -1;
+    space_init(w, h);                           /* the stars behind the menu */
+    W = w; H = h;
+    u = (w < h ? w : h) / 360.0f;
+    menu_layout();
 }
 
 MenuAction menu_touch(int a, int x, int y) {

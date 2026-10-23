@@ -37,6 +37,7 @@ typedef enum {
 
 #define BRAIN_MAX_THOUGHTS 12
 
+void brainwin_resize(int w, int h);                      /* the screen changed shape: new layout, state kept */
 void brainwin_init(int w, int h);                       /* empties the window */
 int  brainwin_add(const char *text, BrainScene scene);  /* appends a thought (tag 0: never dropped), returns its index or -1 when full. text is copied (up to ~90 letters) */
 /* appends a thought that belongs to `tag` (any non-zero int the story picks). if the window is open

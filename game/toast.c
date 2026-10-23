@@ -23,10 +23,14 @@ static Toast cur;                           /* the toast on screen */
 static int   showing;
 static float cur_t;
 
-void toast_init(int w, int h) {
+void toast_resize(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     q = (int)(1.7f * u); if (q < 2) q = 2;      /* the same pixel size as the ID card's toast */
+}
+
+void toast_init(int w, int h) {
     showing = 0; cur_t = 0; npend = 0;
+    toast_resize(w, h);
 }
 
 static void show(const Toast *t) {

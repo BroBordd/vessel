@@ -13,6 +13,7 @@
 #include <SDL2/SDL.h>
 
 void space_init(int w, int h);
+void space_resize(int w, int h);                /* the screen changed shape: the stars stay and move with the new area */
 void space_update(float dt);
 void space_draw(SDL_Renderer *r);
 

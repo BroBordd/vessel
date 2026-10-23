@@ -32,6 +32,17 @@ static int flake_size(const Flake *f) {
     return s < 1 ? 1 : s;
 }
 
+void space_resize(int w, int h) {
+    /* keep the stars and their motion: every flake keeps its place in proportion, so a bigger area is spread out and a smaller one
+     * pulls them in (none is left off the edge). the count is fixed, so the density follows the area. */
+    if (W > 0 && H > 0) {
+        float kx = (float)w / (float)W, ky = (float)h / (float)H;
+        for (int i = 0; i < NSNOW; i++) { fl[i].x *= kx; fl[i].y *= ky; }
+    }
+    W = w; H = h;
+    u = (w < h ? w : h) / 360.0f;
+}
+
 void space_init(int w, int h) {
     W = w; H = h;
     u = (w < h ? w : h) / 360.0f;

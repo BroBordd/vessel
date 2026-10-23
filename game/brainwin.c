@@ -177,6 +177,11 @@ int brainwin_debug_auto(void) { return auto_on; }
 void brainwin_debug_rects(SDL_Rect *w, SDL_Rect *m, SDL_Rect *a, SDL_Rect *c) { *w = win; *m = scr_r; *a = auto_r; *c = close_r; }
 SDL_Rect brainwin_debug_pick(int i) { return pick_r[clampi(i, 0, BRAIN_MAX_THOUGHTS - 1)]; }
 
+void brainwin_resize(int w, int h) {
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    layout();                                                /* thoughts, the open/closing state and the typing stay */
+}
+
 void brainwin_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     nth = 0; is_open = closing = 0; anim = 0; tt = 0; grab = 0; fdown = 0;

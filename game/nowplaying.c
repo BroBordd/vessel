@@ -61,6 +61,11 @@ static void layout(void) {
 
 void nowplaying_set_wide(int on) { if (on != wide) { wide = on; layout(); } }
 
+void nowplaying_resize(int w, int h) {
+    W = w; H = h; u = (w < h ? w : h) / 360.0f;
+    layout();                                                     /* the title, the card state and the levels stay */
+}
+
 void nowplaying_init(int w, int h) {
     W = w; H = h; u = (w < h ? w : h) / 360.0f;
     expanded = 0; c = 1.0f; st = 0; seen = 0; pdown = 0;

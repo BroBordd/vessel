@@ -10,6 +10,7 @@
  * tapping it (card or button) opens the music window (musicwin.h). nothing to call when a song
  * starts: it watches music_serial() by itself. */
 void nowplaying_init(int w, int h);
+void nowplaying_resize(int w, int h);        /* the screen changed shape: new layout, state kept */
 void nowplaying_update(float dt);
 void nowplaying_set_wide(int on);          /* 1 = as wide as the task panels (the game runs), 0 = just the equalizer's width (menu) */
 void nowplaying_draw(SDL_Renderer *r);

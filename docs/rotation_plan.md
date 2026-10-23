@@ -93,7 +93,7 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
   `hdr[9]`). `game/game.c`: `W`/`H` stop being fixed after startup (they are already locals; make them what the whole
   loop reads), add `static void apply_size(int nw, int nh, ...)` that for now only calls `gfx_resize` and prints
   `resize: WxH`. Not called yet.
-- [ ] **3. Resize for the small modules.** Split `*_init` into reset + `*_resize` for: `loading`, `toast`, `pausebtn`,
+- [x] **3. Resize for the small modules.** Split `*_init` into reset + `*_resize` for: `loading`, `toast`, `pausebtn`,
   `nowplaying`, `brainwin`, `musicwin`, `menu`, `space` (the stars: keep their motion, spread new ones when the area
   grows, drop the ones off the edge). `*_init` calls its `*_resize`. Keep `W`/`H`/`u` statics up to date. No call sites
   yet besides `*_init`. (If a module's layout is baked into a table or a texture at init, rebuild it in `*_resize` and say
@@ -161,3 +161,4 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
 (One line per finished chunk: what changed, "not compiled" if it was not, what to look at. Newest last.)
 - 1: contract in gfx.h (slot hdr [2]/[3] = frame W/H, hdr[8] size gen, hdr[9] app capability); gfx.c stamps W/H into every slot and zeroes hdr[8]; screen.h intro rewritten. Not compiled (no SDL headers here). Look at: nothing should change on the phone.
 - 2: `gfx_resize(w,h)` (frame boundary only: sets W/H, rewrites hdr[1]/[2], re-stamps the open slot, bumps hdr[8] last) and `gfx_app_resizes()` (hdr[9] != 0, false on CPU) in gfx.c/.h; `apply_size(&W,&H,nw,nh)` in game.c (W/H are main's locals, so the loop and the later `*_init(W, H)` calls already read the current values), prints `resize: WxH`, not called yet. Not compiled. Look at: nothing changes.
+- 3: `*_resize(w,h)` added to loading, toast, pausebtn, nowplaying, brainwin, musicwin (re-clamps the track list scroll), menu (calls `space_resize`, then `menu_layout`), space (flakes keep their place in proportion, same count); each `*_init` = reset state + resize. `u` stays short-side based. Nothing baked into a texture in these modules. Not called anywhere yet. Not compiled. Look at: nothing changes.

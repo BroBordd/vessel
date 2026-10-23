@@ -21,7 +21,8 @@ static SDL_Rect resume_rect(void) {
     return (SDL_Rect){ (W - w) / 2, H / 2 + (int)(14 * u), w, h };
 }
 
-void pausebtn_init(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; enabled = paused = pdown = rdown = 0; vis = pa = 0; }
+void pausebtn_resize(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; }   /* the rects are computed on use */
+void pausebtn_init(int w, int h) { enabled = paused = pdown = rdown = 0; vis = pa = 0; pausebtn_resize(w, h); }
 void pausebtn_set_enabled(int on) { enabled = on; if (!on) paused = 0; }
 int  pausebtn_paused(void) { return paused; }
 void pausebtn_set_paused(int p) { if (enabled) paused = p ? 1 : 0; }

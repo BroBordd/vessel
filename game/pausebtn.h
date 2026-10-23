@@ -10,6 +10,7 @@
 #include <SDL2/SDL.h>
 
 void pausebtn_init(int w, int h);
+void pausebtn_resize(int w, int h);          /* the screen changed shape: new layout, state kept */
 void pausebtn_set_enabled(int on);          /* the game world is on screen (turning it off also resumes) */
 int  pausebtn_paused(void);
 void pausebtn_set_paused(int p);            /* only while the world is on screen (the Android back button and the app going to the background) */

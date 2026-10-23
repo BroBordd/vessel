@@ -17,6 +17,7 @@
 #include <SDL2/SDL.h>
 
 void musicwin_init(int w, int h);
+void musicwin_resize(int w, int h);          /* the screen changed shape: new layout, state kept */
 void musicwin_open(void);
 int  musicwin_active(void);                /* open (or still sliding away) */
 void musicwin_close(void);                 /* slides it away (the Android back button); nothing if it is not open */

@@ -22,6 +22,7 @@ void toast_notice(const char *head, const char *body);
 void toast_found(const char *name);
 
 /* engine hooks, called by the world */
+void toast_resize(int w, int h);             /* the screen changed shape: new layout, a toast on screen stays */
 void toast_init(int w, int h);              /* also clears anything pending */
 void toast_update(float dt);
 void toast_draw(SDL_Renderer *r, int x, int y);   /* x,y: top-left of the panel's resting spot (screen px) */
