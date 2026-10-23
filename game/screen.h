@@ -3,7 +3,10 @@
  *
  * WHAT THE APP TELLS US ABOUT THE SCREEN. the game keeps the pixel size it started with (everything is laid out for it once), and the app
  * letterboxes that picture on whatever the screen turns into (rotation, split screen, a resized window). so a rotation never changes our
- * layout - but the app does tell us, and this is where a screen that wants to react to it (a landscape layout, say) can ask. */
+ * layout - but the app does tell us, and this is where a screen that wants to react to it (a landscape layout, say) can ask.
+ *
+ * ROTATION WORK (docs/rotation_plan.md): TESTS WASTE TIME HERE. do not write or run test binaries for it, just write the code and push; the owner
+ * pulls and tries it himself on his phone, as the user. a compile check is the most a chunk does on its own. */
 #ifndef SCREEN_H
 #define SCREEN_H
 
