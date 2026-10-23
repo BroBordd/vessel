@@ -57,9 +57,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     volatile boolean running;     // the game process is meant to be alive: the audio thread and the CPU blitter keep going
     volatile boolean paused;      // the app is in the background: the audio waits, and the game was told to wait too
 
-    /** The game's own size in pixels. The first surface decides it and it never changes afterwards: the game lays itself out once, for this size.
-     *  Rotating, split screen or resizing the window only changes the SCREEN; the picture keeps its size and is letterboxed (see fit()). */
-    int w, h;
+    /** The size in pixels of the picture the game is drawing NOW. The first surface decides the size the game starts with. On the GPU path the game then
+     *  follows the screen (game/screen.h: it takes the screen size / SCALE after every "r" line) and GfxRenderer updates these from the frames' own
+     *  size; until a frame of the new size arrives the old picture stays, letterboxed by fit(). On the CPU path it never changes (always letterboxed).
+     *  SCALE must equal SCREEN_SCALE in game/screen.h. */
+    volatile int w, h;
     volatile int sw, sh;                          // the surface (screen) size now
     volatile int viewX, viewY;                    // where the game's picture sits on the screen, in screen pixels
     volatile float viewScale = SCALE;             // screen pixels per game pixel
@@ -187,14 +189,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     /** Works out where the game's picture goes on a surface of this size: as big as fits, centred, nothing cut off or stretched. */
     void fit(int surfW, int surfH) {
         sw = surfW; sh = surfH;
-        if (w <= 0 || h <= 0 || surfW <= 0 || surfH <= 0) return;
-        float s = Math.min((float) surfW / w, (float) surfH / h);
+        final int gw = w, gh = h;                 // (the GL thread may change them: read once)
+        if (gw <= 0 || gh <= 0 || surfW <= 0 || surfH <= 0) return;
+        if (gw * SCALE <= surfW && gh * SCALE <= surfH && surfW - gw * SCALE < SCALE && surfH - gh * SCALE < SCALE) {
+            viewScale = SCALE;                    // the game's size follows this screen: exactly SCALE screen pixels per game pixel, no bars (at most a pixel of border)
+            viewX = (surfW - gw * SCALE) / 2;
+            viewY = (surfH - gh * SCALE) / 2;
+            return;
+        }
+        float s = Math.min((float) surfW / gw, (float) surfH / gh);   // fallback: as big as fits, centred, nothing cut off or stretched
         viewScale = s;
-        viewX = (int) ((surfW - w * s) / 2);
-        viewY = (int) ((surfH - h * s) / 2);
+        viewX = (int) ((surfW - gw * s) / 2);
+        viewY = (int) ((surfH - gh * s) / 2);
     }
 
-    /** The screen was sized or turned (called for every new surface size): tells the game, which keeps its own layout (see game/screen.h). */
+    /** The screen was sized or turned (called for every new surface size): tells the game, which re-lays itself out for it when it can (see game/screen.h). */
     void onViewSized(int surfW, int surfH) {
         send("r " + (surfW > surfH ? 1 : 0) + " " + surfW + " " + surfH + "\n");
     }

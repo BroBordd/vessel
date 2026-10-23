@@ -26,6 +26,10 @@ import javax.microedition.khronos.opengles.GL10;
  * Everything is rasterised at the game's own resolution into an offscreen "scene" texture (so the
  * pixels are the same ones the CPU renderer produced), then that texture is stretched to the screen
  * with nearest filtering.
+ *
+ * The game's size is not fixed: every slot carries the W x H its frame was recorded for (rotation plan, game/gfx.h). When a newer
+ * frame has another size, the scene and zoom targets are remade at it and the host re-fits the picture. Until the first frame of
+ * the new size arrives, the last one stays on screen letterboxed on the turned surface. We announce that we do this in header [9].
  */
 final class GfxRenderer implements GLSurfaceView.Renderer {
 
@@ -40,6 +44,8 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
     static final int FILE_BYTES = HDR_BYTES + NSLOTS * SLOT_BYTES;
 
     static final int H_MAGIC = 0, H_FRAME = 6, H_LATEST = 5, H_READING = 7;     // header int indices
+    static final int H_CAP = 9;                        // the app's capability version: non-zero = the picture follows the game's size (game/gfx.h)
+    static final int CAP_VERSION = 1;
     static final int T_RECT = 0, T_BLEND = 1, T_CLIP = 2, T_TARGET = 3, T_COPY = 4, T_CLEAR = 5;
 
     private static final String TAG = "game";
@@ -133,6 +139,7 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
     /** Forget everything about the previous game process. Called on the GL thread right before a new one starts. */
     void reset() {
         for (int i = 0; i < HDR_BYTES / 4; i++) ib.put(i, 0);
+        ib.put(H_CAP, CAP_VERSION);                                  // before the game opens the magic word: it may resize, we follow
         lastGen = 0;
     }
 
@@ -176,11 +183,11 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 unused, int width, int height) {
         if (progRect == 0 || progTex == 0) return;
         sw = width; sh = height;
-        if (gw == 0) {                                               // the first surface decides the game's size, for good
+        if (gw == 0) {                                               // the first surface decides the size the game STARTS with (after that its frames say)
             gw = width / MainActivity.SCALE; gh = height / MainActivity.SCALE;
         }
         host.w = gw; host.h = gh;
-        if (sceneTex[0] == 0) {                                      // (a rotation keeps the targets: the game keeps its size, only the screen changes)
+        if (sceneTex[0] == 0) {                                      // (a rotation keeps the targets: they change only when a frame of another size arrives, see pollFrame)
             makeTarget(sceneTex, sceneFbo, gw, gh);
             makeTarget(zoomTex, zoomFbo, gw, gh);
         }
@@ -226,7 +233,8 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
         int base = HDR_BYTES + s * SLOT_BYTES;
         int g1 = ib.get(base >> 2);
         int n = ib.get((base >> 2) + 1);
-        boolean ok = g1 != 0 && n >= 0 && n <= CAP;
+        int fw = ib.get((base >> 2) + 2), fh = ib.get((base >> 2) + 3);   // the size this frame was recorded for (0 = an old game: it never changes)
+        boolean ok = g1 != 0 && n >= 0 && n <= CAP && fw >= 0 && fw <= 4096 && fh >= 0 && fh <= 4096;
         if (ok) {
             src.clear();
             src.position(base + SLOT_HDR);
@@ -239,9 +247,24 @@ final class GfxRenderer implements GLSurfaceView.Renderer {
         if (!ok) return;                                             // try again next vsync
 
         lastGen = g1;
+        if (fw > 0 && fh > 0 && (fw != gw || fh != gh)) resizeTargets(fw, fh);   // the first frame of a new size: the picture follows it
         stage.clear();
         replay(n);
         statFrames++; statRecs += n;
+    }
+
+    /** The game's picture changed size: new scene and zoom targets, and the host re-fits (1:1 when the surface is exactly that size times SCALE,
+     *  else letterboxed). Runs on the GL thread at the start of replaying the first frame of the new size, which redraws everything. */
+    private void resizeTargets(int nw, int nh) {
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
+        if (sceneTex[0] != 0) { GLES30.glDeleteFramebuffers(1, sceneFbo, 0); GLES30.glDeleteTextures(1, sceneTex, 0); }
+        if (zoomTex[0] != 0) { GLES30.glDeleteFramebuffers(1, zoomFbo, 0); GLES30.glDeleteTextures(1, zoomTex, 0); }
+        gw = nw; gh = nh;
+        makeTarget(sceneTex, sceneFbo, gw, gh);
+        makeTarget(zoomTex, zoomFbo, gw, gh);
+        host.w = gw; host.h = gh;
+        host.fit(sw, sh);                                            // sets viewScale / viewX / viewY: the touch mapping follows with them
+        Log.i(TAG, "gpu: game size now " + gw + "x" + gh);
     }
 
     // ---------------------------------------------------------------- replay
