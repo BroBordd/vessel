@@ -8,10 +8,10 @@
 
 static int W, H, cell, side, bx, by, bt;
 
-/* the box is `width` px wide (frame included), so the inner square (side) is not always a multiple of
- * VIEW: tile i starts at TX(i) = i * side / VIEW (integer maths), so tiles are 1px wider/narrower here
- * and there instead of the box having to be a multiple of the tile size. */
-#define TX(i) ((int)((long)(i) * side / VIEW))
+/* the window slides by FRACTIONS of a tile (like the game camera slides by pixels), so the map never hops a whole tile:
+ * the tiles are drawn at fractional offsets and clipped to the inner square. a tile edge at map coordinate e sits at
+ * ox + round((e - fx0) * side / VIEW); neighbouring runs share the same edge value, so there are no gaps or overlaps. */
+#define EDGE(e, f0) ((int)floorf(((e) - (f0)) * side / VIEW + 0.5f))
 
 void minimap_init(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
@@ -27,6 +27,16 @@ int minimap_hit(int x, int y) { return x >= bx && y >= by && x < bx + side + 2 *
 
 static void fill(SDL_Renderer *r, int x, int y, int w, int h) { SDL_Rect q = { x, y, w, h }; SDL_RenderFillRect(r, &q); }
 
+/* a fill clipped to the inner square (the tiles overhang it by up to a tile while the window slides) */
+static void fillc(SDL_Renderer *r, int ox, int oy, int x, int y, int w, int h) {
+    int x1 = x + w, y1 = y + h;
+    if (x < ox) x = ox;
+    if (y < oy) y = oy;
+    if (x1 > ox + side) x1 = ox + side;
+    if (y1 > oy + side) y1 = oy + side;
+    if (x1 > x && y1 > y) fill(r, x, y, x1 - x, y1 - y);
+}
+
 void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int mh,
                   const Rgb *pal, int npal, float ptx, float pty, int facing,
                   const MiniMark *marks, int nmarks, float t) {
@@ -34,29 +44,32 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
     SDL_SetRenderDrawColor(r, 255, 255, 255, 235); fill(r, bx, by, side + 2 * bt, side + 2 * bt);       /* frame */
     SDL_SetRenderDrawColor(r, 6, 8, 20, 245);      fill(r, ox, oy, side, side);
 
-    /* which tiles are visible: a VIEW x VIEW window around the player, kept inside the map */
-    int x0 = (int)ptx - VIEW / 2, y0 = (int)pty - VIEW / 2;
-    if (mw >= VIEW) { if (x0 < 0) x0 = 0; if (x0 > mw - VIEW) x0 = mw - VIEW; } else x0 = -(VIEW - mw) / 2;
-    if (mh >= VIEW) { if (y0 < 0) y0 = 0; if (y0 > mh - VIEW) y0 = mh - VIEW; } else y0 = -(VIEW - mh) / 2;
+    /* which part of the map is visible: a VIEW x VIEW window centred on the player (fractional, so it slides), kept inside the map */
+    float fx0 = ptx - VIEW / 2.0f, fy0 = pty - VIEW / 2.0f;
+    if (mw >= VIEW) { if (fx0 < 0) fx0 = 0; if (fx0 > mw - VIEW) fx0 = (float)(mw - VIEW); } else fx0 = -(VIEW - mw) / 2.0f;
+    if (mh >= VIEW) { if (fy0 < 0) fy0 = 0; if (fy0 > mh - VIEW) fy0 = (float)(mh - VIEW); } else fy0 = -(VIEW - mh) / 2.0f;
+    int ix0 = (int)floorf(fx0), iy0 = (int)floorf(fy0);       /* first (partly) visible tile */
 
-    for (int j = 0; j < VIEW; j++) {
-        int ty = y0 + j;
+    for (int j = 0; j <= VIEW; j++) {                       /* one extra row / column: the one peeking in at the far edge */
+        int ty = iy0 + j;
         if (ty < 0 || ty >= mh) continue;
+        int yy0 = oy + EDGE(ty, fy0), yy1 = oy + EDGE(ty + 1, fy0);
         int i = 0;
-        while (i < VIEW) {                                  /* merge runs of the same tile into one rectangle */
-            int tx = x0 + i;
+        while (i <= VIEW) {                                 /* merge runs of the same tile into one rectangle */
+            int tx = ix0 + i;
             if (tx < 0 || tx >= mw) { i++; continue; }
             int v = tiles[ty * stride + tx], run = 1;
-            while (i + run < VIEW && x0 + i + run >= 0 && x0 + i + run < mw && tiles[ty * stride + x0 + i + run] == v) run++;
+            while (i + run <= VIEW && ix0 + i + run < mw && tiles[ty * stride + ix0 + i + run] == v) run++;
             Rgb c = v < npal ? pal[v] : (Rgb){ 0, 0, 0 };
             SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
-            fill(r, ox + TX(i), oy + TX(j), TX(i + run) - TX(i), TX(j + 1) - TX(j));
+            int xx0 = ox + EDGE(tx, fx0), xx1 = ox + EDGE(tx + run, fx0);
+            fillc(r, ox, oy, xx0, yy0, xx1 - xx0, yy1 - yy0);
             i += run;
         }
     }
 
     for (int k = 0; k < nmarks; k++) {
-        int mx = ox + (int)((marks[k].tx - x0) * side / VIEW), my = oy + (int)((marks[k].ty - y0) * side / VIEW);
+        int mx = ox + (int)((marks[k].tx - fx0) * side / VIEW), my = oy + (int)((marks[k].ty - fy0) * side / VIEW);
         if (mx < ox || my < oy || mx >= ox + side || my >= oy + side) continue;
         if (marks[k].kind == 1) {                           /* the hole: a dark ring with a pale rim */
             SDL_SetRenderDrawColor(r, 235, 242, 255, 255); fill(r, mx - cell, my - cell / 2, 2 * cell + 1, cell + 1);
@@ -72,7 +85,7 @@ void minimap_draw(SDL_Renderer *r, const uint8_t *tiles, int stride, int mw, int
     }
 
     /* the player: blinking white dot with a red core and a little nose showing where they face */
-    int px = ox + (int)((ptx - x0) * side / VIEW), py = oy + (int)((pty - y0) * side / VIEW);
+    int px = ox + (int)((ptx - fx0) * side / VIEW), py = oy + (int)((pty - fy0) * side / VIEW);
     int d = cell + 1;
     SDL_SetRenderDrawColor(r, 0, 0, 0, 255);   fill(r, px - d / 2 - 1, py - d / 2 - 1, d + 2, d + 2);
     int blink = ((int)(t * 3.0f) & 1);
