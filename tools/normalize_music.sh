@@ -13,9 +13,13 @@ for f in "$DIR"/*.ogg; do
   set -- $m; I=$1; P=$2
   g=$(awk -v T="$TARGET" -v I="$I" -v P="$P" -v C="$CEIL" 'BEGIN{g=T-I; c=C-P; if(c<g)g=c; printf "%.2f", g}')
   if awk -v g="$g" 'BEGIN{exit !(g>-0.3 && g<0.3)}'; then echo "keep   $(basename "$f")  ($I LUFS)"; continue; fi
-  br=$(ffprobe -v error -select_streams a:0 -show_entries stream=bit_rate -of csv=p=0 "$f")
-  [ -z "$br" ] || [ "$br" = N/A ] && br=128000
-  ffmpeg -y -loglevel error -i "$f" -af "volume=${g}dB" -c:a libvorbis -b:a "$br" -map_metadata 0 "$f.tmp.ogg"
+  # re-encode as VBR quality: the lowest quality whose file is at least as big as the original (never smaller, so no quality loss
+  # beyond the unavoidable generation); -b:a would not do, it produced files 25-35% smaller than the originals
+  osz=$(stat -c %s "$f")
+  for q in 5 5.5 6 6.5 7 7.5 8; do
+    ffmpeg -y -loglevel error -i "$f" -af "volume=${g}dB" -c:a libvorbis -q:a "$q" -map_metadata 0 "$f.tmp.ogg"
+    [ "$(stat -c %s "$f.tmp.ogg")" -ge "$osz" ] && break
+  done
   mv "$f.tmp.ogg" "$f"
-  echo "gain   $(basename "$f")  $I -> $(awk -v I="$I" -v g="$g" 'BEGIN{printf "%.1f",I+g}') LUFS  (${g} dB)"
+  echo "gain   $(basename "$f")  $I -> $(awk -v I="$I" -v g="$g" 'BEGIN{printf "%.1f",I+g}') LUFS  (${g} dB, q$q)"
 done
