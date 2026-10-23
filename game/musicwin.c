@@ -323,6 +323,15 @@ int musicwin_touch(int a, int x, int y) {
     return 1;
 }
 
+/* the screen changed shape (game.c apply_size): every held finger lets go WITHOUT acting on where it is (a cancel at x = 0 would seek the track to its
+ * start and a lift on a button would fire it). notes stop ringing, a seek drag ends where the tape is (-1 = no jump), the list drag just stops */
+void musicwin_cancel(void) {
+    if (grab == 9 && music_scrubbing()) music_scrub_end(-1.0);
+    release(); sec_release_all();
+    seek_hold = 0; list_moved = 0; list_row = -1;
+    grab = 0;
+}
+
 /* another finger (pid = the app's pointer id + 1). only the piano listens to it: down on a key plays it, sliding over keys plays them, lifting lets go */
 int musicwin_touch_p(int pid, int a, int x, int y) {
     if (!is_open) return closing;

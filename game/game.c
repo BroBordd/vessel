@@ -85,6 +85,15 @@ static int handle_back(State st) {
 static void apply_size(int *W, int *H, int nw, int nh, int state) {
     if (nw == *W && nh == *H) return;
     if (state == ST_WORLD) world_touch(3, 0, 0);            /* let go of the stick and the buttons, like pausing does */
+    /* ...and of whatever a window holds: the map's pan / pinch, the piano's keys, the seek drag, the brain window's buttons, the cards, the menu's pressed
+     * button. a = 3 only ever clears (never fires); the finger that is still down sends moves and a lift that now find nothing to hold */
+    mapwin_touch(3, 0, 0);
+    musicwin_cancel();
+    brainwin_touch(3, 0, 0);
+    nowplaying_touch(3, 0, 0);
+    thought_touch(3, 0, 0);
+    pausebtn_touch(3, 0, 0);
+    if (state == ST_MENU) menu_touch(3, 0, 0);
     *W = nw; *H = nh;
     gfx_resize(nw, nh);
     nowplaying_resize(nw, nh);

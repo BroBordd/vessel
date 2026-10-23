@@ -25,6 +25,7 @@ void musicwin_close(void);                 /* slides it away (the Android back b
 int  musicwin_touch(int a, int x, int y);
 /* another finger (pid = the app's pointer id + 1): plays its own piano key, so chords work. 1 = used */
 int  musicwin_touch_p(int pid, int a, int x, int y);
+void musicwin_cancel(void);                /* let go of every held finger (notes, seek drag, list drag) without acting on it: a rotation */
 void musicwin_update(float dt);
 void musicwin_draw(SDL_Renderer *r);
 
