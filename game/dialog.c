@@ -36,7 +36,7 @@ static unsigned char wspan[MAX_WRAP];               /* the same, lined up with `
 static int   nspan, spans_fired, span_end[MAX_SPANS + 1];   /* span_end[n]: letters of `wrapped` typed once span n is complete */
 
 typedef struct {
-    int bottom, cell, lineh, pad, bt, q, ps, side, margin, maxchars;
+    int bottom, cell, lineh, pad, bt, q, ps, side, margin, maxchars, boxw;
     int bx, by, bw, bh, tx, ty, nx, ny, fx, fy;
 } Layout;
 static Layout L;
@@ -94,7 +94,9 @@ static void layout_base(int bottom) {
     L.margin = (int)(10 * u);
     L.ps     = (int)(4.5f * u); if (L.ps < 2)   L.ps = 2;
     L.side   = 10 * L.ps;
-    int avail = bottom ? W - 2 * L.margin - 3 * L.pad - L.side
+    L.boxw = W - 2 * L.margin;                              /* the bottom box: a wide, short screen caps it at 500u and centres it (a portrait phone is narrower, so nothing changes) */
+    if (L.boxw > (int)(500 * u)) L.boxw = (int)(500 * u);
+    int avail = bottom ? L.boxw - 3 * L.pad - L.side
                        : (int)(W * 0.86f) - 2 * L.pad;
     L.maxchars = avail / (6 * L.cell);
     if (L.maxchars < 8)  L.maxchars = 8;
@@ -118,9 +120,9 @@ static void layout_box(void) {
         int name_h = 9 * L.cell;
         int text_h = name_h + nlines * L.lineh + tri_h;
         int inner  = text_h > L.side ? text_h : L.side;
-        L.bw = W - 2 * L.margin;
+        L.bw = L.boxw;
         L.bh = inner + 2 * L.pad;
-        L.bx = L.margin;
+        L.bx = (W - L.bw) / 2;
         L.by = H - L.margin - L.bh;
         L.fx = L.bx + L.pad;           L.fy = L.by + L.pad;
         L.nx = L.fx + L.side + L.pad;  L.ny = L.by + L.pad;
