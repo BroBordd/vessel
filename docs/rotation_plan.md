@@ -88,7 +88,7 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
   letterbox only). `game/gfx.c` writes the current `W`/`H` into every slot header it fills and keeps `hdr[8]` at 0 for
   now. Rewrite `game/screen.h`'s opening comment: the picture now follows the screen when the app asks for it, and the
   old "never changes our layout" only holds in fallback (the "no tests" note at its top is already there, keep it).
-- [ ] **2. `gfx_resize` and mutable size.** `game/gfx.c`: `gfx_resize(w, h)` sets `W`/`H`, bumps `hdr[8]`, rewrites the
+- [x] **2. `gfx_resize` and mutable size.** `game/gfx.c`: `gfx_resize(w, h)` sets `W`/`H`, bumps `hdr[8]`, rewrites the
   header `[1]`/`[2]`, and the next `begin_frame()` stamps the new size into the slot. Add `gfx_app_resizes()` (reads
   `hdr[9]`). `game/game.c`: `W`/`H` stop being fixed after startup (they are already locals; make them what the whole
   loop reads), add `static void apply_size(int nw, int nh, ...)` that for now only calls `gfx_resize` and prints
@@ -160,3 +160,4 @@ Chunks 1-6 are **C only**: `git pull` + `scripts/run.sh` is enough, and with the
 
 (One line per finished chunk: what changed, "not compiled" if it was not, what to look at. Newest last.)
 - 1: contract in gfx.h (slot hdr [2]/[3] = frame W/H, hdr[8] size gen, hdr[9] app capability); gfx.c stamps W/H into every slot and zeroes hdr[8]; screen.h intro rewritten. Not compiled (no SDL headers here). Look at: nothing should change on the phone.
+- 2: `gfx_resize(w,h)` (frame boundary only: sets W/H, rewrites hdr[1]/[2], re-stamps the open slot, bumps hdr[8] last) and `gfx_app_resizes()` (hdr[9] != 0, false on CPU) in gfx.c/.h; `apply_size(&W,&H,nw,nh)` in game.c (W/H are main's locals, so the loop and the later `*_init(W, H)` calls already read the current values), prints `resize: WxH`, not called yet. Not compiled. Look at: nothing changes.

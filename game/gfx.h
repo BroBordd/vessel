@@ -65,6 +65,11 @@ void gfx_set_white(int white);
 /* GPU mode: map the shared file (created by the app) and start recording. 0 on success. */
 int  gfx_init_gpu(const char *path, int w, int h);
 int  gfx_is_gpu(void);
+/* RESIZE (docs/rotation_plan.md): call ONLY at a frame boundary (top of the main loop, after the last present). sets the size every new
+ * frame is recorded for, bumps the size generation (hdr[8]), rewrites hdr[1]/[2] and re-stamps the frame being started. no-op on the CPU path. */
+void gfx_resize(int w, int h);
+/* 1 when the app announced that it follows the game's size (hdr[9] != 0), always 0 on the CPU path and with an old app */
+int  gfx_app_resizes(void);
 /* the renderer pointer the game passes around: in GPU mode there is no SDL renderer, only this stand-in */
 SDL_Renderer *gfx_dummy_renderer(void);
 /* rects drawn in the most recent frame(s): max since the last call, then reset (for the fps log line) */

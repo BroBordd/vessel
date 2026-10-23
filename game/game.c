@@ -77,6 +77,15 @@ static int handle_back(State st) {
     return 0;
 }
 
+/* the game's logical size changes here and nowhere else (rotation plan, design 5): called at a frame boundary only. for now it only tells the
+ * recorder; the modules follow in later chunks. not called yet. */
+static void __attribute__((unused)) apply_size(int *W, int *H, int nw, int nh) {
+    if (nw == *W && nh == *H) return;
+    *W = nw; *H = nh;
+    gfx_resize(nw, nh);
+    printf("resize: %dx%d\n", nw, nh); fflush(stdout);
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: game w h\n"); return 1; }
     int W = atoi(argv[1]), H = atoi(argv[2]);

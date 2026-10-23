@@ -103,6 +103,16 @@ int gfx_init_gpu(const char *path, int w, int h) {
 }
 
 int gfx_is_gpu(void) { return gpu; }
+
+void gfx_resize(int w, int h) {
+    if (!gpu || w <= 0 || h <= 0 || (w == W && h == H)) return;
+    W = w; H = h;
+    hdr[1] = (uint32_t)w; hdr[2] = (uint32_t)h;
+    slothdr[2] = (uint32_t)w; slothdr[3] = (uint32_t)h;       /* the frame just begun (still empty at a frame boundary) is for the new size */
+    __atomic_store_n(&hdr[8], hdr[8] + 1u, __ATOMIC_RELEASE); /* last: the app notices the size generation, then reads the rest */
+}
+
+int gfx_app_resizes(void) { return gpu && __atomic_load_n(&hdr[9], __ATOMIC_ACQUIRE) != 0; }
 SDL_Renderer *gfx_dummy_renderer(void) { return (SDL_Renderer *)&dummy_renderer; }
 
 unsigned gfx_rect_stat(void) { unsigned m = rects_max; rects_max = 0; return m; }
