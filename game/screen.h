@@ -12,6 +12,13 @@
 #ifndef SCREEN_H
 #define SCREEN_H
 
+/* the one scale between the real screen and the game's picture: the game is W = screen width / SCREEN_SCALE by H = screen height / SCREEN_SCALE, and the
+ * app draws it SCREEN_SCALE times bigger (MainActivity.SCALE: keep them equal). the clamps keep a tiny split-screen window from collapsing the density unit
+ * (u = short side / 360) and a huge window from making big textures */
+#define SCREEN_SCALE 2
+#define SCREEN_MIN_SIDE 180
+#define SCREEN_MAX_SIDE 1600
+
 void screen_set(int landscape, int w, int h);     /* the app's "r" message: the real screen size in pixels, now */
 int  screen_landscape(void);                      /* 1 when the real screen is wider than tall */
 int  screen_width(void);

@@ -25,6 +25,7 @@
 #include "mapwin.h"
 #include "lang.h"
 #include "screen.h"
+#include "loading.h"
 #include "gfx.h"
 
 /* ST_LIMBO (vessel 2): the space screen, the stars and the top buttons only, no map and no HUD. the soul waits here
@@ -77,12 +78,26 @@ static int handle_back(State st) {
     return 0;
 }
 
-/* the game's logical size changes here and nowhere else (rotation plan, design 5): called at a frame boundary only. for now it only tells the
- * recorder; the modules follow in later chunks. not called yet. */
-static void __attribute__((unused)) apply_size(int *W, int *H, int nw, int nh) {
+/* the game's logical size changes here and nowhere else (rotation plan, design 5): called at a frame boundary only, with the latest size. cancels the
+ * held touches, tells the recorder, then every module re-lays itself out and keeps its state. which ones depend on the state: the menu is on its own
+ * (menu_resize also moves the stars); limbo and the world have run world_init, so world_resize does the HUD, the dialog, the controls; modules
+ * that do not exist yet (the world before the menu fades) simply read the new W/H when they are created, because W/H are main's locals. */
+static void apply_size(int *W, int *H, int nw, int nh, int state) {
     if (nw == *W && nh == *H) return;
+    if (state == ST_WORLD) world_touch(3, 0, 0);            /* let go of the stick and the buttons, like pausing does */
     *W = nw; *H = nh;
     gfx_resize(nw, nh);
+    nowplaying_resize(nw, nh);
+    musicwin_resize(nw, nh);
+    brainwin_resize(nw, nh);
+    pausebtn_resize(nw, nh);
+    loading_resize(nw, nh);
+    if (state == ST_MENU) {
+        menu_resize(nw, nh);                                /* (and the stars under it) */
+    } else {
+        space_resize(nw, nh);                               /* limbo, and the stars under the opening's dawn */
+        world_resize(nw, nh);                               /* the HUD, the dialog (so limbo's popup too), the controls, the map window, the camera */
+    }
     printf("resize: %dx%d\n", nw, nh); fflush(stdout);
 }
 
@@ -160,6 +175,7 @@ int main(int argc, char **argv) {
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[4096]; int alen = 0;
     int want_load = 0;                              /* the menu's fade-out was started by LOAD, not PLAY */
+    int seen_screen = 0;                            /* screen_changes() as of the last size we applied */
     int bg = 0;                                     /* the app is in the background: nothing runs, nothing is drawn, the world is paused for when it comes back */
 
     /* fixed 60fps pacing: sleep only the time left in each frame budget */
@@ -236,6 +252,21 @@ int main(int argc, char **argv) {
                 s = nl + 1;
             }
             alen -= s - acc; memmove(acc, s, alen);
+        }
+
+        /* the screen turned: at the top of the frame, after every pending line is read, only the LAST size counts (a burst of "r" lines = one resize).
+         * only when the app said it follows our size (the old app letterboxes our picture, and the CPU path never resizes) */
+        if (gfx_app_resizes() && screen_changes() != seen_screen) {
+            seen_screen = screen_changes();
+            int sw = screen_width(), sh = screen_height();
+            if (sw > 0 && sh > 0) {
+                int nw = sw / SCREEN_SCALE, nh = sh / SCREEN_SCALE;
+                if (nw < SCREEN_MIN_SIDE) nw = SCREEN_MIN_SIDE;
+                if (nh < SCREEN_MIN_SIDE) nh = SCREEN_MIN_SIDE;
+                if (nw > SCREEN_MAX_SIDE) nw = SCREEN_MAX_SIDE;
+                if (nh > SCREEN_MAX_SIDE) nh = SCREEN_MAX_SIDE;
+                apply_size(&W, &H, nw, nh, state);
+            }
         }
 
         win_track();
