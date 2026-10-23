@@ -12,7 +12,10 @@ command -v make >/dev/null || pkg install -y make
 
 # incremental: only changed .c files (and files that include a changed header) are recompiled, objects live in build/obj
 # JOBS=2 ./scripts/run.sh  to use fewer cores; rm -rf build/obj  to force a full rebuild
-make -f scripts/game.mk -j"${JOBS:-$(nproc)}" SDL="$SDL"
+TOTAL=$(make -f scripts/game.mk -n SDL="$SDL" | grep -c ' -c ' || true)
+rm -f build/.progress
+if [ "$TOTAL" = 0 ]; then echo "build: up to date"; else echo "build: compiling $TOTAL file(s)"; fi
+make -f scripts/game.mk -j"${JOBS:-$(nproc)}" SDL="$SDL" TOTAL="$TOTAL"
 
 BAD=$(readelf -d build/game | grep NEEDED | grep -vE '\[(libc|libm|libdl|liblog)\.so\]' || true)
 if [ -n "$BAD" ]; then

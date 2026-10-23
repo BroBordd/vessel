@@ -16,21 +16,21 @@ SDLLIBS   := $(shell $(SDLCONF) --cflags --static-libs | tr ' ' '\n' | grep -vE 
 # -DGFX_REDIRECT -include game/gfx.h: the SDL render calls go through game/gfx.c
 CFLAGS := -O2 -U__ANDROID__ -DGFX_REDIRECT -include game/gfx.h $(SDLCFLAGS)
 
-build/game: $(OBJS)
-	$(CC) -s -o $@ $(OBJS) $(SDLLIBS) -lm -Wl,--as-needed
+# progress: run.sh passes TOTAL (how many objects are stale); each finished compile appends a line to build/.progress
+TOTAL ?= ?
+PROGRESS = echo x >> build/.progress; n=$$(wc -l < build/.progress); printf '[%3d/%s] %s\n' $$n '$(TOTAL)'
 
-# stamp file: rewritten only when the flags change, so every object depends on the flags
-$(OBJDIR)/.flags: FORCE
-	@mkdir -p $(OBJDIR)
-	@echo '$(CC) $(CFLAGS)' | cmp -s - $@ || echo '$(CC) $(CFLAGS)' > $@
+build/game: $(OBJS)
+	@echo '[link] build/game'
+	@$(CC) -s -o $@ $(OBJS) $(SDLLIBS) -lm -Wl,--as-needed
+
+# stamp file: rewritten (at parse time) only when the flags change, so every object depends on the flags
+$(shell mkdir -p $(OBJDIR); echo '$(CC) $(CFLAGS)' | cmp -s - $(OBJDIR)/.flags || echo '$(CC) $(CFLAGS)' > $(OBJDIR)/.flags)
 
 $(OBJDIR)/%.o: game/%.c $(OBJDIR)/.flags
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	@$(CC) $(CFLAGS) -MMD -MP -c $< -o $@ && $(PROGRESS) '$<'
 
 $(OBJDIR)/iconv_stub.o: scripts/iconv_stub.c $(OBJDIR)/.flags
-	$(CC) -O2 -c $< -o $@
+	@$(CC) -O2 -c $< -o $@ && $(PROGRESS) '$<'
 
 -include $(OBJS:.o=.d)
-
-.PHONY: FORCE
-FORCE:
