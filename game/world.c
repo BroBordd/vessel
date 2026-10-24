@@ -609,6 +609,34 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
+/* FOG OF WAR on the minimap and the map window: a tile is drawn only once we have seen it (within REVEAL_R tiles with a clear line, walls stop the sight).
+ * map_disp is what they get: the real tiles where seen, 255 (colour index off the palette = black) elsewhere. reset with every map */
+#define REVEAL_R 7
+static uint8_t seen[MAP_MAX][MAP_MAX];
+static uint8_t map_disp[MAP_MAX][MAP_MAX];
+static int opaque_tile(int tx, int ty) {
+    if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
+    uint8_t v = map[ty][tx];
+    return v == T_RWALL || v == T_RVOID || v == T_RGATE || v == T_WALL;
+}
+static void reveal(void) {
+    int cx = (int)(pxp / tile), cy = (int)(pyp / tile);
+    for (int dy = -REVEAL_R; dy <= REVEAL_R; dy++)
+        for (int dx = -REVEAL_R; dx <= REVEAL_R; dx++) {
+            int x = cx + dx, y = cy + dy;
+            if (x < 0 || y < 0 || x >= mw || y >= mh || seen[y][x] || dx * dx + dy * dy > REVEAL_R * REVEAL_R + REVEAL_R) continue;
+            int n = abs(dx) > abs(dy) ? abs(dx) : abs(dy), ok = 1;
+            for (int i = 1; i < n && ok; i++)                                  /* the line from our tile to that one: anything solid-walled in between hides it */
+                if (opaque_tile(cx + (int)floorf(dx * (float)i / n + 0.5f), cy + (int)floorf(dy * (float)i / n + 0.5f))) ok = 0;
+            if (ok) seen[y][x] = 1;
+        }
+    if (cx >= 0 && cy >= 0 && cx < mw && cy < mh) seen[cy][cx] = 1;
+}
+static const uint8_t *map_for_display(void) {
+    for (int y = 0; y < mh; y++) for (int x = 0; x < mw; x++) map_disp[y][x] = (indoors || seen[y][x]) ? map[y][x] : 255;
+    return &map_disp[0][0];
+}
+
 /* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks. chunk 59: the house, the shrine, the hammer and each
  * grave are marked only once found (chunk 58 flags); npcs, the hole and the room door are not part of the found list and stay. */
 static const Rgb MAP_PAL[] = {
@@ -633,7 +661,7 @@ static int gather_marks(MiniMark *marks) {
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 20;
+    v->tiles = map_for_display(); v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 20;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -660,6 +688,7 @@ static void load_map(int which) {
         pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
     }
     facing = FACE_DOWN;
+    memset(seen, 0, sizeof seen); reveal();      /* a new map: nothing is known yet but what we can see from the spawn */
 }
 
 const char *world_map_name(int which) { return which == MAP_TEMPLE ? TEMPLE_NAME : which == MAP_CLOUD ? SKYLAND_NAME : GRASSLANDS; }
@@ -1341,6 +1370,7 @@ static float cam_axis(float c, int map_px, int screen) {
 #define CAM_DEAD   0.125f
 #define CAM_SMOOTH 6.0f
 static void camera_update(float dt) {
+    reveal();
     float dx = pxp - cam_cx, dy = pyp - cam_cy;
     if (cam_snap || fabsf(dx) > W || fabsf(dy) > H) {           /* a new map / a door / a far jump: no easing across the world */
         cam_cx = pxp; cam_cy = pyp; cam_snap = 0;
@@ -2041,7 +2071,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 20, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, map_for_display(), MAP_MAX, mw, mh, MAP_PAL, 20, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
