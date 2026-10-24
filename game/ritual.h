@@ -30,6 +30,11 @@ float ritual_time(void);
 int   ritual_player_rows(void);             /* rows of the new body shown, from the feet up: 0 .. 12 */
 void  ritual_centre(float *tile_x, float *tile_y);
 
+/* PULLING THE BODY (world.c): he can be held and dragged over the floor. his box in cells from the circle's centre (x0 < x1, y0 < y1); 0 when
+ * there is nothing to pull (no scene, no body, or the arrival is still running). ritual_body_shift moves him (the pool, the knife and the circle stay) */
+int   ritual_body_box(float *x0, float *y0, float *x1, float *y1);
+void  ritual_body_shift(float dx_cells, float dy_cells);
+
 /* sx, sy: the circle's centre on screen (where the player's feet are) */
 void  ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken);                 /* grooves, blood, pool, body, knife: under the characters */
 void  ritual_draw_over(SDL_Renderer *r, int sx, int sy, int cell, const Person *who);             /* shock ring, blood pixels on the new body, embers: over it */

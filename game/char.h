@@ -62,6 +62,10 @@ void char_draw_head(SDL_Renderer *r, const Person *p, int x, int y, int s);
  * the lower half, the blink still closes them). everything drawn with eyes while it is on is worried (every view: the body, the portrait,
  * the face popups, the brain card face); a Person wears it permanently with ACC_WORRIED. */
 void char_set_worried(int on);
+/* pulling something heavy: char_set_strain(1) shuts the eyes of everything drawn while it is on. char_set_grip(1, x, y) sends both floating hands to the
+ * screen point (x, y) (a little apart, side by side across the way they reach), as if holding something there; 0 puts them back. set both back to 0 after the draw. */
+void char_set_strain(int on);
+void char_set_grip(int on, float x, float y);
 /* chunk 66: an old photo never blinks: while this is on, everything drawn has its eyes open (the grave portraits turn it on around their draw and off again) */
 void char_set_photo(int on);
 

@@ -62,6 +62,10 @@ static int   g_aim, n_aims;                         /* chunk 56: the aiming pose
 void char_set_headless(int on) { g_headless = on != 0; }
 void char_set_worried(int on) { g_worried = on != 0; }
 void char_set_photo(int on) { g_photo = on != 0; }
+static int   g_strain, g_grip;                      /* pulling: eyes shut / both hands sent to a point on the screen */
+static float g_gx, g_gy;
+void char_set_strain(int on) { g_strain = on != 0; }
+void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_alpha(float k) { g_alpha = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_darken(float k) { g_darken = k < 0 ? 0 : k > 1 ? 1 : k; }
@@ -171,6 +175,21 @@ static void hand_fill(SDL_Renderer *r, Rgb c, int x, int y, int s, float fx, flo
 static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, int oy,
                         int s, int rows, int lift) {
     int flip = facing == FACE_LEFT;
+    float gdx[2] = { 0, 0 }, gdy[2] = { 0, 0 };                      /* the grip: each hand's offset (px) from its rest cell, 0 = the left hand on screen, 1 = the right */
+    if (g_grip && !g_aim) {
+        float hy = oy + 9.5f * s, chx = ox + SPR_W * 0.5f * s, hx[2] = { ox + 0.5f * s, ox + (SPR_W - 0.5f) * s };
+        float vx = g_gx - chx, vy = g_gy - hy, len = sqrtf(vx * vx + vy * vy);
+        if (len < 1.0f) { vx = 0; vy = 1; len = 1; }
+        vx /= len; vy /= len;
+        float qx = -vy, qy = vx;                                      /* across the way they reach: the hands hold him a little apart */
+        int s0 = (hx[0] - chx) * qx <= (hx[1] - chx) * qx ? -1 : 1;  /* the hand that is already on that side keeps it, so they never cross */
+        for (int h = 0; h < 2; h++) {
+            float sg = (h == 0 ? s0 : -s0) * 1.5f * s;
+            gdx[h] = g_gx + sg * qx - hx[h]; gdy[h] = g_gy + sg * qy - hy;
+            float m = sqrtf(gdx[h] * gdx[h] + gdy[h] * gdy[h]), mx = 14.0f * s;
+            if (m > mx) { gdx[h] *= mx / m; gdy[h] *= mx / m; }
+        }
+    }
     for (int y = 0; y < rows; y++)
         for (int x = 0; x < SPR_W; x++) {
             char c = cell_at(p, facing, x, y);
@@ -182,6 +201,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             else setcell(r, p, c);
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
+                if (g_grip) { int h = dx < SPR_W / 2 ? 0 : 1; hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, gdx[h], gdy[h]); continue; }
                 hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr);
                 continue;
             }
@@ -193,7 +213,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         int ex[2], n = 0;
         if (facing == FACE_DOWN) { ex[n++] = 2; ex[n++] = 6; }
         else                     { ex[n++] = flip ? 2 : 6; }
-        int shut = !g_photo && (g_shut || eyes_shut(p));
+        int shut = !g_photo && (g_shut || g_strain || eyes_shut(p));
         int worry = g_worried || (p->acc & ACC_WORRIED);
         for (int i = 0; i < n; i++) {
             if (g_aim) {                                                                    /* chunk 56: aiming at the sky. the left eye squints shut, the right one is open, the pupil right at its top */
