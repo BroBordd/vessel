@@ -54,7 +54,7 @@ static void fill(SDL_Renderer *r, int x, int y, int w, int h) {
 }
 
 /* the "flash" (the spawn blink after the fall): everything the character is drawn with is mixed toward white by this much, 0..1 */
-static float g_lighten, g_darken;
+static float g_lighten, g_darken, g_alpha = 1.0f;
 static int   g_headless, g_shut;                    /* chunk 38: no head; eyes forced shut */
 static int   g_photo;                              /* chunk 66: a photo: the eyes never shut */
 static int   g_worried;                             /* chunk 52: everything drawn is worried */
@@ -63,11 +63,12 @@ void char_set_headless(int on) { g_headless = on != 0; }
 void char_set_worried(int on) { g_worried = on != 0; }
 void char_set_photo(int on) { g_photo = on != 0; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
+void char_set_alpha(float k) { g_alpha = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_darken(float k) { g_darken = k < 0 ? 0 : k > 1 ? 1 : k; }
 static void setc(SDL_Renderer *r, int R, int G, int B) {
     if (g_lighten > 0) { R += (int)((255 - R) * g_lighten); G += (int)((255 - G) * g_lighten); B += (int)((255 - B) * g_lighten); }
     if (g_darken > 0) { R = (int)(R * (1.0f - g_darken)); G = (int)(G * (1.0f - g_darken)); B = (int)(B * (1.0f - g_darken)); }
-    SDL_SetRenderDrawColor(r, (Uint8)R, (Uint8)G, (Uint8)B, 255);
+    SDL_SetRenderDrawColor(r, (Uint8)R, (Uint8)G, (Uint8)B, (Uint8)(255.0f * g_alpha + 0.5f));
 }
 static void use(SDL_Renderer *r, Rgb c) { setc(r, c.r, c.g, c.b); }
 
