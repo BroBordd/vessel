@@ -169,7 +169,8 @@ static float dawn_t;
 #define LAND_T  2.5f                /* lying face-down after the impact, eyes shut */
 #define GETUP_T 1.5f                /* standing, flashing three times (0.25 s lighter, 0.25 s back) */
 #define FLASH_PEAK 0.8f             /* how white the flash gets (1 would lose the silhouette) */
-#define WAKE_T       3.0f           /* the temple wake-up: standing at once, the body fades out and in once a second, 3 times, then the controls come back */
+#define WAKE_LIE_T   2.0f           /* the temple wake-up: lying face-down, eyes shut ... */
+#define WAKE_T       1.5f           /* ... then the standing sprite at once, eyes half open, the body fading out and in twice a second, 3 times; then the controls come back */
 #define TEMPLE_SHADE 0.45f          /* the body in the temple is darkened by this much: a closed-up place, no light */
 static int   waking;                /* the cinematic running is the temple wake-up (the pulsing body) */
 static int   phase;
@@ -781,7 +782,7 @@ void world_init(int w, int h) {
     printf("temple seed %u\n", temple_seed);
     load_map(MAP_TEMPLE);                       /* the story starts in the deep temple (gen.c) */
     story_start();                              /* the script takes it from here (story.c) */
-    phase = PH_GETUP; ph_t = 0; waking = 1;     /* the soul stands at once and pulses (phase_update gives the controls back after WAKE_T) */
+    phase = PH_LAND; ph_t = 0; waking = 1;      /* the soul wakes face-down on the floor, then stands (phase_update gives the controls back after WAKE_T) */
     world_set_controls_visible(0);
 }
 
@@ -1337,7 +1338,7 @@ static void phase_update(float dt) {
         }
         break;
     case PH_LAND:
-        if (ph_t >= LAND_T) { phase = PH_GETUP; ph_t = 0; }
+        if (ph_t >= (waking ? WAKE_LIE_T : LAND_T)) { phase = PH_GETUP; ph_t = 0; }
         break;
     case PH_GETUP:
         if (ph_t >= (waking ? WAKE_T : GETUP_T)) {
@@ -1942,9 +1943,11 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
                     fill(r, sx0 + (int)(gx * tile) - sz / 2, sy0 - px - (int)(h * tile) - sz / 2, sz, sz);
                 }
             }
-        } else if (waking) {                                          /* the wake-up: standing, opacity 1 -> 0 -> 1 once a second (cosine), 3 times */
-            char_set_alpha(0.5f + 0.5f * cosf(ph_t * 6.2832f));
+        } else if (waking) {                                          /* the wake-up: the standing sprite at once, the eyes half open, opacity 1 -> 0 -> 1 twice a second (cosine), 3 times */
+            char_set_alpha(0.5f + 0.5f * cosf(ph_t * 12.5664f));
+            char_set_worried(1);
             char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            char_set_worried(player_worried);
             char_set_alpha(1.0f);
         } else {                                                      /* up on their feet: the spawn flash, 3 x (0.25 s lighter, 0.25 s back) */
             float f = fmodf(ph_t * 2.0f, 1.0f), tri = f < 0.5f ? f / 0.5f : (1.0f - f) / 0.5f;
