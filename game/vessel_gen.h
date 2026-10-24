@@ -5,7 +5,7 @@
  * (integer maths only, no rand(), no floats, no global state), and a different one for every other n. nothing is stored: the index IS the
  * vessel. the body is always the Vessel sprite (char.c) pixel for pixel; what the index picks is
  *   colours  hair, skin, shirt, pants, boots (a palette each, then a small per-channel jitter, so two vessels never share a colour set)
- *   looks    one of cap / beanie / headband (or none), a scarf, a shirt stripe or chest pocket, a beard, a nose plaster
+ *   looks    a cap or a beanie (or neither), a scarf, a beard
  *   name     see vessel_gen_name
  * the vessels are men (short hair); long hair is left to the hand-made people in story.c.
  * this file knows nothing about SDL drawing or the story: story.c decides who index 1, 2, 3 are (story_vessel_look). */

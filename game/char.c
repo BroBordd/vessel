@@ -71,7 +71,7 @@ static void setc(SDL_Renderer *r, int R, int G, int B) {
     SDL_SetRenderDrawColor(r, (Uint8)R, (Uint8)G, (Uint8)B, (Uint8)(255.0f * g_alpha + 0.5f));
 }
 static void use(SDL_Renderer *r, Rgb c) { setc(r, c.r, c.g, c.b); }
-/* the colour of one sprite cell code (h s c p b and the worn looks, see acc_cell); the shades are scaled from the colour they sit on, so they follow it */
+/* the colour of one sprite cell code (h s c p b and the worn looks A B T D, see acc_cell); the shades are scaled from the colour they sit on, so they follow it */
 static void use_shade(SDL_Renderer *r, Rgb c, int pct) { setc(r, c.r * pct / 100, c.g * pct / 100, c.b * pct / 100); }
 static void setcell(SDL_Renderer *r, const Person *p, char c) {
     switch (c) {
@@ -83,10 +83,7 @@ static void setcell(SDL_Renderer *r, const Person *p, char c) {
     case 'A': use(r, p->hat);   break;
     case 'B': use_shade(r, p->hat, 72); break;
     case 'T': use(r, p->scarf); break;
-    case 'S': use_shade(r, p->shirt, 72); break;
     case 'D': use_shade(r, p->hair, 90); break;
-    case 'P': setc(r, 250, 250, 250); break;
-    case 'G': use(r, p->frame); break;
     }
 }
 
@@ -111,43 +108,25 @@ static int eyes_shut(const Person *p) {
     return 0;
 }
 
-/* the worn looks (ACC_CAP .. ACC_PLASTER): cells laid over the base sprite, in the sprite's own (right-facing) coordinates, so a left-facing body mirrors them.
- * codes: A hat / band, B brim / cuff, T scarf, S stripe / pocket, D beard, P plaster, G glasses frame. nothing here moves a base cell, it only recolours or adds one. */
+/* the worn looks (ACC_CAP .. ACC_BEARD): cells laid over the base sprite, in the sprite's own (right-facing) coordinates, so a left-facing body mirrors them.
+ * codes: A hat, B brim, T scarf, D beard. plain on purpose: one flat colour each. nothing here moves a base cell, it only recolours or adds one. */
 static char acc_cell(const Person *p, int facing, int x, int y, char c) {
     int a = p->acc;
     if (!(a & ACC_LOOK)) return c;
     int front = facing == FACE_DOWN, back = facing == FACE_UP, side = !front && !back;
-    if ((a & ACC_STRIPE) && y == 9 && x >= 2 && x <= 7) c = 'S';
-    if ((a & ACC_POCKET) && !back && y == 9 && (x == 6 || x == 7)) c = 'S';
-    if ((a & ACC_SCARF) && ((y == 8 && x >= 2 && x <= 7) || (y == 9 && x == 2))) c = 'T';
+    if ((a & ACC_SCARF) && y == 8 && x >= 2 && x <= 7) c = 'T';
     if (a & (ACC_CAP | ACC_BEANIE)) {
         if (y == 0 && x >= 2 && x <= 7) c = 'A';
         if (y == 1 && x >= 1 && x <= 8) c = 'A';
         if (y == 2) {
-            if (a & ACC_BEANIE) { if (x >= 1 && x <= 8) c = 'B'; }                 /* the cuff, all round */
-            else if (front)     { if (x >= 1 && x <= 8) c = 'B'; }                 /* the brim over the brow */
+            if (a & ACC_BEANIE) { if (x >= 1 && x <= 8) c = 'A'; }                 /* the beanie comes down to the brow, the same colour all over */
+            else if (front)     { if (x >= 1 && x <= 8) c = 'B'; }                 /* the cap's brim over the brow */
             else if (side)      { if (x >= 1 && x <= 7) c = 'A'; else if (x >= 8) c = 'B'; }   /* the crown, then the brim pointing ahead (one cell past the head) */
         }
     }
-    if ((a & ACC_BAND) && y == 2 && x >= 1 && x <= 8) c = 'A';
     if ((a & ACC_BEARD) && !back) {
         if (front) { if (y == 7 && x >= 2 && x <= 7) c = 'D'; if (y == 6 && (x == 1 || x == 8)) c = 'D'; }
         else       { if (y == 7 && x >= 3 && x <= 7) c = 'D'; if (y == 6 && x == 8) c = 'D'; }
-    }
-    if ((a & ACC_PLASTER) && !back) {
-        if (front) { if (y == 5 && (x == 4 || x == 5)) c = 'P'; }
-        else if (y == 5 && x == 9) c = 'P';                                         /* over the nose */
-    }
-    if ((a & ACC_GLASSES) && !back) {                                               /* round frames around the eyes (the eyes themselves stay as they are) */
-        if (front) {
-            if ((y == 3 || y == 7) && (x == 2 || x == 3 || x == 6 || x == 7)) c = 'G';
-            if (y >= 4 && y <= 6 && (x == 1 || x == 8)) c = 'G';
-            if (y == 4 && (x == 4 || x == 5)) c = 'G';
-        } else {
-            if ((y == 3 || y == 7) && (x == 6 || x == 7)) c = 'G';
-            if (y >= 4 && y <= 6 && (x == 5 || x == 8)) c = 'G';
-            if (y == 4 && x >= 2 && x <= 4) c = 'G';                                /* the arm back over the hair */
-        }
     }
     return c;
 }

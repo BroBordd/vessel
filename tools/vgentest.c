@@ -19,8 +19,8 @@ static int cmp_u64(const void *a, const void *b) { uint64_t x = *(const uint64_t
 static uint64_t fnv(const void *data, size_t n) { const unsigned char *d = data; uint64_t h = 1469598103934665603ull; while (n--) { h ^= *d++; h *= 1099511628211ull; } return h; }
 static uint64_t look_hash(const Person *p) {                    /* everything that is drawn: colours and looks (not the name pointer) */
     unsigned char b[64]; int n = 0;
-    const Rgb *c[] = { &p->hair, &p->skin, &p->shirt, &p->pants, &p->boots, &p->hat, &p->scarf, &p->frame };
-    for (int i = 0; i < 8; i++) { b[n++] = c[i]->r; b[n++] = c[i]->g; b[n++] = c[i]->b; }
+    const Rgb *c[] = { &p->hair, &p->skin, &p->shirt, &p->pants, &p->boots, &p->hat, &p->scarf };
+    for (int i = 0; i < 7; i++) { b[n++] = c[i]->r; b[n++] = c[i]->g; b[n++] = c[i]->b; }
     b[n++] = (unsigned char)p->acc; b[n++] = (unsigned char)(p->acc >> 8); b[n++] = (unsigned char)p->long_hair;
     return fnv(b, (size_t)n);
 }
@@ -36,7 +36,7 @@ int main(void) {
     }
     /* a golden value: the same on every device and every build (integer maths only). if this changes, every vessel changed */
     { VesselLook v; vessel_gen(2, &v);
-      CHECK(!strcmp(v.name, "Deax") && v.p.hair.r == 165 && v.p.hair.g == 109 && v.p.hair.b == 56 && v.p.acc == (ACC_PLASTER | ACC_SCARF | ACC_BAND),
+      CHECK(!strcmp(v.name, "Deax") && v.p.hair.r == 165 && v.p.hair.g == 109 && v.p.hair.b == 56 && v.p.acc == ACC_SCARF,
             "vessel 2 changed: %s hair %d,%d,%d acc %d (every vessel changed with it)", v.name, v.p.hair.r, v.p.hair.g, v.p.hair.b, v.p.acc); }
 
     /* names: pronounceable, bounded, never repeated */
@@ -58,15 +58,15 @@ int main(void) {
     printf("names: %u checked, %ld repeats\n", k, dupn);
 
     /* looks: unique colour sets, neighbours differ, the rates */
-    long same_next = 0; static const char *LN[] = { "cap", "beanie", "band", "scarf", "stripe", "pocket", "beard", "plaster" };
-    static const int LF[] = { ACC_CAP, ACC_BEANIE, ACC_BAND, ACC_SCARF, ACC_STRIPE, ACC_POCKET, ACC_BEARD, ACC_PLASTER };
-    long lc[8] = { 0 }, nohat = 0, twohats = 0;
+    long same_next = 0; static const char *LN[] = { "cap", "beanie", "scarf", "beard" };
+    static const int LF[] = { ACC_CAP, ACC_BEANIE, ACC_SCARF, ACC_BEARD };
+    long lc[4] = { 0 }, nohat = 0, twohats = 0;
     for (uint32_t i = 0; i < N; i++) {
         VesselLook v; vessel_gen(i, &v);
         lk[i] = look_hash(&v.p);
         if (i && lk[i] == lk[i - 1]) same_next++;
-        for (int j = 0; j < 8; j++) if (v.p.acc & LF[j]) lc[j]++;
-        int hats = !!(v.p.acc & ACC_CAP) + !!(v.p.acc & ACC_BEANIE) + !!(v.p.acc & ACC_BAND);
+        for (int j = 0; j < 4; j++) if (v.p.acc & LF[j]) lc[j]++;
+        int hats = !!(v.p.acc & ACC_CAP) + !!(v.p.acc & ACC_BEANIE);
         if (!hats) nohat++;
         if (hats > 1) twohats++;
         CHECK(!v.p.long_hair, "vessel %u has long hair", i);
@@ -78,8 +78,8 @@ int main(void) {
     CHECK(dupl == 0, "%ld repeated looks in %u", dupl, N);
     CHECK(twohats == 0, "%ld vessels with two hats", twohats);
     printf("looks: %u vessels, %ld repeated colour sets, %ld equal neighbours, hatless %.1f%%\n", N, dupl, same_next, 100.0 * nohat / N);
-    double want[8] = { 20, 15, 15, 22, 20, 20, 22, 8 };
-    for (int j = 0; j < 8; j++) {
+    double want[4] = { 20, 15, 22, 22 };
+    for (int j = 0; j < 4; j++) {
         double got = 100.0 * lc[j] / N;
         printf("  %-8s %5.1f%% (asked %.0f%%)\n", LN[j], got, want[j]);
         CHECK(got > want[j] - 1.5 && got < want[j] + 1.5, "%s rate %.1f%% vs %.0f%%", LN[j], got, want[j]);

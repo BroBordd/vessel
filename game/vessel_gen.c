@@ -45,7 +45,6 @@ static Rgb hsv_in(Rng *r, int h0, int h1, int s0, int s1, int v0, int v1) {     
     int h = rng_in(r, h0, h1), sat = rng_in(r, s0, s1), v = rng_in(r, v0, v1);
     return hsv(h, sat, v);
 }
-static Rgb vivid(Rng *r) { return hsv_in(r, 0, 359, 110, 215, 130, 240); }
 
 static const Rgb HAIR_NATURAL[] = {
     { 24, 22, 26 }, { 46, 34, 28 }, { 96, 58, 36 }, { 130, 84, 50 }, { 160, 100, 48 }, { 196, 150, 70 },
@@ -56,8 +55,8 @@ static const Rgb SKIN[] = {
     { 190, 134, 96 }, { 170, 120, 90 }, { 150, 100, 72 }, { 130, 86, 60 }, { 110, 72, 50 } };
 static const Rgb BOOTS[] = {
     { 40, 30, 30 }, { 70, 44, 30 }, { 96, 64, 40 }, { 236, 236, 236 }, { 170, 40, 60 }, { 220, 120, 40 }, { 30, 50, 90 } };
-static const Rgb FRAMES[] = {
-    { 240, 150, 40 }, { 24, 22, 28 }, { 240, 240, 245 }, { 200, 50, 50 }, { 40, 150, 150 }, { 220, 180, 60 } };
+static const Rgb WORN[] = {                                                                       /* caps, beanies, scarves: dull, plain colours */
+    { 52, 62, 82 }, { 66, 66, 70 }, { 104, 86, 68 }, { 84, 96, 72 }, { 120, 72, 66 }, { 146, 142, 132 }, { 72, 94, 108 }, { 36, 36, 40 } };
 #define N(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
 /* ---------- names ---------- */
@@ -119,23 +118,16 @@ void vessel_gen(uint32_t index, VesselLook *out) {
         if (dist(p->shirt, p->pants) >= 120 && dist(p->shirt, p->skin) >= 90) break;
     }
 
-    /* the looks */
+    /* the looks: plain ones only, a cap or a beanie (or neither), a scarf, a beard */
     int hat = rng_int(&rng, 100);
     if (hat < 20)       p->acc |= ACC_CAP;
     else if (hat < 35)  p->acc |= ACC_BEANIE;
-    else if (hat < 50)  p->acc |= ACC_BAND;
     if (rng_int(&rng, 100) < 22) p->acc |= ACC_SCARF;
-    int deco = rng_int(&rng, 100);
-    if (deco >= 60 && deco < 80) p->acc |= ACC_STRIPE; else if (deco >= 80) p->acc |= ACC_POCKET;
     if (rng_int(&rng, 100) < 22) p->acc |= ACC_BEARD;
-    (void)rng_int(&rng, 100);                                   /* the old glasses roll: no glasses any more, but the draw stays so every other look of every vessel stays the same */
-    if (rng_int(&rng, 100) < 8)  p->acc |= ACC_PLASTER;
 
     /* the colours of the looks (drawn always, so the rolls stay in step whatever the looks are) */
-    for (int tries = 0; tries < 6; tries++) { p->hat = vivid(&rng); if (dist(p->hat, p->hair) >= 100 && dist(p->hat, p->shirt) >= 60) break; }
-    for (int tries = 0; tries < 6; tries++) { p->scarf = vivid(&rng); if (dist(p->scarf, p->shirt) >= 100) break; }
-    int f = rng_int(&rng, N(FRAMES)); p->frame = FRAMES[f];
-    for (int tries = 0; tries < 6 && dist(p->frame, p->skin) < 150; tries++) p->frame = FRAMES[(f += 1 + tries) % N(FRAMES)];
+    for (int tries = 0; tries < 6; tries++) { p->hat = WORN[rng_int(&rng, N(WORN))]; if (dist(p->hat, p->hair) >= 60 && dist(p->hat, p->shirt) >= 60) break; }
+    for (int tries = 0; tries < 6; tries++) { p->scarf = WORN[rng_int(&rng, N(WORN))]; if (dist(p->scarf, p->shirt) >= 60) break; }
 
     p->long_hair = 0;
     vessel_gen_name(index, out->name, VESSEL_NAME_MAX);

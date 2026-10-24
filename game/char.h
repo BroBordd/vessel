@@ -13,15 +13,15 @@ typedef struct {
     Rgb hair, skin, shirt, pants, boots;
     int long_hair;                 /* 1 = hair falls past the shoulders */
     int acc;                       /* accessories: ACC_* flags OR-ed together (0 if omitted) */
-    Rgb hat, scarf, frame;         /* colours of the ACC_CAP / ACC_BEANIE / ACC_BAND, the ACC_SCARF, the ACC_GLASSES frame (the brim / cuff, the stripe / pocket and the beard are shades of the hat, the shirt and the hair) */
+    Rgb hat, scarf;                /* colours of the ACC_CAP / ACC_BEANIE and the ACC_SCARF (the cap's brim is a shade of the hat, the beard a shade of the hair) */
 } Person;
 
 /* accessories. shades show on every view that has eyes, the halo floats above the head
  * (full body only; the face popups are too tight for it). ACC_WORRIED = the worried eyes (chunk 52), always on for whoever wears it */
 enum { ACC_SHADES = 1, ACC_HALO = 2, ACC_WORRIED = 4,
-       /* worn on the sprite itself (see acc_cell in char.c), the looks vessel_gen.c hands out: one of cap / beanie / band, and any of the rest */
-       ACC_CAP = 8, ACC_BEANIE = 16, ACC_BAND = 32, ACC_SCARF = 64, ACC_STRIPE = 128, ACC_POCKET = 256, ACC_BEARD = 512, ACC_GLASSES = 1024, ACC_PLASTER = 2048 };
-#define ACC_LOOK (ACC_CAP | ACC_BEANIE | ACC_BAND | ACC_SCARF | ACC_STRIPE | ACC_POCKET | ACC_BEARD | ACC_GLASSES | ACC_PLASTER)
+       /* worn on the sprite itself (see acc_cell in char.c), the plain looks vessel_gen.c hands out: a cap or a beanie, and any of a scarf and a beard */
+       ACC_CAP = 8, ACC_BEANIE = 16, ACC_SCARF = 32, ACC_BEARD = 64 };
+#define ACC_LOOK (ACC_CAP | ACC_BEANIE | ACC_SCARF | ACC_BEARD)
 
 /* facing values */
 enum { FACE_DOWN = 0, FACE_UP = 1, FACE_LEFT = 2, FACE_RIGHT = 3 };
