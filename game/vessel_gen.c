@@ -18,8 +18,11 @@ static int rng_in(Rng *r, int lo, int hi) { return lo + rng_int(r, hi - lo + 1);
 /* ---------- colours ---------- */
 static int clamp8(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 static Rgb rgb(int r, int g, int b) { Rgb c = { (Uint8)clamp8(r), (Uint8)clamp8(g), (Uint8)clamp8(b) }; return c; }
+/* NB every random draw is its own statement: the order C evaluates the arguments of a call in is unspecified, so a draw inside an argument list
+ * could give a different vessel on another compiler or cpu. */
 static Rgb jitter(Rng *r, Rgb c, int amt) {                                                      /* a few steps off in every channel: no two vessels share a palette */
-    return rgb(c.r + rng_in(r, -amt, amt), c.g + rng_in(r, -amt, amt), c.b + rng_in(r, -amt, amt));
+    int dr = rng_in(r, -amt, amt), dg = rng_in(r, -amt, amt), db = rng_in(r, -amt, amt);
+    return rgb(c.r + dr, c.g + dg, c.b + db);
 }
 static int dist(Rgb a, Rgb b) {
     int dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
@@ -38,7 +41,11 @@ static Rgb hsv(int h, int s, int v) {
     default: return rgb(v, p, q);
     }
 }
-static Rgb vivid(Rng *r) { return hsv(rng_int(r, 360), rng_in(r, 110, 215), rng_in(r, 130, 240)); }
+static Rgb hsv_in(Rng *r, int h0, int h1, int s0, int s1, int v0, int v1) {                      /* a random colour: hue, saturation, value, drawn in that order */
+    int h = rng_in(r, h0, h1), sat = rng_in(r, s0, s1), v = rng_in(r, v0, v1);
+    return hsv(h, sat, v);
+}
+static Rgb vivid(Rng *r) { return hsv_in(r, 0, 359, 110, 215, 130, 240); }
 
 static const Rgb HAIR_NATURAL[] = {
     { 24, 22, 26 }, { 46, 34, 28 }, { 96, 58, 36 }, { 130, 84, 50 }, { 160, 100, 48 }, { 196, 150, 70 },
@@ -104,11 +111,11 @@ void vessel_gen(uint32_t index, VesselLook *out) {
     p->skin = jitter(&rng, SKIN[rng_int(&rng, N(SKIN))], 8);
     p->boots = jitter(&rng, BOOTS[rng_int(&rng, N(BOOTS))], 10);
     for (int tries = 0; tries < 8; tries++) {                                                    /* shirt and pants: told apart from each other, and the shirt from the skin */
-        p->shirt = hsv(rng_int(&rng, 360), rng_in(&rng, 90, 210), rng_in(&rng, 140, 245));
+        p->shirt = hsv_in(&rng, 0, 359, 90, 210, 140, 245);
         int kind = rng_int(&rng, 4);
-        if (kind < 2)       p->pants = hsv(rng_in(&rng, 200, 240), rng_in(&rng, 80, 160), rng_in(&rng, 80, 170));   /* denim */
-        else if (kind == 2) p->pants = hsv(rng_int(&rng, 360), rng_in(&rng, 0, 40), rng_in(&rng, 30, 110));         /* dark neutrals */
-        else                p->pants = hsv(rng_in(&rng, 25, 50), rng_in(&rng, 60, 120), rng_in(&rng, 130, 200));    /* khaki, earth */
+        if (kind < 2)       p->pants = hsv_in(&rng, 200, 240, 80, 160, 80, 170);   /* denim */
+        else if (kind == 2) p->pants = hsv_in(&rng, 0, 359, 0, 40, 30, 110);         /* dark neutrals */
+        else                p->pants = hsv_in(&rng, 25, 50, 60, 120, 130, 200);    /* khaki, earth */
         if (dist(p->shirt, p->pants) >= 120 && dist(p->shirt, p->skin) >= 90) break;
     }
 

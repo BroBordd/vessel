@@ -36,7 +36,7 @@ int main(void) {
     }
     /* a golden value: the same on every device and every build (integer maths only). if this changes, every vessel changed */
     { VesselLook v; vessel_gen(2, &v);
-      CHECK(!strcmp(v.name, "Deax") && v.p.hair.r == 168 && v.p.hair.g == 109 && v.p.hair.b == 53 && v.p.acc == (ACC_PLASTER | ACC_SCARF | ACC_BAND),
+      CHECK(!strcmp(v.name, "Deax") && v.p.hair.r == 165 && v.p.hair.g == 109 && v.p.hair.b == 56 && v.p.acc == (ACC_PLASTER | ACC_SCARF | ACC_BAND),
             "vessel 2 changed: %s hair %d,%d,%d acc %d (every vessel changed with it)", v.name, v.p.hair.r, v.p.hair.g, v.p.hair.b, v.p.acc); }
 
     /* names: pronounceable, bounded, never repeated */
