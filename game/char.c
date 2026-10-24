@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 
-/* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs.
+/* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs (the hands float, a cell off the shirt).
  * legend: h hair, s skin, c shirt, p pants, b boots. Eyes are drawn on top.
  * The side sprite faces RIGHT; facing LEFT mirrors it, so the face/nose and the
  * hair-at-the-back always point the way the character walks. */
@@ -13,7 +13,7 @@
 
 static const char *body[4] = {
     "..cccccc..",
-    ".sccccccs.",
+    "s.cccccc.s",           /* the hands float: a cell of air between each hand and the shirt, and they bob (see draw_sprite) */
     "..pppppp..",
     "..bb..bb..",
 };
@@ -118,8 +118,10 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             char c = cell_at(p, facing, x, y);
             if (c == '.') continue;
             if (g_headless && y < 8) continue;                            /* chunk 38: the head is gone (and the long hair with it, see cell_at) */
-            int dy = y;
+            int dy = y, pyo = 0;
             if (y == 11 && lift >= 0 && ((x < 5) == (lift == 0))) dy = 10;   /* raised foot */
+            if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim)               /* floating hands: a half-cell bob, the two out of step */
+                pyo = ((((int)(SDL_GetTicks() / 500)) + (x == 0)) & 1) ? s / 2 : 0;
             switch (c) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
@@ -128,7 +130,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             case 'b': use(r, p->boots); break;
             }
             int dx = flip ? SPR_W - 1 - x : x;
-            fill(r, ox + dx * s, oy + dy * s, s, s);
+            fill(r, ox + dx * s, oy + dy * s + pyo, s, s);
         }
 
     /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
