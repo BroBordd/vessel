@@ -206,15 +206,15 @@ static void draw_halo(SDL_Renderer *r, int ox, int oy, int s) {
     fill(r, ox + 3 * s, y, 2 * s, s);
 }
 
-/* the hands float and are lazy: idle they rest still (no animation at all). walking, they trail behind the body, opposite to the way it
+/* the hands float and are lazy: idle they breathe: a slow gentle rise and fall. walking, they trail behind the body, opposite to the way it
  * faces, easing out slowly and easing back when it stops; the body's step bob gives them a small tug too. state is kept per person. */
-typedef struct { const Person *p; float rx, ry; int bob; Uint32 t; } HandSt;
+typedef struct { const Person *p; float rx, ry, w; int bob; Uint32 t; } HandSt;
 static HandSt g_hs[32];
 static int g_nhs;
 static void hands_update(const Person *p, int facing, int moving, int bob, int s) {
     HandSt *h = 0;
     for (int i = 0; i < g_nhs; i++) if (g_hs[i].p == p) { h = &g_hs[i]; break; }
-    if (!h) { h = &g_hs[g_nhs < 32 ? g_nhs++ : 0]; h->p = p; h->rx = h->ry = 0; h->bob = bob; h->t = 0; }
+    if (!h) { h = &g_hs[g_nhs < 32 ? g_nhs++ : 0]; h->p = p; h->rx = h->ry = h->w = 0; h->bob = bob; h->t = 0; }
     Uint32 now = SDL_GetTicks();
     float dt = h->t ? (now - h->t) / 1000.0f : 0;
     h->t = now;
@@ -231,7 +231,8 @@ static void hands_update(const Person *p, int facing, int moving, int bob, int s
     h->rx += (tx - h->rx) * k;
     h->ry += (ty - h->ry) * k;
     if (!moving && fabsf(h->rx) < 0.5f && fabsf(h->ry) < 0.5f) h->rx = h->ry = 0;
-    g_hdx = h->rx; g_hdy = h->ry;
+    h->w += ((moving ? 0.0f : 1.0f) - h->w) * k;                          /* idle breathing: a slow rise and fall, faded out while walking */
+    g_hdx = h->rx; g_hdy = h->ry + sinf(now * 0.0021f) * 0.4f * s * h->w;
 }
 
 void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
