@@ -71,6 +71,24 @@ static void setc(SDL_Renderer *r, int R, int G, int B) {
     SDL_SetRenderDrawColor(r, (Uint8)R, (Uint8)G, (Uint8)B, (Uint8)(255.0f * g_alpha + 0.5f));
 }
 static void use(SDL_Renderer *r, Rgb c) { setc(r, c.r, c.g, c.b); }
+/* the colour of one sprite cell code (h s c p b and the worn looks, see acc_cell); the shades are scaled from the colour they sit on, so they follow it */
+static void use_shade(SDL_Renderer *r, Rgb c, int pct) { setc(r, c.r * pct / 100, c.g * pct / 100, c.b * pct / 100); }
+static void setcell(SDL_Renderer *r, const Person *p, char c) {
+    switch (c) {
+    case 'h': use(r, p->hair);  break;
+    case 's': use(r, p->skin);  break;
+    case 'c': use(r, p->shirt); break;
+    case 'p': use(r, p->pants); break;
+    case 'b': use(r, p->boots); break;
+    case 'A': use(r, p->hat);   break;
+    case 'B': use_shade(r, p->hat, 72); break;
+    case 'T': use(r, p->scarf); break;
+    case 'S': use_shade(r, p->shirt, 72); break;
+    case 'D': use_shade(r, p->hair, 90); break;
+    case 'P': setc(r, 250, 250, 250); break;
+    case 'G': use(r, p->frame); break;
+    }
+}
 
 /* BLINKING. everybody blinks on their own clock, so a crowd never blinks in step. the average person blinks about 15-20 times a minute
  * (every ~4 s, anywhere from 1 to 8 s apart), a blink lasts 0.1-0.25 s, and one in six is a double blink. no state is kept: time is cut into
@@ -93,6 +111,47 @@ static int eyes_shut(const Person *p) {
     return 0;
 }
 
+/* the worn looks (ACC_CAP .. ACC_PLASTER): cells laid over the base sprite, in the sprite's own (right-facing) coordinates, so a left-facing body mirrors them.
+ * codes: A hat / band, B brim / cuff, T scarf, S stripe / pocket, D beard, P plaster, G glasses frame. nothing here moves a base cell, it only recolours or adds one. */
+static char acc_cell(const Person *p, int facing, int x, int y, char c) {
+    int a = p->acc;
+    if (!(a & ACC_LOOK)) return c;
+    int front = facing == FACE_DOWN, back = facing == FACE_UP, side = !front && !back;
+    if ((a & ACC_STRIPE) && y == 9 && x >= 2 && x <= 7) c = 'S';
+    if ((a & ACC_POCKET) && !back && y == 9 && (x == 6 || x == 7)) c = 'S';
+    if ((a & ACC_SCARF) && ((y == 8 && x >= 2 && x <= 7) || (y == 9 && x == 2))) c = 'T';
+    if (a & (ACC_CAP | ACC_BEANIE)) {
+        if (y == 0 && x >= 2 && x <= 7) c = 'A';
+        if (y == 1 && x >= 1 && x <= 8) c = 'A';
+        if (y == 2) {
+            if (a & ACC_BEANIE) { if (x >= 1 && x <= 8) c = 'B'; }                 /* the cuff, all round */
+            else if (front)     { if (x >= 1 && x <= 8) c = 'B'; }                 /* the brim over the brow */
+            else if (side)      { if (x >= 1 && x <= 7) c = 'A'; else if (x >= 8) c = 'B'; }   /* the crown, then the brim pointing ahead (one cell past the head) */
+        }
+    }
+    if ((a & ACC_BAND) && y == 2 && x >= 1 && x <= 8) c = 'A';
+    if ((a & ACC_BEARD) && !back) {
+        if (front) { if (y == 7 && x >= 2 && x <= 7) c = 'D'; if (y == 6 && (x == 1 || x == 8)) c = 'D'; }
+        else       { if (y == 7 && x >= 3 && x <= 7) c = 'D'; if (y == 6 && x == 8) c = 'D'; }
+    }
+    if ((a & ACC_PLASTER) && !back) {
+        if (front) { if (y == 5 && (x == 4 || x == 5)) c = 'P'; }
+        else if (y == 5 && x == 9) c = 'P';                                         /* over the nose */
+    }
+    if ((a & ACC_GLASSES) && !back) {                                               /* round frames around the eyes (the eyes themselves stay as they are) */
+        if (front) {
+            if ((y == 3 || y == 7) && (x == 2 || x == 3 || x == 6 || x == 7)) c = 'G';
+            if (y >= 4 && y <= 6 && (x == 1 || x == 8)) c = 'G';
+            if (y == 4 && (x == 4 || x == 5)) c = 'G';
+        } else {
+            if ((y == 3 || y == 7) && (x == 6 || x == 7)) c = 'G';
+            if (y >= 4 && y <= 6 && (x == 5 || x == 8)) c = 'G';
+            if (y == 4 && x >= 2 && x <= 4) c = 'G';                                /* the arm back over the hair */
+        }
+    }
+    return c;
+}
+
 static char cell_at(const Person *p, int facing, int x, int y) {
     const char **head = facing == FACE_DOWN ? head_front : facing == FACE_UP ? head_back : head_side;
     char c = y < 8 ? head[y][x] : body[y - 8][x];
@@ -106,7 +165,7 @@ static char cell_at(const Person *p, int facing, int x, int y) {
             if (y >= 6 && y <= 8 && x == 2) c = 'h';
         }
     }
-    return c;
+    return acc_cell(p, facing, x, y, c);
 }
 
 /* floating hands: their offset (screen px) from the rest cell: x, and the left and right hand's lift, set by char_draw_air (see hands_update) and 0 for every other view */
@@ -137,13 +196,8 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             if (g_headless && y < 8) continue;                            /* chunk 38: the head is gone (and the long hair with it, see cell_at) */
             int dy = y;
             if (y == 11 && lift >= 0 && ((x < 5) == (lift == 0))) dy = 10;   /* raised foot */
-            switch (c) {
-            case 'h': use(r, p->hair);  break;
-            case 's': use(r, p->skin);  break;
-            case 'c': if (g_headless && y == 8) setc(r, 150, 16, 28); else use(r, p->shirt); break;     /* (the cut across the neck) */
-            case 'p': use(r, p->pants); break;
-            case 'b': use(r, p->boots); break;
-            }
+            if (c == 'c' && g_headless && y == 8) setc(r, 150, 16, 28);            /* (the cut across the neck) */
+            else setcell(r, p, c);
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
                 hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr);
@@ -314,13 +368,8 @@ void char_draw_fall(SDL_Renderer *r, const Person *p, int x, int y, int s, float
             char ch = cell_at(p, FACE_DOWN, i, j);
             if (ch == '.') continue;
             if (g_headless && j < 8) continue;                                  /* chunk 38 */
-            switch (ch) {
-            case 'h': use(r, p->hair);  break;
-            case 's': use(r, p->skin);  break;
-            case 'c': if (g_headless && j == 8) setc(r, 150, 16, 28); else use(r, p->shirt); break;
-            case 'p': use(r, p->pants); break;
-            case 'b': use(r, p->boots); break;
-            }
+            if (ch == 'c' && g_headless && j == 8) setc(r, 150, 16, 28);
+            else setcell(r, p, ch);
             if (a > 0.35f && j == 5 && (i == 2 || i == 3 || i == 6 || i == 7)) SDL_SetRenderDrawColor(r, 28, 22, 40, 255);   /* closed eyes */
             else if (a <= 0.35f && j >= 4 && j <= 6 && (i == 2 || i == 3 || i == 6 || i == 7)) SDL_SetRenderDrawColor(r, 28, 22, 40, 255);
             float cx = (i - 5 + 0.5f) * s, cy = (j - SPR_H + 0.5f) * s;     /* from the feet middle */
@@ -343,13 +392,7 @@ void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s) {
         for (int i = 0; i < SPR_W; i++) {
             char ch = cell_at(p, FACE_LEFT, i, j);
             if (ch == '.') continue;
-            switch (ch) {
-            case 'h': use(r, p->hair);  break;
-            case 's': use(r, p->skin);  break;
-            case 'c': use(r, p->shirt); break;
-            case 'p': use(r, p->pants); break;
-            case 'b': use(r, p->boots); break;
-            }
+            setcell(r, p, ch);
             float qx, qy; LY_PT((SPR_W - 1 - i) - 5 + 0.5f, j - SPR_H + 0.5f, qx, qy); LY_SQ(qx, qy);
         }
     SDL_SetRenderDrawColor(r, 28, 22, 40, 255);                                 /* the eye, on the side facing the ground: shut */

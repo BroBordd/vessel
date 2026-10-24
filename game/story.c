@@ -9,7 +9,9 @@
 #include "thought.h"
 #include "world.h"
 #include "jukebox.h"
+#include "vessel_gen.h"
 #include <string.h>
+#include <stdlib.h>
 
 #define VESSEL_NAME  "Aonia"
 #define VESSEL2_NAME "Doia"
@@ -25,6 +27,17 @@ const Person VAS    = { VESSEL_LATIN, { 96, 58, 36 },  { 248, 208, 170 }, { 214,
 const Person ALEX   = { "Alex",       { 236, 196, 84 }, { 244, 200, 164 }, { 60, 170, 170 }, { 70, 60, 110 }, { 40, 30, 30 }, 1, 0 };
 const Person DEA    = { "Dea",        { 252, 240, 190 }, { 252, 228, 206 }, { 255, 244, 200 }, { 250, 232, 170 }, { 226, 190, 90 }, 1,
                         ACC_SHADES | ACC_HALO };
+
+/* ---------- the endless line of vessels ---------- */
+/* how many vessels, counting from 1, are hand-made people of the story (1 = VESSEL, Aonia, the base look everyone is drawn from; 2 = VESSEL2, 3 = VESSEL3, unused by the restarted story). the rest, and all if this is 0, come from the generator. */
+#define STORY_CANON 1
+const Person *story_vessel_look(unsigned index) {
+    if (index == 1 && STORY_CANON >= 1) return &VESSEL;
+    if (index == 2 && STORY_CANON >= 2) return &VESSEL2;
+    if (index == 3 && STORY_CANON >= 3) return &VESSEL3;
+    return vessel_gen_person(index);
+}
+const char *story_vessel_name(unsigned index) { return story_vessel_look(index)->name; }
 
 /* ---------- timers ---------- */
 #define MAX_TIMERS 8
@@ -101,6 +114,7 @@ void story_limbo_begin(int stay) {
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     world_set_player(&VESSEL);
+    { const char *e = getenv("VESSEL_INDEX"); if (e && atoi(e) > 0) world_set_player(story_vessel_look((unsigned)atoi(e))); }   /* dev: VESSEL_INDEX=n wears vessel n's look (there is no switch yet) */
     world_set_controls_visible(1);             /* nothing to wait for: the stick and the button are there from the first frame */
 }
 

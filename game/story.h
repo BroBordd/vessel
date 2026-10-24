@@ -7,6 +7,12 @@
 extern const Person VESSEL;         /* the player, once Dea has named them */
 extern const Person VESSEL2;        /* vessel two, Doia: long silver hair, green shirt (chunks 17-18) */
 extern const Person VESSEL3;        /* vessel three, Tria: short copper hair, purple shirt (chunk 42) */
+/* WHO VESSEL n LOOKS LIKE. the endless line of vessels (vessel_gen.c): index n always gives the same man, with his own colours, looks and name.
+ * vessel 1 stays the hand-made Aonia (the base look; STORY_CANON in story.c, 0 = the generator makes it too, 3 = Doia and Tria keep 2 and 3 as well);
+ * every other index is generated. the pointer is stable for the same index until 16 other vessels have been asked for. */
+const Person *story_vessel_look(unsigned index);
+const char   *story_vessel_name(unsigned index);
+
 extern const Person SOUL;           /* the soul in limbo: pale and ghostly. its face is the brain card's voice there (thought_set_voice) */
 extern const Person VAS;            /* the player before the naming: same look, just "Vas" */
 extern const Person DEA;            /* the goddess in the clouds */
