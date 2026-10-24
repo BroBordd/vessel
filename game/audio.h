@@ -13,6 +13,8 @@ void music_fade_out(float seconds);
 /* master music volume 0..1, applied instantly (no smoothing). persists across tracks.
  * starts at MUSIC_DEFAULT_VOLUME (65%); nothing in the game changes it behind the player's back */
 #define MUSIC_DEFAULT_VOLUME 0.65f
+void  music_set_pitch(float semitones);   /* -12..12, 0 = as recorded. speed and pitch together. only the jukebox sets it */
+float music_pitch(void);
 void  music_set_volume(float v);
 float music_volume(void);
 /* pause / resume the music (the stream keeps its place; a ~30 ms ramp avoids a click). stays paused across

@@ -11,6 +11,9 @@ static int  scene_loop;
 static char custom_file[128];         /* what the player picked ("" = nothing yet) */
 static int  count;
 static int  custom_loop = 1;          /* the player's loop checkbox (custom mode) */
+static float scene_pitch;             /* the current map's pitch, semitones */
+static float custom_pitch;            /* the player's pitch slider (custom mode) */
+static void apply_pitch(void) { music_set_pitch(mode == JB_CUSTOM ? custom_pitch : scene_pitch); }
 
 static int index_of(const char *file) {
     if (!file[0]) return -1;
@@ -31,10 +34,19 @@ JbMode jukebox_mode(void) { return mode; }
 int  jukebox_custom_index(void) { return index_of(custom_file); }
 int  jukebox_playing_index(void) { return index_of(music_current_file()); }
 
-void jukebox_scene(const char *file, int loop) {
+void jukebox_scene_p(const char *file, int loop, float semitones) {
     snprintf(scene_file, sizeof scene_file, "%s", file);
-    scene_loop = loop;
+    scene_loop = loop; scene_pitch = semitones;
+    apply_pitch();                                             /* (custom mode: the player's pitch stays, this is only remembered) */
     if (mode == JB_MAP) music_play(scene_file, scene_loop);
+}
+void jukebox_scene(const char *file, int loop) { jukebox_scene_p(file, loop, 0.0f); }
+float jukebox_pitch(void) { return mode == JB_CUSTOM ? custom_pitch : scene_pitch; }
+int   jukebox_pitch_locked(void) { return mode == JB_MAP; }
+void  jukebox_set_pitch(float st) {
+    if (mode != JB_CUSTOM) return;
+    custom_pitch = st < -12.0f ? -12.0f : st > 12.0f ? 12.0f : st;
+    apply_pitch();
 }
 
 void jukebox_scene_fade(float seconds) {
@@ -44,7 +56,7 @@ void jukebox_scene_fade(float seconds) {
 
 void jukebox_set_mode(JbMode m) {
     if (m == mode) return;
-    mode = m;
+    mode = m; apply_pitch();
     if (m == JB_CUSTOM) {
         const char *now = music_current_file();
         if (!custom_file[0] && index_of(now) >= 0) {           /* nothing picked yet: keep the song that is on, now locked in */
@@ -67,7 +79,7 @@ void jukebox_set_mode(JbMode m) {
 void jukebox_pick(int i) {
     if (i < 0 || i >= count) return;
     snprintf(custom_file, sizeof custom_file, "%s", music_scan_file(i));
-    mode = JB_CUSTOM;
+    mode = JB_CUSTOM; apply_pitch();
     if (strcmp(music_current_file(), custom_file) == 0 && !music_fading()) {      /* that song is already on: do not restart it */
         music_set_loop(custom_loop);
         music_pause(0);                                                           /* (a paused one just resumes where it was) */

@@ -78,7 +78,16 @@ static Sint16 rs_a[2], rs_b[2];
 static Sint16 rs_buf[1024 * 2];
 static int    rs_len, rs_idx;
 
+/* PITCH: the music is read through the resampler at a different speed (2^(semitones/12)): higher = faster and higher, lower = slower and darker, like a record
+ * on a turntable. 0 = untouched (the fast path). set by the jukebox: every map has its own, a custom track has the player's */
+static volatile float pitch_mul = 1.0f;
+static float pitch_st;
+static int   last_fast = -1;                 /* which path the last read took (the resampler has to be primed again when it takes over from the fast path) */
+void  music_set_pitch(float st) { if (st < -12.0f) st = -12.0f; if (st > 12.0f) st = 12.0f; pitch_st = st; pitch_mul = exp2f(st / 12.0f); }
+float music_pitch(void) { return pitch_st; }
+
 static void rs_reset(int rate) {
+    last_fast = -1;
     mus_rate = (rate >= 8000 && rate <= 192000) ? rate : OUT_RATE;
     rs_pos = 2.0f; rs_len = rs_idx = 0;
     rs_a[0] = rs_a[1] = rs_b[0] = rs_b[1] = 0;
@@ -98,7 +107,10 @@ static int rs_next(Sint16 *f) {              /* next input frame, 0 at the end o
 /* fills up to `frames` stereo frames at OUT_RATE, looping if asked. returns how many it produced (less = the end) */
 static int mus_read(Sint16 *out, int frames) {
     int done = 0, reseeked = 0;
-    if (mus_rate == OUT_RATE) {
+    float pm = pitch_mul;
+    int fast = mus_rate == OUT_RATE && pm == 1.0f;
+    if (fast != last_fast) { if (!fast) { rs_pos = 2.0f; rs_len = rs_idx = 0; } last_fast = fast; }      /* (the fast path read straight from the stream: nothing is buffered) */
+    if (fast) {
         while (done < frames) {
             int got = stb_vorbis_get_samples_short_interleaved(mus, 2, out + done * 2, (frames - done) * 2);
             if (got > 0) { done += got; play_pos += got; reseeked = 0; continue; }
@@ -109,7 +121,7 @@ static int mus_read(Sint16 *out, int frames) {
         }
         return done;
     }
-    float step = (float)mus_rate / (float)OUT_RATE;
+    float step = (float)mus_rate / (float)OUT_RATE * pm;
     while (done < frames) {
         while (rs_pos >= 1.0f) {
             Sint16 f[2];

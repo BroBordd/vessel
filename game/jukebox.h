@@ -24,6 +24,13 @@ void   jukebox_scene(const char *file, int loop);
 /* the current screen's music should fade away (loading screen, falling to the ground). only touches the sound in
  * map mode, and always forgets the scene's track */
 void   jukebox_scene_fade(float seconds);
+/* the same, with the map's pitch in semitones (negative = slower and darker). jukebox_scene() is pitch 0. every map has its own song AND its own pitch */
+void   jukebox_scene_p(const char *file, int loop, float semitones);
+
+/* the pitch slider of the music window. map mode: the map decides (the slider shows it, locked). custom mode: the player's, -12..12 in half steps, 0 default */
+float  jukebox_pitch(void);                      /* what is applied right now */
+int    jukebox_pitch_locked(void);               /* 1 = map mode */
+void   jukebox_set_pitch(float semitones);       /* custom mode only, ignored otherwise */
 
 JbMode jukebox_mode(void);
 void   jukebox_set_mode(JbMode m);               /* custom: keeps what is playing if it is a known track, else the first one */

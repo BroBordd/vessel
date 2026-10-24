@@ -34,7 +34,7 @@ static int   eq_q, eq_gap, eq_bw, eq_bg;
 static int   header_h;
 
 /* the player controls: pause button + volume slider, the MAP / CUSTOM switch, the track list */
-static SDL_Rect pause_r, vol_r, seek_r, loop_r, mode_r[2], stat_r, list_r;
+static SDL_Rect pause_r, vol_r, pitch_r, seek_r, loop_r, mode_r[2], stat_r, list_r;
 static int   cb;                                        /* loop checkbox size */
 static int   seek_ok;                                   /* this drag is a tape scrub (else a plain jump when the finger lifts) */
 static float seek_f;                                    /* where the finger is on the progress bar, 0..1 */
@@ -145,7 +145,9 @@ static void layout(void) {
 
     int bs = ctrl_h;                                                    /* row 1: pause button + volume slider */
     pause_r = (SDL_Rect){ inner_x, y, bs, bs };
-    vol_r   = (SDL_Rect){ inner_x + bs + g * 2, y, inner_w - bs - g * 2, bs };
+    int sl_w = inner_w - bs - g * 2, half_w = (sl_w - g * 2) / 2;       /* the volume slider and the pitch slider share the row */
+    vol_r   = (SDL_Rect){ inner_x + bs + g * 2, y, half_w, bs };
+    pitch_r = (SDL_Rect){ vol_r.x + half_w + g * 2, y, sl_w - half_w - g * 2, bs };
     y += ctrl_h + pad;
     int loop_w = cb + g * 2 + font_width("LOOP", c2) + pad;             /* row 2: progress bar + LOOP checkbox */
     loop_r = (SDL_Rect){ inner_x + inner_w - loop_w, y, loop_w, ctrl_h };
@@ -173,7 +175,7 @@ static void layout(void) {
     win.h = piano_r.y + piano_r.h + pad - win.y;
     win.y = (H - win.h) / 2; { int dy = win.y - wy;
         close_r.y += dy; eq_r.y += dy; lane_r.y += dy; hint_r.y += dy; piano_r.y += dy;
-        pause_r.y += dy; vol_r.y += dy; seek_r.y += dy; loop_r.y += dy; mode_r[0].y += dy; mode_r[1].y += dy; stat_r.y += dy; list_r.y += dy; }
+        pause_r.y += dy; vol_r.y += dy; pitch_r.y += dy; seek_r.y += dy; loop_r.y += dy; mode_r[0].y += dy; mode_r[1].y += dy; stat_r.y += dy; list_r.y += dy; }
 }
 
 void musicwin_resize(int w, int h) {
@@ -220,6 +222,13 @@ static void set_volume_from_x(int x) {                      /* the slider: the k
     float v = (float)(x - (vol_r.x + kw2 / 2)) / (float)(vol_r.w - kw2);
     music_set_volume(v < 0 ? 0 : v > 1 ? 1 : v);
 }
+static void set_pitch_from_x(int x) {                       /* -12..12 in half steps; map mode: locked, the map's own pitch is shown */
+    if (jukebox_pitch_locked()) return;
+    int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
+    float f = (float)(x - (pitch_r.x + kw2 / 2)) / (float)(pitch_r.w - kw2);
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    jukebox_set_pitch(floorf((f * 24.0f - 12.0f) * 2.0f + 0.5f) / 2.0f);
+}
 static float seek_frac(int x) {                             /* the progress bar: the knob centre follows the finger */
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
     float f = (float)(x - (seek_r.x + kw2 / 2)) / (float)(seek_r.w - kw2);
@@ -241,6 +250,7 @@ int musicwin_touch(int a, int x, int y) {
         else if (inside(close_r, x, y)) grab = 2;
         else if (inside(pause_r, x, y)) grab = 4;
         else if (inside(vol_r, x, y)) { grab = 5; set_volume_from_x(x); }
+        else if (inside(pitch_r, x, y)) { if (jukebox_pitch_locked()) set_flash(2); else { grab = 11; set_pitch_from_x(x); } }
         else if (inside(seek_r, x, y) && music_duration() > 0.0) {
             grab = 9; seek_hold = 0; seek_f = seek_frac(x);
             seek_ok = music_scrub_begin((double)seek_f * music_duration()) == 0;
@@ -263,6 +273,8 @@ int musicwin_touch(int a, int x, int y) {
             if (k != held_midi) { release(); if (k >= 0) { held_midi = k; sfx_note_on(k); } }
         } else if (grab == 5) {
             set_volume_from_x(x);
+        } else if (grab == 11) {
+            set_pitch_from_x(x);
         } else if (grab == 9) {
             seek_f = seek_frac(x);
             if (seek_ok) music_scrub_to((double)seek_f * music_duration());
@@ -434,30 +446,38 @@ static void draw_pause_icon(SDL_Renderer *r, SDL_Rect q, int playing_icon) {
     }
 }
 
-static void draw_volume(SDL_Renderer *r) {
+/* a slider: label left, value right, the track with a filled part, a knob, and a tick where the default sits. locked = greyed out (it only shows) */
+static void draw_slider(SDL_Renderer *r, SDL_Rect sr, const char *label, const char *val, float v, float def, int held, int locked) {
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
     int lh = font_height(c2);
-    float v = music_volume();
-    SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
-    font_draw(r, "VOLUME", vol_r.x, vol_r.y + yoff, c2);
-    char pc[8]; snprintf(pc, sizeof pc, "%d%%", (int)(v * 100.0f + 0.5f));
-    SDL_SetRenderDrawColor(r, 255, 214, 110, 255);
-    font_draw(r, pc, vol_r.x + vol_r.w - font_width(pc, c2), vol_r.y + yoff, c2);
+    if (locked) SDL_SetRenderDrawColor(r, 90, 96, 130, 255); else SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
+    font_draw(r, label, sr.x, sr.y + yoff, c2);
+    if (locked) SDL_SetRenderDrawColor(r, 130, 138, 170, 255); else SDL_SetRenderDrawColor(r, 255, 214, 110, 255);
+    font_draw(r, val, sr.x + sr.w - font_width(val, c2), sr.y + yoff, c2);
 
-    int zone = vol_r.h - lh - g;                                        /* the bit under the label */
+    int zone = sr.h - lh - g;                                           /* the bit under the label */
     int th = (int)(5 * u); if (th < 3) th = 3;
     int kh = zone < (int)(18 * u) ? zone : (int)(18 * u);
-    int cy = vol_r.y + lh + g + zone / 2;
-    SDL_Rect tr = { vol_r.x, cy - th / 2, vol_r.w, th };
-    col(r, (C3){ 90, 96, 130 }, 220); fillr(r, tr.x, tr.y, tr.w, tr.h);
+    int cy = sr.y + lh + g + zone / 2;
+    SDL_Rect tr = { sr.x, cy - th / 2, sr.w, th };
+    col(r, (C3){ 90, 96, 130 }, locked ? 140 : 220); fillr(r, tr.x, tr.y, tr.w, tr.h);
     col(r, (C3){ 14, 18, 36 }, 255);  fillr(r, tr.x + 1, tr.y + 1, tr.w - 2, tr.h - 2);
-    int kx = vol_r.x + (int)((vol_r.w - kw2) * v);
-    col(r, COL_HELD, 255);            fillr(r, tr.x + 1, tr.y + 1, kx + kw2 / 2 - tr.x - 1, tr.h - 2);
-    int dx = vol_r.x + (int)((vol_r.w - kw2) * MUSIC_DEFAULT_VOLUME) + kw2 / 2;   /* tiny tick where the default sits */
+    int kx = sr.x + (int)((sr.w - kw2) * v);
+    col(r, locked ? (C3){ 96, 100, 128 } : COL_HELD, 255); fillr(r, tr.x + 1, tr.y + 1, kx + kw2 / 2 - tr.x - 1, tr.h - 2);
+    int dx = sr.x + (int)((sr.w - kw2) * def) + kw2 / 2;               /* tiny tick where the default sits */
     col(r, (C3){ 130, 138, 170 }, 255); fillr(r, dx, tr.y + tr.h, 1, th / 2 + 1);
     SDL_Rect kn = { kx, cy - kh / 2, kw2, kh };
-    col(r, grab == 5 ? (C3){ 255, 255, 255 } : (C3){ 236, 238, 246 }, 255); fillr(r, kn.x, kn.y, kn.w, kn.h);
+    col(r, locked ? (C3){ 120, 124, 150 } : held ? (C3){ 255, 255, 255 } : (C3){ 236, 238, 246 }, 255); fillr(r, kn.x, kn.y, kn.w, kn.h);
     col(r, (C3){ 10, 12, 24 }, 255);    fillr(r, kn.x, kn.y, kn.w, 1); fillr(r, kn.x, kn.y + kn.h - 1, kn.w, 1);
+}
+static void draw_volume(SDL_Renderer *r) {
+    float v = music_volume();
+    char pc[8]; snprintf(pc, sizeof pc, "%d%%", (int)(v * 100.0f + 0.5f));
+    draw_slider(r, vol_r, "VOLUME", pc, v, MUSIC_DEFAULT_VOLUME, grab == 5, 0);
+    float st = jukebox_pitch();                                         /* no plus sign in the font: 0, 1.5, -3 */
+    char pt[12];
+    if (st == floorf(st)) snprintf(pt, sizeof pt, "%d", (int)st); else snprintf(pt, sizeof pt, "%.1f", st);
+    draw_slider(r, pitch_r, "PITCH", pt, (st + 12.0f) / 24.0f, 0.5f, grab == 11, jukebox_pitch_locked());
 }
 
 static void fmt_time(char *s, int cap, double sec) {
@@ -540,8 +560,8 @@ static void draw_mode(SDL_Renderer *r) {
         label_center(r, NAME[i], mode_r[i], mc);
     }
     int show_flash = flash > 0 && (jukebox_count() == 0 || md == JB_MAP);     /* the hint is only true in map mode */
-    if (flash > 0 && flash_kind == 1 && md == JB_MAP) show_flash = 1;
-    const char *msg = show_flash ? (flash_kind == 1 ? "MAP MUSIC DECIDES THE LOOP" : jukebox_count() == 0 ? "NO OGG FILES NEXT TO THE GAME" : "SWITCH TO CUSTOM MUSIC TO PICK A TRACK")
+    if (flash > 0 && (flash_kind == 1 || flash_kind == 2) && md == JB_MAP) show_flash = 1;
+    const char *msg = show_flash ? (flash_kind == 2 ? "MAP MUSIC HAS ITS OWN PITCH" : flash_kind == 1 ? "MAP MUSIC DECIDES THE LOOP" : jukebox_count() == 0 ? "NO OGG FILES NEXT TO THE GAME" : "SWITCH TO CUSTOM MUSIC TO PICK A TRACK")
                                 : md == JB_MAP ? "FOLLOWS THE MAP YOU ARE ON" : "THIS TRACK PLAYS ON EVERY MAP";
     if (show_flash) SDL_SetRenderDrawColor(r, 255, 214, 110, 255); else SDL_SetRenderDrawColor(r, 130, 138, 170, 255);
     font_draw(r, msg, stat_r.x, stat_r.y + yoff, c2);
