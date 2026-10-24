@@ -26,11 +26,17 @@ void   jukebox_scene(const char *file, int loop);
 void   jukebox_scene_fade(float seconds);
 /* the same, with the map's pitch in semitones (negative = slower and darker). jukebox_scene() is pitch 0. every map has its own song AND its own pitch */
 void   jukebox_scene_p(const char *file, int loop, float semitones);
+/* ... and its own volume (0..1; the others use MUSIC_DEFAULT_VOLUME) */
+void   jukebox_scene_pv(const char *file, int loop, float semitones, float volume);
 
 /* the pitch slider of the music window. map mode: the map decides (the slider shows it, locked). custom mode: the player's, -12..12 in half steps, 0 default */
 float  jukebox_pitch(void);                      /* what is applied right now */
 int    jukebox_pitch_locked(void);               /* 1 = map mode */
 void   jukebox_set_pitch(float semitones);       /* custom mode only, ignored otherwise */
+/* the volume slider: the same rule. map mode: the map's volume, locked. custom mode: the player's */
+float  jukebox_volume(void);
+int    jukebox_volume_locked(void);
+void   jukebox_set_volume(float v);              /* custom mode only, ignored otherwise */
 
 JbMode jukebox_mode(void);
 void   jukebox_set_mode(JbMode m);               /* custom: keeps what is playing if it is a known track, else the first one */

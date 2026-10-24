@@ -13,7 +13,12 @@ static int  count;
 static int  custom_loop = 1;          /* the player's loop checkbox (custom mode) */
 static float scene_pitch;             /* the current map's pitch, semitones */
 static float custom_pitch;            /* the player's pitch slider (custom mode) */
-static void apply_pitch(void) { music_set_pitch(mode == JB_CUSTOM ? custom_pitch : scene_pitch); }
+static float scene_volume = MUSIC_DEFAULT_VOLUME;   /* the current map's volume */
+static float custom_volume = MUSIC_DEFAULT_VOLUME;  /* the player's volume slider (custom mode) */
+static void apply_pitch(void) {                     /* (pitch and volume: what the audio plays is the map's in map mode, the player's in custom mode) */
+    music_set_pitch(mode == JB_CUSTOM ? custom_pitch : scene_pitch);
+    music_set_volume(mode == JB_CUSTOM ? custom_volume : scene_volume);
+}
 
 static int index_of(const char *file) {
     if (!file[0]) return -1;
@@ -34,13 +39,21 @@ JbMode jukebox_mode(void) { return mode; }
 int  jukebox_custom_index(void) { return index_of(custom_file); }
 int  jukebox_playing_index(void) { return index_of(music_current_file()); }
 
-void jukebox_scene_p(const char *file, int loop, float semitones) {
+void jukebox_scene_pv(const char *file, int loop, float semitones, float volume) {
     snprintf(scene_file, sizeof scene_file, "%s", file);
-    scene_loop = loop; scene_pitch = semitones;
+    scene_loop = loop; scene_pitch = semitones; scene_volume = volume;
     apply_pitch();                                             /* (custom mode: the player's pitch stays, this is only remembered) */
     if (mode == JB_MAP) music_play(scene_file, scene_loop);
 }
-void jukebox_scene(const char *file, int loop) { jukebox_scene_p(file, loop, 0.0f); }
+void jukebox_scene_p(const char *file, int loop, float semitones) { jukebox_scene_pv(file, loop, semitones, MUSIC_DEFAULT_VOLUME); }
+void jukebox_scene(const char *file, int loop) { jukebox_scene_pv(file, loop, 0.0f, MUSIC_DEFAULT_VOLUME); }
+float jukebox_volume(void) { return mode == JB_CUSTOM ? custom_volume : scene_volume; }
+int   jukebox_volume_locked(void) { return mode == JB_MAP; }
+void  jukebox_set_volume(float v) {
+    if (mode != JB_CUSTOM) return;
+    custom_volume = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    apply_pitch();
+}
 float jukebox_pitch(void) { return mode == JB_CUSTOM ? custom_pitch : scene_pitch; }
 int   jukebox_pitch_locked(void) { return mode == JB_MAP; }
 void  jukebox_set_pitch(float st) {
