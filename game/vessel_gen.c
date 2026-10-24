@@ -128,7 +128,7 @@ void vessel_gen(uint32_t index, VesselLook *out) {
     int deco = rng_int(&rng, 100);
     if (deco >= 60 && deco < 80) p->acc |= ACC_STRIPE; else if (deco >= 80) p->acc |= ACC_POCKET;
     if (rng_int(&rng, 100) < 22) p->acc |= ACC_BEARD;
-    if (rng_int(&rng, 100) < 24) p->acc |= ACC_GLASSES;
+    (void)rng_int(&rng, 100);                                   /* the old glasses roll: no glasses any more, but the draw stays so every other look of every vessel stays the same */
     if (rng_int(&rng, 100) < 8)  p->acc |= ACC_PLASTER;
 
     /* the colours of the looks (drawn always, so the rolls stay in step whatever the looks are) */

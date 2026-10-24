@@ -58,14 +58,14 @@ int main(void) {
     printf("names: %u checked, %ld repeats\n", k, dupn);
 
     /* looks: unique colour sets, neighbours differ, the rates */
-    long same_next = 0; static const char *LN[] = { "cap", "beanie", "band", "scarf", "stripe", "pocket", "beard", "glasses", "plaster" };
-    static const int LF[] = { ACC_CAP, ACC_BEANIE, ACC_BAND, ACC_SCARF, ACC_STRIPE, ACC_POCKET, ACC_BEARD, ACC_GLASSES, ACC_PLASTER };
-    long lc[9] = { 0 }, nohat = 0, twohats = 0;
+    long same_next = 0; static const char *LN[] = { "cap", "beanie", "band", "scarf", "stripe", "pocket", "beard", "plaster" };
+    static const int LF[] = { ACC_CAP, ACC_BEANIE, ACC_BAND, ACC_SCARF, ACC_STRIPE, ACC_POCKET, ACC_BEARD, ACC_PLASTER };
+    long lc[8] = { 0 }, nohat = 0, twohats = 0;
     for (uint32_t i = 0; i < N; i++) {
         VesselLook v; vessel_gen(i, &v);
         lk[i] = look_hash(&v.p);
         if (i && lk[i] == lk[i - 1]) same_next++;
-        for (int j = 0; j < 9; j++) if (v.p.acc & LF[j]) lc[j]++;
+        for (int j = 0; j < 8; j++) if (v.p.acc & LF[j]) lc[j]++;
         int hats = !!(v.p.acc & ACC_CAP) + !!(v.p.acc & ACC_BEANIE) + !!(v.p.acc & ACC_BAND);
         if (!hats) nohat++;
         if (hats > 1) twohats++;
@@ -78,8 +78,8 @@ int main(void) {
     CHECK(dupl == 0, "%ld repeated looks in %u", dupl, N);
     CHECK(twohats == 0, "%ld vessels with two hats", twohats);
     printf("looks: %u vessels, %ld repeated colour sets, %ld equal neighbours, hatless %.1f%%\n", N, dupl, same_next, 100.0 * nohat / N);
-    double want[9] = { 20, 15, 15, 22, 20, 20, 22, 24, 8 };
-    for (int j = 0; j < 9; j++) {
+    double want[8] = { 20, 15, 15, 22, 20, 20, 22, 8 };
+    for (int j = 0; j < 8; j++) {
         double got = 100.0 * lc[j] / N;
         printf("  %-8s %5.1f%% (asked %.0f%%)\n", LN[j], got, want[j]);
         CHECK(got > want[j] - 1.5 && got < want[j] + 1.5, "%s rate %.1f%% vs %.0f%%", LN[j], got, want[j]);
