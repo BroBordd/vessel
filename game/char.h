@@ -43,6 +43,7 @@ void char_draw_lying(SDL_Renderer *r, const Person *p, int x, int y, int s);
 
 /* mixes everything drawn from now on with white: 0 = normal .. 1 = white. the spawn flash. remember to set it back to 0. */
 void char_set_lighten(float k);
+void char_set_darken(float k);   /* every colour drawn is scaled toward black by this much (0..1): a shadow over the body, e.g. in the closed-up temple */
 
 /* chunk 38: Alex's body without its head (a dark red cut across the neck): everything drawn while it is on has no head, no face, no halo.
  * char_draw_head: just the head (front view, eyes shut, red at the neck), centred on (x, y), 10 x 8 sprite pixels. */

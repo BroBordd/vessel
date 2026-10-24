@@ -169,6 +169,11 @@ static float dawn_t;
 #define LAND_T  2.5f                /* lying face-down after the impact, eyes shut */
 #define GETUP_T 1.5f                /* standing, flashing three times (0.25 s lighter, 0.25 s back) */
 #define FLASH_PEAK 0.8f             /* how white the flash gets (1 would lose the silhouette) */
+#define WAKE_LIE_T   2.2f           /* the temple wake-up: lying face-down, eyes shut ... */
+#define WAKE_PRONE_T 1.1f           /* ... pushing up (face turning up) ... */
+#define WAKE_UP_T    2.0f           /* ... then standing with the eyes half open, until the controls come back */
+#define TEMPLE_SHADE 0.45f          /* the body in the temple is darkened by this much: a closed-up place, no light */
+static int   waking;                /* the cinematic running is the temple wake-up (no thud, no dust, no flash) */
 static int   phase;
 static float ph_t, sink_x0, sink_y0;
 static void (*up_cb)(void);
@@ -753,7 +758,7 @@ void world_init(int w, int h) {
     world_layout(w, h);
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
-    phase = PH_PLAY; ph_t = 0; up_cb = NULL;
+    phase = PH_PLAY; ph_t = 0; up_cb = NULL; waking = 0;
     zoom = zoom_target = 1.0f; talk_npc = -1;
     death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
@@ -778,6 +783,8 @@ void world_init(int w, int h) {
     printf("temple seed %u\n", temple_seed);
     load_map(MAP_TEMPLE);                       /* the story starts in the deep temple (gen.c) */
     story_start();                              /* the script takes it from here (story.c) */
+    phase = PH_LAND; ph_t = 0; waking = 1;      /* the soul wakes face-down on the temple floor (phase_update gives the controls back when he stands) */
+    world_set_controls_visible(0);
 }
 
 void world_summon(void (*on_done)(void)) {
@@ -1332,11 +1339,11 @@ static void phase_update(float dt) {
         }
         break;
     case PH_LAND:
-        if (ph_t >= LAND_T) { phase = PH_GETUP; ph_t = 0; }
+        if (ph_t >= (waking ? WAKE_LIE_T : LAND_T)) { phase = PH_GETUP; ph_t = 0; }
         break;
     case PH_GETUP:
-        if (ph_t >= GETUP_T) {
-            phase = PH_PLAY; ph_t = 0;
+        if (ph_t >= (waking ? WAKE_UP_T : GETUP_T)) {
+            phase = PH_PLAY; ph_t = 0; waking = 0;
             world_set_controls_visible(1);              /* the analog appears when he is back on his feet */
             if (up_cb) { void (*cb)(void) = up_cb; up_cb = NULL; cb(); }
         }
@@ -1835,7 +1842,7 @@ static void draw_thrown_hammer(SDL_Renderer *r, int cx, int yt, int up) {
 /* everything that lives on the map (tiles, hole, characters) seen from a camera at (camx, camy) */
 static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int cx = (int)camx, cy = (int)camy;
-    if (phase == PH_LAND && ph_t < 0.5f) {                        /* thud: the screen shakes */
+    if (phase == PH_LAND && !waking && ph_t < 0.5f) {            /* thud: the screen shakes */
         float k = (0.5f - ph_t) / 0.5f;
         cx += (int)(sinf(ph_t * 95.0f) * 7.0f * ui * k);
         cy += (int)(cosf(ph_t * 80.0f) * 9.0f * ui * k);
@@ -1892,6 +1899,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             if (npc_foot_y(i) <= pyp) { scene_filter(death_npc == i); npc_draw(r, i, cx, cy); scene_filter(0); }
 
     int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
+    char_set_darken(cur_map == MAP_TEMPLE ? TEMPLE_SHADE : 0);   /* the temple is shut in: a shadow over the body (off again after it is drawn) */
     scene_filter(death_npc < 0);                                  /* the player: red, in a grey world (grey when the cutscene is about an npc) */
     char_set_worried(player_worried);                             /* chunk 53 (off again after the body is drawn) */
     if (summon_active()) {                                        /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
@@ -1914,7 +1922,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     } else if (phase == PH_LAND || phase == PH_GETUP) {
         if (phase == PH_LAND) {
             char_draw_lying(r, player_look, sx0, sy0, px);
-            if (ph_t < 0.6f) {                                        /* dust kicked up by the impact */
+            if (!waking && ph_t < 0.6f) {                             /* dust kicked up by the impact */
                 for (int i = 0; i < 10; i++) {
                     float a = i * 0.6283f + 0.3f, d = (0.15f + ph_t * 1.6f) * tile * (0.6f + (i % 3) * 0.25f);
                     col(r, 236, 230, 214, (int)(190 * (1.0f - ph_t / 0.6f)));
@@ -1922,7 +1930,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
                     fill(r, sx0 + (int)(cosf(a) * d) - sz / 2, sy0 - 2 * px + (int)(sinf(a) * d * 0.5f), sz, sz);
                 }
             }
-            if (ph_t < 1.5f) {                                        /* bits of earth and grass thrown up, falling back down and lying there */
+            if (!waking && ph_t < 1.5f) {                             /* bits of earth and grass thrown up, falling back down and lying there */
                 static const int dc[4][3] = { { 112, 80, 52 }, { 70, 132, 70 }, { 150, 112, 72 }, { 52, 104, 56 } };
                 for (int i = 0; i < 16; i++) {
                     float ang = -3.1416f + 3.1416f * ((i * 37 % 16) + 0.5f) / 16.0f;      /* a fan over the top */
@@ -1936,6 +1944,9 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
                     fill(r, sx0 + (int)(gx * tile) - sz / 2, sy0 - px - (int)(h * tile) - sz / 2, sz, sz);
                 }
             }
+        } else if (waking) {                                          /* the wake-up: pushing up off the floor, then standing, the eyes only half open */
+            if (ph_t < WAKE_PRONE_T) char_draw_prone(r, player_look, sx0, sy0, px, ph_t / WAKE_PRONE_T);
+            else { char_set_worried(1); char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px); char_set_worried(player_worried); }
         } else {                                                      /* up on their feet: the spawn flash, 3 x (0.25 s lighter, 0.25 s back) */
             float f = fmodf(ph_t * 2.0f, 1.0f), tri = f < 0.5f ? f / 0.5f : (1.0f - f) / 0.5f;
             char_set_lighten(FLASH_PEAK * tri);
@@ -1980,6 +1991,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     }
 
     char_set_worried(0);
+    char_set_darken(0);
     if (!dawn_on) summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
     scene_filter(0);
     if (npcs_here())
@@ -2097,7 +2109,7 @@ void world_draw(SDL_Renderer *r) {
         col(r, 0, 0, 0, (int)(255 * a));
         fill(r, 0, 0, W, H);
     }
-    if (phase == PH_LAND && ph_t < 0.4f) {                        /* flash of white on impact */
+    if (phase == PH_LAND && !waking && ph_t < 0.4f) {            /* flash of white on impact */
         col(r, 255, 255, 255, (int)(255 * (1.0f - ph_t / 0.4f)));
         fill(r, 0, 0, W, H);
     }
