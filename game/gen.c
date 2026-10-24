@@ -62,7 +62,7 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
     /* 1. rooms: dropped at random, kept only if they keep three tiles from every other */
     Room rm[MAX_ROOMS]; int nr = 0;
     for (int tries = 0; tries < 300 && nr < MAX_ROOMS; tries++) {
-        Room c; c.w = gen_range(5, 12); c.h = gen_range(5, 10);
+        Room c; c.w = nr == 0 ? gen_range(9, 12) : gen_range(5, 12); c.h = nr == 0 ? gen_range(7, 10) : gen_range(5, 10);   /* the first room is the start: big enough for the blood circle and the dead vessel beside it (ritual.c) */
         c.x = gen_range(3, TW - c.w - 4); c.y = gen_range(3, TH - c.h - 4);
         int ok = 1;
         for (int i = 0; i < nr && ok; i++)

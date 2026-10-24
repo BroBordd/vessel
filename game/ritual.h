@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
  * THE BLOOD CIRCLE. where the story starts: a magic circle carved into the temple floor, its grooves filled with blood that runs in from
- * the body of vessel 1, who lies dead beside it (the knife next to him, a pool under him). when the grooves are full the circle charges,
+ * the body of vessel 1, who lies dead beside it, to its left (the knife next to him, a pool under him). when the grooves are full the circle charges,
  * flashes, and the soul's new body is drawn up out of the blood. engine only: world.c owns the one instance and draws it.
  *  - pixel art: every cell is one sprite pixel (`cell` screen px), alpha blending only (no ADD/MOD blend: see GFX_REDIRECT).
  *  - the scene (circle, blood, body) stays after the arrival and keeps flowing, until ritual_cancel (a new map). */

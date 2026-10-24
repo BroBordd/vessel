@@ -7,7 +7,7 @@
 #include "vessel_gen.h"
 
 int main(int argc, char **argv) {
-    const int W = 360, H = 300, cell = 6;
+    const int W = 440, H = 240, cell = 4;
     SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
     SDL_Renderer *r = SDL_CreateSoftwareRenderer(s);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
         if (t < times[k]) continue;
         SDL_SetRenderDrawColor(r, 58, 54, 62, 255); SDL_RenderClear(r);
         for (int y = 0; y < H / 24 + 1; y++) for (int x = 0; x < W / 24 + 1; x++) { SDL_SetRenderDrawColor(r, 66 + ((x + y) & 1) * 6, 62 + ((x + y) & 1) * 6, 70, 255); SDL_Rect q = { x * 24, y * 24, 24, 24 }; SDL_RenderFillRect(r, &q); }
-        int sx = 180, sy = 120;
+        int sx = 280, sy = 130;
         ritual_draw_floor(r, sx, sy, cell, 0.45f);
         if (ritual_active()) {
             int rows = ritual_player_rows();

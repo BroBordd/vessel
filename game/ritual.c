@@ -7,10 +7,10 @@
 
 #define GN   41                      /* the grid of cells: -20 .. 20 round the centre */
 #define GO   20
-#define BODY_X  (-3)                 /* the dead vessel lies below the circle, head to the left: his feet at (BODY_X, BODY_Y) */
-#define BODY_Y  20
-#define SRC_X   8                    /* the groove that carries his blood to the ring (2 cells wide), its source at the bottom */
-#define SRC_Y   17
+#define BODY_X  (-26)                /* the dead vessel lies to the left of the circle, head to the left: his feet at (BODY_X, BODY_Y). the start room is 9 tiles wide at least (gen.c): his head is 32 cells out, the wall 36 */
+#define BODY_Y  5
+#define SRC_X   (-20)                /* the groove that carries his blood to the ring (2 cells high), its source under him */
+#define SRC_Y   2
 
 static uint8_t carve[GN][GN];
 static int16_t dist[GN][GN];
@@ -58,7 +58,7 @@ static void build(void) {
         ox[k] = (int)lroundf(14.3f * cosf(a)); oy[k] = (int)lroundf(7.15f * sinf(a));
     }
     for (int k = 0; k < 6; k++) { line(vx[k], vy[k], vx[(k + 2) % 6], vy[(k + 2) % 6]); line(vx[k], vy[k], ox[k], oy[k]); }   /* the hexagram, and a spoke from every point out to the ring */
-    for (int y = 5; y <= SRC_Y; y++) { put(SRC_X, y); put(SRC_X + 1, y); }                                                     /* the channel from the body */
+    for (int x = SRC_X; x <= -12; x++) { put(x, SRC_Y); put(x, SRC_Y + 1); }                                                     /* the channel from the body */
 
     /* the way the blood runs: distance along the grooves from the source (8 neighbours) */
     static int16_t qx[GN * GN], qy[GN * GN];
@@ -155,8 +155,8 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
     /* the pool under the dead vessel: it spreads slowly */
     {
         float g = clamp01(t / 12.0f);
-        float prx = 3.0f + 8.5f * g, pry = 1.6f + 3.4f * g, pcx = -1.0f, pcy = 16.0f;
-        for (int y = 10; y <= 21; y++) for (int x = -13; x <= 12; x++) {
+        float prx = 3.0f + 5.0f * g, pry = 1.6f + 3.4f * g, pcx = -26.0f, pcy = 2.0f;
+        for (int y = -4; y <= 8; y++) for (int x = -36; x <= -17; x++) {
             float dx = (x - pcx) / prx, dy = (y - pcy) / pry, d = dx * dx + dy * dy;
             float edge = 1.0f + ((hash((uint32_t)(x + 40), (uint32_t)(y + 40)) & 7) - 3) * 0.045f;
             if (d > edge) continue;
@@ -199,13 +199,17 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
         char_draw_lying(r, dead_who, sx + BODY_X * cell, sy + BODY_Y * cell, cell);
         char_set_darken(0);
     }
-    for (int x = 12; x <= 19; x++) for (int y = 17; y <= 19; y++) {                    /* the knife lies to the right of the channel: a shadow, the handle, the blade, a red tip */
-        if (y == 19) { cell_at(r, sx, sy, cell, x, y, 0, 0, 0, 70); continue; }
-        if (x <= 14)               cell_at(r, sx, sy, cell, x, y, 70, 46, 34, 255);
-        else if (x <= 18 && !(y == 17 && x == 18)) cell_at(r, sx, sy, cell, x, y, y == 17 ? 214 : 160, y == 17 ? 218 : 166, y == 17 ? 226 : 176, 255);
-        else if (x == 19 && y == 18) cell_at(r, sx, sy, cell, x, y, 150, 14, 20, 255);
+    {                                                                                 /* the knife lies above him: a shadow under it, the handle, the blade, a red tip */
+        const int kx = -31, ky = -9;
+        for (int i = 0; i < 8; i++) for (int j = 0; j < 3; j++) {
+            int x = kx + i, y = ky + j;
+            if (j == 2) { cell_at(r, sx, sy, cell, x, y, 0, 0, 0, 70); continue; }
+            if (i <= 2)                          cell_at(r, sx, sy, cell, x, y, 70, 46, 34, 255);
+            else if (i <= 6 && !(j == 0 && i == 6)) cell_at(r, sx, sy, cell, x, y, j == 0 ? 214 : 160, j == 0 ? 218 : 166, j == 0 ? 226 : 176, 255);
+            else if (i == 7 && j == 1)           cell_at(r, sx, sy, cell, x, y, 150, 14, 20, 255);
+        }
+        cell_at(r, sx, sy, cell, kx + 4, ky + 1, 150, 14, 20, 255); cell_at(r, sx, sy, cell, kx + 5, ky + 1, 150, 14, 20, 255);
     }
-    cell_at(r, sx, sy, cell, 16, 18, 150, 14, 20, 255); cell_at(r, sx, sy, cell, 17, 18, 150, 14, 20, 255);
 }
 
 /* the ring that goes out when the circle flashes, the blood pixels on the new body, the embers */
