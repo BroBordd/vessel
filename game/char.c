@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 
-/* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs (the hands float, a cell off the shirt).
+/* chibi sprite, 10 wide x 12 tall: 8 rows of head, 3 of body, 1 of legs (the hands float, a cell off the shirt; see hands_update).
  * legend: h hair, s skin, c shirt, p pants, b boots. Eyes are drawn on top.
  * The side sprite faces RIGHT; facing LEFT mirrors it, so the face/nose and the
  * hair-at-the-back always point the way the character walks. */
@@ -13,7 +13,7 @@
 
 static const char *body[4] = {
     "..cccccc..",
-    "s.cccccc.s",           /* the hands float: a cell of air between each hand and the shirt, and they bob (see draw_sprite) */
+    "s.cccccc.s",           /* the hands float: a cell of air between each hand and the shirt (they lag behind when walking: hands_update) */
     "..pppppp..",
     "..bb..bb..",
 };
@@ -109,6 +109,9 @@ static char cell_at(const Person *p, int facing, int x, int y) {
     return c;
 }
 
+/* floating hands: their offset (screen px) from the rest cell, set by char_draw_air (see hands_update) and 0 for every other view */
+static float g_hdx, g_hdy;
+
 /* rows = how many sprite rows to draw; lift = which foot to raise (0 left, 1 right, -1 none) */
 static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, int oy,
                         int s, int rows, int lift) {
@@ -118,10 +121,10 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             char c = cell_at(p, facing, x, y);
             if (c == '.') continue;
             if (g_headless && y < 8) continue;                            /* chunk 38: the head is gone (and the long hair with it, see cell_at) */
-            int dy = y, pyo = 0;
+            int dy = y, pxo = 0, pyo = 0;
             if (y == 11 && lift >= 0 && ((x < 5) == (lift == 0))) dy = 10;   /* raised foot */
-            if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim)               /* floating hands: a half-cell bob, the two out of step */
-                pyo = ((((int)(SDL_GetTicks() / 500)) + (x == 0)) & 1) ? s / 2 : 0;
+            if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim)               /* floating hands: shifted by their lag (0 while idle) */
+                { pxo = (int)lroundf(g_hdx); pyo = (int)lroundf(g_hdy); }
             switch (c) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
@@ -130,7 +133,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             case 'b': use(r, p->boots); break;
             }
             int dx = flip ? SPR_W - 1 - x : x;
-            fill(r, ox + dx * s, oy + dy * s + pyo, s, s);
+            fill(r, ox + dx * s + pxo, oy + dy * s + pyo, s, s);
         }
 
     /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
@@ -203,12 +206,42 @@ static void draw_halo(SDL_Renderer *r, int ox, int oy, int s) {
     fill(r, ox + 3 * s, y, 2 * s, s);
 }
 
+/* the hands float and are lazy: idle they rest still (no animation at all). walking, they trail behind the body, opposite to the way it
+ * faces, easing out slowly and easing back when it stops; the body's step bob gives them a small tug too. state is kept per person. */
+typedef struct { const Person *p; float rx, ry; int bob; Uint32 t; } HandSt;
+static HandSt g_hs[32];
+static int g_nhs;
+static void hands_update(const Person *p, int facing, int moving, int bob, int s) {
+    HandSt *h = 0;
+    for (int i = 0; i < g_nhs; i++) if (g_hs[i].p == p) { h = &g_hs[i]; break; }
+    if (!h) { h = &g_hs[g_nhs < 32 ? g_nhs++ : 0]; h->p = p; h->rx = h->ry = 0; h->bob = bob; h->t = 0; }
+    Uint32 now = SDL_GetTicks();
+    float dt = h->t ? (now - h->t) / 1000.0f : 0;
+    h->t = now;
+    if (dt > 1.0f) { h->rx = h->ry = 0; h->bob = bob; dt = 0; }          /* off screen for a while: settled */
+    if (dt > 0.1f) dt = 0.1f;
+    if (moving && bob != h->bob) h->ry += (bob - h->bob) * 0.7f * s;      /* the body steps up, the hands stay a beat behind */
+    h->bob = bob;
+    float tx = 0, ty = 0;
+    if (moving) {
+        if (facing == FACE_LEFT) tx = 1.25f * s; else if (facing == FACE_RIGHT) tx = -1.25f * s;
+        else if (facing == FACE_UP) ty = 1.0f * s; else ty = -1.0f * s;
+    }
+    float k = 1.0f - expf(-dt / (moving ? 0.16f : 0.22f));
+    h->rx += (tx - h->rx) * k;
+    h->ry += (ty - h->ry) * k;
+    if (!moving && fabsf(h->rx) < 0.5f && fabsf(h->ry) < 0.5f) h->rx = h->ry = 0;
+    g_hdx = h->rx; g_hdy = h->ry;
+}
+
 void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
                    int facing, int moving, float walk, int s) {
     int frame = moving ? ((int)walk & 1) : 0;
     int bob = (moving && frame) ? 1 : 0;
     int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s - bob * s;
+    hands_update(p, facing, moving, bob, s);
     draw_sprite(r, p, facing, ox, oy, s, SPR_H, moving ? frame : -1);
+    g_hdx = g_hdy = 0;
     if ((p->acc & ACC_HALO) && !g_headless) draw_halo(r, ox, oy, s);
 }
 
