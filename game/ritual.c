@@ -21,6 +21,7 @@ static int   on, active, chime, chimed;
 static float st;
 static float cx_t, cy_t;
 static const Person *dead_who;
+static float bdx, bdy;                   /* how far he has been pulled from where he fell, in cells */
 
 static uint32_t hash(uint32_t a, uint32_t b) {
     uint32_t h = a * 374761393u + b * 668265263u;
@@ -85,8 +86,14 @@ static float flash_at(void)  { return charge_at() + RITUAL_CHARGE_T; }
 static float form_at(void)   { return flash_at() + 0.10f; }
 static float end_at(void)    { return form_at() + RITUAL_FORM_T + RITUAL_DISS_T + RITUAL_HOLD_T; }
 
-void  ritual_begin(float tile_x, float tile_y, const Person *dead) { build(); on = 1; active = 1; chime = chimed = 0; st = 0; cx_t = tile_x; cy_t = tile_y; dead_who = dead; }
-void  ritual_cancel(void) { on = 0; active = 0; chime = 0; }
+void  ritual_begin(float tile_x, float tile_y, const Person *dead) { build(); bdx = bdy = 0; on = 1; active = 1; chime = chimed = 0; st = 0; cx_t = tile_x; cy_t = tile_y; dead_who = dead; }
+void  ritual_cancel(void) { on = 0; active = 0; chime = 0; bdx = bdy = 0; }
+int   ritual_body_box(float *x0, float *y0, float *x1, float *y1) {        /* he lies 12 cells long and 9 across: feet at (BODY_X, BODY_Y), head 12 cells to the left of the feet */
+    if (!on || active || !dead_who) return 0;
+    *x0 = BODY_X + bdx - 6.0f; *x1 = BODY_X + bdx + 6.0f; *y0 = BODY_Y + bdy - 9.0f; *y1 = BODY_Y + bdy;
+    return 1;
+}
+void  ritual_body_shift(float dx, float dy) { bdx += dx; bdy += dy; }
 int   ritual_scene(void) { return on; }
 int   ritual_active(void) { return active; }
 float ritual_time(void) { return st; }
@@ -139,31 +146,22 @@ static void glow(SDL_Renderer *r, int sx, int sy, int cell, float k) {      /* t
 }
 
 /* his hurts, laid over the lying body (cells from the circle's centre; his head is at x -32 .. -25, his body at -24 .. -21, his legs at -20):
- * the stab in his side with blood running out of it, cuts across the head, shoulder and leg, bruises, and blood from the mouth */
+ * the stab in his side with a little blood running out, a few cuts, bruises and smears; the face stays clear */
 static void wounds(SDL_Renderer *r, int sx, int sy, int cell, float t) {
-    static const int8_t cuts[][2] = { {-30,-4},{-29,-3},{-28,-2},{-27,-1},       /* across the back of the head */
-                                      {-25,-3},{-25,-2},{-24,-1},{-24,0},        /* over the shoulder */
-                                      {-21,-2},{-21,-1},{-20,0},{-20,1},         /* down the leg */
-                                      {-31,3},{-30,4},{-29,4},                   /* a scratch on the cheek */
-                                      {-26,3},{-25,3},{-24,4} };                 /* the neck */
-    static const int8_t bruise[][2] = { {-29,-2},{-28,-1},{-28,-2},{-31,2},{-31,1},{-32,2},{-23,-3},{-22,-3},{-23,-4},{-26,0} };
-    static const int8_t smear[][2] = { {-27,-3},{-31,-1},{-26,1},{-23,3},{-29,1},{-22,-2},{-28,3},{-32,0} };
-    for (size_t i = 0; i < sizeof bruise / sizeof *bruise; i++) cell_at(r, sx, sy, cell, bruise[i][0], bruise[i][1], 96, 44, 78, 150);
-    for (size_t i = 0; i < sizeof cuts / sizeof *cuts; i++) {
-        int x = cuts[i][0], y = cuts[i][1];
-        cell_at(r, sx, sy, cell, x, y + 1, 168, 28, 34, 150);                      /* the blood along the lip of the cut */
-        cell_at(r, sx, sy, cell, x, y, 84, 6, 12, 255);                            /* the cut */
-    }
-    for (size_t i = 0; i < sizeof smear / sizeof *smear; i++) cell_at(r, sx, sy, cell, smear[i][0], smear[i][1], 130, 12, 20, 230);
-    /* the stab: a dark slit, wet blood round it, and a trickle that runs down to the pool, a bright drop in it every moment */
-    cell_at(r, sx, sy, cell, -24, 0, 150, 14, 22, 235); cell_at(r, sx, sy, cell, -21, 1, 150, 14, 22, 235);
-    cell_at(r, sx, sy, cell, -23, -1, 150, 14, 22, 235); cell_at(r, sx, sy, cell, -22, 2, 150, 14, 22, 235);
+    /* about 40% of the old blood: the face (x -32 .. -29) is left clear, the rest keeps one or two marks each */
+    static const int8_t cuts[][2] = { {-25,-3},{-24,-1},                         /* over the shoulder */
+                                      {-21,-2},{-20,0},                          /* down the leg */
+                                      {-26,3} };                                 /* the neck */
+    static const int8_t bruise[][2] = { {-23,-3},{-22,-3},{-26,0} };
+    static const int8_t smear[][2] = { {-23,3},{-22,-2} };
+    for (size_t i = 0; i < sizeof bruise / sizeof *bruise; i++) cell_at(r, sx, sy, cell, bruise[i][0], bruise[i][1], 96, 44, 78, 110);
+    for (size_t i = 0; i < sizeof cuts / sizeof *cuts; i++) cell_at(r, sx, sy, cell, cuts[i][0], cuts[i][1], 84, 6, 12, 255);   /* the cuts */
+    for (size_t i = 0; i < sizeof smear / sizeof *smear; i++) cell_at(r, sx, sy, cell, smear[i][0], smear[i][1], 130, 12, 20, 200);
+    /* the stab: a dark slit with wet blood round it and a short trickle, a bright drop in it every moment */
     cell_at(r, sx, sy, cell, -23, 0, 70, 4, 10, 255); cell_at(r, sx, sy, cell, -22, 0, 70, 4, 10, 255);
-    cell_at(r, sx, sy, cell, -23, 1, 70, 4, 10, 255); cell_at(r, sx, sy, cell, -22, 1, 200, 30, 36, 255);
-    for (int y = 2; y <= 5; y++) cell_at(r, sx, sy, cell, -22, y, 120, 8, 16, 255);
-    { int d = 2 + (int)fmodf(t * 3.0f, 4.0f); cell_at(r, sx, sy, cell, -22, d, 214, 44, 46, 255); }
-    /* blood from his mouth, running down his face into the pool */
-    cell_at(r, sx, sy, cell, -32, 4, 120, 8, 16, 255); cell_at(r, sx, sy, cell, -32, 5, 120, 8, 16, 255); cell_at(r, sx, sy, cell, -33, 5, 104, 9, 16, 255);
+    cell_at(r, sx, sy, cell, -22, 1, 200, 30, 36, 255);
+    for (int y = 2; y <= 3; y++) cell_at(r, sx, sy, cell, -22, y, 120, 8, 16, 255);
+    { int d = 2 + (int)fmodf(t * 3.0f, 2.0f); cell_at(r, sx, sy, cell, -22, d, 214, 44, 46, 255); }
 }
 
 void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) {
@@ -223,10 +221,11 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
 
     /* the dead vessel and his knife */
     if (dead_who) {
+        int ox = (int)lroundf(bdx * (float)cell), oy = (int)lroundf(bdy * (float)cell);     /* pulled: he (and his wounds) move, the pool stays */
         char_set_darken(darken);
-        char_draw_lying(r, dead_who, sx + BODY_X * cell, sy + BODY_Y * cell, cell);
+        char_draw_lying(r, dead_who, sx + BODY_X * cell + ox, sy + BODY_Y * cell + oy, cell);
         char_set_darken(0);
-        wounds(r, sx, sy, cell, t);
+        wounds(r, sx + ox, sy + oy, cell, t);
     }
     {                                                                                 /* the knife lies above him: a shadow under it, the handle, the blade, a red tip */
         const int kx = -31, ky = -9;
