@@ -308,7 +308,7 @@ int main(int argc, char **argv) {
             SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
             story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
             if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
-                if (!world_dawning()) jukebox_scene("ascendant_soul.ogg", 1);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
+                if (!world_dawning()) jukebox_scene("unfinished_requiem.ogg", 1);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
                 state = ST_WORLD;
                 world_update(0); world_draw(r);
             }

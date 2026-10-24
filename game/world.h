@@ -14,10 +14,11 @@ void world_update(float dt);
 void world_draw(SDL_Renderer *r);
 
 /* the maps the story can be on. world_init starts on the cloud map. */
-enum { MAP_GREEN, MAP_CLOUD };
+enum { MAP_GREEN, MAP_CLOUD, MAP_TEMPLE };
 
 /* player-facing names of the maps. always use these in text, never the enum names. */
 #define SKYLAND_NAME   "the Sky"
+#define TEMPLE_NAME    "the Deep Temple"      /* the map the game starts in (MAP_TEMPLE, made by gen.c) */
 #define GRASSLANDS     "the Grasslands"       /* the ground map (MAP_GREEN) */
 const char *world_map_name(int which);
 

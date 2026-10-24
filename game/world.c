@@ -24,6 +24,8 @@
 #include "audio.h"
 #include "jukebox.h"
 #include "gfx.h"
+#include "gen.h"
+#include <time.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -37,7 +39,8 @@
 #define MAX_MARKS 20     /* walking speed at full stick tilt */
 
 enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_HUT, T_WALL, T_FLOOR, T_FURN,
-       T_MARBLE, T_STEP, T_PILLAR };       /* the goddess's temple in the clouds: floor, steps, columns (solid) */
+       T_MARBLE, T_STEP, T_PILLAR,         /* the goddess's temple in the clouds: floor, steps, columns (solid) */
+       T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE, T_RVOID };   /* the deep temple (gen.c): floor, wall, column, rubble, the sealed gate, rock. all but the floor are solid. keep the order: MAP_PAL */
 
 static uint8_t map[MAP_MAX][MAP_MAX];
 static int   mw, mh, cur_map;       /* size of the loaded map, and which one it is */
@@ -190,7 +193,8 @@ static float vnoise(float x, float y, uint32_t seed) {
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
     uint8_t v = map[ty][tx];
-    return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN || v == T_PILLAR;
+    return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN || v == T_PILLAR ||
+           v == T_RWALL || v == T_RPILLAR || v == T_RRUBBLE || v == T_RGATE || v == T_RVOID;
 }
 
 /* ALEX'S HOUSE (house.h has the art). outside it is a solid prop on the Grasslands: HUT_W x HUT_H tiles of T_HUT, the doorstep tile
@@ -277,6 +281,24 @@ static void gen_cloud_map(void) {
         int ty = 11 + k * 3;
         map[ty][28] = map[ty + 1][28] = map[ty][36] = map[ty + 1][36] = T_PILLAR;
     }
+}
+
+/* the deep temple: gen.c makes it from a seed. VESSEL_SEED=n in the environment pins the seed (the same temple every run), else it is new each game.
+ * the seed is printed so a good (or broken) temple can be asked for again */
+static uint32_t temple_seed;
+static int temple_sx, temple_sy;            /* where we wake */
+static int temple_gx = -1, temple_gy = -1;  /* the sealed gate */
+static void gen_temple_map(void) {
+    GenInfo gi;
+    static uint8_t g[MAP_MAX][MAP_MAX];
+    if (!gen_temple(&g[0][0], MAP_MAX, MAP_MAX, temple_seed, &gi)) {                       /* (cannot happen with this size: a plain room is the fallback) */
+        gi.w = gi.h = 20; gi.spawn_x = gi.spawn_y = 10; gi.gate_x = gi.gate_y = -1;
+        for (int y = 0; y < 20; y++) for (int x = 0; x < 20; x++) g[y][x] = (x == 0 || y == 0 || x == 19 || y == 19) ? GEN_WALL : GEN_FLOOR;
+    }
+    mw = gi.w; mh = gi.h;
+    static const uint8_t to_tile[] = { T_RVOID, T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE };
+    for (int y = 0; y < MAP_MAX; y++) for (int x = 0; x < MAP_MAX; x++) map[y][x] = (y < mh && x < mw) ? to_tile[g[y][x]] : T_RVOID;
+    temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
 }
 
 /* where the goddess stands (the story puts her there) */
@@ -458,8 +480,69 @@ static void draw_pillar_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     }
 }
 
+/* ---------- the deep temple: dark stone, lit only round us (a torch's worth, with a slight flicker) ---------- */
+static float ruin_k(int tx, int ty) {
+    float dx = tx + 0.5f - pxp / tile, dy = ty + 0.5f - pyp / tile;
+    float k = 1.0f - sqrtf(dx * dx + dy * dy) / 8.5f;
+    if (k < 0.0f) k = 0.0f;
+    k = k * k * (3.0f - 2.0f * k);
+    k *= 0.95f + 0.05f * sinf(t * 7.0f) * sinf(t * 3.1f + tx * 0.2f);
+    return 0.06f + 0.94f * k;
+}
+static void rc(SDL_Renderer *r, int R, int G, int B, float k) { col(r, (int)(R * k), (int)(G * k), (int)(B * k), 255); }
+static int ruin_solid(int tx, int ty) { return tx < 0 || ty < 0 || tx >= mw || ty >= mh || map[ty][tx] == T_RWALL || map[ty][tx] == T_RVOID || map[ty][tx] == T_RGATE; }
+static void ruin_floor(SDL_Renderer *r, int tx, int ty, int x, int y, float k) {
+    float h = rnd(tx, ty, 41);
+    int v = 54 + (int)(h * 14.0f);
+    rc(r, v, v - 3, v + 10, k); fill(r, x, y, tile, tile);
+    rc(r, v - 14, v - 16, v - 4, k); fill(r, x, y, tile, px); fill(r, x, y, px, tile);              /* the joints between the flags */
+    if (h > 0.86f) { fill(r, x + 2 * px, y + 3 * px, px, px); fill(r, x + 3 * px, y + 4 * px, 2 * px, px); fill(r, x + 5 * px, y + 5 * px, px, 2 * px); }   /* a crack */
+    if (h < 0.07f) { rc(r, 40, 72, 48, k); fill(r, x + (1 + (int)(h * 100.0f) % 4) * px, y + 4 * px, 2 * px, px); fill(r, x + 5 * px, y + 5 * px, px, px); }    /* moss */
+}
+static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y) {
+    float k = ruin_k(tx, ty);
+    if (v == T_RVOID) { col(r, 0, 0, 0, 255); fill(r, x, y, tile, tile); return; }
+    if (v == T_RFLOOR) { ruin_floor(r, tx, ty, x, y, k); return; }
+    if (v == T_RWALL || v == T_RGATE) {
+        int front = !ruin_solid(tx, ty + 1);                                       /* floor below: the wall's face shows */
+        rc(r, 34, 30, 44, k); fill(r, x, y, tile, tile);
+        if (front) { rc(r, 30, 26, 38, k); fill(r, x, y, tile, 3 * px); rc(r, 60, 54, 72, k); fill(r, x, y + 3 * px, tile, 5 * px); }
+        rc(r, 22, 18, 30, k);
+        for (int row = 0; row < 2; row++) {                                        /* bricks: a joint along each course, and the upright joints staggered */
+            int by = y + (front ? 3 : 0) * px + row * (front ? 2 : 4) * px;
+            fill(r, x, by, tile, px);
+            fill(r, x + (((tx + row) & 1) ? 2 : 5) * px, by, px, (front ? 2 : 4) * px);
+        }
+        if (v == T_RGATE) {                                                         /* the sealed gate: a black door, runes breathing violet */
+            float pulse = 0.5f + 0.5f * sinf(t * 1.6f);
+            rc(r, 12, 8, 18, 0.35f + 0.65f * k); fill(r, x + px, y + px, 6 * px, 7 * px);
+            col(r, 170, 70, 220, (int)(70 + 110 * pulse));
+            fill(r, x + 3 * px, y + 2 * px, 2 * px, px); fill(r, x + 3 * px, y + 4 * px, 2 * px, px); fill(r, x + 2 * px, y + 3 * px, px, px); fill(r, x + 5 * px, y + 3 * px, px, px);
+            col(r, 150, 60, 210, (int)(30 + 40 * pulse)); fill(r, x, y + tile - 2 * px, tile, 2 * px);
+        }
+        return;
+    }
+    ruin_floor(r, tx, ty, x, y, k);                                                 /* a column and rubble stand on the floor */
+    if (v == T_RPILLAR) {
+        col(r, 0, 0, 0, 70); fill(r, x + 5 * px, y + 5 * px, 3 * px, 3 * px);
+        rc(r, 96, 90, 108, k); fill(r, x + 2 * px, y, 4 * px, tile);
+        rc(r, 134, 128, 144, k); fill(r, x + 2 * px, y, px, tile);
+        rc(r, 62, 58, 76, k); fill(r, x + 5 * px, y, px, tile);
+        rc(r, 124, 118, 134, k); fill(r, x + px, y, 6 * px, 2 * px);                 /* the capital */
+        rc(r, 110, 104, 120, k); fill(r, x + px, y + 6 * px, 6 * px, 2 * px);        /* the plinth */
+    } else {
+        col(r, 0, 0, 0, 60); fill(r, x + px, y + 5 * px, 6 * px, 2 * px);
+        for (int i = 0; i < 4; i++) {
+            int rx = x + (int)(rnd(tx, ty, 50 + i) * 5.0f) * px, ry = y + 1 * px + (int)(rnd(tx, ty, 60 + i) * 4.0f) * px, rw = (2 + (i & 1)) * px;
+            rc(r, 86, 82, 92, k); fill(r, rx, ry, rw, 2 * px);
+            rc(r, 120, 114, 126, k); fill(r, rx, ry, rw, px);
+        }
+    }
+}
+
 static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
     uint8_t v = map[ty][tx];
+    if (v >= T_RFLOOR) { draw_ruin_tile(r, v, tx, ty, x, y); return; }
     if (v == T_SKY)   { draw_sky_tile(r, tx, ty, x, y);   return; }
     if (v == T_CLOUD) { draw_cloud_tile(r, tx, ty, x, y); return; }
     if (v == T_MARBLE) { draw_marble_tile(r, tx, ty, x, y); return; }
@@ -529,7 +612,8 @@ static void draw_tile(SDL_Renderer *r, int tx, int ty, int x, int y) {
 /* what the minimap and the map window show: the tile colours (same order as the T_* enum) and the marks. chunk 59: the house, the shrine, the hammer and each
  * grave are marked only once found (chunk 58 flags); npcs, the hole and the room door are not part of the found list and stay. */
 static const Rgb MAP_PAL[] = {
-    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 }, { 250, 240, 208 }, { 232, 224, 200 }, { 226, 190, 90 } };
+    { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 }, { 250, 240, 208 }, { 232, 224, 200 }, { 226, 190, 90 },
+    { 74, 70, 92 }, { 40, 36, 52 }, { 120, 114, 132 }, { 96, 92, 104 }, { 170, 70, 220 }, { 0, 0, 0 } };      /* the deep temple: floor, wall, column, rubble, gate, rock */
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
     for (int i = 0; i < MAX_MARKS; i++) marks[i].state = 0;
@@ -549,7 +633,7 @@ static int gather_marks(MiniMark *marks) {
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 14;
+    v->tiles = &map[0][0]; v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 20;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -559,7 +643,7 @@ static int mm_down;                                         /* a finger went dow
 /* swaps in a whole new map: npcs and the hole are cleared, the player goes to that map's spawn */
 static void load_map(int which) {
     cur_map = which; cam_snap = 1;
-    if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
+    if (which == MAP_TEMPLE) gen_temple_map(); else if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
     gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0; gore_indoors = 1;
     shrine_reset(px, tile);
@@ -570,12 +654,15 @@ static void load_map(int which) {
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = self_prog = self_tick = aim_t = 0;   /* the npc ids are gone with the map */
-    pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
-    pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
+    if (which == MAP_TEMPLE) { pxp = (temple_sx + 0.5f) * tile; pyp = (temple_sy + 0.5f) * tile; }   /* the first room's middle */
+    else {
+        pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
+        pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
+    }
     facing = FACE_DOWN;
 }
 
-const char *world_map_name(int which) { return which == MAP_CLOUD ? SKYLAND_NAME : GRASSLANDS; }
+const char *world_map_name(int which) { return which == MAP_TEMPLE ? TEMPLE_NAME : which == MAP_CLOUD ? SKYLAND_NAME : GRASSLANDS; }
 
 /* the layout numbers of the world that depend on the screen (size, density unit, stick, buttons). world_init and world_resize share it. a changed
  * tile size (only when the SHORT side changed: a rotation keeps it) moves everything kept in world px with it, so the player stays on the same tile */
@@ -657,7 +744,10 @@ void world_init(int w, int h) {
         int ire, itop; item_anchor(cx, cy, cw, ch, &ire, &itop);
         item_ui_init(w, h, ire, itop, cw);       /* the inventory hangs under the minimap (beside it on a wide, short screen: item_anchor) */
     }
-    load_map(MAP_CLOUD);                        /* the story starts up in the clouds */
+    temple_seed = (uint32_t)time(NULL);
+    { const char *e = getenv("VESSEL_SEED"); if (e && atoi(e) > 0) temple_seed = (uint32_t)atoi(e); }
+    printf("temple seed %u\n", temple_seed);
+    load_map(MAP_TEMPLE);                       /* the story starts in the deep temple (gen.c) */
     story_start();                              /* the script takes it from here (story.c) */
 }
 
@@ -889,7 +979,7 @@ float world_dist_to_grave(void) {
  * back to normal; the controls stay hidden (the summoning gives them back). the Grasslands are not touched: gen_map() makes the same
  * map every time, and what stood on it (Alex, the shrine) is remembered by story.c. t restarts so the world fades in from black */
 void world_return_to_clouds(void) {
-    load_map(MAP_CLOUD);
+    load_map(MAP_TEMPLE);                       /* (the clouds are archived: a new life wakes in the temple, the same seed gives the same temple) */
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     death_on = 0; death_cb = NULL; death_msg[0] = 0; death_fall_t = -1; death_npc = -1; heart_reset(); gfx_set_filter(0, 0); gfx_set_gold(0);
     player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0;
@@ -986,7 +1076,7 @@ static const Person *found_graves[GRAVE_MAX];
 static float tiles_to(float tx, float ty) { float dx = tx - pxp / tile, dy = ty - pyp / tile; return sqrtf(dx * dx + dy * dy); }
 static void found_now(int *flag, const char *name) { *flag = 1; found_total++; toast_found(name); }
 static void found_update(void) {
-    if (indoors) return;
+    if (indoors || cur_map == MAP_TEMPLE) return;
     float x, y;
     if (cur_map == MAP_CLOUD) {
         if (!found_flag[FOUND_TEMPLE] && tiles_to(DEA_TX + 0.5f, DEA_TY + 0.5f) < FOUND_SIGHT) found_now(&found_flag[FOUND_TEMPLE], "the temple");
@@ -1728,7 +1818,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int tx1 = (cx + W) / tile, ty1 = (cy + H) / tile;
 
     scene_filter(0);
-    if (indoors) { col(r, 0, 0, 0, 255); fill(r, 0, 0, W, H); }   /* the room is smaller than the screen: black round it */
+    if (indoors || cur_map == MAP_TEMPLE) { col(r, 0, 0, 0, 255); fill(r, 0, 0, W, H); }   /* the room is smaller than the screen: black round it */
     for (int ty = ty0; ty <= ty1 && ty < mh; ty++)
         for (int tx = tx0; tx <= tx1 && tx < mw; tx++) {
             if (dawn_on) {                                            /* the dawn: sky first, brightening; the cloud floor builds in on top of it */
@@ -1951,7 +2041,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 14, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, &map[0][0], MAP_MAX, mw, mh, MAP_PAL, 20, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the
