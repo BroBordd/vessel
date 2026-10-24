@@ -13,7 +13,7 @@
 
 static const char *body[4] = {
     "..cccccc..",
-    "s.cccccc.s",           /* the hands float: a cell of air between each hand and the shirt (they lag behind when walking: hands_update) */
+    "s.cccccc.s",           /* the hands float: a cell of air between each hand and the shirt (they rise and swing one up, one down when walking: hands_update) */
     "..pppppp..",
     "..bb..bb..",
 };
@@ -109,8 +109,8 @@ static char cell_at(const Person *p, int facing, int x, int y) {
     return c;
 }
 
-/* floating hands: their offset (screen px) from the rest cell, set by char_draw_air (see hands_update) and 0 for every other view */
-static float g_hdx, g_hdy, g_hbr;      /* g_hbr = the breathing (px, + = down): going down also draws the hands inward, towards the body */
+/* floating hands: their offset (screen px) from the rest cell: x, and the left and right hand's lift, set by char_draw_air (see hands_update) and 0 for every other view */
+static float g_hdx, g_hdyl, g_hdyr, g_hbr;   /* g_hdyl/g_hdyr = the left / right hand's walking lift (px, + = down); g_hbr = the breathing (px, + = down): going down also draws the hands inward, towards the body */
 
 /* a cell drawn at a fractional px offset: opaque core, edge strips and corners faded by their coverage, so slow motion is smooth, not stepped */
 static void hand_fill(SDL_Renderer *r, Rgb c, int x, int y, int s, float fx, float fy) {
@@ -146,7 +146,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             }
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
-                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, g_hdy + g_hbr);
+                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr);
                 continue;
             }
             fill(r, ox + dx * s, oy + dy * s, s, s);
@@ -222,33 +222,34 @@ static void draw_halo(SDL_Renderer *r, int ox, int oy, int s) {
     fill(r, ox + 3 * s, y, 2 * s, s);
 }
 
-/* the hands float and are lazy: idle they breathe: a slow gentle rise and fall. walking, they trail behind the body, opposite to the way it
- * faces, easing out slowly and easing back when it stops; the body's step bob gives them a small tug too. state is kept per person. */
-typedef struct { const Person *p; float rx, ry, w; int bob; Uint32 t; } HandSt;
+/* the hands float. idle they breathe: a slow gentle rise and fall. walking, they ease up from the idle spot to a raised one (u: 0 idle .. 1 walking),
+ * then swing out of step, one up while the other goes down, a sine so they pass each other smoothly; small moves. state is kept per person. */
+#define HAND_RAISE   0.55f   /* walking: how far (cells) the hands rise from idle, on average */
+#define HAND_SWING   0.30f   /* walking: how far (cells) each hand swings up / down around that */
+#define HAND_PERIOD  0.50f   /* walking: seconds for a full swing cycle (left up, right up, back) */
+typedef struct { const Person *p; float u, w, ph; Uint32 t; } HandSt;
 static HandSt g_hs[32];
 static int g_nhs;
-static void hands_update(const Person *p, int facing, int moving, int bob, int s) {
+static void hands_update(const Person *p, int moving, int s) {
     HandSt *h = 0;
     for (int i = 0; i < g_nhs; i++) if (g_hs[i].p == p) { h = &g_hs[i]; break; }
-    if (!h) { h = &g_hs[g_nhs < 32 ? g_nhs++ : 0]; h->p = p; h->rx = h->ry = h->w = 0; h->bob = bob; h->t = 0; }
+    if (!h) { h = &g_hs[g_nhs < 32 ? g_nhs++ : 0]; h->p = p; h->u = h->w = h->ph = 0; h->t = 0; }
     Uint32 now = SDL_GetTicks();
     float dt = h->t ? (now - h->t) / 1000.0f : 0;
     h->t = now;
-    if (dt > 1.0f) { h->rx = h->ry = 0; h->bob = bob; dt = 0; }          /* off screen for a while: settled */
+    if (dt > 1.0f) { h->u = h->ph = 0; dt = 0; }                         /* off screen for a while: settled */
     if (dt > 0.1f) dt = 0.1f;
-    if (moving && bob != h->bob) h->ry += (bob - h->bob) * 0.7f * s;      /* the body steps up, the hands stay a beat behind */
-    h->bob = bob;
-    float tx = 0, ty = 0;
-    if (moving) {
-        if (facing == FACE_LEFT) tx = 1.25f * s; else if (facing == FACE_RIGHT) tx = -1.25f * s;
-        else if (facing == FACE_UP) ty = 1.0f * s; else ty = -1.0f * s;
-    }
-    float k = 1.0f - expf(-dt / (moving ? 0.16f : 0.22f));
-    h->rx += (tx - h->rx) * k;
-    h->ry += (ty - h->ry) * k;
-    if (!moving && fabsf(h->rx) < 0.5f && fabsf(h->ry) < 0.5f) h->rx = h->ry = 0;
-    h->w += ((moving ? 0.0f : 1.0f) - h->w) * k;                          /* idle breathing: a slow rise and fall, faded out while walking */
-    g_hdx = h->rx; g_hdy = h->ry; g_hbr = sinf(now * 0.0021f) * 0.4f * s * h->w;
+    float k = 1.0f - expf(-dt / 0.14f);
+    h->u += ((moving ? 1.0f : 0.0f) - h->u) * k;                          /* ease up from idle when walking starts, back down when it stops */
+    if (h->u < 0.002f) h->u = 0;
+    h->w += ((moving ? 0.0f : 1.0f) - h->w) * k;                          /* idle breathing: faded out while walking, back in when it stops */
+    if (moving || h->u > 0.02f) {                                         /* the swing runs while walking and while it fades out, so it never freezes mid-stroke */
+        h->ph += dt * 6.2831853f / HAND_PERIOD;
+        if (h->ph > 6.2831853f) h->ph -= 6.2831853f;
+    } else h->ph = 0;
+    float sw = sinf(h->ph) * HAND_SWING * s * h->u, lift = -HAND_RAISE * s * h->u;
+    g_hdx = 0; g_hdyl = lift + sw; g_hdyr = lift - sw;                    /* opposite: when one hand is up the other is down */
+    g_hbr = sinf(now * 0.0021f) * 0.4f * s * h->w;
 }
 
 void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
@@ -256,9 +257,9 @@ void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
     int frame = moving ? ((int)walk & 1) : 0;
     int bob = (moving && frame) ? 1 : 0;
     int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s - bob * s;
-    hands_update(p, facing, moving, bob, s);
+    hands_update(p, moving, s);
     draw_sprite(r, p, facing, ox, oy, s, SPR_H, moving ? frame : -1);
-    g_hdx = g_hdy = g_hbr = 0;
+    g_hdx = g_hdyl = g_hdyr = g_hbr = 0;
     if ((p->acc & ACC_HALO) && !g_headless) draw_halo(r, ox, oy, s);
 }
 
