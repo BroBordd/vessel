@@ -39,6 +39,12 @@ const Person *story_vessel_look(unsigned index) {
 }
 const char *story_vessel_name(unsigned index) { return story_vessel_look(index)->name; }
 
+/* the vessel the player is in now (1 = the first, Aonia). the body on screen is always story_vessel_look(this): the sprite is made from the index, nothing else is kept */
+static unsigned cur_vessel = 1;
+unsigned story_vessel_index(void) { return cur_vessel; }
+void story_vessel_set(unsigned index) { cur_vessel = index ? index : 1; world_set_player(story_vessel_look(cur_vessel)); }
+void story_vessel_next(void) { story_vessel_set(cur_vessel + 1); }     /* a death: the soul wakes in the next vessel */
+
 /* ---------- timers ---------- */
 #define MAX_TIMERS 8
 static struct { float left; void (*fn)(void); } timers[MAX_TIMERS];
@@ -113,8 +119,7 @@ void story_limbo_begin(int stay) {
 /* ---------- the world starts ---------- */
 void story_start(void) {
     memset(timers, 0, sizeof timers);
-    world_set_player(&VESSEL);
-    { const char *e = getenv("VESSEL_INDEX"); if (e && atoi(e) > 0) world_set_player(story_vessel_look((unsigned)atoi(e))); }   /* dev: VESSEL_INDEX=n wears vessel n's look (there is no switch yet) */
+    { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : 1); }   /* a new game starts in vessel 1; dev: VESSEL_INDEX=n starts in vessel n */
     world_set_controls_visible(1);             /* nothing to wait for: the stick and the button are there from the first frame */
 }
 

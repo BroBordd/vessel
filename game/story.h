@@ -12,6 +12,10 @@ extern const Person VESSEL3;        /* vessel three, Tria: short copper hair, pu
  * every other index is generated. the pointer is stable for the same index until 16 other vessels have been asked for. */
 const Person *story_vessel_look(unsigned index);
 const char   *story_vessel_name(unsigned index);
+/* the vessel the player is in: its look is the player's sprite (world_set_player). story_vessel_next() = the soul wakes in the next one after a death */
+unsigned story_vessel_index(void);
+void     story_vessel_set(unsigned index);
+void     story_vessel_next(void);
 
 extern const Person SOUL;           /* the soul in limbo: pale and ghostly. its face is the brain card's voice there (thought_set_voice) */
 extern const Person VAS;            /* the player before the naming: same look, just "Vas" */
