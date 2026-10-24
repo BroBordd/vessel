@@ -165,7 +165,7 @@ enum { PH_PLAY, PH_SINK, PH_FALL, PH_LAND, PH_GETUP };
 static int   dawn_on;
 static float dawn_t;
 
-#define FADE_IN_T 0.5f              /* fade in from black when the world starts (the summoning runs over it) */
+#define FADE_IN_T 1.2f              /* fade in from black when the world starts (the summoning runs over it) */
 #define LAND_T  2.5f                /* lying face-down after the impact, eyes shut */
 #define GETUP_T 1.5f                /* standing, flashing three times (0.25 s lighter, 0.25 s back) */
 #define FLASH_PEAK 0.8f             /* how white the flash gets (1 would lose the silhouette) */

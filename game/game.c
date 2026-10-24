@@ -31,6 +31,7 @@
 /* ST_LIMBO (vessel 2): the space screen, the stars and the top buttons only, no map and no HUD. the soul waits here
  * at the start of the game and after every death. the brain button works (thoughts), the pause button does not. */
 typedef enum { ST_MENU, ST_WORLD, ST_LIMBO } State;
+#define HANDOFF_T 0.9f                      /* limbo -> world: the stars fade to black this long, then the world fades in (FADE_IN_T, world.c) */
 /* PLAY -> the menu fades out (menu.c) -> ST_LIMBO. no loading screen. the story drives limbo (story_limbo_begin: "Where am I?", a hold,
  * limbo_end), then the world fades in on the cloud island and the summoning runs (chunk 10) */
 /* The game is a child of the app process. Closing the activity needs Java,
@@ -184,6 +185,7 @@ int main(int argc, char **argv) {
     fcntl(0, F_SETFL, O_NONBLOCK);
     char acc[4096]; int alen = 0;
     int want_load = 0;                              /* the menu's fade-out was started by LOAD, not PLAY */
+    float handoff = -1;                             /* limbo -> world fade clock (HANDOFF_T); -1 = not running */
     int seen_screen = 0;                            /* screen_changes() as of the last size we applied */
     int bg = 0;                                     /* the app is in the background: nothing runs, nothing is drawn, the world is paused for when it comes back */
 
@@ -307,10 +309,20 @@ int main(int argc, char **argv) {
             dialog_draw(r);
             SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
             story_limbo_update(dt);                              /* the soul's own clock: limbo_run (story.c) */
-            if (story_limbo_take_end()) {                        /* limbo_end(): the HUD and the world come back */
-                if (!world_dawning()) jukebox_scene_pv("second_life.ogg", 1, -8.0f, 0.40f);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
-                state = ST_WORLD;
-                world_update(0); world_draw(r);
+            if (story_limbo_take_end()) handoff = 0;             /* limbo_end(): the stars fade to black first, then the world fades in from it */
+            if (handoff >= 0) {
+                handoff += dt;
+                float k = handoff / HANDOFF_T; if (k > 1) k = 1;
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(255 * k));
+                SDL_RenderFillRect(r, NULL);
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+                if (handoff >= HANDOFF_T) {                      /* black: the HUD and the world come back (world.c fades them in) */
+                    handoff = -1;
+                    if (!world_dawning()) jukebox_scene_pv("second_life.ogg", 1, -8.0f, 0.40f);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
+                    state = ST_WORLD;
+                    world_update(0); world_draw(r);
+                }
             }
         } else {
             if (!pausebtn_paused()) world_update(dt);
