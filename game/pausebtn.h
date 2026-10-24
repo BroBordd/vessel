@@ -13,6 +13,7 @@ void pausebtn_init(int w, int h);
 void pausebtn_resize(int w, int h);          /* the screen changed shape: new layout, state kept */
 void pausebtn_set_enabled(int on);          /* the game world is on screen (turning it off also resumes) */
 int  pausebtn_paused(void);
+int  pausebtn_take_menu(void);              /* MAIN MENU was tapped on the pause panel: 1 once, then game.c leaves the world for the main menu */
 void pausebtn_set_paused(int p);            /* only while the world is on screen (the Android back button and the app going to the background) */
 /* returns 0 = not ours, 1 = used, 2 = used and the game was just paused (drop held controls) */
 int  pausebtn_touch(int a, int x, int y);

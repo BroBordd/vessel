@@ -5,7 +5,7 @@
 #include "font.h"
 #include <math.h>
 
-static int   W, H, enabled, paused, pdown, rdown;
+static int   W, H, enabled, paused, pdown, rdown, mdown, menu_req;
 static float u, vis, pa;            /* vis: button fade-in, pa: overlay fade */
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -17,22 +17,29 @@ static SDL_Rect btn_rect(void) {                      /* follows the music butto
     return (SDL_Rect){ x + w + nowplaying_gap(), y, bs, bs };
 }
 static SDL_Rect resume_rect(void) {
-    int w = (int)(120 * u), h = (int)(32 * u);
+    int w = (int)(132 * u), h = (int)(32 * u);
     return (SDL_Rect){ (W - w) / 2, H / 2 + (int)(14 * u), w, h };
+}
+static SDL_Rect menu_rect(void) {                     /* MAIN MENU, right under RESUME */
+    SDL_Rect q = resume_rect();
+    q.y += q.h + (int)(8 * u);
+    return q;
 }
 
 void pausebtn_resize(int w, int h) { W = w; H = h; u = (w < h ? w : h) / 360.0f; }   /* the rects are computed on use */
-void pausebtn_init(int w, int h) { enabled = paused = pdown = rdown = 0; vis = pa = 0; pausebtn_resize(w, h); }
+void pausebtn_init(int w, int h) { enabled = paused = pdown = rdown = mdown = menu_req = 0; vis = pa = 0; pausebtn_resize(w, h); }
 void pausebtn_set_enabled(int on) { enabled = on; if (!on) paused = 0; }
 int  pausebtn_paused(void) { return paused; }
+int  pausebtn_take_menu(void) { int m = menu_req; menu_req = 0; return m; }
 void pausebtn_set_paused(int p) { if (enabled) paused = p ? 1 : 0; }
 
 int pausebtn_touch(int a, int x, int y) {
     if (!enabled) return 0;
-    SDL_Rect b = btn_rect(), rs = resume_rect();
+    SDL_Rect b = btn_rect(), rs = resume_rect(), mr = menu_rect();
     if (a == 0) {
         if (inside(b, x, y)) { pdown = 1; return 1; }
         if (paused && inside(rs, x, y)) { rdown = 1; return 1; }
+        if (paused && inside(mr, x, y)) { mdown = 1; return 1; }
         return paused ? 1 : 0;                       /* paused: the world below does not get touches */
     }
     if (pdown) {
@@ -44,6 +51,10 @@ int pausebtn_touch(int a, int x, int y) {
     }
     if (rdown) {
         if (a == 1 || a == 3) { rdown = 0; if (a == 1 && inside(rs, x, y)) paused = 0; }
+        return 1;
+    }
+    if (mdown) {
+        if (a == 1 || a == 3) { mdown = 0; if (a == 1 && inside(mr, x, y)) { menu_req = 1; paused = 0; } }
         return 1;
     }
     return paused ? 1 : 0;
@@ -76,6 +87,10 @@ void pausebtn_draw_overlay(SDL_Renderer *r) {
     int c2 = (int)(2.0f * u); if (c2 < 2) c2 = 2;
     SDL_SetRenderDrawColor(r, 255, 255, 255, ca);
     font_draw(r, "RESUME", rs.x + (rs.w - font_width("RESUME", c2)) / 2, rs.y + (rs.h - font_height(c2)) / 2, c2);
+    SDL_Rect mr = menu_rect();
+    ui_button_frame(r, mr.x, mr.y, mr.w, mr.h, mdown, ca);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, ca);
+    font_draw(r, "MAIN MENU", mr.x + (mr.w - font_width("MAIN MENU", c2)) / 2, mr.y + (mr.h - font_height(c2)) / 2, c2);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
 }
 

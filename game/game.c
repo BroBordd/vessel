@@ -324,6 +324,15 @@ int main(int argc, char **argv) {
         }
         /* the pause and brain buttons come in together, once the game really runs (not during the opening's popup and dawn). a death's limbo
          * keeps the brain button: the soul thinks there */
+        if (state == ST_WORLD && pausebtn_take_menu()) {         /* the pause panel's MAIN MENU: back to the title, the stars and the menu music. PLAY starts a fresh game (world_init) */
+            musicwin_close(); mapwin_close(); brainwin_close();
+            printf("menu: main menu\n"); fflush(stdout);
+            jukebox_scene("third_life.ogg", 0);
+            menu_init(W, H);
+            menu_set_load_enabled(story_save_exists());
+            want_load = 0;
+            state = ST_MENU;
+        }
         pausebtn_set_enabled(state == ST_WORLD && !world_dawning());
         thought_set_enabled(state == ST_WORLD && !world_dawning());
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
