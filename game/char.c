@@ -110,7 +110,21 @@ static char cell_at(const Person *p, int facing, int x, int y) {
 }
 
 /* floating hands: their offset (screen px) from the rest cell, set by char_draw_air (see hands_update) and 0 for every other view */
-static float g_hdx, g_hdy;
+static float g_hdx, g_hdy, g_hbr;      /* g_hbr = the breathing (px, + = down): going down also draws the hands inward, towards the body */
+
+/* a cell drawn at a fractional px offset: opaque core, edge strips and corners faded by their coverage, so slow motion is smooth, not stepped */
+static void hand_fill(SDL_Renderer *r, Rgb c, int x, int y, int s, float fx, float fy) {
+    int ix = (int)floorf(fx), iy = (int)floorf(fy); float ax = fx - ix, ay = fy - iy, sv = g_alpha;
+    x += ix; y += iy;
+    float wx[3] = { 1 - ax, 1, ax }, wy[3] = { 1 - ay, 1, ay };
+    int cx[3] = { x, x + 1, x + s }, cw[3] = { 1, s - 1, 1 }, cy[3] = { y, y + 1, y + s }, chh[3] = { 1, s - 1, 1 };
+    for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {
+        float w = wx[i] * wy[j];
+        if (w < 0.01f || cw[i] <= 0 || chh[j] <= 0) continue;
+        g_alpha = sv * w; use(r, c); fill(r, cx[i], cy[j], cw[i], chh[j]);
+    }
+    g_alpha = sv;
+}
 
 /* rows = how many sprite rows to draw; lift = which foot to raise (0 left, 1 right, -1 none) */
 static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, int oy,
@@ -121,10 +135,8 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             char c = cell_at(p, facing, x, y);
             if (c == '.') continue;
             if (g_headless && y < 8) continue;                            /* chunk 38: the head is gone (and the long hair with it, see cell_at) */
-            int dy = y, pxo = 0, pyo = 0;
+            int dy = y;
             if (y == 11 && lift >= 0 && ((x < 5) == (lift == 0))) dy = 10;   /* raised foot */
-            if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim)               /* floating hands: shifted by their lag (0 while idle) */
-                { pxo = (int)lroundf(g_hdx); pyo = (int)lroundf(g_hdy); }
             switch (c) {
             case 'h': use(r, p->hair);  break;
             case 's': use(r, p->skin);  break;
@@ -133,7 +145,11 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             case 'b': use(r, p->boots); break;
             }
             int dx = flip ? SPR_W - 1 - x : x;
-            fill(r, ox + dx * s + pxo, oy + dy * s + pyo, s, s);
+            if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
+                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, g_hdy + g_hbr);
+                continue;
+            }
+            fill(r, ox + dx * s, oy + dy * s, s, s);
         }
 
     /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
@@ -232,7 +248,7 @@ static void hands_update(const Person *p, int facing, int moving, int bob, int s
     h->ry += (ty - h->ry) * k;
     if (!moving && fabsf(h->rx) < 0.5f && fabsf(h->ry) < 0.5f) h->rx = h->ry = 0;
     h->w += ((moving ? 0.0f : 1.0f) - h->w) * k;                          /* idle breathing: a slow rise and fall, faded out while walking */
-    g_hdx = h->rx; g_hdy = h->ry + sinf(now * 0.0021f) * 0.4f * s * h->w;
+    g_hdx = h->rx; g_hdy = h->ry; g_hbr = sinf(now * 0.0021f) * 0.4f * s * h->w;
 }
 
 void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
@@ -242,7 +258,7 @@ void char_draw_air(SDL_Renderer *r, const Person *p, int x, int y,
     int ox = x - (SPR_W / 2) * s, oy = y - SPR_H * s - bob * s;
     hands_update(p, facing, moving, bob, s);
     draw_sprite(r, p, facing, ox, oy, s, SPR_H, moving ? frame : -1);
-    g_hdx = g_hdy = 0;
+    g_hdx = g_hdy = g_hbr = 0;
     if ((p->acc & ACC_HALO) && !g_headless) draw_halo(r, ox, oy, s);
 }
 
