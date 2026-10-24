@@ -121,7 +121,7 @@ void story_limbo_begin(int stay) {
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    world_set_controls_visible(1);             /* nothing to wait for: the stick and the button are there from the first frame */
+    world_ritual(story_vessel_look(1), NULL);   /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 
 /* saves are gone with the old story (the first save format is in trash/story_old.c) */

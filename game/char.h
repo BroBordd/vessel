@@ -23,6 +23,9 @@ enum { ACC_SHADES = 1, ACC_HALO = 2, ACC_WORRIED = 4,
        ACC_CAP = 8, ACC_BEANIE = 16, ACC_SCARF = 32, ACC_BEARD = 64 };
 #define ACC_LOOK (ACC_CAP | ACC_BEANIE | ACC_SCARF | ACC_BEARD)
 
+/* is cell (x 0..9, y 0..11) of the body sprite drawn? (effects that follow the body's shape) */
+int char_cell_opaque(const Person *p, int facing, int x, int y);
+
 /* facing values */
 enum { FACE_DOWN = 0, FACE_UP = 1, FACE_LEFT = 2, FACE_RIGHT = 3 };
 

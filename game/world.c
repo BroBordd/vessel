@@ -14,6 +14,7 @@
 #include "house.h"
 #include "heart.h"
 #include "summon.h"
+#include "ritual.h"
 #include "story.h"
 #include "font.h"
 #include "nowplaying.h"
@@ -147,6 +148,7 @@ static int   death_npc = -1;        /* chunk 38: the cutscene is about this npc 
 #define DEATH_FALL_T    1.1f        /* the topple takes this long */
 static void (*death_cb)(void);
 static void (*summon_cb)(void);       /* the summoning's on_done (chunk 8) */
+static void (*ritual_cb)(void);       /* the blood circle's arrival is over (ritual.c) */
 static int   summon_chime;            /* the chime has been asked for and has not started yet (chunk 9) */
 static void zoom_camera(float *ccx, float *ccy);   /* defined with world_draw */
 
@@ -677,6 +679,7 @@ static void load_map(int which) {
     cur_map = which; cam_snap = 1;
     if (which == MAP_TEMPLE) gen_temple_map(); else if (which == MAP_CLOUD) gen_cloud_map(); else gen_map();
     npc_reset(px, tile);
+    ritual_cancel(); ritual_cb = NULL;           /* the circle is part of the map */
     gore_reset(px, tile); spark_npc = -1; player_beheaded = 0; player_topple_t = -1; throw_t = -1; player_gone = 0; gore_indoors = 1;
     shrine_reset(px, tile);
     item_reset(px, tile); item_house = 0;      /* what lay on the old map is gone; the pockets stay */
@@ -782,7 +785,7 @@ void world_init(int w, int h) {
     printf("temple seed %u\n", temple_seed);
     load_map(MAP_TEMPLE);                       /* the story starts in the deep temple (gen.c) */
     story_start();                              /* the script takes it from here (story.c) */
-    phase = PH_LAND; ph_t = 0; waking = 1;      /* the soul wakes face-down on the floor, then stands (phase_update gives the controls back after WAKE_T) */
+    phase = PH_PLAY; ph_t = 0; waking = 0;      /* story_start has begun the blood circle (world_ritual): the controls come back when the new body has formed */
     world_set_controls_visible(0);
 }
 
@@ -794,6 +797,16 @@ void world_summon(void (*on_done)(void)) {
     moving = 0; walk = 0; facing = FACE_DOWN;
 }
 int world_summoning(void) { return summon_active(); }
+
+/* the blood circle (ritual.c): carved into the floor where the player will stand, the dead vessel `dead` beside it. the body is drawn up out
+ * of the blood when the grooves are full; on_done (may be NULL) runs then and the controls come back */
+void world_ritual(const Person *dead, void (*on_done)(void)) {
+    ritual_cb = on_done;
+    ritual_begin(pxp / (float)tile, pyp / (float)tile, dead);
+    world_set_controls_visible(0);
+    moving = 0; walk = 0; facing = FACE_DOWN;
+}
+int world_ritual_running(void) { return ritual_active(); }
 
 /* the opening's dawn (see DAWN_*): call it when limbo ends at the start of the game, after story_start has queued the summoning. the
  * stars brighten into the sky, the cloud floor builds in, then the summoning runs by itself. world_dawning() is true until it starts */
@@ -1402,6 +1415,8 @@ void world_update(float dt) {
         if (dawn_t >= DAWN_TOTAL) { dawn_on = 0; jukebox_scene("ascendant_soul.ogg", 1); }   /* the cloud music starts with the light */
     }
     if (!dawn_on && summon_chime && summon_active()) { summon_chime = 0; sfx_summon(); }                   /* the world is running: the light and its chime begin together */
+    if (!dawn_on && ritual_take_chime()) sfx_summon();                                                          /* the circle begins to charge */
+    if (!dawn_on && ritual_update(dt)) { void (*cb)(void) = ritual_cb; ritual_cb = NULL; world_set_controls_visible(1); if (cb) cb(); }   /* the new body has formed: the controls are back */
     if (!dawn_on && summon_update(dt)) { void (*cb)(void) = summon_cb; summon_cb = NULL; if (cb) cb(); }   /* the light has ended: the player shows again */
     if (blackout_t >= 0 && blackout_t < blackout_dur) {       /* fading to black (chunk 12): on_black runs on the frame it is dark */
         blackout_t += dt;
@@ -1870,12 +1885,14 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (cur_map == MAP_CLOUD) draw_cloud_rim(r, cx, cy, tx0, ty0, tx1, ty1);
     if (gore_indoors == indoors) { scene_filter(1); gore_draw_floor(r, cx, cy); scene_filter(0); }          /* chunk 38: the stains on the floor (red even in the grey) */
 
+    float rit_tx = 0, rit_ty = 0; ritual_centre(&rit_tx, &rit_ty);
     int hcx = 0, hcy = 0;
     if (hole_on) {
         hcx = (int)((hole_tx + 0.5f) * tile) - cx;
         hcy = (int)((hole_ty + 0.5f) * tile) - cy;
         draw_hole(r, hcx, hcy, 0);
     }
+    if (ritual_scene() && cur_map == MAP_TEMPLE) ritual_draw_floor(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, TEMPLE_SHADE);   /* the carved circle, the blood, the dead vessel */
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
@@ -1901,7 +1918,15 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     char_set_darken(cur_map == MAP_TEMPLE ? TEMPLE_SHADE : 0);   /* the temple is shut in: a shadow over the body (off again after it is drawn) */
     scene_filter(death_npc < 0);                                  /* the player: red, in a grey world (grey when the cutscene is about an npc) */
     char_set_worried(player_worried);                             /* chunk 53 (off again after the body is drawn) */
-    if (summon_active()) {                                        /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
+    if (ritual_active()) {                                        /* the vessel is drawn up out of the blood, from the feet up (ritual_draw_over puts the blood pixels on it) */
+        int rows = ritual_player_rows();
+        if (rows > 0) {
+            SDL_Rect clip = { 0, sy0 - rows * px, W, rows * px + 4 * px };
+            SDL_RenderSetClipRect(r, &clip);
+            char_draw(r, player_look, sx0, sy0, FACE_DOWN, 0, 0.0f, px);
+            SDL_RenderSetClipRect(r, NULL);
+        }
+    } else if (summon_active()) {                                 /* the vessel forms out of the light: a gold silhouette growing up from the feet, then its real colours */
         int rows = summon_player_rows();
         if (rows > 0) {
             SDL_Rect clip = { 0, sy0 - rows * px, W, rows * px + 4 * px };      /* the rows revealed so far (+ the shadow under the feet) */
@@ -1994,6 +2019,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 
     char_set_worried(0);
     char_set_darken(0);
+    if (ritual_scene() && cur_map == MAP_TEMPLE) ritual_draw_over(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, player_look);
     if (!dawn_on) summon_draw_front(r, (int)pxp - cx, (int)pyp - cy, px);       /* the ring's near half, in front of the feet */
     scene_filter(0);
     if (npcs_here())

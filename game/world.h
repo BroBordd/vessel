@@ -167,6 +167,8 @@ void world_death_text(const char *text);       /* chunk 15: the words over the c
  * chunk 10 uses it at the start of the game. */
 void world_summon(void (*on_done)(void));
 int  world_summoning(void);                    /* it is running */
+void world_ritual(const Person *dead, void (*on_done)(void));   /* the story's start: a blood circle on the floor where the player stands, `dead` lying beside it, the new body formed out of the blood */
+int  world_ritual_running(void);
 void world_begin_dawn(void);                   /* the opening: the stars brighten into the sky, the cloud floor builds in, THEN the summoning runs */
 int  world_dawning(void);                      /* the dawn is running (game.c draws the stars under the world and keeps the buttons away) */
 

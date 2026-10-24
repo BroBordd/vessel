@@ -147,6 +147,9 @@ static char cell_at(const Person *p, int facing, int x, int y) {
     return acc_cell(p, facing, x, y, c);
 }
 
+/* is this cell of the body sprite drawn (not empty)? for effects that follow its shape (ritual.c) */
+int char_cell_opaque(const Person *p, int facing, int x, int y) { return x >= 0 && x < SPR_W && y >= 0 && y < SPR_H && cell_at(p, facing, x, y) != '.'; }
+
 /* floating hands: their offset (screen px) from the rest cell: x, and the left and right hand's lift, set by char_draw_air (see hands_update) and 0 for every other view */
 static float g_hdx, g_hdyl, g_hdyr, g_hbr;   /* g_hdyl/g_hdyr = the left / right hand's walking lift (px, + = down); g_hbr = the breathing (px, + = down): going down also draws the hands inward, towards the body */
 
