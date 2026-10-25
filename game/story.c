@@ -14,6 +14,7 @@
 #include "bodies.h"
 #include "props.h"
 #include "toast.h"
+#include "confirm.h"
 #include "audio.h"
 #include <stdio.h>
 #include "missions.h"
@@ -362,17 +363,24 @@ static void checkpoint_begin(void) {
     event_fire(EV_FILL_CIRCLE);
     story_after(4.0f, cp_die);
 }
+/* STAB SELF: the knife on ourselves. the window asks first (confirm.c), and YES does what the stab did before: on the second circle it fills the carvings
+ * (the checkpoint), anywhere else it kills us */
+static void stab_self_go(void) {
+    if (dying || cp_busy) return;
+    if (ritual_c2_on() && !cp_reached && !ritual_c2_filling()) {                        /* chunk 13: on the second circle the knife fills the carvings: the checkpoint */
+        float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
+        float ex = (ux - qx) / 1.8f, ey = (uy - qy) / 0.85f;
+        if (ex * ex + ey * ey < 1.0f) { checkpoint_begin(); return; }
+    }
+    sfx_hit(); story_die(DEATH_SELF);
+}
 static void story_action(int kind, int act) {
     if (dying) return;
     switch (act) {
     case ACT_STAB_SELF:
         if (cp_busy) return;
-        if (ritual_c2_on() && !cp_reached && !ritual_c2_filling()) {                    /* chunk 13: on the second circle the knife fills the carvings: the checkpoint */
-            float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
-            float ex = (ux - qx) / 1.8f, ey = (uy - qy) / 0.85f;
-            if (ex * ex + ey * ey < 1.0f) { checkpoint_begin(); return; }
-        }
-        sfx_hit(); story_die(DEATH_SELF); return;
+        confirm_ask("STAB SELF", "This will kill you. Sure?", "YES", "NO", stab_self_go);
+        return;
     case ACT_STAB: {
         unsigned v = world_body_in_reach();
         if (!v) { sfx_error(); toast_info("NOTHING TO STAB", "Get close to a body."); return; }
