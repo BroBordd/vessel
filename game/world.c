@@ -1000,7 +1000,12 @@ static void draw_stick(SDL_Renderer *r, int cx, int cy, int rad, int krad, int k
 static void pick_start(void) {                                   /* the tap on the hand next to an item */
     float wx, wy;
     if (pick_on) return;
-    if (!drag_on && item_pull_begin(pxp, pyp, &wx, &wy)) { pick_on = 1; pick_taken = 0; pick_t = 0; pick_wx = wx; pick_wy = wy; }
+    if (!drag_on && item_pull_begin(pxp, pyp, &wx, &wy)) {
+        pick_on = 1; pick_taken = 0; pick_t = 0; pick_wx = wx; pick_wy = wy;
+        float dx = wx - pxp, dy = wy - pyp;                       /* we look towards the item (the sprite turns to it) */
+        if (fabsf(dx) > fabsf(dy)) facing = dx < 0 ? FACE_LEFT : FACE_RIGHT;
+        else                       facing = dy < 0 ? FACE_UP : FACE_DOWN;
+    }
     else item_grab(pxp, pyp);                                    /* what cannot be taken (locked, hands full) says so; while holding a body: at once */
 }
 static void draw_hand_button(SDL_Renderer *r) {                  /* chunk 68: the same two-tone edge as the interact button, a little smaller; an open hand */
