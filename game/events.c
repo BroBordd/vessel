@@ -129,7 +129,7 @@ void events_update(float dt) {
     if (dt <= 0) return;                                                 /* paused: nothing moves on */
     now_t += dt;
     for (int i = 1; i < EV_COUNT; i++) if (cooldown[i] > 0) cooldown[i] -= dt;
-    int free_now = world_controls_on() && !world_ritual_running() && !dialog_active() && !brainwin_active() && !world_dawning();
+    int free_now = world_controls_on() && !world_ritual_running() && !dialog_active() && !brainwin_active();
     if (free_now) { free_t += dt; watch(dt); } else free_t = 0;
     int act = thought_active();
     if (was_active && !act) gap_t = GAP;                                  /* one just folded away: a breath */

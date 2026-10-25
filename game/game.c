@@ -71,7 +71,7 @@ static void win_track(void) {
 static int handle_back(State st) {
     win_track();                                            /* (also catches a window that opened since the last frame) */
     if (win_n > 0) { win_close(win_order[win_n - 1]); return 1; }   /* the front window; one still sliding away just swallows the press */
-    if (st == ST_WORLD && !world_dawning()) {
+    if (st == ST_WORLD) {
         int was = pausebtn_paused();
         pausebtn_set_paused(!was);
         if (!was) world_touch(3, 0, 0);                     /* just paused: let go of the stick */
@@ -320,14 +320,13 @@ int main(int argc, char **argv) {
                 SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
                 if (handoff >= HANDOFF_T) {                      /* black: the HUD and the world come back (world.c fades them in) */
                     handoff = -1;
-                    if (!world_dawning()) jukebox_scene_pv("second_life.ogg", 1, -8.0f, 0.40f);   /* after a death: the cloud music starts with the summoning. at the start the dawn starts it (world.c) */
+                    jukebox_scene_pv("second_life.ogg", 1, -8.0f, 0.40f);   /* the world's music starts with the blood circle */
                     state = ST_WORLD;
                     world_update(0); world_draw(r);
                 }
             }
         } else {
             if (!pausebtn_paused()) world_update(dt);
-            if (world_dawning()) { space_update(dt); space_draw(r); }   /* the opening: the stars shine through the brightening sky */
             world_draw(r);
             if (story_limbo_take_enter()) {                      /* a death: the world has faded to black, the soul is alone with the stars */
                 state = ST_LIMBO;
@@ -346,8 +345,8 @@ int main(int argc, char **argv) {
             want_load = 0;
             state = ST_MENU;
         }
-        pausebtn_set_enabled(state == ST_WORLD && !world_dawning());
-        thought_set_enabled(state == ST_WORLD && !world_dawning());
+        pausebtn_set_enabled(state == ST_WORLD);
+        thought_set_enabled(state == ST_WORLD);
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_set_wide(state == ST_WORLD);          /* the task panels only exist in the world: before that the card ends at the equalizer */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */

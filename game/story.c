@@ -182,7 +182,7 @@ static void death_woke(void) {
     hud_reset(story_vessel_look(story_vessel_index()), 0);      /* a body that is not the first knows its name from the moment it wakes: no flash, no toast */
     item_clear(); note_read = 1;                                /* the pockets are empty; the note belongs to vessel 2 alone */
     if (task_note >= 0) { mission_complete(task_note); task_note = -1; task_escape = mission_add("Escape the ruins"); }
-    world_return_to_clouds();                                   /* the ruins again (the same map), the blackout lifted */
+    world_reload_ruins();                                      /* the ruins again (the same map), the blackout lifted */
     if (cp_reached) {                                           /* the second circle: we are put on it, its grooves are full, the body forms there */
         float qx, qy; ritual_c2_centre(&qx, &qy);
         world_player_to_tile(qx, qy);
