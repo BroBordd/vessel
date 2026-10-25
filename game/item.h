@@ -17,6 +17,8 @@
 
 enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_ROCK,
        ITEM_ARM, ITEM_LEG, ITEM_HEAD, ITEM_RIBS, ITEM_HEART, ITEM_LIVER, ITEM_INTESTINE, ITEM_SPINE, ITEM_FINGERS, ITEM_EYES, ITEM_TEETH, ITEM_SKULL, ITEM_BONE,   /* story chunk 9: what a body gives */
+       ITEM_TIED_ROCK, ITEM_LONG_ROPE, ITEM_SPINE_HOOK, ITEM_CLUB, ITEM_LONG_REACH, ITEM_SKULL_STRING, ITEM_FINGER_NECKLACE, ITEM_TOOTH_NECKLACE,
+       ITEM_WATCHING_ROCK, ITEM_RIB_CAGE, ITEM_HEART_STRING, ITEM_DULL_KNIFE,   /* story chunk 10: what the recipes make */
        ITEM_COUNT };      /* story chunk 8: the small rock (thrown) */      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
 /* story chunk 7: size classes (docs/story/vessel.md section 4). SMALL goes in the pockets; MEDIUM is carried in the hands, one at a time, and slows the player a
  * little (CARRY_SPEED_MEDIUM, times the walking speed); BIG cannot be picked up at all, only dragged (a whole body, a torso, the big rock: props.h) and slows the
@@ -30,11 +32,17 @@ int item_size(int kind);                    /* the size class of an item kind (S
 const char *item_name(int kind);            /* "HAMMER", "ORB" (capitals: the pixel font) */
 /* story chunk 8: WHAT AN ITEM IS AND WHAT IT CAN DO. the open inventory shows, under the name of the slot you touched, a short description and one button per
  * action. a tap on a button folds the panel and calls the action callback (story.c decides what happens: the knife stabs a body or ourselves, the rock flies). */
-typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW, ACT_CUT_FINGERS, ACT_CUT_BONE, ACT_CUT_EYES, ACT_CUT_TEETH, ACT_CLEAN, ACT_DROP } ItemAction;
+typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW, ACT_CUT_FINGERS, ACT_CUT_BONE, ACT_CUT_EYES, ACT_CUT_TEETH, ACT_CLEAN, ACT_DROP, ACT_COMBINE, ACT_SWING, ACT_SMASH, ACT_WEAR } ItemAction;
 const char *item_desc(int kind);                        /* a short text (letters, digits, space and , . ! ? ' -) */
 int         item_actions(int kind, int out[4]);         /* the actions of an item, 0 to 4 of them. returns how many */
 const char *item_action_name(int act);                  /* the button's words (capitals) */
 void        item_set_action_cb(void (*cb)(int kind, int act));
+/* story chunk 10: CRAFTING. COMBINE on an item in a recipe, then a tap on a second slot (the same kind needs two): the craft callback runs with both kinds
+ * (story.c asks item_recipe, takes both away and gives the result). the recipes of section 7 live in item.c */
+int         item_recipe(int a, int b);                  /* what a + b makes (either order), -1 when nothing */
+void        item_set_craft_cb(void (*cb)(int a, int b));
+int         item_wear_toggle(int kind);                 /* wearable things: put on / take off. returns 1 when worn now */
+int         item_worn(int kind);
 int         item_ui_action_x(int i);                    /* (tests) the centre of the i-th action button of the selected item (-1 none) */
 int         item_ui_action_y(int i);
 

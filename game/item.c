@@ -167,9 +167,49 @@ static const char *SKULL[ITEM_ICON_CELLS] = {
 static const char *BONE[ITEM_ICON_CELLS] = {
     "............", "........GG.G", ".......GPGPG", "......GPPPG.", ".....GPPG...", "....GPPG....",
     "...GPPG.....", "..GPPG......", ".GPGPG......", ".GP.GG......", "..GG........", "............" };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE, ROCK, ARM, LEG, HEAD, RIBS, HEART, LIVER, INTEST, SPINE, FINGERS, EYES, TEETH, SKULL, BONE };
+
+/* story chunk 10: what the recipes make */
+static const char *TIED_ROCK[ITEM_ICON_CELLS] = {
+    "....NNNN....", "...N....N...", "...N....N...", "....GGGG....", "..GGLLLLGG..", ".GLLLLLDDDG.",
+    ".GLLLLDDDDG.", "GLLLDDDDDDDG", "GLLDDDDDDDDG", ".GDDDDDDDDG.", "..GGDDDDGG..", "....GGGG...." };
+static const char *LONG_ROPE[ITEM_ICON_CELLS] = {
+    "............", "..GGGGGGGG..", ".GNNNNNNNNG.", "GNnnnnnnnnNG", "GNnGGGGGGnNG", "GNnG....GnNG",
+    "GNnG....GnNG", "GNnGGGGGGnNG", "GNnnnnnnnnNG", ".GNNNNNNNNG.", "..GGGGGGGG..", "............" };
+static const char *SPINE_HOOK[ITEM_ICON_CELLS] = {
+    "....GGGG....", "...GPPPPG...", "....GPPG....", "...GPPPPG...", "....GPPG....", "...GPPPPG...",
+    "....GPPG....", "...GPPPPGG..", "....GPPG.GG.", "....GGPPGPG.", ".....GGGPG..", ".......GG..." };
+static const char *CLUB[ITEM_ICON_CELLS] = {
+    "......GGGG..", ".....GDDDDG.", "....GDDLDDG.", "....GDDDDG..", "...GGPPGG...", "..GPPG......",
+    ".GPPG.......", "GPPG........", "GPG.........", ".G..........", "............", "............" };
+static const char *LONG_REACH[ITEM_ICON_CELLS] = {
+    "..........GG", ".........GPG", "........GPG.", "......GSSG..", ".....GSSsG..", "....GSSsG...",
+    "...GSSsG....", "..GSSsG.....", ".GRRRG......", ".GRRRG......", "..GGG.......", "............" };
+static const char *SKULL_STRING[ITEM_ICON_CELLS] = {
+    "....GNNG....", "...GN..NG...", "..GGPPPPGG..", ".GPPPPPPPPG.", ".GPGGPPGGPG.", ".GPGGPPGGPG.",
+    ".GPPPPGPPPG.", "..GPPPPPPG..", "..GPGPGPGPG.", "...GGGGGGG..", "............", "............" };
+static const char *FINGER_NECKLACE[ITEM_ICON_CELLS] = {
+    "..GNG..GNG..", ".GN.GGGG.NG.", ".GN......NG.", ".GN......NG.", "..GN....NG..", "...GN..NG...",
+    "....GNNG....", "...GSGSGS...", "...GSGSGS...", "....G.G.G...", "............", "............" };
+static const char *TOOTH_NECKLACE[ITEM_ICON_CELLS] = {
+    "..GNG..GNG..", ".GN.GGGG.NG.", ".GN......NG.", ".GN......NG.", "..GN....NG..", "...GN..NG...",
+    "....GNNG....", "...GPGPGP...", "...GPGPGP...", "....G.G.G...", "............", "............" };
+static const char *WATCHING_ROCK[ITEM_ICON_CELLS] = {
+    "....GGGG....", "..GGLLLLGG..", ".GLLbbbbLLG.", ".GLbBBBBbLG.", "GLLbBGGBbLLG", "GLLbBGGBbLDG",
+    "GLLLbBBbLDDG", ".GLDDbbDDDG.", ".GDDDDDDDDG.", "..GGDDDDGG..", "....GGGG....", "............" };
+static const char *RIB_CAGE[ITEM_ICON_CELLS] = {
+    "....GGGG....", "..GGPPPPGG..", ".GPPGPPGPPG.", "GPPGGPPGGPPG", "GPGG.PP.GGPG", "GPG..PP..GPG",
+    "GPG..PP..GPG", "GPG..PP..GPG", "GPG..PP..GPG", "GGG..GG..GGG", "............", "............" };
+static const char *HEART_STRING[ITEM_ICON_CELLS] = {
+    "....GNNG....", "...GN..NG...", "..GG.GG.GG..", ".GRRRGRRRG..", "GRRNRRRRRRG.", "GRRRRRRRRRG.",
+    ".GRRRRRRRG..", "..GRRRRRG...", "...GRRRG....", "....GRG.....", ".....G......", "............" };
+static const char *DULL_KNIFE[ITEM_ICON_CELLS] = {
+    "............", "..........GG", ".........GDG", "........GDDG", ".......GDDDG", "......GDDG..",
+    ".....GDDG...", "..GGGDDG....", ".GwwGDG.....", ".GwwG.......", "..GG........", "............" };
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE, ROCK, ARM, LEG, HEAD, RIBS, HEART, LIVER, INTEST, SPINE, FINGERS, EYES, TEETH, SKULL, BONE,
+    TIED_ROCK, LONG_ROPE, SPINE_HOOK, CLUB, LONG_REACH, SKULL_STRING, FINGER_NECKLACE, TOOTH_NECKLACE, WATCHING_ROCK, RIB_CAGE, HEART_STRING, DULL_KNIFE };
 static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE", "ROCK",
-    "ARM", "LEG", "HEAD", "RIBS", "HEART", "LIVER", "INTESTINE", "SPINE", "FINGERS", "EYES", "TEETH", "SKULL", "BONE" };
+    "ARM", "LEG", "HEAD", "RIBS", "HEART", "LIVER", "INTESTINE", "SPINE", "FINGERS", "EYES", "TEETH", "SKULL", "BONE",
+    "TIED ROCK", "LONG ROPE", "SPINE HOOK", "CLUB", "LONG REACH", "SKULL STRING", "FINGER NECKLACE", "TOOTH NECKLACE", "WATCHING ROCK", "RIB CAGE", "HEART STRING", "DULL KNIFE" };
 static const char *DESCS[ITEM_COUNT] = {
     "A heavy hammer.", "A violet orb. It glows.", "A note written in blood.",
     "A sharp knife. It cuts bodies, and the one who holds it.", "A small rock. Fits a hand. Good for throwing.",
@@ -177,26 +217,62 @@ static const char *DESCS[ITEM_COUNT] = {
     "A head. Don't look at the face. A knife takes eyes and teeth, or cleans it.", "A ribcage. Small enough to pocket.",
     "A heart. Still warm.", "A liver. Dark and heavy.", "Long. Surprisingly long.", "A spine. It could hold a hook.",
     "Fingers. They still curl.", "Two eyes. They don't look at anything.", "Teeth. A handful.", "A clean skull.", "A bone. Long and strong.",
+    "A rock on a gut. Swing it over the pit.", "Gut, tied end to end. Plenty of length.", "A spine with a hook. It grabs by itself.",
+    "A bone with a rock on it. Smashes bodies.", "A long arm. It reaches what lies far away.", "A skull on a string. Vas dislikes it.",
+    "Fingers on a string. Wear it.", "Teeth on a string. It rattles when you walk.", "A rock with an eye. It looks at you.",
+    "A cage of ribs. A small shelter.", "A heart on a string. It still beats, for a moment.", "A dull knife. Worse than the first.",
 };
 static void (*action_cb)(int kind, int act);
 const char *item_desc(int kind) { return kind >= 0 && kind < ITEM_COUNT ? DESCS[kind] : ""; }
-int item_actions(int kind, int out[4]) {
-    switch (kind) {
-    case ITEM_KNIFE: out[0] = ACT_STAB; out[1] = ACT_STAB_SELF; return 2;
-    case ITEM_ROCK:  out[0] = ACT_THROW; return 1;
-    case ITEM_ARM:   out[0] = ACT_CUT_FINGERS; out[1] = ACT_CUT_BONE; out[2] = ACT_DROP; return 3;
-    case ITEM_LEG:   out[0] = ACT_CUT_BONE; out[1] = ACT_DROP; return 2;
-    case ITEM_HEAD:  out[0] = ACT_CUT_EYES; out[1] = ACT_CUT_TEETH; out[2] = ACT_CLEAN; out[3] = ACT_DROP; return 4;
-    case ITEM_SPINE: case ITEM_BONE: out[0] = ACT_DROP; return 1;
-    default: return 0;
-    }
+static int have[ITEM_COUNT];                /* (declared again below, with its comment) */
+/* section 7. one result per pair, either order */
+static const struct { int a, b, r; } RECIPES[] = {
+    { ITEM_ROCK, ITEM_INTESTINE, ITEM_TIED_ROCK }, { ITEM_INTESTINE, ITEM_INTESTINE, ITEM_LONG_ROPE }, { ITEM_SPINE, ITEM_INTESTINE, ITEM_SPINE_HOOK },
+    { ITEM_BONE, ITEM_ROCK, ITEM_CLUB }, { ITEM_ARM, ITEM_BONE, ITEM_LONG_REACH }, { ITEM_SKULL, ITEM_INTESTINE, ITEM_SKULL_STRING },
+    { ITEM_FINGERS, ITEM_INTESTINE, ITEM_FINGER_NECKLACE }, { ITEM_TEETH, ITEM_INTESTINE, ITEM_TOOTH_NECKLACE }, { ITEM_EYES, ITEM_ROCK, ITEM_WATCHING_ROCK },
+    { ITEM_RIBS, ITEM_RIBS, ITEM_RIB_CAGE }, { ITEM_HEART, ITEM_INTESTINE, ITEM_HEART_STRING }, { ITEM_LIVER, ITEM_KNIFE, ITEM_DULL_KNIFE },
+};
+int item_recipe(int a, int b) {
+    for (unsigned i = 0; i < sizeof RECIPES / sizeof RECIPES[0]; i++)
+        if ((RECIPES[i].a == a && RECIPES[i].b == b) || (RECIPES[i].a == b && RECIPES[i].b == a)) return RECIPES[i].r;
+    return -1;
 }
-const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : ""; }
+static int in_recipe(int kind) {
+    for (unsigned i = 0; i < sizeof RECIPES / sizeof RECIPES[0]; i++) if (RECIPES[i].a == kind || RECIPES[i].b == kind) return 1;
+    return 0;
+}
+static int craft_a = -1;                                    /* the first half of a craft is chosen: the next slot you touch is the second */
+static void (*craft_cb)(int a, int b);
+void item_set_craft_cb(void (*cb)(int a, int b)) { craft_cb = cb; }
+static int worn_[ITEM_COUNT];
+int item_wear_toggle(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return 0; worn_[kind] = !worn_[kind]; return worn_[kind]; }
+int item_worn(int kind) { return kind >= 0 && kind < ITEM_COUNT && worn_[kind] && have[kind] > 0; }
+int item_actions(int kind, int out[4]) {
+    int n = 0;
+    switch (kind) {
+    case ITEM_KNIFE: out[n++] = ACT_STAB; out[n++] = ACT_STAB_SELF; break;
+    case ITEM_ROCK:  out[n++] = ACT_THROW; break;
+    case ITEM_ARM:   out[n++] = ACT_CUT_FINGERS; out[n++] = ACT_CUT_BONE; out[n++] = ACT_DROP; break;
+    case ITEM_LEG:   out[n++] = ACT_CUT_BONE; out[n++] = ACT_DROP; break;
+    case ITEM_HEAD:  out[n++] = ACT_CUT_EYES; out[n++] = ACT_CUT_TEETH; out[n++] = ACT_CLEAN; out[n++] = ACT_DROP; break;
+    case ITEM_SPINE: case ITEM_RIB_CAGE: case ITEM_LONG_REACH: out[n++] = ACT_DROP; break;
+    case ITEM_SPINE_HOOK: out[n++] = ACT_SWING; out[n++] = ACT_DROP; break;
+    case ITEM_TIED_ROCK:  out[n++] = ACT_SWING; break;
+    case ITEM_CLUB:       out[n++] = ACT_SMASH; out[n++] = ACT_DROP; break;
+    case ITEM_SKULL_STRING: case ITEM_FINGER_NECKLACE: case ITEM_TOOTH_NECKLACE: out[n++] = ACT_WEAR; break;
+    case ITEM_WATCHING_ROCK: out[n++] = ACT_DROP; break;
+    default: break;
+    }
+    if (in_recipe(kind) && n < 4) out[n++] = ACT_COMBINE;
+    return n;
+}
+const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : act == ACT_COMBINE ? "COMBINE" : act == ACT_SWING ? "SWING" : act == ACT_SMASH ? "SMASH" : act == ACT_WEAR ? "WEAR" : ""; }
 void item_set_action_cb(void (*cb)(int kind, int act)) { action_cb = cb; }
 
 int item_size(int kind) {
     switch (kind) {                         /* arms, legs, heads, spines and bones are carried in the hands (one at a time); the rest fit a pocket */
-    case ITEM_ARM: case ITEM_LEG: case ITEM_HEAD: case ITEM_SPINE: case ITEM_BONE: return SIZE_MEDIUM;
+    case ITEM_ARM: case ITEM_LEG: case ITEM_HEAD: case ITEM_SPINE:
+    case ITEM_SPINE_HOOK: case ITEM_CLUB: case ITEM_LONG_REACH: case ITEM_RIB_CAGE: return SIZE_MEDIUM;      /* (the bone is small: arm + bone needs both) */
     default: return SIZE_SMALL;
     }
 }
@@ -248,7 +324,7 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; }
+void item_clear(void) { memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; }
 
 static int owned(void);
 void item_update(float dt) {
@@ -452,8 +528,8 @@ static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) 
 }
 static int d_pitch(void) { return font_height(dcell()) + qs; }
 static int act_h(void) { return font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + 2 * pad; }
-static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() ? wrap(item_desc(ui_sel), dcell(), uw - 2 * bt - 2 * pad, ln) : 0; }
-static int act_n(int out[2]) { return sel_ok() ? item_actions(ui_sel, out) : 0; }
+static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() && craft_a < 0 ? wrap(item_desc(ui_sel), dcell(), uw - 2 * bt - 2 * pad, ln) : 0; }
+static int act_n(int out[4]) { return sel_ok() && craft_a < 0 ? item_actions(ui_sel, out) : 0; }
 static int extra_h(void) { int a[4], nl = desc_n(), na = act_n(a); return (nl ? nl * d_pitch() + pad : 0) + na * (act_h() + pad); }
 static int panel_full_h(void) { int rows = slots_n() / INV_COLS; return 2 * bt + pad + rows * psl + (rows - 1) * pad + pad + label_h() + extra_h(); }
 static int grid_bottom(void) { int rows = slots_n() / INV_COLS; return uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad; }
@@ -492,6 +568,7 @@ int item_ui_bag_y(void) { return uy + bag / 2; }
 
 static void set_open(int o) {
     if (o && !ui_open) { ui_idle = 0; ui_sel = newest >= 0 && have[newest] > 0 ? newest : kind_at_slot(0); }
+    if (!o) craft_a = -1;
     ui_open = o;
 }
 int item_ui_touch(int a, int x, int y) {
@@ -510,11 +587,19 @@ int item_ui_touch(int a, int x, int y) {
             int acts[4], na = ui_p >= 1.0f ? act_n(acts) : 0;
             for (int i = 0; i < na; i++) {                   /* story chunk 8: an action button: fold the panel, then the story decides what happens */
                 int rx, ry, rw, rh; act_rect(i, &rx, &ry, &rw, &rh);
-                if (in_rect(x, y, rx, ry, rw, rh)) { int k = ui_sel; ui_open = 0; ui_down = 0; if (action_cb) action_cb(k, acts[i]); return 1; }
+                if (in_rect(x, y, rx, ry, rw, rh)) {
+                    int k = ui_sel; ui_down = 0;
+                    if (acts[i] == ACT_COMBINE) { craft_a = k; ui_idle = 0; return 1; }       /* chunk 10: now touch the second slot */
+                    ui_open = 0; if (action_cb) action_cb(k, acts[i]); return 1;
+                }
             }
             for (int i = 0; i < slots_n(); i++) {
                 int sx = slot_x(i), sy = slot_y(i);
-                if (in_rect(x, y, sx - pad / 2, sy - pad / 2, psl + pad, psl + pad) && kind_at_slot(i) >= 0) ui_sel = kind_at_slot(i);
+                if (in_rect(x, y, sx - pad / 2, sy - pad / 2, psl + pad, psl + pad) && kind_at_slot(i) >= 0) {
+                    int kk = kind_at_slot(i);
+                    if (craft_a >= 0) { int a0 = craft_a; craft_a = -1; ui_open = 0; if (craft_cb) craft_cb(a0, kk); }     /* chunk 10: the second half of a craft */
+                    else ui_sel = kk;
+                }
             }
         }
         ui_down = 0; return 1;
@@ -567,6 +652,7 @@ void item_ui_draw(SDL_Renderer *r, float t) {
             int gold = k == newest, br = 122, bg = 130, bb = 156;
             if (gold) { br = 236; bg = 190; bb = 78; if (blink) { br = 255; bg = 250; bb = 220; } }
             else if (k == ui_sel) { br = 206; bg = 214; bb = 232; }
+            if (k == craft_a) { br = 255; bg = 130; bb = 150; }
             box(r, sx, sy, psl, psl, br, bg, bb, 20, 24, 46, 255);
             if (gold && flash) { SDL_SetRenderDrawColor(r, 255, 238, 170, blink ? 70 : 0); SDL_Rect in = { sx + bt, sy + bt, psl - 2 * bt, psl - 2 * bt }; SDL_RenderFillRect(r, &in); }
             item_draw_icon(r, k, sx + (psl - ITEM_ICON_CELLS * pcell) / 2, sy + (psl - ITEM_ICON_CELLS * pcell) / 2, pcell);
@@ -582,7 +668,7 @@ void item_ui_draw(SDL_Renderer *r, float t) {
             SDL_SetRenderDrawColor(r, 236, 190, 78, 255);
             SDL_Rect a0 = { cx - 2 * qs, gy + pad / 2, 4 * qs, qs }, a1 = { cx - qs, gy + pad / 2 + qs, 2 * qs, qs };
             SDL_RenderFillRect(r, &a0); SDL_RenderFillRect(r, &a1);
-            const char *nm = item_name(ui_sel); int fc = fcell(nm, pw_ - 2 * bt - 2 * pad), tw = font_width(nm, fc);
+            const char *nm = craft_a >= 0 ? "WITH WHAT?" : item_name(ui_sel); int fc = fcell(nm, pw_ - 2 * bt - 2 * pad), tw = font_width(nm, fc);
             int x0 = cx - tw / 2, lo = px_ + bt + pad, hi = px_ + pw_ - bt - pad - tw; if (x0 > hi) x0 = hi; if (x0 < lo) x0 = lo;
             SDL_SetRenderDrawColor(r, 235, 240, 255, 255);
             font_draw(r, nm, x0, gy + pad / 2 + 2 * qs + qs / 2, fc);

@@ -273,6 +273,18 @@ static void story_smash(unsigned v) {                               /* the big r
 }
 static void story_full(void) { toast_notice("HANDS FULL", "Put something down first."); }
 static void need_knife(void) { sfx_error(); toast_notice("NO KNIFE", "You need a knife for that."); }
+/* chunk 10: two slots, one recipe (item.c). both ingredients are used up; a result that is carried in the hands needs them free */
+static void story_craft(int a, int b) {
+    if (dying) return;
+    int r = item_recipe(a, b);
+    if (r < 0 || (a == b && item_count(a) < 2)) { sfx_error(); toast_notice("DOESN'T FIT", "Those don't go together."); return; }
+    int frees = item_size(a) == SIZE_MEDIUM || item_size(b) == SIZE_MEDIUM;
+    if (item_size(r) == SIZE_MEDIUM && item_medium_held() && !frees) { sfx_error(); story_full(); return; }
+    item_take(a); item_take(b); item_give(r);
+    sfx_found();
+    toast_notice("YOU MAKE", item_name(r));
+    event_fire(EV_FIRST_CRAFT);
+}
 static void story_action(int kind, int act) {
     if (dying) return;
     switch (act) {
@@ -292,6 +304,12 @@ static void story_action(int kind, int act) {
         return;
     case ACT_DROP: {
         float x, y; item_take(kind); world_player_tilef(&x, &y); world_drop_item_near(kind, x, y); return; }
+    case ACT_SMASH: {                                                                   /* the club: all of section 6 at once, no knife */
+        unsigned v = world_body_in_reach();
+        if (!v) { sfx_error(); toast_notice("NOTHING TO SMASH", "Get close to a body."); return; }
+        sfx_hit(); story_smash(v); return; }
+    case ACT_SWING: toast_notice("NOT HERE", "Swing it at the edge of the pit."); return;   /* the swing itself is chunk 11 */
+    case ACT_WEAR: { int on = item_wear_toggle(kind); toast_notice(on ? "YOU WEAR IT" : "TAKEN OFF", item_name(kind)); return; }
     case ACT_CUT_FINGERS: if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_FINGERS); return;      /* the arm stays: fingers do not use it up */
     case ACT_CUT_EYES:    if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_EYES); return;
     case ACT_CUT_TEETH:   if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_TEETH); return;
@@ -315,7 +333,7 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
-    item_set_action_cb(story_action); item_set_full_cb(story_full); world_set_smash_cb(story_smash);
+    item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash);
     world_ritual(story_vessel_look(1), story_woke);
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */
