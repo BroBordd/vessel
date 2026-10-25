@@ -73,6 +73,7 @@ static int handle_back(State st) {
     win_track();                                            /* (also catches a window that opened since the last frame) */
     if (win_n > 0) { win_close(win_order[win_n - 1]); return 1; }   /* the front window; one still sliding away just swallows the press */
     if (st == ST_WORLD) {
+        if (world_final_active()) return 1;                 /* the final action (the self stab): the back button does nothing */
         int was = pausebtn_paused();
         pausebtn_set_paused(!was);
         if (!was) world_touch(3, 0, 0);                     /* just paused: let go of the stick */
@@ -236,6 +237,8 @@ int main(int argc, char **argv) {
                 } else if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
                     if (confirm_touch(a, x, y)) {
                         /* the confirm window is open: it takes every touch (it is the front one) */
+                    } else if (state == ST_WORLD && world_final_active()) {
+                        world_touch(a, x, y);                       /* the final action (the self stab): only its CONTINUE button listens (no map, music, brain, pause) */
                     } else if (mapwin_touch(a, x, y)) {
                         /* the map window is open: it takes every touch */
                     } else if (musicwin_touch(a, x, y)) {

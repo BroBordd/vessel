@@ -478,7 +478,7 @@ static unsigned bf_seed = 99991u;
 #define BF_GAIN 0.34f
 void sfx_blood_fountain(float level) {
     if (!dev) return;
-    if (level < 0.0f) level = 0.0f; if (level > 1.0f) level = 1.0f;
+    level = level < 0.0f ? 0.0f : level > 1.0f ? 1.0f : level;
     SDL_LockAudioDevice(dev);
     bf_tgt = level;
     if (level > 0.0f) { if (!bf_on) { bf_amp = 0.0f; bf_lpa = bf_lpb = bf_lph = 0.0f; } bf_on = 1; bf_hold = (int)(0.25f * OUT_RATE); }
@@ -517,7 +517,7 @@ static unsigned sp_seed = 31337u;
 void sfx_blood_sputter(float strength) {
     n_sput++;
     if (!dev) return;
-    if (strength < 0.05f) strength = 0.05f; if (strength > 1.0f) strength = 1.0f;
+    strength = strength < 0.05f ? 0.05f : strength > 1.0f ? 1.0f : strength;
     SDL_LockAudioDevice(dev);
     sp_str = strength; sp_len = (int)((0.07f + 0.10f * strength) * OUT_RATE); sp_pos = 0; sp_ph = 0.0f; sp_lp = 0.0f; sp_on = 1;
     SDL_UnlockAudioDevice(dev);
@@ -532,7 +532,8 @@ static void sp_mix(Sint16 *out, int frames) {
         sp_seed = sp_seed * 1664525u + 1013904223u;
         float n = (float)(sp_seed >> 16) / 32768.0f - 1.0f;
         sp_ph += (150.0f - 80.0f * k) * (1.0f + 0.35f * n) / (float)OUT_RATE;
-        if (sp_ph >= 1.0f) sp_ph -= 1.0f; if (sp_ph < 0.0f) sp_ph += 1.0f;
+        if (sp_ph >= 1.0f) sp_ph -= 1.0f;
+        if (sp_ph < 0.0f) sp_ph += 1.0f;
         float sq = sp_ph < 0.4f ? 1.0f : -1.0f;
         sp_lp += 0.22f * (0.8f * sq + 0.5f * n - sp_lp);
         float wet = 0.6f + 0.4f * sinf(6.2831853f * 70.0f * tt);

@@ -17,6 +17,8 @@ int  confirm_active(void);                                           /* the wind
 void confirm_cancel(void);                                           /* closes it as NO (the back button, a new life) */
 int  confirm_touch(int action, int x, int y);                        /* Android MotionEvent action (0 down, 1 up, 2 move, 3 cancel). 1 = the window took this touch */
 void confirm_draw(SDL_Renderer *r);                                  /* over everything */
+/* a plain button in the look of the NO button (gold frame, dark body, gold letters); alpha 0..255 fades it. for other screens (the self-stab scene's CONTINUE) */
+void confirm_button_draw(SDL_Renderer *r, int x, int y, int w, int h, const char *label, int cell, int pressed, int alpha);
 /* (tests) the centre of the YES / NO button, -1 when closed */
 int  confirm_yes_x(void);
 int  confirm_yes_y(void);

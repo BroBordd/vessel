@@ -112,8 +112,17 @@ static SDL_Texture *atex; static SDL_Renderer *aren;
 #define FIN_APP     3.0f            /* both hands bring the knife in, at the neck's height ... */
 #define FIN_APP_T   1.8f            /* ... this long (slow, then faster) */
 #define FIN_HIT     (FIN_APP + FIN_APP_T)
-#define FIN_END     (FIN_HIT + 1.1f)
-static int fin_on, fin_hit; static float fin_t; static void (*fin_cb)(void);
+/* after the knife is in (t from the start of the scene; FIN_HIT = the knife goes through): silence, then the fountain, then at FIN_RED a hard cut to the red filter and
+ * "<NAME> HAS DIED", a hold (the body lies down, the fountain turns into a few drops, the last squirts), then the CONTINUE button fades in. its tap runs fin_cb (the death) */
+#define FIN_SIL     1.2f            /* standing, eyes shut, the knife in the neck: nothing happens */
+#define FIN_FOUNT   3.0f            /* the fountain */
+#define FIN_RED     (FIN_HIT + FIN_SIL + FIN_FOUNT)
+#define FIN_HOLD    2.0f            /* the filter and the text, then ... */
+#define FIN_BTN     (FIN_RED + FIN_HOLD)    /* ... the button fades in */
+#define FIN_BTN_T   0.6f
+static int fin_on, fin_hit, fin_red, fin_lying, fin_down, fin_sput; static float fin_t, fin_acc; static void (*fin_cb)(void);
+static void fin_reset(void);
+/* fin_lying stays on after the tap (until the next life: world_init / world_reload_ruins): the eyes stay shut, the body lies, and the blood stays on the floor */
 static float fin_ss(float u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3.0f - 2.0f * u); }
 
 static const Person *player_look = &VESSEL;   /* who the player looks like (world_set_player) */
@@ -563,6 +572,7 @@ void world_init(int w, int h) {
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
     controls_visible = 1; btn_down = btn_inside = 0;
     aoi_z = 1.0f;
+    fin_reset();
     blackout_t = -1; blackout_cb = NULL;
     float u = ui;
 
@@ -607,17 +617,114 @@ void world_player_to_tile(float tx, float ty) {             /* the feet go there
 }
 int world_ritual_running(void) { return ritual_active(); }
 
+/* the blood: drops (flying, in sprite px relative to the feet; x right, y down) that land and stay as splats on the floor */
+typedef struct { float x, y, vx, vy, fl, sz; int on; } FinDrop;
+#define FIN_DROPS  240
+#define FIN_SPLATS 160
+static FinDrop fin_drop[FIN_DROPS];
+static struct { float x, y, sz; } fin_spl[FIN_SPLATS]; static int fin_nspl;
+static unsigned fin_seed = 2024u;
+static float fin_rnd(void) { fin_seed = fin_seed * 1664525u + 1013904223u; return (float)(fin_seed >> 8) / 16777216.0f; }
+/* n drops out of the neck (standing: at the neck; lying: at the nape of the lying body). power scales the speed, sz the size (sprite px) */
+static void fin_spawn(int n, float power, float sz) {
+    float ox = fin_lying ? 1.8f : 0.5f, oy = fin_lying ? -9.0f : -3.5f, fl0 = fin_lying ? -1.0f : 0.0f;
+    for (int k = 0; k < n; k++) {
+        int i = 0; while (i < FIN_DROPS && fin_drop[i].on) i++;
+        if (i == FIN_DROPS) return;
+        FinDrop *d = &fin_drop[i];
+        float side = fin_rnd() < 0.5f ? -1.0f : 1.0f;
+        d->on = 1; d->x = ox + (fin_rnd() - 0.5f) * 1.6f; d->y = oy;
+        d->vx = side * (0.8f + fin_rnd() * 7.0f) * power; d->vy = -(10.0f + fin_rnd() * 15.0f) * power;
+        d->fl = fl0 + fin_rnd() * 2.2f; d->sz = sz * (0.7f + fin_rnd() * 0.6f);
+    }
+}
+static void fin_sim(float dt) {
+    for (int i = 0; i < FIN_DROPS; i++) {
+        FinDrop *d = &fin_drop[i];
+        if (!d->on) continue;
+        d->vy += 42.0f * dt; d->x += d->vx * dt; d->y += d->vy * dt;
+        if (d->vy > 0 && d->y >= d->fl) {                          /* it lands: a spot on the floor that stays */
+            int k = fin_nspl % FIN_SPLATS;
+            fin_spl[k].x = d->x; fin_spl[k].y = d->fl; fin_spl[k].sz = d->sz * 1.1f; fin_nspl++;
+            d->on = 0;
+        }
+    }
+}
+static int fin_jitter(int px) {                                    /* the body shakes (small, fast, sideways) from the fountain on */
+    if (!fin_on || fin_t < FIN_HIT + FIN_SIL) return 0;
+    float j = sinf(fin_t * 83.0f) * 0.6f + sinf(fin_t * 137.0f + 1.3f) * 0.4f;
+    return (int)lroundf(j * (float)px * 0.7f);
+}
+static void fin_draw_splats(SDL_Renderer *r, int bx, int by, int px) {      /* on the floor, under the body */
+    if (!fin_nspl || !(fin_on || fin_lying)) return;
+    int n = fin_nspl < FIN_SPLATS ? fin_nspl : FIN_SPLATS;
+    col(r, 118, 8, 20, 235);
+    for (int i = 0; i < n; i++) {
+        int w = (int)(fin_spl[i].sz * px) + 1, h = (int)(fin_spl[i].sz * px * 0.6f) + 1;
+        fill(r, bx + (int)(fin_spl[i].x * px), by + (int)(fin_spl[i].y * px), w, h);
+    }
+}
+static void fin_draw_drops(SDL_Renderer *r, int bx, int by, int px) {     /* in the air, over the body */
+    if (!fin_on) return;
+    for (int i = 0; i < FIN_DROPS; i++) {
+        if (!fin_drop[i].on) continue;
+        if (i & 1) col(r, 196, 20, 32, 255); else col(r, 226, 44, 52, 255);
+        int w = (int)(fin_drop[i].sz * px) + 1;
+        fill(r, bx + (int)(fin_drop[i].x * px), by + (int)(fin_drop[i].y * px), w, w);
+    }
+}
+/* the CONTINUE button: centred, low on the screen (the body is in the middle, the text above it) */
+static void fin_btn(int *x, int *y, int *w, int *h, int *c) {
+    float u = (W < H ? W : H) / 360.0f; int cell = (int)(2.0f * u); if (cell < 1) cell = 1; if (cell > 3) cell = 3;
+    *w = font_width("CONTINUE", cell) + (int)(26 * u); *h = font_height(cell) + (int)(14 * u);
+    *x = (W - *w) / 2; *y = (int)(H * 0.72f); *c = cell;
+}
+static float fin_btn_a(void) { return fin_on ? fin_ss((fin_t - FIN_BTN) / FIN_BTN_T) : 0.0f; }
+static int fin_btn_hit(int x, int y) { int bx, by, bw, bh, bc; fin_btn(&bx, &by, &bw, &bh, &bc); return x >= bx && x < bx + bw && y >= by && y < by + bh; }
+static void fin_continue(void) {                                   /* the tap: the filter, the text and the shaking end; the death runs (the body stays lying, eyes shut) */
+    void (*cb)(void) = fin_cb; fin_cb = NULL; fin_on = 0; fin_down = 0;
+    memset(fin_drop, 0, sizeof fin_drop);
+    sfx_blood_fountain(0.0f);
+    if (cb) cb();
+}
+static void final_touch(int a, int x, int y) {
+    if (a == 0) fin_down = fin_btn_a() > 0.5f && fin_btn_hit(x, y);
+    else if (a == 3) fin_down = 0;
+    else if (a == 1) { int d = fin_down; fin_down = 0; if (d && fin_btn_hit(x, y)) fin_continue(); }
+}
+
 void world_final_stab(void (*done)(void)) {
     if (fin_on) return;
     fin_on = 1; fin_hit = 0; fin_t = 0; fin_cb = done;
+    fin_red = 0; fin_lying = 0; fin_down = 0; fin_sput = 0; fin_acc = 0; fin_nspl = 0; memset(fin_drop, 0, sizeof fin_drop);
+    fin_seed ^= (unsigned)SDL_GetTicks();
     world_set_controls_visible(0);                              /* the stick and the buttons go; nothing else may take us now */
     mapwin_close(); drag_on = 0; moving = 0; walk = 0; facing = FACE_DOWN;   /* we stand still and face the front */
 }
 int world_final_active(void) { return fin_on; }
+static void fin_reset(void) { fin_on = 0; fin_lying = 0; fin_red = 0; fin_down = 0; fin_nspl = 0; fin_cb = NULL; memset(fin_drop, 0, sizeof fin_drop); sfx_blood_fountain(0.0f); }
 static void final_update(float dt) {
+    static const float SPUT_T[5] = { 0.12f, 0.55f, 1.0f, 1.45f, 1.85f }, SPUT_K[5] = { 1.0f, 0.85f, 0.6f, 0.4f, 0.25f };   /* the last squirts: spaced out, fading */
     fin_t += dt; kx = ky = 0; stick_on = 0; moving = 0; walk = 0; facing = FACE_DOWN;
-    if (!fin_hit && fin_t >= FIN_HIT) { fin_hit = 1; sfx_hit(); }
-    if (fin_t >= FIN_END) { void (*cb)(void) = fin_cb; fin_cb = NULL; fin_on = 0; if (cb) cb(); }
+    if (!fin_hit && fin_t >= FIN_HIT) { fin_hit = 1; sfx_hit(); }              /* the knife is through the neck */
+    float ft = fin_t - FIN_HIT - FIN_SIL;
+    if (ft >= 0 && ft < FIN_FOUNT) {                                           /* the fountain: it rises fast, holds, eases a little */
+        float env = fin_ss(ft / 0.35f) * (1.0f - 0.3f * fin_ss((ft - 2.0f) / 1.0f));
+        fin_acc += 130.0f * env * dt; int n = (int)fin_acc; fin_acc -= (float)n;
+        fin_spawn(n, 1.0f, 0.8f);
+        sfx_blood_fountain(env);
+    }
+    if (!fin_red && fin_t >= FIN_RED) {                                        /* the hard cut: the red filter and the text on this very frame */
+        fin_red = 1; fin_lying = 1; fin_acc = 0;
+        sfx_blood_fountain(0.0f); sfx_hit();
+    }
+    if (fin_red) {
+        float ht = fin_t - FIN_RED, rate = 5.0f * (1.0f - ht / (FIN_HOLD + 3.0f)); if (rate < 1.0f) rate = 1.0f;
+        fin_acc += rate * dt; int n = (int)fin_acc; fin_acc -= (float)n;
+        fin_spawn(n, 0.4f, 0.5f);                                              /* a weak shake of small drops, now and then */
+        while (fin_sput < 5 && ht >= SPUT_T[fin_sput]) { sfx_blood_sputter(SPUT_K[fin_sput]); fin_spawn(3, 0.45f, 0.5f); fin_sput++; }
+    }
+    fin_sim(dt);
 }
 
 void world_set_controls_visible(int on) {
@@ -749,6 +856,7 @@ void world_reload_ruins(void) {
     blackout_t = -1; blackout_cb = NULL;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
     aoi_z = 1.0f; moving = 0; walk = 0; facing = FACE_DOWN;
+    fin_reset();                                              /* the new body opens its eyes */
     t = 0;
     world_set_controls_visible(0);
 }
@@ -781,6 +889,7 @@ void world_touch(int a, int x, int y) {
 /* one finger of possibly two (a thumb on the stick and one on the interact button). every control remembers WHICH finger holds it and only
  * listens to that one; a finger that goes down takes the control it lands on if that is free */
 void world_touch_p(int pid, int a, int x, int y) {
+    if (fin_on) { if (pid == 0) final_touch(a, x, y); return; }   /* the final action: only the CONTINUE button listens */
     if (dialog_active()) {                              /* dialogs eat all touches */
         if (pid) return;
         dialog_touch(a, x, y);
@@ -1091,7 +1200,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                             /* the big rock (story chunk 7) */
     item_draw_ground(r, cx, cy, t);                                                                                            /* lying on the floor: under the player */
 
-    int sx0 = (int)pxp - cx, sy0 = (int)pyp - cy;
+    int fjit = fin_jitter(px), sx0 = (int)pxp - cx + fjit, sy0 = (int)pyp - cy;     /* (the final action shakes the body) */
+    fin_draw_splats(r, sx0 - fjit, sy0, px);                      /* the blood of the final action, on the floor under us */
     char_set_darken(TEMPLE_SHADE);                                /* the ruins are shut in: a shadow over the body (off again after it is drawn) */
     if (ritual_active()) {                                        /* the vessel is drawn up out of the blood, from the feet up (ritual_draw_over puts the blood pixels on it) */
         int rows = ritual_player_rows();
@@ -1124,23 +1234,24 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
         if (strain_t > 0) char_set_strain(1);                      /* pulling is hard: the eyes shut */
         if (pick_on && !pick_taken && !pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
-        int stab_pose = fin_on && fin_t >= FIN_RAISE;
+        int stab_pose = fin_on && fin_t >= FIN_RAISE && !fin_lying;
         if (stab_pose) {                                            /* the self stab: both hands hold the knife at the neck's height, the blade towards the neck (from the right) */
             float bx0 = (float)sx0 - 5.0f * px, by0 = (float)sy0 - 12.0f * px;        /* the sprite's top-left */
             float chx = bx0 + 5.0f * px, ny = by0 + 8.0f * px;                         /* the body's middle, and the neck's height */
             float re = fin_ss((fin_t - FIN_RAISE) / FIN_RAISE_T);                      /* the raise: the hands go from the floating hands to the grip, the blade turns from up to sideways */
             float a = (fin_t - FIN_APP) / FIN_APP_T; a = a < 0 ? 0 : a > 1 ? 1 : a; a = a * a;                 /* then the approach: slow, then faster */
-            float g0 = chx + 11.0f * px, g1 = chx + 6.5f * px;                         /* the handle's x: held out, and with the tip in the neck */
+            float g0 = chx + 11.0f * px, g1 = chx + 3.0f * px;                         /* the handle's x: held out, and with the blade THROUGH the neck (the tip comes out the far side) */
             float gx = g0 + (g1 - g0) * a, gy = (by0 + 9.5f * px + (ny - (by0 + 9.5f * px)) * re);
             float rx = bx0 + 9.5f * px;                                                /* the raise starts at the right hand's rest */
             if (re < 1.0f) gx = rx + (g0 - rx) * re;
             char_set_stab(1, re, re * 1.5707963f, gx, gy);
         } else { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
-        if (fin_on && fin_t >= FIN_EYES) char_set_strain(1);        /* the eyes close */
-        char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
+        if ((fin_on && fin_t >= FIN_EYES) || fin_lying) char_set_strain(1);        /* the eyes close, and stay shut until the next life */
+        if (fin_lying) char_draw_lying(r, player_look, sx0, sy0, px);          /* the red cut: the body lies down (the sleeping sprite) */
+        else char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
         char_set_stab(0, 0, 0, 0, 0);
         char_set_held(-1, NULL);
-        if (fin_on && fin_hit) {                                    /* the knife is in: blood runs down from the neck */
+        if (fin_on && fin_hit && !fin_lying) {                      /* the knife is in: blood runs down from the neck */
             float age = fin_t - FIN_HIT, bx = (float)sx0 + 0.5f * px, by = (float)sy0 - 12.0f * px + 8.5f * px;
             col(r, 150, 16, 28, 255);
             for (int i = 0; i < 5; i++) {
@@ -1148,6 +1259,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
                 fill(r, (int)(bx + (i - 2) * 0.6f * px), (int)by, (int)(0.45f * px) + 1, (int)len);
             }
         }
+        fin_draw_drops(r, sx0 - fjit, sy0, px);                     /* the fountain, over the body */
         if (pick_on && !pick_taken && pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_set_grip(0, 0, 0); char_set_strain(0);
     }
@@ -1211,6 +1323,17 @@ void world_draw(SDL_Renderer *r) {
     }
     if (controls_visible) item_ui_draw_window(r);                 /* story chunk 16: the inventory window, over the HUD */
 
+    if (fin_on && fin_red) {                                      /* the final action, after the cut: the red filter over everything, the text, the button */
+        col(r, 150, 0, 12, 112); fill(r, 0, 0, W, H);
+        char buf[96]; snprintf(buf, sizeof buf, "%s HAS DIED", story_vessel_name(story_vessel_index()));
+        float u = (W < H ? W : H) / 360.0f; int c = (int)(3.0f * u); if (c < 1) c = 1;
+        while (c > 1 && font_width(buf, c) > W - (int)(24 * u)) c--;
+        int tw = font_width(buf, c), tx = (W - tw) / 2, ty = (int)(H * 0.22f), so = c / 2 > 0 ? c / 2 : 1;
+        col(r, 40, 0, 6, 255);    font_draw(r, buf, tx + so, ty + so, c);
+        col(r, 255, 226, 226, 255); font_draw(r, buf, tx, ty, c);
+        float ba = fin_btn_a();
+        if (ba > 0.0f) { int bx, by, bw, bh, bc; fin_btn(&bx, &by, &bw, &bh, &bc); confirm_button_draw(r, bx, by, bw, bh, "CONTINUE", bc, fin_down, (int)(255.0f * ba)); }
+    }
     if (t < FADE_IN_T) {                                          /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t / FADE_IN_T)));
         fill(r, 0, 0, W, H);

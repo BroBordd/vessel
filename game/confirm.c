@@ -125,3 +125,17 @@ int confirm_yes_x(void) { if (!on) return -1; Lay L; layout(&L); return L.bx[1] 
 int confirm_yes_y(void) { if (!on) return -1; Lay L; layout(&L); return btn_y(&L) + L.bh / 2; }
 int confirm_no_x(void)  { if (!on) return -1; Lay L; layout(&L); return L.bx[0] + L.bw / 2; }
 int confirm_no_y(void)  { if (!on) return -1; Lay L; layout(&L); return btn_y(&L) + L.bh / 2; }
+
+/* a plain button in the look of the NO button (gold frame, dark body), for other screens (the self-stab scene's CONTINUE). alpha 0..255 fades the whole button */
+void confirm_button_draw(SDL_Renderer *r, int x, int y, int w, int h, const char *label, int cell, int pressed, int alpha) {
+    if (alpha <= 0) return; if (alpha > 255) alpha = 255;
+    int b = bt();
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_Rect fr[4] = { { x, y, w, b }, { x, y + h - b, w, b }, { x, y + b, b, h - 2 * b }, { x + w - b, y + b, b, h - 2 * b } };   /* the frame, then the body inside it (no overlap: it fades evenly) */
+    SDL_SetRenderDrawColor(r, 236, 190, 78, alpha);
+    for (int i = 0; i < 4; i++) SDL_RenderFillRect(r, &fr[i]);
+    SDL_Rect in = { x + b, y + b, w - 2 * b, h - 2 * b };
+    SDL_SetRenderDrawColor(r, pressed ? 70 : 40, pressed ? 60 : 34, pressed ? 34 : 20, alpha); SDL_RenderFillRect(r, &in);
+    int tw = font_width(label, cell);
+    SDL_SetRenderDrawColor(r, 255, 238, 170, alpha); font_draw(r, label, x + (w - tw) / 2, y + (h - font_height(cell)) / 2, cell);
+}
