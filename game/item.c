@@ -597,6 +597,33 @@ static void chest_tap(int x, int y) {
     }
 }
 
+/* chunk 18b: DRAG. a finger down on a stack and moved a little picks it up (a floating icon follows it); lifted over the other grid it moves there (body to us: the take,
+ * body_cb). a finger that does not move is still a tap (chest_tap). 0 = nothing, 1 = pressed on a stack, 2 = dragging it */
+static int drag_on, drag_side, drag_kind, drag_x0, drag_y0, drag_x, drag_y;
+static int chest_slot_at(int x, int y, int *side, int *kind) {
+    for (int s = 0; s < 2; s++)
+        for (int i = 0; i < cg_rows[s] * INV_COLS; i++) {
+            int kk = kind_on(s, i);
+            if (kk < 0 || !in_rect(x, y, cs_x(s, i) - pad / 2, cs_y(s, i) - pad / 2, csl + pad, csl + pad)) continue;
+            *side = s; *kind = kk; return 1;
+        }
+    return 0;
+}
+static void drag_press(int x, int y) { drag_on = 0; if (bw_on && chest_slot_at(x, y, &drag_side, &drag_kind)) { drag_on = 1; drag_x0 = drag_x = x; drag_y0 = drag_y = y; } }
+static void drag_move(int x, int y) {
+    if (!drag_on) return;
+    drag_x = x; drag_y = y;
+    int th = (int)(8 * uu); if (th < 6) th = 6;
+    if (drag_on == 1 && (x - drag_x0) * (x - drag_x0) + (y - drag_y0) * (y - drag_y0) > th * th) { drag_on = 2; chest_side = drag_side; ui_sel = drag_kind; }
+}
+static int drag_end(int x, int y) {                             /* 1 = it was a drag (the touch is used up), 0 = it was a tap */
+    int was = drag_on; drag_on = 0;
+    if (was != 2) return 0;
+    int tgt = in_rect(x, y, cg_x[0], cg_y[0], cg_w[0], cg_h[0]) ? 0 : in_rect(x, y, cg_x[1], cg_y[1], cg_w[1], cg_h[1]) ? 1 : -1;
+    if (drag_side == 0 && tgt == 1 && body_cb) body_cb(bw_vessel, drag_kind);       /* the body's stack dropped on our grid: taken */
+    return 1;
+}
+
 /* where everything is: worked out from the screen, the pockets and the selection every time it is needed (cheap) */
 static void win_layout(void) {
     int m = (int)(6 * uu); if (m < 4) m = 4;
@@ -671,6 +698,7 @@ static void set_open(int o) {
         craft_a = -1;
     }
     if (!o) { craft_a = -1; bw_on = 0; }
+    drag_on = 0;
     ui_open = o; ui_p = o ? 1.0f : 0.0f; ui_idle = 0;
 }
 void item_ui_close(void) { set_open(0); ui_down = 0; }
@@ -681,6 +709,7 @@ void item_ui_body_open(unsigned vessel, const char *name, const unsigned char in
     snprintf(bw_name, sizeof bw_name, "%s", name ? name : "");
     for (char *c = bw_name; *c; c++) *c = (char)toupper((unsigned char)*c);
     memcpy(bw_inv, inv, ITEM_COUNT);
+    drag_on = 0;
     if (!was) { craft_a = -1; ui_sel = -1; chest_side = 0; }
     ui_open = 1; ui_p = 1.0f; ui_idle = 0; ui_down = 0;
     if (!chest_sel_ok()) { chest_side = 0; ui_sel = kind_on(0, 0); }       /* the selection is gone (taken): the first thing of the body */
@@ -715,14 +744,16 @@ static void win_tap(int x, int y) {                              /* a tap that b
 int item_ui_touch(int a, int x, int y) {
     if (ui_open) {                                               /* the window takes every touch */
         win_layout();
-        if (a == 0) { ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; return 1; }
+        if (a == 0) { ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; if (ui_down == 2) drag_press(x, y); return 1; }
+        if (a == 2) { drag_move(x, y); return 1; }
         if (a == 1) {
             int d = ui_down; ui_down = 0;
+            if (drag_end(x, y)) return 1;                        /* a drag: dropped, not a tap */
             if (d == 3 && !in_rect(x, y, wx, wy, ww, wh)) set_open(0);       /* a tap outside closes it */
             else if (d == 2 && in_rect(x, y, wx, wy, ww, wh)) win_tap(x, y);
             return 1;
         }
-        if (a == 3) ui_down = 0;
+        if (a == 3) { ui_down = 0; drag_on = 0; }
         return 1;
     }
     if (a == 0) { if (hit_btn(x, y)) { ui_down = 1; return 1; } return 0; }
@@ -806,7 +837,13 @@ static void chest_draw(SDL_Renderer *r) {
                 char num[8]; snprintf(num, sizeof num, "%d", cnt(s, k));
                 txt(r, num, sx + csl - bt - font_width(num, dcc) - qs, sy + csl - bt - font_height(dcc) - qs, dcc, 255, 238, 170);
             }
+            if (drag_on == 2 && s == drag_side && k == drag_kind) { SDL_SetRenderDrawColor(r, 6, 8, 20, 170); SDL_Rect dm = { sx, sy, csl, csl }; SDL_RenderFillRect(r, &dm); }   /* the one in the air leaves its slot dim */
         }
+    }
+    if (drag_on == 2 && drag_side == 0) {                       /* where it can be dropped: our grid gets a green frame */
+        SDL_SetRenderDrawColor(r, 120, 230, 150, 255);
+        SDL_Rect f[4] = { { cg_x[1], cg_y[1], cg_w[1], bt }, { cg_x[1], cg_y[1] + cg_h[1] - bt, cg_w[1], bt }, { cg_x[1], cg_y[1], bt, cg_h[1] }, { cg_x[1] + cg_w[1] - bt, cg_y[1], bt, cg_h[1] } };
+        for (int q = 0; q < 4; q++) SDL_RenderFillRect(r, &f[q]);
     }
     if (chest_sel_ok()) {                                       /* under the items: the name and the text of the selected one */
         const char *nm = item_name(ui_sel); int nc = fcell(nm, st_w);
@@ -821,6 +858,11 @@ static void chest_draw(SDL_Renderer *r) {
         if (on) box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255); else box(r, rx, ry, rw, rh, 60, 66, 90, 20, 24, 40, 255);
         if (on) txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
         else    txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 122, 130, 156);
+    }
+    if (drag_on == 2) {                                         /* the stack under the finger, over everything */
+        int fx = drag_x - csl / 2, fy = drag_y - csl / 2;
+        box(r, fx, fy, csl, csl, 206, 214, 232, 20, 24, 46, 235);
+        item_draw_icon(r, drag_kind, fx + (csl - ITEM_ICON_CELLS * cpc) / 2, fy + (csl - ITEM_ICON_CELLS * cpc) / 2, cpc);
     }
 }
 /* the window itself: world.c draws it over the HUD, under the dialogs */
