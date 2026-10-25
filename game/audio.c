@@ -193,9 +193,9 @@ void sfx_thought(void) {
 static int   blip_on, blip_next;                 /* blip_on: any voice alive (the mixer's cheap switch) */
 static int   bv_pos[BLIP_VOICES];                /* -1 = free */
 static float bv_phase[BLIP_VOICES], bv_f[BLIP_VOICES];
-#define BLIP_T    0.060f                       /* seconds per deek */
-#define BLIP_HZ   256.5f                       /* base pitch at pitch 1.0 */
-#define BLIP_GAIN 0.30f                        /* peak level, fraction of full scale (was 0.50: with the music under it that clipped) */
+#define BLIP_T    0.070f                       /* seconds per deek */
+#define BLIP_HZ   440.0f                       /* base pitch at pitch 1.0 (A4: a small phone speaker plays this cleanly, 256 Hz made it buzz and crunch) */
+#define BLIP_GAIN 0.17f                        /* peak level, fraction of full scale (was 0.50: with the music under it that clipped) */
 
 void sfx_blip(float pitch) {
     if (!dev) return;
@@ -228,9 +228,9 @@ static void blip_mix(Sint16 *out, int frames) {
             float tt = (float)bv_pos[k] / (float)OUT_RATE;
             if (tt >= BLIP_T) { bv_pos[k] = -1; continue; }
             alive = 1;
-            float env = expf(-tt * 22.0f);                               /* crisp decay: a tick, not a ring */
-            if (tt < 0.004f) env *= tt / 0.004f;                         /* no click on the way in */
-            if (tt > BLIP_T - 0.015f) env *= (BLIP_T - tt) / 0.015f;     /* no click on the way out */
+            float env = expf(-tt * 26.0f);                               /* soft decay: a tick, not a ring */
+            if (tt < 0.010f) { float a = tt / 0.010f; env *= 0.5f - 0.5f * cosf(3.1415927f * a); }   /* raised-cosine attack: no click, no pop on a small speaker */
+            if (tt > BLIP_T - 0.025f) { float a = (BLIP_T - tt) / 0.025f; env *= a * a; }            /* smooth way out */
             bv_phase[k] += bv_f[k] / (float)OUT_RATE;
             if (bv_phase[k] >= 1.0f) bv_phase[k] -= 1.0f;
             sum += sinf(6.2831853f * bv_phase[k]) * env;
