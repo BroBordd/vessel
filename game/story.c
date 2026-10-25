@@ -14,13 +14,15 @@
 #include <string.h>
 #include <stdlib.h>
 
+static void story_woke(void);                    /* the new body has formed in the circle (defined with story_start) */
+
 #define VESSEL_NAME  "Aonia"
 #define VESSEL2_NAME "Doia"
 #define VESSEL3_NAME "Tria"
 #define VESSEL_LATIN "Vas"
 
 /*                      name           hair            skin             shirt           pants          boots        long hair  accessories */
-const Person SOUL = { "Soul", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 238 }, { 118, 160, 218 }, { 96, 130, 196 }, 0, ACC_HALO | ACC_WORRIED };
+const Person SOUL = { "Vas", { 232, 240, 255 }, { 188, 226, 246 }, { 140, 186, 238 }, { 118, 160, 218 }, { 96, 130, 196 }, 0, ACC_HALO | ACC_WORRIED };
 const Person VESSEL = { VESSEL_NAME,  { 96, 58, 36 },  { 248, 208, 170 }, { 214, 60, 60 },  { 52, 70, 140 },  { 40, 30, 30 }, 0, 0 };
 const Person VESSEL2 = { VESSEL2_NAME, { 206, 210, 228 }, { 226, 172, 132 }, { 70, 160, 96 }, { 78, 78, 92 }, { 40, 30, 30 }, 1, 0 };
 const Person VESSEL3 = { VESSEL3_NAME, { 214, 108, 40 }, { 150, 100, 72 }, { 126, 84, 190 }, { 40, 44, 56 }, { 60, 40, 30 }, 0, 0 };
@@ -93,7 +95,6 @@ void limbo_end(void) {
 
 int story_limbo_active(void) { return limbo.on; }
 int story_limbo_take_end(void) { int e = limbo.ended; limbo.ended = 0; return e; }
-int story_limbo_take_enter(void) { return 0; }             /* nothing sends us back to limbo yet (no deaths in this story so far) */
 
 void story_limbo_update(float dt) {
     if (!limbo.running) return;
@@ -106,7 +107,12 @@ void story_limbo_update(float dt) {
 
 /* ---------- the beginning: the soul wakes in the dark ---------- */
 #define LIMBO_BEAT 1.0f
-static const DialogLine WAKE_DLG[] = { { &SOUL, "Where am I?" }, { &SOUL, "It is so dark here." } };
+/* the first words of the game: Vas, a soul, one line per tap. then the stars fade and the ruins come (the blood circle has been waiting under the world, see story_start) */
+static const DialogLine WAKE_DLG[] = {
+    { &SOUL, "Well. We did it. We died." },
+    { &SOUL, "So this is what being dead feels like. Quiet. Almost restful." },
+    { &SOUL, "Now it's up to him. Or should I say... me." },
+};
 static int limbo_stay, limbo_opening;
 
 static void wake_done(void) {
@@ -122,12 +128,57 @@ void story_limbo_begin(int stay) {
     limbo_run(NULL, 0, LIMBO_BEAT, wake_say);
 }
 
+/* ---------- a death: limbo again, one tap, then the next vessel wakes in the circle ---------- */
+/* every later death: the world fades to black, the soul has one line that depends on how we died (a tap lets it go), and the next vessel is drawn up out
+ * of the blood. story_die is called by whatever kills us (the knife on ourselves, the pit, the checkpoint); nothing calls it yet but the dev hook below. */
+static const char *const DEATH_LINE[DEATH_CAUSES] = {
+    [DEATH_SELF]   = "Again. Fine.",
+    [DEATH_PIT]    = "I didn't plan that one.",
+    [DEATH_CIRCLE] = "One life, one circle. Fair price.",
+};
+static int dying, enter_pending;
+static DeathCause death_cause;
+static DialogLine death_dlg[1];
+
+static void death_woke(void) {
+    unsigned dead = story_vessel_index();
+    story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
+    world_return_to_clouds();                                   /* the ruins again (the same map), the blackout lifted */
+    world_ritual(story_vessel_look(dead), story_woke);          /* the blood runs, the new body is drawn up out of it; the controls come back after */
+    dying = 0;
+    limbo_end();                                                /* game.c fades the stars out and the world in */
+}
+static void death_say(void) {
+    death_dlg[0].who = &SOUL; death_dlg[0].text = DEATH_LINE[death_cause]; death_dlg[0].reply = 0;
+    dialog_play(death_dlg, 1, death_woke);
+}
+static void died_black(void) { enter_pending = 1; }            /* the world is black: game.c may switch to the stars */
+void story_die(DeathCause cause) {
+    if (dying || cause < 0 || cause >= DEATH_CAUSES) return;
+    dying = 1; death_cause = cause;
+    world_set_controls_visible(0);
+    world_fade_to_black(1.2f, died_black);
+}
+int story_limbo_take_enter(void) {
+    if (!enter_pending) return 0;
+    enter_pending = 0;
+    limbo_run(NULL, 0, 0.7f, death_say);                        /* a beat of stars, then the line */
+    return 1;
+}
+/* dev: VESSEL_DIE=self|pit|circle dies 6 s after the world starts, to try the limbo on the phone before anything can kill us for real */
+static void dev_die(void) {
+    const char *e = getenv("VESSEL_DIE");
+    if (!e) return;
+    story_die(!strcmp(e, "pit") ? DEATH_PIT : !strcmp(e, "circle") ? DEATH_CIRCLE : DEATH_SELF);
+}
+
 /* ---------- the world starts ---------- */
 static void story_woke(void) { event_fire(EV_WAKE); }     /* the new body has formed in the circle */
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    events_reset();
+    events_reset(); dying = 0; enter_pending = 0;
+    if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     world_ritual(story_vessel_look(1), story_woke);   /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 

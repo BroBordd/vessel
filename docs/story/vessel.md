@@ -17,7 +17,7 @@
   then link with `$(sdl2-config --libs) -lm`.
 - **Headless looks.** `tools/ruinshot.c` renders the ruins (spawn / near ledge / far ledge, `VESSEL_AT=edge|far` warps there) to `build/*.bmp`;
   `tools/ritualshot.c` renders the blood circle; `tools/gentest.c` checks the map generator over 500 seeds and prints one with `gentest <seed>`.
-- **Dev env vars.** `VESSEL_SEED=n` (map), `VESSEL_INDEX=n` (start in vessel n), `VESSEL_AT=edge|far` (start at the pit), `VESSEL_LIMBO=1`.
+- **Dev env vars.** `VESSEL_SEED=n` (map), `VESSEL_INDEX=n` (start in vessel n), `VESSEL_AT=edge|far` (start at the pit), `VESSEL_LIMBO=1`, `VESSEL_DIE=self|pit|circle` (die 6 s after the world starts).
 
 ## Workflow rules
 - Tick the chunk's checkbox and add its line to the Status log **in the same commit** that implements it. Commit message `story chunk N: <title>`
@@ -233,7 +233,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
   lip, a glint now and then), minimap colour, `world_dist_to_pit()`, `world_pit_spots()`. `tools/gentest.c`, `tools/ruinshot.c`. The old maps stay in the file
   until chunk 14.
 - [x] **3. Event thoughts engine:** `events.c/.h`: every thought of sections 10 and 11 is an `EventId` with its line; `event_fire(id)` from any chunk (once, or a repeat with a cooldown), a small queue thinks them one at a time, only while the player is free (world runs, no talk, no cutscene), with a breath between; each joins the brain window (tag 100+id, the oldest goes when it is full) with a soft chime. The engine sees by itself: wake (`story_woke`), step off the circle, first drag, long drag (10 s, repeat), pit edge, vessel 5/10/20. The rest are fired by their own chunks (`event_fire(EV_...)`). New `world_player_tilef/controls_on/dragging/drag_moving`.
-- [ ] **4. Limbo and the first wake-up:** Vas's three-line conversation, the circle, Aonia with flowing blood, the paper; the short skippable limbo after later deaths, by cause.
+- [x] **4. Limbo and the first wake-up:** Vas's three-line conversation (`WAKE_DLG`, the soul's card now says Vas), then the stars fade into the ruins and the blood circle with Aonia and his flowing blood (already built, `ritual.c`). Later deaths: `story_die(DEATH_SELF|DEATH_PIT|DEATH_CIRCLE)` fades the world to black, limbo shows one skippable line by cause, the next vessel wakes in the circle (`world_return_to_clouds` + `world_ritual`). Nothing kills us yet but dev `VESSEL_DIE=self|pit|circle` (6 s after the world starts). The paper is chunk 5; bodies that stay are chunk 6 (until then the ritual shows the last dead vessel lying by the circle).
 - [ ] **5. The note:** the paper on the floor, reading it flips the card to Doia, the paper disappears, task list.
 - [ ] **6. Persistent bodies:** death adds a body in place, bodies keep their inventory, **Inspect**.
 - [ ] **7. Dragging and carrying (part):** whole-body drag of vessel 1 is built (see Decisions). Left: the blood trail that fades, drag any body, size classes (medium things in the hands), the big rock.
@@ -246,6 +246,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
 
 ## Status log
+- 2026-10-25: chunk 4 done (untested by rule): Vas's opening conversation, `story_die` and the later-death limbo, dev `VESSEL_DIE`. Next: chunk 5.
 - 2026-10-25: drag sound recalmed (`audio.c drag_mix`); AOI camera pull-back at the pit (`world.c`). Untested by rule.
 - 2026-10-25: chunk 3 done: event thoughts engine (`events.c`), wired in `story.c` (`events_reset`, `events_update`, `story_woke`). Written untested by owner's rule. Next: chunk 4.
 - 2026-10-25: the first body's blood cut by 60 % (`ritual.c wounds()`), his face is clear. Whole-body dragging of vessel 1 (chunk 7, part): `ritual_body_box/shift`,

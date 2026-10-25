@@ -47,7 +47,10 @@ void story_limbo_begin(int stay);
  * is 1 once after limbo_end() (time to leave ST_LIMBO). story_limbo_active: a limbo_run has begun and limbo_end has not run. */
 void story_limbo_update(float dt);
 int  story_limbo_take_end(void);
-int  story_limbo_take_enter(void);          /* the story sends us INTO limbo from the world (a death, chunk 12): reported once, game.c switches */
+int  story_limbo_take_enter(void);          /* the story sends us INTO limbo from the world (a death): reported once, game.c switches */
+/* HOW WE DIED decides the soul's one line in limbo. story_die: fade the world to black, limbo (one tap), then the next vessel wakes in the circle */
+typedef enum { DEATH_SELF = 0, DEATH_PIT, DEATH_CIRCLE, DEATH_CAUSES } DeathCause;
+void story_die(DeathCause cause);
 int  story_limbo_active(void);
 int  story_limbo_opening(void);             /* limbo at the start of the game (the soul's popup): the brain button stays away until the world runs */
 
