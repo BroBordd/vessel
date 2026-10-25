@@ -52,6 +52,21 @@ static const char *PAPER[ITEM_ICON_CELLS] = {
     ".GGGGGGGGGG.",
     "............",
 };
+/* the knife (story chunk 6): a steel blade with a wooden handle, the tip red */
+static const char *KNIFE[ITEM_ICON_CELLS] = {
+    "............",
+    "..........GG",
+    ".........GLG",
+    "........GLLG",
+    ".......GLLRG",
+    "......GLDG..",
+    ".....GLDG...",
+    "..GGGLDG....",
+    ".GwwGDG.....",
+    ".GwwG.......",
+    "..GG........",
+    "............",
+};
 /* the magnifying glass (chunk 32). B glass, b glint on the glass. the rim is light steel (L), not the dark outline, so it reads on the dark button */
 static const char *SEARCH[ITEM_ICON_CELLS] = {
     "...LLLLL....",
@@ -96,8 +111,8 @@ static const char *BAG[ITEM_ICON_CELLS] = {
     ".GwWWWWWwwG.",
     "..GGGGGGGG..",
 };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER };
-static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE" };
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE };
+static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE" };
 
 const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[kind] : ""; }
 
@@ -133,6 +148,8 @@ void item_tile(float *x, float *y) { *x = tx + 0.5f; *y = ty + 0.5f; }
 int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind]; }
 void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; have[kind] = 1; new_t = 0; newest = kind; }
 void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT) have[kind] = 0; }
+void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = have[k] ? 1 : 0; }
+void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k] ? 1 : 0; }
 void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; }
 
 static int owned(void);

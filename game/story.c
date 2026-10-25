@@ -11,6 +11,9 @@
 #include "jukebox.h"
 #include "events.h"
 #include "item.h"
+#include "bodies.h"
+#include "toast.h"
+#include <stdio.h>
 #include "missions.h"
 #include "hud.h"
 #include "ritual.h"
@@ -146,9 +149,19 @@ static const char *const DEATH_LINE[DEATH_CAUSES] = {
 static int dying, enter_pending;
 static DeathCause death_cause;
 static DialogLine death_dlg[1];
+static float die_tx, die_ty;                                    /* where the feet were when we died (tiles) */
 
 static void death_woke(void) {
     unsigned dead = story_vessel_index();
+    if (death_cause != DEATH_PIT) {                             /* the body stays where it fell (a fall into the pit leaves nothing on the floor: chunk 11 keeps that pile) */
+        unsigned char inv[ITEM_COUNT]; item_pack(inv);          /* ... with what it carried */
+        float cx, cy; ritual_centre(&cx, &cy);
+        float dx = die_tx - cx, dy = die_ty - cy;
+        if (fabsf(dx) < 3.4f && fabsf(dy) < 2.6f) {             /* it fell on the circle, where the next body will stand: it lies at the circle's edge instead */
+            die_tx = cx + (dx < 0 ? -3.4f : 3.4f); die_ty = cy + (dy < -1.5f ? -1.5f : dy > 1.5f ? 1.5f : dy);
+        }
+        bodies_add(dead, die_tx, die_ty, inv);
+    }
     if (death_cause == DEATH_SELF && dead == START_VESSEL && !note_read) event_fire(EV_SECRET_FAST_DEATH);   /* stabbed ourselves before reading the note: there never is one */
     story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
     hud_reset(story_vessel_look(story_vessel_index()), 0);      /* a body that is not the first knows its name from the moment it wakes: no flash, no toast */
@@ -167,6 +180,7 @@ static void died_black(void) { enter_pending = 1; }            /* the world is b
 void story_die(DeathCause cause) {
     if (dying || cause < 0 || cause >= DEATH_CAUSES) return;
     dying = 1; death_cause = cause;
+    world_player_tilef(&die_tx, &die_ty);
     world_set_controls_visible(0);
     world_fade_to_black(1.2f, died_black);
 }
@@ -214,6 +228,17 @@ static void note_watch(void) {
     dialog_play(NOTE_DLG, (int)(sizeof NOTE_DLG / sizeof NOTE_DLG[0]), note_done);
 }
 
+/* ---------- inspecting a body (chunk 6) ---------- */
+/* the magnifying glass next to a body: a toast says what it carries, and the first look at Aonia is a thought */
+static void story_inspect(unsigned vessel) {
+    const Body *b = bodies_find(vessel);
+    char what[96], line[128];
+    bodies_inv_text(b, what, sizeof what);
+    snprintf(line, sizeof line, "%s %s", story_vessel_name(vessel), what);
+    toast_notice("YOU LOOK CLOSE", line);
+    if (vessel == 1) event_fire(EV_INSPECT_BODY);
+}
+
 /* ---------- the world starts ---------- */
 static void story_woke(void) {                                 /* the new body has formed in the circle */
     event_fire(EV_WAKE);
@@ -226,6 +251,9 @@ void story_start(void) {
     card_show_vas();                            /* the card says Vas until the note is read */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     item_clear();
+    bodies_reset();
+    { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
+    world_set_inspect_cb(story_inspect);
     world_ritual(story_vessel_look(1), story_woke);
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */

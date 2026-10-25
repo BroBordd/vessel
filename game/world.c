@@ -25,6 +25,7 @@
 #include "audio.h"
 #include "jukebox.h"
 #include "gfx.h"
+#include "bodies.h"
 #include "gen.h"
 #include <time.h>
 #include <math.h>
@@ -73,6 +74,8 @@ static int   dragged_now;           /* this frame the pull really moved him */
 static float drag_snd;              /* the friction hiss's level we sent last frame */
 static float drag_ox, drag_oy, drag_spd;   /* where his middle wants to be, from us (px, fixed when we took hold); how fast he really slides (cells / s) */
 static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
+static int   near_inspect; static unsigned inspect_vessel;   /* story chunk 6: a body lies in reach: the hand button shows a magnifying glass and a TAP inspects it (story.c says what it carries) */
+static void (*inspect_cb)(unsigned vessel);
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
 static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
 static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
@@ -249,6 +252,7 @@ static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }
 /* PULLING VESSEL 1 (ritual.c has his box): next to him the button takes hold of him from the side nearest to us (our hands float there); a tap lets go.
  * while we hold him we walk slower, he stays on the floor and is dragged along with us (never into a wall), our eyes shut with the effort, and the stone growls */
 #define DRAG_SPEED  0.75f       /* walking speed while we hold him */
+#define INSPECT_REACH 5.0f      /* cells: how far from a body's edge the magnifying glass shows */
 #define DRAG_REACH  4.0f        /* cells: how far from his edge we may be to take hold */
 #define DRAG_TAU    0.22f       /* his lag: like the camera, he eases toward where our hands would have him (seconds) */
 #define DRAG_SLACK  1.5f        /* cells: the rope is slack this much, he does not move until it is tight (a sandbag has to be started) */
@@ -267,8 +271,9 @@ static float body_gap(void) {                                               /* c
     float dx = fmaxf(fmaxf(x0 - (pxp + 3.0f * px), (pxp - 3.0f * px) - x1), 0.0f), dy = fmaxf(fmaxf(y0 - pyp, (pyp - 3.0f * px) - y1), 0.0f);
     return sqrtf(dx * dx + dy * dy) / (float)px;
 }
-static int body_hits(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on him? */
+static int body_hits(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on him (or on any other body, bodies.c)? */
     float x0, y0, x1, y1;
+    if (cur_map == MAP_TEMPLE && bodies_hit(fx, fy, px, tile)) return 1;
     if (!body_box_px(&x0, &y0, &x1, &y1)) return 0;
     return fx + 3.0f * px > x0 && fx - 3.0f * px < x1 && fy > y0 && fy - 3.0f * px < y1;
 }
@@ -793,7 +798,7 @@ static void load_map(int which) {
     item_reset(px, tile); item_house = 0;      /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     bsearch_reset(tile); near_bsearch = 0;
-    near_shrine = near_grave = near_search = near_bury = 0; near_drag = drag_on = 0; strain_t = 0; near_item = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
+    near_shrine = near_grave = near_search = near_bury = 0; near_drag = drag_on = 0; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = self_prog = self_tick = aim_t = 0;   /* the npc ids are gone with the map */
@@ -1107,6 +1112,7 @@ static void update_door_range(void) {
     near_door = door_in_range;
 }
 
+void world_set_inspect_cb(void (*cb)(unsigned vessel)) { inspect_cb = cb; }
 void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); item_house = indoors; }
 int  world_has_item(int kind) { return item_has(kind); }
 void world_give_item(int kind) { item_give(kind); }
@@ -1392,10 +1398,10 @@ void world_touch_p(int pid, int a, int x, int y) {
     }
 
     /* chunk 68: the hand button: press on it, release on it = take what lies in reach (a pick-up is a tap, not a tool use) */
-    if (a == 0 && !hand_down && near_item && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
+    if (a == 0 && !hand_down && (near_item || near_inspect) && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
     if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
-        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && near_item; hand_down = hand_inside = 0; if (fire) item_grab(pxp, pyp); }
+        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) item_grab(pxp, pyp); else if (inspect_cb) inspect_cb(inspect_vessel); } }
         return;
     }
 
@@ -1576,7 +1582,7 @@ void world_update(float dt) {
     if (phase != PH_PLAY) {                                   /* cinematic: no input, no walking */
         kx = ky = 0; stick_on = 0; moving = 0; walk = 0; btn_down = 0;
         phase_update(dt);
-        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0; near_item = hand_down = hand_inside = 0;
+        near_id = -1; near_hole = 0; near_shrine = 0; near_grave = 0; near_search = 0; near_bsearch = 0; near_bury = 0; near_door = 0; near_item = near_inspect = hand_down = hand_inside = 0;
         near_drag = 0; drag_on = 0;
     } else {
         if (drag_on && (dialog_active() || door_t >= 0 || player_beheaded || throw_t >= 0 || self_aiming() || !controls_visible)) drag_on = 0;   /* he is let go of when anything takes our hands */
@@ -1619,7 +1625,13 @@ void world_update(float dt) {
         update_door_range();
         item_update(dt);
         near_item = !dialog_active() && !near_hole && item_house == indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (on the grass: outside; in the house: inside); nothing is taken by walking */
-        if (!near_item) hand_down = hand_inside = 0;
+        near_inspect = 0;                                                    /* story chunk 6: a body in reach (vessel 1 is ritual.c's, the rest are bodies.c's): the hand button turns into a magnifying glass */
+        if (!near_item && !dialog_active() && !near_hole && !indoors && cur_map == MAP_TEMPLE) {
+            float gap = INSPECT_REACH, g1 = body_gap(), gl = 1e9f; int bi = bodies_nearest(pxp, pyp, px, tile, INSPECT_REACH, &gl);
+            if (g1 <= gap && g1 <= gl) { near_inspect = 1; inspect_vessel = 1; }
+            else if (bi >= 0) { near_inspect = 1; inspect_vessel = bodies_get(bi)->vessel; }
+        }
+        if (!near_item && !near_inspect) hand_down = hand_inside = 0;
         near_shrine = shrine_near(pxp, pyp, !dialog_active() && !near_hole && !indoors && item_has(ITEM_HAMMER));   /* no hammer, no button */
         near_grave = grave_pull_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !indoors);
         near_search = grave_search_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !indoors);
@@ -1661,7 +1673,7 @@ void world_update(float dt) {
         if (bsearch_update(dt, near_bsearch && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (grave_bury_update(dt, near_bury && btn_down && btn_inside)) btn_down = btn_inside = 0;
         if (player_beheaded || throw_t >= 0) {                            /* chunk 41: nothing to press any more (chunk 57: nor while the hammer is thrown) */
-            near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = near_drag = 0; btn_down = btn_inside = 0; near_item = hand_down = hand_inside = 0; drag_on = 0;
+            near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = near_drag = 0; btn_down = btn_inside = 0; near_item = near_inspect = hand_down = hand_inside = 0; drag_on = 0;
         }
     }
     {   float lv = drag_on ? fminf(drag_spd / 28.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the hiss of the stone: as loud as he is fast */
@@ -1850,7 +1862,8 @@ static void draw_hand_button(SDL_Renderer *r) {                  /* chunk 68: th
     int a = hbr / 7; if (a < 2) a = 2;
     int bob = down ? a : (int)(sinf(t * 3.0f) * a * 0.4f);
     int side = ITEM_ICON_CELLS * a;
-    item_draw_hand_icon(r, hbx - side / 2, hby - side / 2 + bob, a);
+    if (near_item) item_draw_hand_icon(r, hbx - side / 2, hby - side / 2 + bob, a);
+    else           item_draw_search_icon(r, hbx - side / 2, hby - side / 2 + bob, a);        /* story chunk 6: a body lies in reach */
 }
 
 static void draw_interact_button(SDL_Renderer *r) {
@@ -2083,6 +2096,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         draw_hole(r, hcx, hcy, 0);
     }
     if (ritual_scene() && cur_map == MAP_TEMPLE) ritual_draw_floor(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, TEMPLE_SHADE);   /* the carved circle, the blood, the dead vessel */
+    if (cur_map == MAP_TEMPLE) bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                          /* the other dead (story chunk 6) */
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
@@ -2326,7 +2340,7 @@ void world_draw(SDL_Renderer *r) {
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         draw_stick(r, sx, sy, sr, kr, kcx, kcy, stick_on);
         if (near_id >= 0 || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door || near_drag) draw_interact_button(r);
-        if (near_item) draw_hand_button(r);                                              /* chunk 68: the hand, when something lies in reach */
+        if (near_item || near_inspect) draw_hand_button(r);                                              /* chunk 68: the hand, when something lies in reach */
     }
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
