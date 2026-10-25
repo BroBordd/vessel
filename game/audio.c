@@ -469,6 +469,82 @@ static void pfft_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the blood fountain (self-stab scene): a wet, rushing "woosh". looped noise through two low-passes (the band between ~100 Hz and ~800 Hz, so it carries on a
+ * phone speaker), a touch of hiss on top, two slow swells and a quick wet gurgle on it. call sfx_blood_fountain(level) every frame while it spurts (0..1 = how hard);
+ * it eases in and out by itself, and if the calls stop (the app went to the background, the world is paused) it dies away within ~0.25 s. its own voice ---------- */
+static int   bf_on, bf_hold;
+static float bf_tgt, bf_amp, bf_lpa, bf_lpb, bf_lph, bf_p1, bf_p2, bf_p3;
+static unsigned bf_seed = 99991u;
+#define BF_GAIN 0.34f
+void sfx_blood_fountain(float level) {
+    if (!dev) return;
+    if (level < 0.0f) level = 0.0f; if (level > 1.0f) level = 1.0f;
+    SDL_LockAudioDevice(dev);
+    bf_tgt = level;
+    if (level > 0.0f) { if (!bf_on) { bf_amp = 0.0f; bf_lpa = bf_lpb = bf_lph = 0.0f; } bf_on = 1; bf_hold = (int)(0.25f * OUT_RATE); }
+    SDL_UnlockAudioDevice(dev);
+}
+static void bf_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        if (bf_hold > 0) bf_hold--; else bf_tgt = 0.0f;
+        bf_amp += (bf_tgt - bf_amp) * (bf_tgt > bf_amp ? 0.0006f : 0.0018f);
+        if (bf_tgt <= 0.0f && bf_amp < 0.0005f) { bf_on = 0; bf_amp = 0.0f; return; }
+        bf_seed = bf_seed * 1664525u + 1013904223u;
+        float n = (float)(bf_seed >> 16) / 32768.0f - 1.0f;
+        bf_lpa += 0.11f * (n - bf_lpa);                                       /* ~770 Hz */
+        bf_lpb += 0.015f * (n - bf_lpb);                                      /* ~105 Hz: taken out */
+        bf_lph += 0.45f * (n - bf_lph);
+        float band = (bf_lpa - bf_lpb) * 2.6f, hiss = (n - bf_lph) * 0.16f;
+        bf_p1 += 5.3f / (float)OUT_RATE;  if (bf_p1 >= 1.0f) bf_p1 -= 1.0f;
+        bf_p2 += 1.9f / (float)OUT_RATE;  if (bf_p2 >= 1.0f) bf_p2 -= 1.0f;
+        bf_p3 += 37.0f / (float)OUT_RATE; if (bf_p3 >= 1.0f) bf_p3 -= 1.0f;
+        float swell = 0.72f + 0.2f * sinf(6.2831853f * bf_p1) + 0.08f * sinf(6.2831853f * bf_p2);
+        float wet = 0.8f + 0.2f * sinf(6.2831853f * bf_p3 + 2.0f * sinf(6.2831853f * bf_p2));
+        int v = (int)((band + hiss) * swell * wet * bf_amp * BF_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+    }
+}
+
+/* ---------- the sputter (self-stab scene): the last squirt of an empty ketchup bottle: a short ragged "bzzt", a pulse wave that sags from ~150 to ~70 Hz with the phase
+ * shaken by noise, low-passed, wobbling wet. strength 0..1 = how big (a big one is longer and louder). a new call restarts it. its own voice ---------- */
+static int   sp_on, sp_pos, sp_len, n_sput;
+static float sp_str, sp_ph, sp_lp;
+static unsigned sp_seed = 31337u;
+#define SP_GAIN 0.38f
+void sfx_blood_sputter(float strength) {
+    n_sput++;
+    if (!dev) return;
+    if (strength < 0.05f) strength = 0.05f; if (strength > 1.0f) strength = 1.0f;
+    SDL_LockAudioDevice(dev);
+    sp_str = strength; sp_len = (int)((0.07f + 0.10f * strength) * OUT_RATE); sp_pos = 0; sp_ph = 0.0f; sp_lp = 0.0f; sp_on = 1;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_sputters(void) { return n_sput; }
+static void sp_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        if (sp_pos >= sp_len) { sp_on = 0; return; }
+        float tt = (float)sp_pos / (float)OUT_RATE, k = (float)sp_pos / (float)sp_len;
+        float env = (1.0f - k) * sqrtf(1.0f - k);
+        if (tt < 0.003f) env *= tt / 0.003f;                                  /* no click on the way in */
+        sp_seed = sp_seed * 1664525u + 1013904223u;
+        float n = (float)(sp_seed >> 16) / 32768.0f - 1.0f;
+        sp_ph += (150.0f - 80.0f * k) * (1.0f + 0.35f * n) / (float)OUT_RATE;
+        if (sp_ph >= 1.0f) sp_ph -= 1.0f; if (sp_ph < 0.0f) sp_ph += 1.0f;
+        float sq = sp_ph < 0.4f ? 1.0f : -1.0f;
+        sp_lp += 0.22f * (0.8f * sq + 0.5f * n - sp_lp);
+        float wet = 0.6f + 0.4f * sinf(6.2831853f * 70.0f * tt);
+        int v = (int)(sp_lp * wet * env * sp_str * SP_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        sp_pos++;
+    }
+}
+
 /* ---------- the error buzz (chunk 33): two short low buzzes, "no". a square wave at 110 Hz softened with a sine, its own voice ---------- */
 static int   err_on, err_pos, n_errors;
 static float err_phase;
@@ -886,6 +962,8 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (hint_on) hint_mix(out, frames);
     if (drag_on) drag_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);
+    if (bf_on) bf_mix(out, frames);
+    if (sp_on) sp_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
     sync_push(&cur_chunk);                            /* the chunk is complete: what the screen can look up once it is heard */
     /* our own estimate of the clock, for apps that do not send the speaker's timestamps: at this moment the speaker is at the frame
