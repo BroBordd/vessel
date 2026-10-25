@@ -19,7 +19,7 @@ typedef struct {
 } EvRow;
 
 static const EvRow ROWS[EV_COUNT] = {
-    [EV_WAKE]              = { "...Where is this? Why is it so wet?", BRAIN_SCENE_AGAIN, 0 },
+    [EV_WAKE]              = { "Where am I?", BRAIN_SCENE_AGAIN, 0 },
     [EV_INSPECT_BODY]      = { "That's me. Was me.", BRAIN_SCENE_AGAIN, 0 },
     [EV_READ_NOTE]         = { "Doia. ...Fine. It's a name.", BRAIN_SCENE_ORB, 0 },
     [EV_FIRST_DRAG]        = { "He's heavier than he looks.", BRAIN_SCENE_ORB, 0 },

@@ -71,7 +71,7 @@ Then the text clears, the stars fade, and we cut to the ruins. **Later deaths:**
 ### 2. The circle
 Vessel 2 wakes standing on a **magic circle drawn in blood**, inside a ruin. The blood still flows into the lines from **Vessel 1
 (Aonia)**, who lies dead on his face at the edge, still bleeding. A **paper** lies next to him. The ID card says **Vas**.
-Thought: "...Where is this? Why is it so wet?" Task: **Read the note**.
+Thought: "Where am I?" Task: **Read the note**.
 
 ### 3. The note (once only)
 Written in blood. Aonia knows the name his successor will have, so it addresses **Doia directly**. It is Vessel 1's note to
@@ -163,7 +163,7 @@ beat scripts them any more**: each one is fired by an **event** (something the p
 player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas never thinks; it only talks in limbo.
 | Event | Thought |
 |---|---|
-| wakes in the circle (vessel 2) | "...Where is this? Why is it so wet?" |
+| wakes in the circle (vessel 2) | "Where am I?" |
 | first looks at Aonia (inspect) | "That's me. Was me." |
 | reads the note | "Doia. ...Fine. It's a name." |
 | first drag of a body | "He's heavier than he looks." |
