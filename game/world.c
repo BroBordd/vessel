@@ -79,6 +79,12 @@ static void (*inspect_cb)(unsigned vessel);
 static int   pick_on, pick_taken; static float pick_t, pick_wx, pick_wy;
 static void pick_start(void);
 static float pk_ss(float k) { k = k < 0 ? 0 : k > 1 ? 1 : k; return k * k * (3.0f - 2.0f * k); }
+/* THE HOLD (pulling a body or the rock): the hands do not jump to it, they go. dg_k eases 0 -> 1 while we hold and back to 0 after we let go; dg_x/dg_y is the point
+ * between the hands (world px), which chases the nearest spot of what we hold (and stays where it was when we let go, so the hands leave from there);
+ * dg_behind: what we hold lies north of us, so the hands are under the body (char_set_grip_behind) */
+#define DG_IN  0.18f
+#define DG_OUT 0.22f
+static float dg_k, dg_x, dg_y; static int dg_behind;
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
 static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
 static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
@@ -1048,6 +1054,18 @@ void world_update(float dt) {
     } else walk = 0;
     drag_step(dt);
     dragged_now = drag_spd > 0.8f;
+    {   float gx0, gy0, gx1, gy1;                                        /* the hold: where the hands want to be, and how much of the way they are there */
+        if (drag_on && !pick_on && drag_box_px(&gx0, &gy0, &gx1, &gy1)) {
+            float ty_ = pyp - 4.0f * px, tx_ = pxp;
+            tx_ = tx_ < gx0 ? gx0 : tx_ > gx1 ? gx1 : tx_; ty_ = ty_ < gy0 ? gy0 : ty_ > gy1 ? gy1 : ty_;
+            if (dg_k <= 0.0f) { dg_x = pxp; dg_y = pyp - 4.0f * px; }     /* start from the body's middle: the hands then travel out to the thing */
+            float a = 1.0f - expf(-dt * 16.0f);                            /* the point eases to the nearest spot (no jump when it changes side) */
+            dg_x += (tx_ - dg_x) * a; dg_y += (ty_ - dg_y) * a;
+            dg_behind = ty_ < pyp - 5.0f * px;                              /* north of us: behind */
+            dg_k += dt / DG_IN; if (dg_k > 1.0f) dg_k = 1.0f;
+        } else if (dg_k > 0.0f) { dg_k -= dt / DG_OUT; if (dg_k < 0.0f) dg_k = 0.0f; }
+        if (pick_on) dg_k = 0.0f;
+    }
 
     item_update(dt);
     if (pick_on) {
@@ -1230,12 +1248,8 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             SDL_RenderSetClipRect(r, NULL);
         }
     } else {
-        float gx0, gy0, gx1, gy1;
-        if (drag_on && drag_box_px(&gx0, &gy0, &gx1, &gy1)) {      /* holding it: the hands float to the nearest side */
-            float cyy = (float)sy0 - 4.0f * px, nx = (float)sx0, ny = cyy;
-            gx0 -= cx; gx1 -= cx; gy0 -= cy; gy1 -= cy;
-            nx = nx < gx0 ? gx0 : nx > gx1 ? gx1 : nx; ny = ny < gy0 ? gy0 : ny > gy1 ? gy1 : ny;
-            char_set_grip(1, nx, ny);
+        if (dg_k > 0.0f) {                                          /* holding it (or just let go): the hands ease to the point and back, under us when it is behind us */
+            char_set_grip(1, dg_x - cx, dg_y - cy); char_set_grip_ex(pk_ss(dg_k), 14.0f); char_set_grip_behind(dg_behind);
         }
         int pk_late = 1; float pk_bx = 0, pk_by = 0, pk_pe = 0;
         if (pick_on && !drag_on) {                                  /* the reach: both hands go for the item, pull it to the body, and come back */
@@ -1247,6 +1261,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             if (!pick_taken) { tx = bx + (ipx - bx) * re; ty = by + (ipy - by) * re; blend = re; }
             float dm = sqrtf((ix - bx) * (ix - bx) + (iy - by) * (iy - by)) / (float)px + 3.0f; if (dm < 14.0f) dm = 14.0f;
             char_set_grip(1, tx, ty); char_set_grip_ex(blend, dm);
+            char_set_grip_behind(iy < (float)sy0 && pe < 0.5f);         /* the item is behind us (and still far): the hands reach under the body */
             pk_bx = bx; pk_by = by; pk_pe = pe;
             pk_late = !(iy < (float)sy0 && pe < 0.5f);                   /* an item behind us stays behind us while it is still far */
         }

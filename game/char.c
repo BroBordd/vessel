@@ -69,7 +69,9 @@ static int   g_held = -1;                            /* the item in the right ha
 static void (*g_held_draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark);
 void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark)) { g_held = draw ? kind : -1; g_held_draw = draw; }
 static float g_gk = 1.0f, g_gmax = 14.0f;           /* the grip: how much of it (0 = the floating hands, 1 = at the point) and how far (cells) a hand may go from its rest cell */
-void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; }
+static int   g_hbehind;                             /* the grip point is behind us (north of our feet): the hands are drawn under the body, not over it */
+void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; g_hbehind = 0; }
+void char_set_grip_behind(int on) { g_hbehind = on != 0; }
 static int   g_stab; static float g_stab_a, g_stab_x, g_stab_y;   /* the self-stab pose (char_set_stab) */
 static float g_stab_clip = -1e9f;                                  /* the blade is hidden left of this x (screen px): it has gone into the neck */
 void char_set_stab_clip(float x) { g_stab_clip = x; }
@@ -192,6 +194,16 @@ static void draw_held(SDL_Renderer *r, int ox, int oy, int s, float fx, float fy
     g_held_draw(r, g_held, hx - (5 * c) / 2, hy - (19 * c) / 2, c, g_darken);
 }
 
+/* one floating hand (sprite cell dx on screen, row dy): the floating-hand offset, blended with the grip (gdx/gdy: that hand's grip offset) by g_gk, and the held item
+ * with it (the screen-right hand). used both for the normal pass (over the body) and for the early pass (under the body, when the grip point is behind us) */
+static void draw_hand_cell(SDL_Renderer *r, const Person *p, int ox, int oy, int s, int dx, int dy, const float *gdx, const float *gdy) {
+    int h = dx < SPR_W / 2 ? 0 : 1;
+    float hfx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, hfy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;
+    if (g_grip) { hfx += (gdx[h] - hfx) * g_gk; hfy += (gdy[h] - hfy) * g_gk; }
+    if (dx == SPR_W - 1) draw_held(r, ox, oy, s, hfx, hfy);
+    hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, hfx, hfy);
+}
+
 /* rows = how many sprite rows to draw; lift = which foot to raise (0 left, 1 right, -1 none) */
 static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, int oy,
                         int s, int rows, int lift) {
@@ -222,6 +234,12 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             if (m > mx) { gdx[h] *= mx / m; gdy[h] *= mx / m; }
         }
     }
+    int hands_under = g_grip && g_hbehind && !g_stab && !g_aim && rows > 9;   /* the hands reach behind us: they go under the body, as the item does */
+    if (hands_under)
+        for (int x = 0; x < SPR_W; x += SPR_W - 1) {
+            if (cell_at(p, facing, x, 9) == '.') continue;
+            draw_hand_cell(r, p, ox, oy, s, flip ? SPR_W - 1 - x : x, 9, gdx, gdy);
+        }
     for (int y = 0; y < rows; y++)
         for (int x = 0; x < SPR_W; x++) {
             char c = cell_at(p, facing, x, y);
@@ -233,16 +251,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             else setcell(r, p, c);
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
-                if (g_grip) {                                                   /* the grip, blended with the floating hands (g_gk: 1 = all grip) so a reach starts and ends smoothly */
-                    int h = dx < SPR_W / 2 ? 0 : 1;
-                    float fx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, fy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;
-                    float hfx = fx + (gdx[h] - fx) * g_gk, hfy = fy + (gdy[h] - fy) * g_gk;
-                    if (dx == SPR_W - 1) draw_held(r, ox, oy, s, hfx, hfy);                 /* (it goes where the hand goes) */
-                    hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, hfx, hfy); continue;
-                }
-                float hfx = g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, hfy = (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr;
-                if (dx == SPR_W - 1) draw_held(r, ox, oy, s, hfx, hfy);
-                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, hfx, hfy);
+                if (!hands_under) draw_hand_cell(r, p, ox, oy, s, dx, dy, gdx, gdy);   /* (a hand behind us was drawn before the body) */
                 continue;
             }
             fill(r, ox + dx * s, oy + dy * s, s, s);

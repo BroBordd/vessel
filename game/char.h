@@ -66,6 +66,8 @@ void char_set_worried(int on);
  * screen point (x, y) (a little apart, side by side across the way they reach), as if holding something there; 0 puts them back. set both back to 0 after the draw. */
 void char_set_strain(int on);
 void char_set_grip(int on, float x, float y);
+/* after char_set_grip(1, ...): 1 = the grip point lies behind us (north of the feet): both hands (and what they hold) are drawn UNDER the body; 0 = over it (the default, and char_set_grip resets it) */
+void char_set_grip_behind(int on);
 /* after char_set_grip(1, ...): blend 0..1 mixes the grip with the normal floating hands (1 = fully at the point), max_cells = how far a hand may reach from its rest cell (14 by default; char_set_grip resets both) */
 void char_set_grip_ex(float blend, float max_cells);
 /* the item in the hand: while on, the screen-right floating hand of every full body drawn (char_draw / char_draw_air) holds a picture, drawn by
