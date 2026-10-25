@@ -164,7 +164,6 @@ player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas 
 | Event | Thought |
 |---|---|
 | wakes in the circle (vessel 2) | "...Where is this? Why is it so wet?" |
-| steps off the circle first time | "Out. Slowly." |
 | first looks at Aonia (inspect) | "That's me. Was me." |
 | reads the note | "Doia. ...Fine. It's a name." |
 | first drag of a body | "He's heavier than he looks." |

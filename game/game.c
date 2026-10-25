@@ -164,7 +164,7 @@ int main(int argc, char **argv) {
     printf("SDL %d.%d.%d, %dx%d, %s\n", v.major, v.minor, v.patch, W, H, gpu ? "gpu" : "cpu");
     fflush(stdout);
 
-    if (audio_init() == 0) { jukebox_init(); jukebox_scene("third_life.ogg", 0); }
+    if (audio_init() == 0) { jukebox_init(); jukebox_scene_pv("third_life.ogg", 0, 0.0f, 0.35f);   /* menu music: 35% */ }
 
     lang_seed((unsigned)SDL_GetTicks() * 2654435761u + 12345u);
     menu_init(W, H);
@@ -339,7 +339,7 @@ int main(int argc, char **argv) {
         if (state == ST_WORLD && pausebtn_take_menu()) {         /* the pause panel's MAIN MENU: back to the title, the stars and the menu music. PLAY starts a fresh game (world_init) */
             musicwin_close(); mapwin_close(); brainwin_close();
             printf("menu: main menu\n"); fflush(stdout);
-            jukebox_scene("third_life.ogg", 0);
+            jukebox_scene_pv("third_life.ogg", 0, 0.0f, 0.35f);   /* menu music: 35% */
             menu_init(W, H);
             menu_set_load_enabled(story_save_exists());
             want_load = 0;

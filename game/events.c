@@ -20,7 +20,6 @@ typedef struct {
 
 static const EvRow ROWS[EV_COUNT] = {
     [EV_WAKE]              = { "...Where is this? Why is it so wet?", BRAIN_SCENE_AGAIN, 0 },
-    [EV_STEP_OFF]          = { "Out. Slowly.", BRAIN_SCENE_AGAIN, 0 },
     [EV_INSPECT_BODY]      = { "That's me. Was me.", BRAIN_SCENE_AGAIN, 0 },
     [EV_READ_NOTE]         = { "Doia. ...Fine. It's a name.", BRAIN_SCENE_ORB, 0 },
     [EV_FIRST_DRAG]        = { "He's heavier than he looks.", BRAIN_SCENE_ORB, 0 },
@@ -116,11 +115,6 @@ static void watch(float dt) {
         event_fire(EV_FIRST_DRAG);
         drag_t += dt;
         if (drag_t >= DRAG_LONG_S && now_t >= drag_rep) { event_fire(EV_DRAG_LONG); drag_t = 0; drag_rep = now_t + 60.0f; }
-    }
-    if (event_fired(EV_WAKE) && !event_fired(EV_STEP_OFF) && ritual_scene()) {        /* off the carved circle (a flat ellipse: 15 cells across, 7.5 up and down, 8 cells to the tile) */
-        float cx, cy, px, py; ritual_centre(&cx, &cy); world_player_tilef(&px, &py);
-        float rx = RITUAL_RADIUS / 8.0f, ry = RITUAL_RADIUS / 16.0f, dx = (px - cx) / rx, dy = (py - cy) / ry;
-        if (dx * dx + dy * dy > 1.3f) event_fire(EV_STEP_OFF);
     }
     if (!event_fired(EV_PIT_EDGE) && world_dist_to_pit() < PIT_NEAR) event_fire(EV_PIT_EDGE);
 }

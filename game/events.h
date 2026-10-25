@@ -19,7 +19,6 @@ typedef enum {
     EV_NONE = 0,
     /* section 10: thoughts */
     EV_WAKE,            /* the new body has formed in the circle */
-    EV_STEP_OFF,        /* steps off the circle the first time */
     EV_INSPECT_BODY,    /* first looks at Aonia (inspect) */
     EV_READ_NOTE,       /* reads the note */
     EV_FIRST_DRAG,      /* first drag of a body */
