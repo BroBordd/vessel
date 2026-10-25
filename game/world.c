@@ -123,6 +123,16 @@ static int   cam_snap = 1;          /* 1 = put the camera on the player next fra
 static float zoom = 1.0f, zoom_target = 1.0f;
 static float zoom_fx, zoom_fy;      /* the point we zoom toward, world px (kept while zooming back out) */
 static int   talk_npc = -1;         /* npc we are talking to, or -1 */
+/* AREA OF INTEREST (AOI): near the pit the camera pulls back, smoothly, so the far ledge across the crack is in view too, and eases back out when we leave.
+ * the scene is drawn into a bigger texture (the view is W/aoi_z x H/aoi_z world px) and shrunk to the screen. CPU (SDL) path only: the GPU replay owns a
+ * fixed W x H zoom texture and cannot copy from a bigger one (gfx_is_gpu: no AOI there, the view just stays as it is). */
+#define AOI_MIN    0.60f            /* the furthest the view may pull back (the bigger texture is 1/AOI_MIN times the screen: it must stay under the GPU texture limit) */
+#define AOI_NEAR   6.0f             /* tiles from the pit: this close the pull-back is complete ... */
+#define AOI_FAR    10.0f            /* ... and from this far it has not begun (a smooth step in between) */
+#define AOI_PAD    4.0f             /* tiles of room around the player and the far ledge */
+#define AOI_SPEED  2.2f             /* exponential ease rate (1/s): slower than the talk zoom, a gentle pull */
+static float aoi_z = 1.0f, aoi_fx, aoi_fy;      /* view scale (1 = normal, down to AOI_MIN) and the world px point at the middle of the view */
+static SDL_Texture *atex; static SDL_Renderer *aren;
 static SDL_Texture *ztex; static SDL_Renderer *zren;   /* the scene is drawn here first while zoomed, then scaled up to the screen */
 
 /* the hole that opens in the cloud map. only exists once the script opens it */
@@ -854,6 +864,7 @@ void world_resize(int w, int h) {
         int ire, itop; item_anchor(cx, cy, cw, ch, &ire, &itop);
         item_ui_resize(w, h, ire, itop, cw);
     }
+    if (atex) { SDL_DestroyTexture(atex); atex = NULL; }          /* the AOI target is bigger than the screen too: made again at the new size */
     if (ztex) { SDL_DestroyTexture(ztex); ztex = NULL; }          /* the zoom target is W x H: draw makes it again at the new size (zoom / zoom_target / talk_npc are untouched) */
     cam_x = cam_axis(cam_cx - W / 2.0f, mw * tile, W);           /* the lazy camera keeps its centre (cam_cx) and is only re-clamped to the new view */
     cam_y = cam_axis(cam_cy - H / 2.0f, mh * tile, H);
@@ -866,7 +877,7 @@ void world_init(int w, int h) {
     t = 0; walk = 0; moving = 0; facing = 0; stick_on = 0; kx = ky = 0;
     controls_visible = 1; btn_down = btn_inside = 0; near_id = -1;
     phase = PH_PLAY; ph_t = 0; up_cb = NULL; waking = 0;
-    zoom = zoom_target = 1.0f; talk_npc = -1;
+    zoom = zoom_target = 1.0f; talk_npc = -1; aoi_z = 1.0f;
     death_on = 0; death_cb = NULL; gfx_set_filter(0, 0); heart_reset(); death_msg[0] = 0; death_fall_t = -1; death_npc = -1;
     summon_cancel(); summon_cb = NULL; summon_chime = 0;
     blackout_t = -1; blackout_cb = NULL;
@@ -1164,7 +1175,7 @@ void world_return_to_clouds(void) {
     dawn_on = 0; col_mul = 255;
     toast_init(W, H);                                         /* no half-shown "New task" panel from the last life */
     phase = PH_PLAY; ph_t = 0; up_cb = NULL;
-    zoom = zoom_target = 1.0f; moving = 0; walk = 0; facing = FACE_DOWN;
+    zoom = zoom_target = 1.0f; aoi_z = 1.0f; moving = 0; walk = 0; facing = FACE_DOWN;
     t = 0;
     world_set_controls_visible(0);
 }
@@ -1681,6 +1692,25 @@ void world_update(float dt) {
     if (death_on && death_cb && death_t >= DEATH_SETTLE_T) { void (*cb)(void) = death_cb; death_cb = NULL; cb(); }
 
     camera_update(dt);
+
+    {   /* the area of interest: near the pit the view pulls back to take in the far ledge too, and eases back when we go away */
+        float tz = 1.0f, tfx = cam_cx, tfy = cam_cy;
+        if (!gfx_is_gpu() && !death_on && talk_npc < 0 && phase == PH_PLAY && cur_map == MAP_TEMPLE && pit_x0 >= 0 && far_tx >= 0) {
+            float k = (AOI_FAR - world_dist_to_pit()) / (AOI_FAR - AOI_NEAR);
+            k = k < 0 ? 0 : k > 1 ? 1 : k; k = k * k * (3.0f - 2.0f * k);
+            float fpx = (far_tx + 0.5f) * tile, fpy = (far_ty + 0.5f) * tile;
+            float hw = fabsf(pxp - fpx) * 0.5f + AOI_PAD * tile, hh = fabsf(pyp - fpy) * 0.5f + AOI_PAD * tile;   /* half the box that holds us, the far ledge and some air */
+            float fit = fminf((float)W / (2.0f * hw), (float)H / (2.0f * hh));
+            fit = fit > 1.0f ? 1.0f : fit < AOI_MIN ? AOI_MIN : fit;
+            tz = 1.0f + (fit - 1.0f) * k;
+            tfx = cam_cx + ((pxp + fpx) * 0.5f - cam_cx) * k;                 /* the view's middle slides from where the camera is to between us and the ledge */
+            tfy = cam_cy + ((pyp + fpy) * 0.5f - cam_cy) * k;
+        }
+        if (aoi_z >= 0.999f) { aoi_fx = cam_cx; aoi_fy = cam_cy; }            /* not pulled back: the middle is just the camera's, so the pull starts without a jump */
+        float ea = 1.0f - expf(-AOI_SPEED * dt);
+        aoi_z += (tz - aoi_z) * ea; aoi_fx += (tfx - aoi_fx) * ea; aoi_fy += (tfy - aoi_fy) * ea;
+        if (tz >= 1.0f && aoi_z > 0.998f) aoi_z = 1.0f;
+    }
 }
 
 /* the hole in the clouds, built from the same square pixels as everything else: every cell is one
@@ -2247,6 +2277,27 @@ void world_draw(SDL_Renderer *r) {
         SDL_SetRenderTarget(r, NULL);
         SDL_Rect src = { (int)(W / 2.0f - W / (2.0f * zoom)), (int)(H / 2.0f - H / (2.0f * zoom)), (int)(W / zoom), (int)(H / zoom) };
         SDL_RenderCopy(r, ztex, &src, NULL);
+    } else if (aoi_z < 0.995f && phase == PH_PLAY && !gfx_is_gpu()) {
+        int Wv = (int)(W / aoi_z + 0.5f), Hv = (int)(H / aoi_z + 0.5f);          /* the view in world px: bigger than the screen */
+        if (aren != r || !atex) {
+            if (atex) SDL_DestroyTexture(atex);
+            atex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, (int)(W / AOI_MIN) + 2, (int)(H / AOI_MIN) + 2); aren = r;
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+            if (atex) SDL_SetTextureScaleMode(atex, SDL_ScaleModeLinear);        /* shrunk by a changing factor: linear keeps the pixel art from shimmering */
+#endif
+        }
+        if (atex) {
+            float ccx = cam_axis(aoi_fx - Wv / 2.0f, mw * tile, Wv), ccy = cam_axis(aoi_fy - Hv / 2.0f, mh * tile, Hv);
+            int sw = W, sh = H;
+            W = Wv; H = Hv;                                                      /* the scene is laid out for the bigger view ... */
+            SDL_SetRenderTarget(r, atex);
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            draw_scene(r, ccx, ccy);
+            SDL_SetRenderTarget(r, NULL);
+            W = sw; H = sh;                                                      /* ... and the screen is the screen again */
+            SDL_Rect src = { 0, 0, Wv, Hv };
+            SDL_RenderCopy(r, atex, &src, NULL);
+        } else draw_scene(r, cam_x, cam_y);
     } else {
         draw_scene(r, cam_x, cam_y);
     }

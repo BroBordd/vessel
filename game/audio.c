@@ -365,12 +365,13 @@ static void hit_mix(Sint16 *out, int frames) {
     }
 }
 
-/* ---------- the drag: a body sliding over stone, ground friction. a calm hiss: noise with the lows and the very highs taken out (a band
- * of roughly 300 Hz to 3 kHz), a slow soft swell on it, no pulses and no tone. its loudness follows how fast he slides ---------- */
+/* ---------- the drag: a body sliding over stone. a calm, low rumble, not a hiss: noise with everything above ~400 Hz rolled off (two poles) and the lows below
+ * ~150 Hz taken out (they do not carry on a phone speaker), so all that is left is a soft dull scrape. two very slow swells (about 0.7 and 1.3 Hz, never in step)
+ * make it breathe unevenly. no pulses, no tone, nothing bright. its loudness follows how fast he slides ---------- */
 static int   drag_on;
-static float drag_tgt, drag_amp, drag_lp1, drag_lp2, drag_ph, drag_slow;
+static float drag_tgt, drag_amp, drag_lp1, drag_lp1b, drag_lp2, drag_ph, drag_slow;
 static unsigned drag_seed = 4242u;
-#define DRAG_GAIN 0.20f
+#define DRAG_GAIN 0.17f
 void sfx_drag(float level) {
     if (!dev) return;
     if (level < 0) level = 0;
@@ -382,17 +383,18 @@ void sfx_drag(float level) {
 }
 static void drag_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
-        drag_amp += (drag_tgt - drag_amp) * (drag_tgt > drag_amp ? 0.00035f : 0.00060f);            /* eases in over ~65 ms, out over ~40 ms */
+        drag_amp += (drag_tgt - drag_amp) * (drag_tgt > drag_amp ? 0.00020f : 0.00035f);            /* eases in over ~110 ms, out over ~65 ms: no sudden edge */
         if (drag_tgt <= 0.0f && drag_amp < 0.0006f) { drag_on = 0; drag_amp = 0; return; }
         drag_seed = drag_seed * 1664525u + 1013904223u;
         float n = (float)(drag_seed >> 16) / 32768.0f - 1.0f;
-        drag_lp1 += (n - drag_lp1) * 0.10f;                                                          /* top off above ~2.5 kHz */
-        drag_lp2 += (drag_lp1 - drag_lp2) * 0.025f;                                                  /* ... and what is left of it minus a slow part: the lows go */
-        float band = drag_lp1 - drag_lp2;
-        drag_ph += 1.3f / (float)OUT_RATE; if (drag_ph >= 1.0f) drag_ph -= 1.0f;
-        float swell = 0.85f + 0.15f * sinf(6.2831853f * drag_ph);
-        drag_slow += (n - drag_slow) * 0.0004f;                                                    /* a slow irregular unevenness: a scrape, not a steady hiss */
-        float v = band * 3.2f * swell * (0.75f + 2.5f * drag_slow);
+        drag_lp1  += (n - drag_lp1) * 0.058f;                                                        /* top off above ~400 Hz ... */
+        drag_lp1b += (drag_lp1 - drag_lp1b) * 0.058f;                                                /* ... twice, so there is no hiss left at all */
+        drag_lp2  += (drag_lp1b - drag_lp2) * 0.021f;                                                /* the slow part (below ~150 Hz) ... */
+        float band = drag_lp1b - drag_lp2;                                                           /* ... taken out: what is left is 150 to 400 Hz */
+        drag_ph   += 0.7f / (float)OUT_RATE; if (drag_ph   >= 1.0f) drag_ph   -= 1.0f;
+        drag_slow += 1.3f / (float)OUT_RATE; if (drag_slow >= 1.0f) drag_slow -= 1.0f;
+        float swell = 0.72f + 0.18f * sinf(6.2831853f * drag_ph) + 0.10f * sinf(6.2831853f * drag_slow);
+        float v = band * 7.0f * swell;
         if (v > 1.0f) v = 1.0f; else if (v < -1.0f) v = -1.0f;
         int o16 = (int)(v * drag_amp * DRAG_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {

@@ -220,6 +220,8 @@ player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas 
   never goes into a wall. We walk at 75 % speed holding him. The sound is a soft, low, uneven scrape, as loud as he slides.
 - **The map is the ruins, a line, not a maze** (owner's call): the circle room, a passage, the fallen hall, the pit chamber with the crack across it and
   the far ledge (second circle's spot, sealed gate). The far ledge is not reachable on foot (`tools/gentest.c` checks that over 500 seeds).
+- **AOI (area of interest) camera** (owner's call): near the pit (`AOI_NEAR`/`AOI_FAR` tiles) the view eases back (down to `AOI_MIN` 0.6) so the far ledge is in frame, and eases out again when we leave. `world.c`, SDL/CPU path only (the GPU replay's zoom texture cannot copy from a bigger one, so no AOI under `gfx_is_gpu()`).
+- **Drag sound** is a low rumble now (about 150 to 400 Hz, two-pole roll-off, two slow uneven swells), no hiss.
 - **The first body's blood** was cut by 60 % so his face shows.
 
 ## Chunk checklist
@@ -244,6 +246,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
 
 ## Status log
+- 2026-10-25: drag sound recalmed (`audio.c drag_mix`); AOI camera pull-back at the pit (`world.c`). Untested by rule.
 - 2026-10-25: chunk 3 done: event thoughts engine (`events.c`), wired in `story.c` (`events_reset`, `events_update`, `story_woke`). Written untested by owner's rule. Next: chunk 4.
 - 2026-10-25: the first body's blood cut by 60 % (`ritual.c wounds()`), his face is clear. Whole-body dragging of vessel 1 (chunk 7, part): `ritual_body_box/shift`,
   `char_set_grip/strain`, `sfx_drag`, the button icon; sandbag follow and a calm scrape (owner tuned: faster, softer). Story doc untrashed.
