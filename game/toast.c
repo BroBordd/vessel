@@ -35,7 +35,7 @@ void toast_init(int w, int h) {
 
 static void show(const Toast *t) {
     cur = *t; showing = 1; cur_t = 0;
-    if (t->found) sfx_found(); else sfx_coin();      /* chunk 58: a discovery has its own chime, no coin */
+    if (t->found == 1) sfx_found(); else if (t->found == 0) sfx_coin();      /* chunk 58: a discovery has its own chime, no coin. 2: silent (owner: the coin is for tasks and the like only) */
 }
 
 static void enqueue(const char *head, const char *body, int found) {
@@ -53,6 +53,7 @@ int task_toast(const char *task) {
 }
 
 void toast_notice(const char *head, const char *body) { enqueue(head, body, 0); }
+void toast_info(const char *head, const char *body) { enqueue(head, body, 2); }
 void toast_found(const char *name) { enqueue("You found", name, 1); }
 
 void toast_update(float dt) {

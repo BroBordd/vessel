@@ -17,6 +17,8 @@ int  task_toast(const char *task);
  * white line (a string literal), `body` the gold one (copied). same size, same spot, same queue and
  * coin ding as the task toast, so the two never overlap. */
 void toast_notice(const char *head, const char *body);
+/* story chunk 15: the same panel, no sound at all. the coin ding is for tasks and name flashes; everything the player merely does (cut, craft, wear, look) uses this */
+void toast_info(const char *head, const char *body);
 
 /* chunk 58: "You found {name}." the same panel and queue, but its own bright chime (sfx_found) instead of the coin ding, when it appears. `name` is copied. */
 void toast_found(const char *name);

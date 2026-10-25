@@ -127,6 +127,7 @@ float world_pit_push_time(void);
 void world_pit_push_clear(void);
 int  world_swing_across(void (*done)(void));
 int  world_body_tile(unsigned vessel, float *tx, float *ty);   /* story chunk 9: where a body lies (feet, tiles); 0 = no such body here */
+int  world_free_tile_near(float tx, float ty, int *tile_x, int *tile_y);   /* story chunk 15: the nearest tile that is not solid (0 = none) */
 void world_drop_item_near(int kind, float tx, float ty);       /* it falls on free floor around that spot */
 void world_set_smash_cb(void (*cb)(unsigned vessel));          /* the big rock dragged into a body: the callback gets the vessel */
 void world_ritual_c2(void (*on_done)(void));              /* story chunk 13: the next body forms at the second circle (ritual_c2_set); put the player there first */

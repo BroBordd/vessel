@@ -1099,6 +1099,17 @@ int world_body_tile(unsigned vessel, float *tx, float *ty) {
     *tx = (x0 + x1) * 0.5f / tile; *ty = y1 / tile;
     return 1;
 }
+/* story chunk 15: the nearest tile that is not solid around (tx, ty) (rings outward), for things that are simply put on the floor. 0 = none found */
+int world_free_tile_near(float tx, float ty, int *ox, int *oy) {
+    int cx = (int)floorf(tx), cy = (int)floorf(ty);
+    for (int r = 0; r <= 6; r++)
+        for (int j = -r; j <= r; j++) for (int i = -r; i <= r; i++) {
+            if (r > 0 && abs(i) != r && abs(j) != r) continue;
+            if (solid_tile(cx + i, cy + j)) continue;
+            *ox = cx + i; *oy = cy + j; return 1;
+        }
+    return 0;
+}
 /* it falls on the nearest free floor tile around (tx, ty): first the tile itself, then rings outward. `n` tries the next one each call so parts do not pile on one tile */
 void world_drop_item_near(int kind, float tx, float ty) {
     static int turn; int cx = (int)floorf(tx), cy = (int)floorf(ty), skip = turn++ % 4;

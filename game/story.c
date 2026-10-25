@@ -223,14 +223,9 @@ static void dev_die(void) {
  * vessel's real name (name flash, coin ding, toast: hud_set_person), the paper is gone for good and the task changes. only vessel 2 can read it: it is
  * addressed to Doia, and a later body wakes with no paper on the floor (the map is made again and nothing puts it back). */
 static const DialogLine NOTE_DLG[] = {
-    { &VESSEL, "Hello, Doia." },
-    { &VESSEL, "If you are reading this, it worked. You are Vessel 2." },
-    { &VESSEL, "I am Aonia, Vessel 1, the one lying beside you. I died so that you could live." },
-    { &VESSEL, "Do not be afraid. I am you." },
-    { &VESSEL, "We are trapped in these ruins. Past the fallen hall, the ground has broken open. There is a pit with no bottom, and I could not cross it." },
-    { &VESSEL, "I was running out of time, so Vas and I decided. I would die, and you would take my place." },
-    { &VESSEL, "Every time we die, we lose what we knew. That is the price. I paid it. Now you have to." },
-    { &VESSEL, "I left you everything I had. Find a way out." },
+    { &VESSEL, "Hello, Doia. I am Aonia, Vessel 1. I died so that you could live." },
+    { &VESSEL, "Do not be afraid. I am you. Past the fallen hall the ground has broken open, and I could not cross it." },
+    { &VESSEL, "Every death takes what we knew. That is the price. Find a way out." },
 };
 static Person card_vas;                                         /* the card before the note: this body's face under the plain name Vas */
 static void card_show_vas(void) { card_vas = *story_vessel_look(story_vessel_index()); card_vas.name = VESSEL_LATIN; hud_reset(&card_vas, 0); }
@@ -257,7 +252,7 @@ static void story_inspect(unsigned vessel) {
     bodies_inv_text(b, what, sizeof what);
     int took = bodies_take_all(vessel);                         /* chunk 8: looking close means the pockets are ours now */
     snprintf(line, sizeof line, "%s %s%s", story_vessel_name(vessel), what, took > 1 ? ". You take them." : took ? ". You take it." : "");
-    toast_notice("YOU LOOK CLOSE", line);
+    toast_info("YOU LOOK CLOSE", line);
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
 }
 
@@ -280,7 +275,7 @@ static void echo_update(float dt) {
     event_fire(EV_DROP_IN_PIT);
     if (echo_last > 0 && heard < echo_last - 0.05f) event_fire(EV_ECHO_SOONER);
     echo_last = heard;
-    if (echo_body && world_pit_left() == 0) toast_notice("THE PIT", "The bodies reach the far side.");
+    if (echo_body && world_pit_left() == 0) toast_info("THE PIT", "The bodies reach the far side.");
 }
 static void story_pit_fall(unsigned v) {                            /* a dragged body was pushed over the edge */
     (void)v;
@@ -332,20 +327,19 @@ static void story_smash(unsigned v) {                               /* the big r
     bodies_cut_done(v);
     for (int k = 0; k < ITEM_COUNT; k++) while (b->inv[k]) { part_fall(v, k); b->inv[k]--; }      /* what he carried flies around */
     event_fire(EV_FIRST_STAB);
-    toast_notice("SMASHED", "The rock leaves only pieces.");
+    toast_info("SMASHED", "The rock leaves only pieces.");
 }
-static void story_full(void) { toast_notice("HANDS FULL", "Put something down first."); }
-static void need_knife(void) { sfx_error(); toast_notice("NO KNIFE", "You need a knife for that."); }
+static void story_full(void) { toast_info("HANDS FULL", "Put something down first."); }
+static void need_knife(void) { sfx_error(); toast_info("NO KNIFE", "You need a knife for that."); }
 /* chunk 10: two slots, one recipe (item.c). both ingredients are used up; a result that is carried in the hands needs them free */
 static void story_craft(int a, int b) {
     if (dying) return;
     int r = item_recipe(a, b);
-    if (r < 0 || (a == b && item_count(a) < 2)) { sfx_error(); toast_notice("DOESN'T FIT", "Those don't go together."); return; }
+    if (r < 0 || (a == b && item_count(a) < 2)) { sfx_error(); toast_info("DOESN'T FIT", "Those don't go together."); return; }
     int frees = item_size(a) == SIZE_MEDIUM || item_size(b) == SIZE_MEDIUM;
     if (item_size(r) == SIZE_MEDIUM && item_medium_held() && !frees) { sfx_error(); story_full(); return; }
     item_take(a); item_take(b); item_give(r);
-    sfx_found();
-    toast_notice("YOU MAKE", item_name(r));
+    toast_info("YOU MAKE", item_name(r));
     event_fire(EV_FIRST_CRAFT);
 }
 /* chunk 13: the checkpoint. the blood runs into the carvings, a thought ("My consciousness is fading."), a few seconds, then we die (DEATH_CIRCLE) and the next vessel wakes here */
@@ -354,7 +348,7 @@ static void checkpoint_begin(void) {
     cp_busy = 1;
     sfx_hit();
     ritual_c2_fill();
-    toast_notice("THE CARVINGS", "Your blood runs into the lines.");
+    toast_info("THE CARVINGS", "Your blood runs into the lines.");
     event_fire(EV_FILL_CIRCLE);
     story_after(4.0f, cp_die);
 }
@@ -371,12 +365,12 @@ static void story_action(int kind, int act) {
         sfx_hit(); story_die(DEATH_SELF); return;
     case ACT_STAB: {
         unsigned v = world_body_in_reach();
-        if (!v) { sfx_error(); toast_notice("NOTHING TO STAB", "Get close to a body."); return; }
+        if (!v) { sfx_error(); toast_info("NOTHING TO STAB", "Get close to a body."); return; }
         int step = bodies_cut(v);
-        if (!step) { sfx_error(); toast_notice("NOTHING LEFT", "There is nothing left to cut."); return; }
+        if (!step) { sfx_error(); toast_info("NOTHING LEFT", "There is nothing left to cut."); return; }
         sfx_hit();
         event_fire(EV_FIRST_STAB);
-        toast_notice("YOU STAB", cut_step(v, step));
+        toast_info("YOU STAB", cut_step(v, step));
         return; }
     case ACT_THROW:
         item_take(kind); sfx_blip(1.1f);
@@ -394,18 +388,18 @@ static void story_action(int kind, int act) {
             if (world_rock_break(&tx, &ty)) {
                 sfx_hit();
                 world_drop_item_near(ITEM_ROCK, tx - 0.8f, ty); world_drop_item_near(ITEM_ROCK, tx + 0.8f, ty); world_drop_item_near(ITEM_ROCK, tx, ty + 0.7f);
-                toast_notice("ROCK BROKEN", "Small rocks, easy to throw.");
+                toast_info("ROCK BROKEN", "Small rocks, easy to throw.");
                 return;
             }
         }
-        if (!v) { sfx_error(); toast_notice("NOTHING TO SMASH", "Get close to a body."); return; }
+        if (!v) { sfx_error(); toast_info("NOTHING TO SMASH", "Get close to a body."); return; }
         sfx_hit(); story_smash(v); return; }
     case ACT_SWING:
-        if (world_dist_to_pit() > 3.0f) { toast_notice("NOT HERE", "Swing it at the edge of the pit."); return; }
-        if (!world_swing_across(swing_done)) { toast_notice("NOT HERE", "Nothing to swing at."); return; }
+        if (world_dist_to_pit() > 3.0f) { toast_info("NOT HERE", "Swing it at the edge of the pit."); return; }
+        if (!world_swing_across(swing_done)) { toast_info("NOT HERE", "Nothing to swing at."); return; }
         sfx_blip(0.8f); item_take(kind); event_fire(EV_SWING_HELD);         /* it wedges on the far side and stays there; the rope is left behind with it */
         return;
-    case ACT_WEAR: { int on = item_wear_toggle(kind); toast_notice(on ? "YOU WEAR IT" : "TAKEN OFF", item_name(kind)); return; }
+    case ACT_WEAR: { int on = item_wear_toggle(kind); toast_info(on ? "YOU WEAR IT" : "TAKEN OFF", item_name(kind)); return; }
     case ACT_CUT_FINGERS: if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_FINGERS); return;      /* the arm stays: fingers do not use it up */
     case ACT_CUT_EYES:    if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_EYES); return;
     case ACT_CUT_TEETH:   if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_TEETH); return;
@@ -463,7 +457,7 @@ static void story_woke(void) {                                 /* the new body h
     if (cp_reached && !cp_told) {                               /* chunk 13: the first wake at the second circle: part one is over */
         cp_told = 1;
         if (task_escape >= 0) { mission_complete(task_escape); task_escape = -1; }
-        toast_notice("THE SECOND CIRCLE", "The ruins are behind you.");
+        toast_info("THE SECOND CIRCLE", "The ruins are behind you.");
     }
     event_fire(EV_WAKE);
     if (!note_read && task_note < 0 && story_vessel_index() == START_VESSEL) task_note = mission_add("Read the note");
@@ -484,9 +478,18 @@ void story_start(void) {
     world_ritual(story_vessel_look(1), story_woke);
     { int fx, fy; if (world_pit_spots(&fx, &fy, NULL, NULL)) ritual_c2_set(fx + 0.5f, fy + 0.5f); }    /* chunk 13: the empty carvings of the second circle lie on the far ledge */
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
-    { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */
-      world_place_item(ITEM_ROCK, (int)floorf(cx + 2.2f), (int)floorf(cy + 1.6f));
-      world_place_item(ITEM_ROCK, (int)floorf(cx + 2.4f), (int)floorf(cy - 1.4f)); }
+    { float cx, cy; ritual_centre(&cx, &cy);                                                      /* chunk 15: two small rocks lie at random places round the room, off the circle and Aonia (they sparkle now and then: they can be taken) */
+      static unsigned long long seed;
+      seed = seed * 6364136223846793005ULL + (unsigned long long)SDL_GetTicks() + 1442695040888963407ULL;
+      for (int n = 0, placed = 0; n < 40 && placed < 2; n++) {
+          seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+          float ang = (float)((seed >> 33) % 3600) * 0.001745f, rad = 3.5f + (float)((seed >> 20) % 450) * 0.01f;   /* 3.5 .. 8 tiles out */
+          float dx = cosf(ang) * rad, dy = sinf(ang) * rad * 0.7f;
+          if ((dx / 4.4f) * (dx / 4.4f) + (dy / 2.6f) * (dy / 2.6f) < 1.0f) continue;               /* not on the circle, not on the man beside it */
+          int tx, ty; if (!world_free_tile_near(cx + dx, cy + dy, &tx, &ty)) continue;
+          if (fabsf(tx + 0.5f - cx) < 4.4f && fabsf(ty + 0.5f - cy) < 2.6f) continue;
+          world_place_item(ITEM_ROCK, tx, ty); placed++;
+      } }
     /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 

@@ -111,20 +111,20 @@ static const char *BAG[ITEM_ICON_CELLS] = {
     ".GwWWWWWwwG.",
     "..GGGGGGGG..",
 };
-/* the small rock (story chunk 8): a grey stone, lighter on the top left. L light, D dark */
+/* the small rock (story chunk 8, redrawn in chunk 15): a rough grey-brown stone, lit from the top left. J light, K body, k shade, G outline */
 static const char *ROCK[ITEM_ICON_CELLS] = {
     "............",
     "............",
-    "....GGGG....",
-    "..GGLLLLGG..",
-    ".GLLLLLDDDG.",
-    ".GLLLLDDDDG.",
-    "GLLLDDDDDDDG",
-    "GLLDDDDDDDDG",
-    ".GDDDDDDDDG.",
-    "..GGDDDDGG..",
-    "....GGGG....",
-    "............",
+    ".....GGG....",
+    "...GGJJJGG..",
+    "..GJJJJKKKG.",
+    ".GJJJKKKKKKG",
+    ".GJJKKkKKKKG",
+    "GKKKKKkkKKkG",
+    "GKKKKkkkkkkG",
+    ".GkkkkkGkkG.",
+    "..GGkkkGGG..",
+    "...GGGGG....",
 };
 
 /* story chunk 9: the parts. S skin, s dark skin, R blood, N pink, n dark pink, M maroon, P bone, G outline */
@@ -371,6 +371,9 @@ int item_grab(float pxw, float pyw) {                           /* chunk 68: the
 static void rgb_of(char c, int *R, int *G, int *B) {
     switch (c) {
         case 'G': *R = 36;  *G = 40;  *B = 58;  break;
+        case 'J': *R = 186; *G = 178; *B = 166; break;      /* stone: light */
+        case 'K': *R = 138; *G = 131; *B = 124; break;      /* stone: body */
+        case 'k': *R = 92;  *G = 87;  *B = 86;  break;      /* stone: shade */
         case 'L': *R = 206; *G = 214; *B = 232; break;
         case 'D': *R = 122; *G = 130; *B = 156; break;
         case 'W': *R = 196; *G = 136; *B = 74;  break;
@@ -446,7 +449,8 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     for (int n = 0; n < ng; n++) {
     Ground *g = &gnd[n]; float drop_t = g->drop_t;
     int x = (int)((g->tx + 0.5f) * tile) - cam_x, y = (int)((g->ty + 0.5f) * tile) - cam_y;      /* centre of the spot */
-    int bob = (int)floorf(sinf(t * 3.0f + n) * 0.9f + 0.5f);
+    int rock = g->kind == ITEM_ROCK;                                                         /* chunk 15: a rock does not bob; now and then it sparkles */
+    int bob = rock ? 0 : (int)floorf(sinf(t * 3.0f + n) * 0.9f + 0.5f);
     int lift = 0;                                                                           /* chunk 32: how high a dropped item still is (units) */
     if (drop_t < ITEM_DROP_T) { float k = drop_t / ITEM_DROP_T; lift = (int)(DROP_HEIGHT * (1.0f - k * k) + 0.5f); bob = 0; }
     else if (drop_t < ITEM_DROP_T + DROP_BOUNCE_T) { lift = (int)(3.0f * sinf((drop_t - ITEM_DROP_T) / DROP_BOUNCE_T * 3.14159f) + 0.5f); bob = 0; }
@@ -463,9 +467,9 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
             SDL_Rect v = { x + ox * s, y - 4 * s + oy * s, s, s }; SDL_RenderFillRect(r, &v);
         }
     }
-    float ph = fmodf(t * 0.8f + n * 0.37f, 1.0f);                                           /* a glint, so it can be spotted on the grass */
-    if (ph < 0.35f) {
-        int a = (int)(255 * sinf(ph / 0.35f * 3.14159f));
+    float win = rock ? 0.10f : 0.35f, ph = fmodf(t * (rock ? 0.22f : 0.8f) + n * 0.37f, 1.0f);   /* a glint, so it can be spotted on the grass (a rock: one short sparkle every few seconds) */
+    if (ph < win) {
+        int a = (int)(255 * sinf(ph / win * 3.14159f));
         int gx = x - 4 * s, gy = y - 7 * s + bob * s;
         SDL_SetRenderDrawColor(r, 255, 255, 255, a);
         SDL_Rect v = { gx, gy - s, s, 3 * s }, h = { gx - s, gy, 3 * s, s };
