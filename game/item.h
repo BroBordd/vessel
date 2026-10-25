@@ -76,6 +76,11 @@ void  item_clear(void);                                 /* empty pockets (a new 
 /* every frame while playing: the drop animation and the pocket pulse run (nothing is picked up here any more) */
 void  item_update(float dt);
 int   item_in_reach(float player_x, float player_y);    /* chunk 68: an item lies within ITEM_REACH_R tiles of the feet (world px) and has landed: the hand button shows */
+int   item_pull_begin(float player_x, float player_y, float *wx, float *wy);   /* the reach: 1 = the nearest item in reach can be taken (wx, wy: where it lies, world px; it is now the pulled one), 0 = nothing / locked / hands full (then item_grab runs the callbacks) */
+void  item_pull_end(void);                              /* ... the hands have it at the body: into the pockets, the flight to the bag starts from where it was drawn */
+void  item_pull_cancel(void);
+int   item_pulling(void);
+void  item_draw_pulled(SDL_Renderer *r, int cam_x, int cam_y, float t, float to_x, float to_y, float e);   /* e 0 = on the ground .. 1 = at (to_x, to_y) (screen px) */
 int   item_grab(float player_x, float player_y);        /* chunk 68: the tap on the hand. takes it and returns the kind; -1 when nothing is in reach; a locked kind is not taken (the blocked callback runs) */
 void  item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t);
 

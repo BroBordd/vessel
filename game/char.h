@@ -66,6 +66,8 @@ void char_set_worried(int on);
  * screen point (x, y) (a little apart, side by side across the way they reach), as if holding something there; 0 puts them back. set both back to 0 after the draw. */
 void char_set_strain(int on);
 void char_set_grip(int on, float x, float y);
+/* after char_set_grip(1, ...): blend 0..1 mixes the grip with the normal floating hands (1 = fully at the point), max_cells = how far a hand may reach from its rest cell (14 by default; char_set_grip resets both) */
+void char_set_grip_ex(float blend, float max_cells);
 /* chunk 66: an old photo never blinks: while this is on, everything drawn has its eyes open (the grave portraits turn it on around their draw and off again) */
 void char_set_photo(int on);
 

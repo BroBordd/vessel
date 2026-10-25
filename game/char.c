@@ -65,7 +65,9 @@ void char_set_photo(int on) { g_photo = on != 0; }
 static int   g_strain, g_grip;                      /* pulling: eyes shut / both hands sent to a point on the screen */
 static float g_gx, g_gy;
 void char_set_strain(int on) { g_strain = on != 0; }
-void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; }
+static float g_gk = 1.0f, g_gmax = 14.0f;           /* the grip: how much of it (0 = the floating hands, 1 = at the point) and how far (cells) a hand may go from its rest cell */
+void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; }
+void char_set_grip_ex(float blend, float max_cells) { g_gk = blend < 0 ? 0 : blend > 1 ? 1 : blend; g_gmax = max_cells < 1 ? 1 : max_cells; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_alpha(float k) { g_alpha = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_darken(float k) { g_darken = k < 0 ? 0 : k > 1 ? 1 : k; }
@@ -186,7 +188,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         for (int h = 0; h < 2; h++) {
             float sg = (h == 0 ? s0 : -s0) * 1.5f * s;
             gdx[h] = g_gx + sg * qx - hx[h]; gdy[h] = g_gy + sg * qy - hy;
-            float m = sqrtf(gdx[h] * gdx[h] + gdy[h] * gdy[h]), mx = 14.0f * s;
+            float m = sqrtf(gdx[h] * gdx[h] + gdy[h] * gdy[h]), mx = g_gmax * s;
             if (m > mx) { gdx[h] *= mx / m; gdy[h] *= mx / m; }
         }
     }
@@ -201,7 +203,11 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             else setcell(r, p, c);
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
-                if (g_grip) { int h = dx < SPR_W / 2 ? 0 : 1; hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, gdx[h], gdy[h]); continue; }
+                if (g_grip) {                                                   /* the grip, blended with the floating hands (g_gk: 1 = all grip) so a reach starts and ends smoothly */
+                    int h = dx < SPR_W / 2 ? 0 : 1;
+                    float fx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, fy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;
+                    hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, fx + (gdx[h] - fx) * g_gk, fy + (gdy[h] - fy) * g_gk); continue;
+                }
                 hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr);
                 continue;
             }

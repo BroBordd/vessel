@@ -303,12 +303,13 @@ static int   held = -1;                     /* story chunk 16: the kind set as t
 #define DROP_HEIGHT   14                    /* units it falls from */
 
 static int locked[ITEM_COUNT], n_blocked;
+static int pull_idx = -1;                   /* the ground item the hands are reaching for / pulling (drawn by item_draw_pulled, not item_draw_ground) */
 static void (*blocked_cb)(void);
 void item_set_locked(int kind, int lk) { if (kind >= 0 && kind < ITEM_COUNT) locked[kind] = lk ? 1 : 0; }
 int  item_locked(int kind) { return kind >= 0 && kind < ITEM_COUNT && locked[kind]; }
 void item_set_blocked_cb(void (*cb)(void)) { blocked_cb = cb; }
 int  item_blocked_count(void) { return n_blocked; }
-void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; ng = 0; memset(locked, 0, sizeof locked); blocked_cb = NULL; }
+void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; ng = 0; pull_idx = -1; memset(locked, 0, sizeof locked); blocked_cb = NULL; }
 void item_place(int kind, int tile_x, int tile_y) {
     if (kind < 0 || kind >= ITEM_COUNT) return;
     if (ng == GROUND_MAX) { memmove(gnd, gnd + 1, sizeof(Ground) * (GROUND_MAX - 1)); ng--; }
@@ -352,6 +353,28 @@ static int nearest_in_reach(float pxw, float pyw) {              /* the nearest 
     return best;
 }
 int item_in_reach(float pxw, float pyw) { return nearest_in_reach(pxw, pyw) >= 0; }
+static int take_index(int i) {                                  /* the i-th ground item goes into the pockets */
+    int k = gnd[i].kind;
+    int seen = gnd[i].gs_seen, gx = gnd[i].gs_x, gy = gnd[i].gs_y;
+    memmove(gnd + i, gnd + i + 1, sizeof(Ground) * (size_t)(ng - i - 1)); ng--;
+    item_give(k);
+    if (seen) { fly_kind = k; fly_x = gx; fly_y = gy; fly_t = 0; new_t = -INV_FLY_T; }      /* chunk 70: it flies to the bag, the flash and the badge wait for it */
+    return k;
+}
+/* THE REACH: the pick-up is a little show (world.c): both hands reach for the item, pull it to the body, then item_pull_end puts it in the pockets (the flight to the bag
+ * starts where it was drawn last: at the body) and the hands go back. item_pull_begin says no for what cannot be taken (locked, hands full): item_grab then runs the callbacks */
+int item_pull_begin(float pxw, float pyw, float *wx, float *wy) {
+    if (pull_idx >= 0) return 0;
+    int i = nearest_in_reach(pxw, pyw); if (i < 0) return 0;
+    int k = gnd[i].kind;
+    if (locked[k]) return 0;
+    if (item_size(k) == SIZE_MEDIUM && item_medium_held()) return 0;
+    pull_idx = i; if (wx) *wx = (gnd[i].tx + 0.5f) * tile; if (wy) *wy = (gnd[i].ty + 0.5f) * tile;
+    return 1;
+}
+void item_pull_end(void) { int i = pull_idx; pull_idx = -1; if (i >= 0 && i < ng) take_index(i); }
+void item_pull_cancel(void) { pull_idx = -1; }
+int  item_pulling(void) { return pull_idx >= 0; }
 int item_grab(float pxw, float pyw) {                           /* chunk 68: the tap on the hand */
     int i = nearest_in_reach(pxw, pyw);
     if (i < 0) return -1;
@@ -361,11 +384,7 @@ int item_grab(float pxw, float pyw) {                           /* chunk 68: the
         return -1;
     }
     if (item_size(k) == SIZE_MEDIUM && item_medium_held()) { sfx_error(); if (full_cb) full_cb(); return -1; }       /* chunk 9: the hands are full */
-    int seen = gnd[i].gs_seen, gx = gnd[i].gs_x, gy = gnd[i].gs_y;
-    memmove(gnd + i, gnd + i + 1, sizeof(Ground) * (size_t)(ng - i - 1)); ng--;
-    item_give(k);
-    if (seen) { fly_kind = k; fly_x = gx; fly_y = gy; fly_t = 0; new_t = -INV_FLY_T; }      /* chunk 70: it flies to the bag, the flash and the badge wait for it */
-    return k;
+    return take_index(i);
 }
 
 /* ---------- drawing ---------- */
@@ -447,8 +466,22 @@ void item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell) {
     draw_rows(r, SEARCH, x, y, cell, 0);
 }
 
+/* the pulled item: e 0 = still on the ground .. 1 = at (to_x, to_y) (screen px, the centre of the icon). it lies on its side, then turns upright halfway */
+void item_draw_pulled(SDL_Renderer *r, int cam_x, int cam_y, float t, float to_x, float to_y, float e) {
+    if (pull_idx < 0 || pull_idx >= ng) return;
+    Ground *g = &gnd[pull_idx];
+    int x0 = (int)((g->tx + 0.5f) * tile) - cam_x, y0 = (int)((g->ty + 0.5f) * tile) - cam_y;
+    int bob = (int)floorf(sinf(t * 3.0f + pull_idx) * 0.9f + 0.5f); if (g->kind == ITEM_ROCK) bob = 0;
+    int px_ = (int)floorf(x0 + (to_x - x0) * e + 0.5f), py_ = (int)floorf(y0 + (to_y - y0) * e + 0.5f) + (int)(bob * s * (1.0f - e));
+    g->gs_x = px_; g->gs_y = py_; g->gs_seen = 1;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    if (e < 0.98f) { SDL_SetRenderDrawColor(r, 0, 0, 0, (int)(70 * (1.0f - e))); SDL_Rect sh = { x0 - 7 * s / 2, y0 + 3 * s / 2, 7 * s, s }; SDL_RenderFillRect(r, &sh); }
+    draw_rows_half(r, ICONS[g->kind], px_ - 3 * s, py_ - 3 * s, s, e < 0.5f ? 1 : 0);
+}
+
 void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     for (int n = 0; n < ng; n++) {
+    if (n == pull_idx) continue;
     Ground *g = &gnd[n]; float drop_t = g->drop_t;
     int x = (int)((g->tx + 0.5f) * tile) - cam_x, y = (int)((g->ty + 0.5f) * tile) - cam_y;      /* centre of the spot */
     int rock = g->kind == ITEM_ROCK;                                                         /* chunk 15: a rock does not bob; now and then it sparkles */

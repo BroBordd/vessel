@@ -67,6 +67,16 @@ static float drag_snd;              /* the friction sound's level we sent last f
 static float drag_ox, drag_oy, drag_spd;   /* where his middle wants to be, from us (px, fixed when we took hold); how fast he really slides (cells / s) */
 static int   near_inspect; static unsigned inspect_vessel;   /* story chunk 6: a body lies in reach: the hand button shows a magnifying glass and a TAP inspects it (story.c says what it carries) */
 static void (*inspect_cb)(unsigned vessel);
+/* THE REACH (the pick-up show): a tap on the hand starts it. both hands reach for the item (PK_REACH), a beat (PK_HOLD), they pull it to the body (PK_PULL), it goes into the pockets
+ * (item_pull_end: the flight to the bag as before) and the hands go back (PK_RET). drawn in draw_scene, driven by world_update */
+#define PK_REACH 0.20f
+#define PK_HOLD  0.08f
+#define PK_PULL  0.25f
+#define PK_RET   0.25f
+#define PK_TAKE  (PK_REACH + PK_HOLD + PK_PULL)
+static int   pick_on, pick_taken; static float pick_t, pick_wx, pick_wy;
+static void pick_start(void);
+static float pk_ss(float k) { k = k < 0 ? 0 : k > 1 ? 1 : k; return k * k * (3.0f - 2.0f * k); }
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
 static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
 static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
@@ -460,7 +470,7 @@ static void load_map(void) {
     cur_map = MAP_TEMPLE; cam_snap = 1;
     gen_temple_map();
     ritual_cancel(); ritual_cb = NULL;           /* the circle is part of the map */
-    item_reset(px, tile);                        /* what lay on the old map is gone; the pockets stay */
+    item_reset(px, tile); pick_on = 0;           /* what lay on the old map is gone; the pockets stay */
     near_drag = drag_on = 0; drag_cand = drag_id = -1; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0;
     btn_down = btn_inside = 0;
     pxp = (temple_sx + 0.5f) * tile; pyp = (temple_sy + 0.5f) * tile;   /* the first room's middle */
@@ -761,7 +771,7 @@ void world_touch_p(int pid, int a, int x, int y) {
     if (a == 0 && !hand_down && (near_item || near_inspect) && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
     if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
-        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) item_grab(pxp, pyp); else if (inspect_cb) inspect_cb(inspect_vessel); } }
+        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) pick_start(); else if (inspect_cb) inspect_cb(inspect_vessel); } }
         return;
     }
 
@@ -882,6 +892,11 @@ void world_update(float dt) {
     dragged_now = drag_spd > 0.8f;
 
     item_update(dt);
+    if (pick_on) {
+        pick_t += dt;
+        if (!pick_taken && pick_t >= PK_TAKE) { item_pull_end(); pick_taken = 1; }
+        if (pick_t >= PK_TAKE + PK_RET) pick_on = 0;
+    }
     bodies_trail_update(dt);
     if (swing_on) {                                                      /* chunk 11: flying across the crack */
         swing_t += dt / 1.5f;
@@ -950,6 +965,12 @@ static void draw_stick(SDL_Renderer *r, int cx, int cy, int rad, int krad, int k
     col(r, 255, 255, 255, on ? 255 : 220); pdisc(r, kcx, kcy, krad, ucell);        /* ... round the light knob */
 }
 
+static void pick_start(void) {                                   /* the tap on the hand next to an item */
+    float wx, wy;
+    if (pick_on) return;
+    if (!drag_on && item_pull_begin(pxp, pyp, &wx, &wy)) { pick_on = 1; pick_taken = 0; pick_t = 0; pick_wx = wx; pick_wy = wy; }
+    else item_grab(pxp, pyp);                                    /* what cannot be taken (locked, hands full) says so; while holding a body: at once */
+}
 static void draw_hand_button(SDL_Renderer *r) {                  /* chunk 68: the same two-tone edge as the interact button, a little smaller; an open hand */
     int down = hand_down && hand_inside;
     int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));
@@ -1045,8 +1066,23 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             nx = nx < gx0 ? gx0 : nx > gx1 ? gx1 : nx; ny = ny < gy0 ? gy0 : ny > gy1 ? gy1 : ny;
             char_set_grip(1, nx, ny);
         }
+        int pk_late = 1; float pk_bx = 0, pk_by = 0, pk_pe = 0;
+        if (pick_on && !drag_on) {                                  /* the reach: both hands go for the item, pull it to the body, and come back */
+            float ix = pick_wx - cx, iy = pick_wy - cy;
+            float re = pk_ss(pick_t / PK_REACH), pe = pk_ss((pick_t - PK_REACH - PK_HOLD) / PK_PULL), rt = pk_ss((pick_t - PK_TAKE) / PK_RET);
+            float bx = (float)sx0, by = (float)sy0 - 2.5f * px;          /* the point between the hands, in front of the body */
+            float ipx = ix + (bx - ix) * pe, ipy = iy + (by - iy) * pe;  /* the item while it is pulled */
+            float tx = bx, ty = by, blend = 1.0f - rt;
+            if (!pick_taken) { tx = bx + (ipx - bx) * re; ty = by + (ipy - by) * re; blend = re; }
+            float dm = sqrtf((ix - bx) * (ix - bx) + (iy - by) * (iy - by)) / (float)px + 3.0f; if (dm < 14.0f) dm = 14.0f;
+            char_set_grip(1, tx, ty); char_set_grip_ex(blend, dm);
+            pk_bx = bx; pk_by = by; pk_pe = pe;
+            pk_late = !(iy < (float)sy0 && pe < 0.5f);                   /* an item behind us stays behind us while it is still far */
+        }
         if (strain_t > 0) char_set_strain(1);                      /* pulling is hard: the eyes shut */
+        if (pick_on && !pick_taken && !pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
+        if (pick_on && !pick_taken && pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_set_grip(0, 0, 0); char_set_strain(0);
     }
     char_set_darken(0);
