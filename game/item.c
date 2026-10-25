@@ -126,24 +126,77 @@ static const char *ROCK[ITEM_ICON_CELLS] = {
     "....GGGG....",
     "............",
 };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE, ROCK };
-static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE", "ROCK" };
+
+/* story chunk 9: the parts. S skin, s dark skin, R blood, N pink, n dark pink, M maroon, P bone, G outline */
+static const char *ARM[ITEM_ICON_CELLS] = {
+    "............", "........GGG.", ".......GSSsG", "......GSSsG.", ".....GSSsG..", "....GSSsG...",
+    "...GSSsG....", "..GSSsG.....", ".GRRRG......", ".GRRRG......", "..GGG.......", "............" };
+static const char *LEG[ITEM_ICON_CELLS] = {
+    "...GGGG.....", "...GRRG.....", "...GSSsG....", "...GSSsG....", "...GSSsG....", "...GSSsG....",
+    "...GSSsG....", "...GSSsG....", "...GSSsGGG..", "...GSSSSSsG.", "....GGGGGGG.", "............" };
+static const char *HEAD[ITEM_ICON_CELLS] = {
+    "....GGGG....", "..GGSSSSGG..", ".GSSSSSSSSG.", ".GSSSSSSSSG.", ".GSGGSSGGSG.", ".GSSSSSSSSG.",
+    ".GSSSssSSSG.", ".GSSSSSSSSG.", "..GSRRRRSG..", "..GGRRRRGG..", "....GGGG....", "............" };
+static const char *RIBS[ITEM_ICON_CELLS] = {
+    "............", "..GPGGGGPG..", ".GPPGPPGPPG.", ".GPGPPPPGPG.", ".GPGPPPPGPG.", ".GPPGPPGPPG.",
+    "..GPPGGPPG..", "..GPGPPGPG..", "...GPPPPG...", "....GGGG....", "............", "............" };
+static const char *HEART[ITEM_ICON_CELLS] = {
+    "............", "..GGG.GGG...", ".GRRRGRRRG..", "GRRNRRRRRRG.", "GRRRRRRRRRG.", ".GRRRRRRRG..",
+    "..GRRRRRG...", "...GRRRG....", "....GRG.....", ".....G......", "............", "............" };
+static const char *LIVER[ITEM_ICON_CELLS] = {
+    "............", "..GGGGGG....", ".GMMMMMMGG..", "GMMMnnMMMMG.", "GMMMMMMMMMMG", "GMMMMMMMMMMG",
+    ".GMMMMMMMMG.", "..GGMMMMMG..", "....GGGGG...", "............", "............", "............" };
+static const char *INTEST[ITEM_ICON_CELLS] = {
+    "............", "..GGGGGGGG..", ".GNNNNNNNNG.", ".GNGGGGGGNG.", ".GNG....GNG.", ".GNNNNNNNNG.",
+    "..GGGGGGGNG.", ".GNNNNNNNNG.", ".GNGGGGGGG..", ".GNNNNNNNG..", "..GGGGGGGG..", "............" };
+static const char *SPINE[ITEM_ICON_CELLS] = {
+    "....GGGG....", "...GPPPPG...", "....GPPG....", "...GPPPPG...", "....GPPG....", "...GPPPPG...",
+    "....GPPG....", "...GPPPPG...", "....GPPG....", "...GPPPPG...", "....GGGG....", "............" };
+static const char *FINGERS[ITEM_ICON_CELLS] = {
+    "............", "..G.G.G.G...", ".GSGSGSGSG..", ".GSGSGSGSG..", ".GSGSGSGSG..", ".GSSSSSSSSG.",
+    ".GSSSSSSSSG.", "..GRRRRRG...", "..GGGGGGG...", "............", "............", "............" };
+static const char *EYES[ITEM_ICON_CELLS] = {
+    "............", "............", ".GGGG..GGGG.", "GbbbbGGbbbbG", "GbBBbGGbBBbG", "GbBGbGGbBGbG",
+    "GbbbbGGbbbbG", ".GGGG..GGGG.", "............", "............", "............", "............" };
+static const char *TEETH[ITEM_ICON_CELLS] = {
+    "............", "............", "GGGGGGGGGGGG", "GPPGPPGPPGPG", "GPPGPPGPPGPG", "GPPGPPGPPGPG",
+    ".GGGGGGGGGG.", "............", "............", "............", "............", "............" };
+static const char *SKULL[ITEM_ICON_CELLS] = {
+    "....GGGG....", "..GGPPPPGG..", ".GPPPPPPPPG.", ".GPPPPPPPPG.", ".GPGGPPGGPG.", ".GPGGPPGGPG.",
+    ".GPPPPGPPPG.", "..GPPPPPPG..", "..GPGPGPGPG.", "...GGGGGGG..", "............", "............" };
+static const char *BONE[ITEM_ICON_CELLS] = {
+    "............", "........GG.G", ".......GPGPG", "......GPPPG.", ".....GPPG...", "....GPPG....",
+    "...GPPG.....", "..GPPG......", ".GPGPG......", ".GP.GG......", "..GG........", "............" };
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE, ROCK, ARM, LEG, HEAD, RIBS, HEART, LIVER, INTEST, SPINE, FINGERS, EYES, TEETH, SKULL, BONE };
+static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE", "ROCK",
+    "ARM", "LEG", "HEAD", "RIBS", "HEART", "LIVER", "INTESTINE", "SPINE", "FINGERS", "EYES", "TEETH", "SKULL", "BONE" };
 static const char *DESCS[ITEM_COUNT] = {
     "A heavy hammer.", "A violet orb. It glows.", "A note written in blood.",
     "A sharp knife. It cuts bodies, and the one who holds it.", "A small rock. Fits a hand. Good for throwing.",
+    "An arm. Heavy in the hands. A knife can take the fingers or the bone.", "A leg. Heavy in the hands. A knife can take the bone.",
+    "A head. Don't look at the face. A knife takes eyes and teeth, or cleans it.", "A ribcage. Small enough to pocket.",
+    "A heart. Still warm.", "A liver. Dark and heavy.", "Long. Surprisingly long.", "A spine. It could hold a hook.",
+    "Fingers. They still curl.", "Two eyes. They don't look at anything.", "Teeth. A handful.", "A clean skull.", "A bone. Long and strong.",
 };
 static void (*action_cb)(int kind, int act);
 const char *item_desc(int kind) { return kind >= 0 && kind < ITEM_COUNT ? DESCS[kind] : ""; }
-int item_actions(int kind, int out[2]) {
-    if (kind == ITEM_KNIFE) { out[0] = ACT_STAB; out[1] = ACT_STAB_SELF; return 2; }
-    if (kind == ITEM_ROCK)  { out[0] = ACT_THROW; return 1; }
-    return 0;
+int item_actions(int kind, int out[4]) {
+    switch (kind) {
+    case ITEM_KNIFE: out[0] = ACT_STAB; out[1] = ACT_STAB_SELF; return 2;
+    case ITEM_ROCK:  out[0] = ACT_THROW; return 1;
+    case ITEM_ARM:   out[0] = ACT_CUT_FINGERS; out[1] = ACT_CUT_BONE; out[2] = ACT_DROP; return 3;
+    case ITEM_LEG:   out[0] = ACT_CUT_BONE; out[1] = ACT_DROP; return 2;
+    case ITEM_HEAD:  out[0] = ACT_CUT_EYES; out[1] = ACT_CUT_TEETH; out[2] = ACT_CLEAN; out[3] = ACT_DROP; return 4;
+    case ITEM_SPINE: case ITEM_BONE: out[0] = ACT_DROP; return 1;
+    default: return 0;
+    }
 }
-const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : ""; }
+const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : ""; }
 void item_set_action_cb(void (*cb)(int kind, int act)) { action_cb = cb; }
 
 int item_size(int kind) {
-    switch (kind) {                         /* the hammer, the orb, the paper and the knife all fit a pocket. the arms, legs, heads and spines of chunk 9 will be SIZE_MEDIUM here */
+    switch (kind) {                         /* arms, legs, heads, spines and bones are carried in the hands (one at a time); the rest fit a pocket */
+    case ITEM_ARM: case ITEM_LEG: case ITEM_HEAD: case ITEM_SPINE: case ITEM_BONE: return SIZE_MEDIUM;
     default: return SIZE_SMALL;
     }
 }
@@ -186,11 +239,15 @@ int  item_exists(void) { return ng > 0; }
 int  item_ground_count(void) { return ng; }
 int  item_ground_get(int i, int *kind, int *tile_x, int *tile_y) { if (i < 0 || i >= ng) return 0; *kind = gnd[i].kind; *tile_x = gnd[i].tx; *tile_y = gnd[i].ty; return 1; }
 void item_tile(float *x, float *y) { if (ng > 0) { *x = gnd[0].tx + 0.5f; *y = gnd[0].ty + 0.5f; } else { *x = *y = 0; } }
-int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind]; }
-void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; have[kind] = 1; new_t = 0; newest = kind; }
-void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT) have[kind] = 0; }
-void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = have[k] ? 1 : 0; }
-void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k] ? 1 : 0; }
+int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind] > 0; }
+int  item_count(int kind) { return kind >= 0 && kind < ITEM_COUNT ? have[kind] : 0; }
+void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; if (have[kind] < 99) have[kind]++; new_t = 0; newest = kind; }
+void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT && have[kind] > 0) have[kind]--; }
+int  item_medium_held(void) { for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0 && item_size(k) == SIZE_MEDIUM) return 1; return 0; }
+static void (*full_cb)(void);
+void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
+void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
+void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
 void item_clear(void) { memset(have, 0, sizeof have); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; }
 
 static int owned(void);
@@ -226,6 +283,7 @@ int item_grab(float pxw, float pyw) {                           /* chunk 68: the
         n_blocked++; if (blocked_cb) blocked_cb();
         return -1;
     }
+    if (item_size(k) == SIZE_MEDIUM && item_medium_held()) { sfx_error(); if (full_cb) full_cb(); return -1; }       /* chunk 9: the hands are full */
     int seen = gnd[i].gs_seen, gx = gnd[i].gs_x, gy = gnd[i].gs_y;
     memmove(gnd + i, gnd + i + 1, sizeof(Ground) * (size_t)(ng - i - 1)); ng--;
     item_give(k);
@@ -250,6 +308,9 @@ static void rgb_of(char c, int *R, int *G, int *B) {
         case 'y': *R = 255; *G = 238; *B = 170; break;
         case 'P': *R = 232; *G = 222; *B = 196; break;
         case 'R': *R = 150; *G = 28;  *B = 34;  break;
+        case 'N': *R = 222; *G = 126; *B = 136; break;      /* pink (gut) */
+        case 'n': *R = 164; *G = 74;  *B = 92;  break;      /* dark pink */
+        case 'M': *R = 104; *G = 30;  *B = 44;  break;      /* maroon (liver) */
         default:  *R = 132; *G = 84;  *B = 42;  break;      /* w */
     }
 }
@@ -363,7 +424,7 @@ void item_ui_init(int w, int h, int right_edge, int top, int width) {
     ui_open = ui_down = 0; ui_p = ui_idle = 0; ui_sel = -1;
 }
 
-static int owned(void) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) n += have[k]; return n; }
+static int owned(void) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) n += have[k] > 0 ? 1 : 0; return n; }
 static int shown(void) { return owned() - (fly_t < INV_FLY_T ? 1 : 0); }                 /* the badge does not count what is still in the air */
 static int fcell(const char *name, int room) {              /* the biggest letter size (up to 3) that still fits `room` */
     int c = (int)(2.0f * (W < H ? W : H) / 360.0f); if (c < 1) c = 1; if (c > 3) c = 3;
@@ -373,8 +434,8 @@ static int fcell(const char *name, int room) {              /* the biggest lette
 static int slots_n(void) { int n = owned(); int rows = (n + INV_COLS - 1) / INV_COLS; if (rows < 1) rows = 1; return rows * INV_COLS; }
 static int label_h(void) { return 2 * qs + font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + pad; }
 /* story chunk 8: under the name, the description of the selected item (a few short lines) and one button per action */
-#define DESC_LINES 5
-static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel]; }
+#define DESC_LINES 7
+static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel] > 0; }
 static int dcell(void) { int c = (int)((W < H ? W : H) / 360.0f); if (c < 1) c = 1; if (c > 2) c = 2; return c; }
 static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) {      /* greedy word wrap; returns the number of lines */
     int n = 0; out[0][0] = 0; char word[64]; const char *p = text;
@@ -393,7 +454,7 @@ static int d_pitch(void) { return font_height(dcell()) + qs; }
 static int act_h(void) { return font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + 2 * pad; }
 static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() ? wrap(item_desc(ui_sel), dcell(), uw - 2 * bt - 2 * pad, ln) : 0; }
 static int act_n(int out[2]) { return sel_ok() ? item_actions(ui_sel, out) : 0; }
-static int extra_h(void) { int a[2], nl = desc_n(), na = act_n(a); return (nl ? nl * d_pitch() + pad : 0) + na * (act_h() + pad); }
+static int extra_h(void) { int a[4], nl = desc_n(), na = act_n(a); return (nl ? nl * d_pitch() + pad : 0) + na * (act_h() + pad); }
 static int panel_full_h(void) { int rows = slots_n() / INV_COLS; return 2 * bt + pad + rows * psl + (rows - 1) * pad + pad + label_h() + extra_h(); }
 static int grid_bottom(void) { int rows = slots_n() / INV_COLS; return uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad; }
 static void act_rect(int i, int *x, int *y, int *w, int *h) {
@@ -413,8 +474,8 @@ static int hit_bag(int x, int y) { int a, b, c, d; bag_rect(&a, &b, &c, &d); ret
 static int hit_panel(int x, int y) { if (ui_p <= 0.0f) return 0; int a, b, c, d; panel_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d); }
 static int slot_x(int i) { return ux + bt + pad + (i % INV_COLS) * (psl + pad); }
 static int slot_y(int i) { return uy + bag + pad + bt + pad + (i / INV_COLS) * (psl + pad); }
-static int kind_at_slot(int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k]) { if (n == i) return k; n++; } return -1; }
-static int slot_of_kind(int kind) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k]) { if (k == kind) return n; n++; } return -1; }
+static int kind_at_slot(int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0) { if (n == i) return k; n++; } return -1; }
+static int slot_of_kind(int kind) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0) { if (k == kind) return n; n++; } return -1; }
 
 int item_ui_hit(int x, int y) { return owned() > 0 && (hit_bag(x, y) || hit_panel(x, y)); }
 int item_ui_open(void) { return ui_open && owned() > 0; }
@@ -424,13 +485,13 @@ int item_ui_flying(void) { return fly_t < INV_FLY_T; }
 int item_ui_shown(void) { return shown(); }
 int item_ui_slot_x(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_x(i) + psl / 2; }
 int item_ui_slot_y(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_y(i) + psl / 2; }
-int item_ui_action_x(int i) { int a[2], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return x + w / 2; }
-int item_ui_action_y(int i) { int a[2], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return y + h / 2; }
+int item_ui_action_x(int i) { int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return x + w / 2; }
+int item_ui_action_y(int i) { int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return y + h / 2; }
 int item_ui_bag_x(void) { return ux + uw - bag / 2; }
 int item_ui_bag_y(void) { return uy + bag / 2; }
 
 static void set_open(int o) {
-    if (o && !ui_open) { ui_idle = 0; ui_sel = newest >= 0 && have[newest] ? newest : kind_at_slot(0); }
+    if (o && !ui_open) { ui_idle = 0; ui_sel = newest >= 0 && have[newest] > 0 ? newest : kind_at_slot(0); }
     ui_open = o;
 }
 int item_ui_touch(int a, int x, int y) {
@@ -446,7 +507,7 @@ int item_ui_touch(int a, int x, int y) {
         if (ui_down == 1 && hit_bag(x, y)) set_open(!ui_open);
         else if (ui_down == 2 && hit_panel(x, y)) {
             ui_idle = 0;
-            int acts[2], na = ui_p >= 1.0f ? act_n(acts) : 0;
+            int acts[4], na = ui_p >= 1.0f ? act_n(acts) : 0;
             for (int i = 0; i < na; i++) {                   /* story chunk 8: an action button: fold the panel, then the story decides what happens */
                 int rx, ry, rw, rh; act_rect(i, &rx, &ry, &rw, &rh);
                 if (in_rect(x, y, rx, ry, rw, rh)) { int k = ui_sel; ui_open = 0; ui_down = 0; if (action_cb) action_cb(k, acts[i]); return 1; }
@@ -509,8 +570,13 @@ void item_ui_draw(SDL_Renderer *r, float t) {
             box(r, sx, sy, psl, psl, br, bg, bb, 20, 24, 46, 255);
             if (gold && flash) { SDL_SetRenderDrawColor(r, 255, 238, 170, blink ? 70 : 0); SDL_Rect in = { sx + bt, sy + bt, psl - 2 * bt, psl - 2 * bt }; SDL_RenderFillRect(r, &in); }
             item_draw_icon(r, k, sx + (psl - ITEM_ICON_CELLS * pcell) / 2, sy + (psl - ITEM_ICON_CELLS * pcell) / 2, pcell);
+            if (have[k] > 1) {                                   /* chunk 9: more than one of a kind: the number in the corner */
+                char num[8]; snprintf(num, sizeof num, "%d", have[k]); int cc = dcell();
+                SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
+                font_draw(r, num, sx + psl - bt - font_width(num, cc) - qs, sy + psl - bt - font_height(cc) - qs, cc);
+            }
         }
-        if (ui_sel >= 0 && have[ui_sel]) {                    /* the name under the slot you touched: a little pointer, then the word */
+        if (ui_sel >= 0 && have[ui_sel] > 0) {                    /* the name under the slot you touched: a little pointer, then the word */
             int i = slot_of_kind(ui_sel), cx = slot_x(i) + psl / 2;
             int gy = uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad;           /* the bottom of the grid */
             SDL_SetRenderDrawColor(r, 236, 190, 78, 255);
@@ -523,7 +589,7 @@ void item_ui_draw(SDL_Renderer *r, float t) {
             char ln[DESC_LINES][64]; int dc = dcell(), nl = wrap(item_desc(ui_sel), dc, pw_ - 2 * bt - 2 * pad, ln);      /* story chunk 8: what it is ... */
             SDL_SetRenderDrawColor(r, 178, 190, 222, 255);
             for (int j = 0; j < nl; j++) font_draw(r, ln[j], px_ + bt + pad, grid_bottom() + label_h() + j * d_pitch(), dc);
-            int acts[2], na = act_n(acts);                        /* ... and what it can do: one button each */
+            int acts[4], na = act_n(acts);                        /* ... and what it can do: one button each */
             for (int j = 0; j < na; j++) {
                 int rx, ry, rw, rh; act_rect(j, &rx, &ry, &rw, &rh);
                 box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);

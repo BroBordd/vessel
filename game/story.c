@@ -74,6 +74,7 @@ void story_after(float seconds, void (*fn)(void)) {
 
 void story_update(float dt) {
     note_watch();                               /* the paper has been taken: read it */
+    if (item_has(ITEM_INTESTINE)) event_fire(EV_FIRST_INTESTINE);   /* chunk 9 */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
@@ -245,24 +246,57 @@ static void story_inspect(unsigned vessel) {
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
 }
 
-/* ---------- the inventory's actions (chunk 8) ---------- */
-/* the knife stabs the body next to us, or ourselves; the rock is thrown the way we face. a stab on a body is only a first wound here (chunk 9 builds the cuts),
- * a stab on ourselves is a death like any other: the knife stays in the dead body's pockets (death_woke packs them) */
+/* ---------- cutting bodies, the inventory's actions (chunks 8 and 9) ---------- */
+/* each stab on a body takes the next step of section 6: a wound, the arms, the legs, the head, the torso opens. the parts fall on the floor around the body (they are
+ * items, so a small one is taken with the hand button and a MEDIUM one (arm, leg, head, spine, bone) is carried, one at a time). a thrown big rock does all the
+ * steps at once and scatters what the body carried. a stab on ourselves is a death like any other: the knife stays in the dead body's pockets (death_woke) */
+static void part_fall(unsigned v, int kind) { float tx, ty; if (world_body_tile(v, &tx, &ty)) world_drop_item_near(kind, tx, ty); }
+static const char *cut_step(unsigned v, int step) {                 /* what step `step` (1..7) does; the words for the toast */
+    switch (step) {
+    case 1: return "A wound. The blood runs again.";
+    case 2: case 3: part_fall(v, ITEM_ARM); event_fire(EV_ARM_OFF); return "An arm comes off.";
+    case 4: case 5: part_fall(v, ITEM_LEG); return "A leg comes off.";
+    case 6: part_fall(v, ITEM_HEAD); event_fire(EV_HEAD_OFF); return "The head comes off.";
+    default:
+        part_fall(v, ITEM_RIBS); part_fall(v, ITEM_HEART); part_fall(v, ITEM_LIVER); part_fall(v, ITEM_INTESTINE); part_fall(v, ITEM_SPINE);
+        event_fire(EV_TORSO_OPEN); return "The torso opens.";
+    }
+}
+static void story_smash(unsigned v) {                               /* the big rock ran into a body */
+    Body *b = (Body *)bodies_find(v);
+    if (!b || b->cuts >= BODIES_CUTS) return;
+    for (int s = b->cuts + 1; s <= BODIES_CUTS; s++) cut_step(v, s);
+    bodies_cut_done(v);
+    for (int k = 0; k < ITEM_COUNT; k++) while (b->inv[k]) { part_fall(v, k); b->inv[k]--; }      /* what he carried flies around */
+    event_fire(EV_FIRST_STAB);
+    toast_notice("SMASHED", "The rock leaves only pieces.");
+}
+static void story_full(void) { toast_notice("HANDS FULL", "Put something down first."); }
+static void need_knife(void) { sfx_error(); toast_notice("NO KNIFE", "You need a knife for that."); }
 static void story_action(int kind, int act) {
     if (dying) return;
-    if (act == ACT_STAB_SELF) { sfx_hit(); story_die(DEATH_SELF); return; }
-    if (act == ACT_STAB) {
+    switch (act) {
+    case ACT_STAB_SELF: sfx_hit(); story_die(DEATH_SELF); return;
+    case ACT_STAB: {
         unsigned v = world_body_in_reach();
         if (!v) { sfx_error(); toast_notice("NOTHING TO STAB", "Get close to a body."); return; }
+        int step = bodies_cut(v);
+        if (!step) { sfx_error(); toast_notice("NOTHING LEFT", "There is nothing left to cut."); return; }
         sfx_hit();
-        toast_notice("YOU STAB", story_vessel_name(v));
         event_fire(EV_FIRST_STAB);
-        return;
-    }
-    if (act == ACT_THROW) {
-        item_take(kind);
-        sfx_blip(1.1f);
+        toast_notice("YOU STAB", cut_step(v, step));
+        return; }
+    case ACT_THROW:
+        item_take(kind); sfx_blip(1.1f);
         if (world_throw_item(kind)) event_fire(EV_DROP_IN_PIT);          /* the crack took it: the echo is chunk 11 */
+        return;
+    case ACT_DROP: {
+        float x, y; item_take(kind); world_player_tilef(&x, &y); world_drop_item_near(kind, x, y); return; }
+    case ACT_CUT_FINGERS: if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_FINGERS); return;      /* the arm stays: fingers do not use it up */
+    case ACT_CUT_EYES:    if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_EYES); return;
+    case ACT_CUT_TEETH:   if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_TEETH); return;
+    case ACT_CUT_BONE:    if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_take(kind); item_give(ITEM_BONE); return;   /* the limb is used up */
+    case ACT_CLEAN:       if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_take(kind); item_give(ITEM_SKULL); return;  /* so is the head */
     }
 }
 
@@ -281,7 +315,7 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
-    item_set_action_cb(story_action);
+    item_set_action_cb(story_action); item_set_full_cb(story_full); world_set_smash_cb(story_smash);
     world_ritual(story_vessel_look(1), story_woke);
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */

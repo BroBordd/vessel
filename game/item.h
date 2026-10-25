@@ -15,7 +15,9 @@
 #define ITEM_H
 #include <SDL2/SDL.h>
 
-enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_ROCK, ITEM_COUNT };      /* story chunk 8: the small rock (thrown) */      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
+enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_ROCK,
+       ITEM_ARM, ITEM_LEG, ITEM_HEAD, ITEM_RIBS, ITEM_HEART, ITEM_LIVER, ITEM_INTESTINE, ITEM_SPINE, ITEM_FINGERS, ITEM_EYES, ITEM_TEETH, ITEM_SKULL, ITEM_BONE,   /* story chunk 9: what a body gives */
+       ITEM_COUNT };      /* story chunk 8: the small rock (thrown) */      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
 /* story chunk 7: size classes (docs/story/vessel.md section 4). SMALL goes in the pockets; MEDIUM is carried in the hands, one at a time, and slows the player a
  * little (CARRY_SPEED_MEDIUM, times the walking speed); BIG cannot be picked up at all, only dragged (a whole body, a torso, the big rock: props.h) and slows the
  * player a lot. nothing medium exists before chunk 9 (the parts that come off a body), so the carrying itself is built there; the table and the numbers are here */
@@ -28,9 +30,9 @@ int item_size(int kind);                    /* the size class of an item kind (S
 const char *item_name(int kind);            /* "HAMMER", "ORB" (capitals: the pixel font) */
 /* story chunk 8: WHAT AN ITEM IS AND WHAT IT CAN DO. the open inventory shows, under the name of the slot you touched, a short description and one button per
  * action. a tap on a button folds the panel and calls the action callback (story.c decides what happens: the knife stabs a body or ourselves, the rock flies). */
-typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW } ItemAction;
+typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW, ACT_CUT_FINGERS, ACT_CUT_BONE, ACT_CUT_EYES, ACT_CUT_TEETH, ACT_CLEAN, ACT_DROP } ItemAction;
 const char *item_desc(int kind);                        /* a short text (letters, digits, space and , . ! ? ' -) */
-int         item_actions(int kind, int out[2]);         /* the actions of an item, 0 to 2 of them. returns how many */
+int         item_actions(int kind, int out[4]);         /* the actions of an item, 0 to 4 of them. returns how many */
 const char *item_action_name(int act);                  /* the button's words (capitals) */
 void        item_set_action_cb(void (*cb)(int kind, int act));
 int         item_ui_action_x(int i);                    /* (tests) the centre of the i-th action button of the selected item (-1 none) */
@@ -59,6 +61,9 @@ void  item_give(int kind);                              /* straight into the poc
 void  item_take(int kind);                              /* out of the pockets (chunk 43: the orb goes to Dea) */
 void  item_pack(unsigned char out[ITEM_COUNT]);          /* story chunk 6: what the pockets hold now (1 per kind), to be kept with a body */
 void  item_unpack(const unsigned char in[ITEM_COUNT]);   /* ... and put back (a body's things in the pockets) */
+int   item_count(int kind);                             /* story chunk 9: how many of that kind the pockets hold (a kind can be held more than once now) */
+int   item_medium_held(void);                           /* story chunk 9: a MEDIUM thing is in the hands (one at a time; it slows us: CARRY_SPEED_MEDIUM) */
+void  item_set_full_cb(void (*cb)(void));               /* the hands are full and the player reached for another medium thing */
 void  item_clear(void);                                 /* empty pockets (a new body) */
 /* every frame while playing: the drop animation and the pocket pulse run (nothing is picked up here any more) */
 void  item_update(float dt);

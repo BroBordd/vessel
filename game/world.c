@@ -337,6 +337,21 @@ static void drag_move(float dx, float dy) {                                 /* t
     else if (drag_id == 1) ritual_body_shift(dx / px, dy / px);
     else bodies_shift((unsigned)drag_id, dx, dy, tile);
 }
+static float smash_cd; static void (*smash_cb)(unsigned vessel);
+void world_set_smash_cb(void (*cb)(unsigned vessel)) { smash_cb = cb; }
+static unsigned rock_body_hit(float sx, float sy) {                         /* the body the rock would run into if it moved by (sx, sy) px: its vessel number, 0 = none */
+    float x0, y0, x1, y1;
+    if (!props_rock_box(px, tile, &x0, &y0, &x1, &y1)) return 0;
+    float n0 = x0 + sx - px, m0 = y0 + sy - px, n1 = x1 + sx + px, m1 = y1 + sy + px;     /* a cell of reach all round: it is stopped by the body before it overlaps */
+    float c0, d0, c1, d1;
+    if (v1_box_px(&c0, &d0, &c1, &d1) && box_overlap(n0, m0, n1, m1, c0, d0, c1, d1)) return 1;
+    for (int i = 0; i < bodies_count(); i++) {
+        const Body *b = bodies_get(i);
+        if (!b || b->vessel == 1 || !bodies_box(b->vessel, px, tile, &c0, &d0, &c1, &d1)) continue;
+        if (box_overlap(n0, m0, n1, m1, c0, d0, c1, d1)) return b->vessel;
+    }
+    return 0;
+}
 static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack */
     drag_spd = 0;
     float x0, y0, x1, y1;
@@ -349,6 +364,11 @@ static void drag_step(float dt) {                                           /* t
     float lim = (rock ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
     if (len - mv > lim) mv = len - lim;
     float mx = ex / len * mv, my = ey / len * mv;
+    if (rock && mv > 0.3f * px && smash_cd <= 0) {                           /* chunk 9: the rock pushed into a body smashes it */
+        unsigned hit = rock_body_hit(mx, my);
+        if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
+    }
+    if (smash_cd > 0) smash_cd -= dt;
     if (drag_blocked(mx, 0)) mx = 0; else drag_move(mx, 0);
     if (drag_blocked(0, my)) my = 0; else drag_move(0, my);
     drag_spd = hypotf(mx, my) / dt / (float)px;
@@ -1009,6 +1029,24 @@ float world_dist_to_pit(void) {
     return best;
 }
 /* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
+/* story chunk 9: the middle of a body (feet, tiles) for the parts to fall around. 0 when that vessel has no body here */
+int world_body_tile(unsigned vessel, float *tx, float *ty) {
+    float x0, y0, x1, y1;
+    if (!target_box_px((int)vessel, &x0, &y0, &x1, &y1)) return 0;
+    *tx = (x0 + x1) * 0.5f / tile; *ty = y1 / tile;
+    return 1;
+}
+/* it falls on the nearest free floor tile around (tx, ty): first the tile itself, then rings outward. `n` tries the next one each call so parts do not pile on one tile */
+void world_drop_item_near(int kind, float tx, float ty) {
+    static int turn; int cx = (int)floorf(tx), cy = (int)floorf(ty), skip = turn++ % 4;
+    for (int r = 0; r <= 4; r++)
+        for (int j = -r; j <= r; j++) for (int i = -r; i <= r; i++) {
+            if (r > 0 && abs(i) != r && abs(j) != r) continue;
+            if (solid_tile(cx + i, cy + j)) continue;
+            if (r == 0 || skip-- <= 0) { world_drop_item(kind, cx + i, cy + j); return; }
+        }
+    world_drop_item(kind, cx, cy);
+}
 unsigned world_body_in_reach(void) {
     if (cur_map != MAP_TEMPLE || indoors) return 0;
     float gap = INSPECT_REACH, g1 = body_gap(), gl = 1e9f; int bi = bodies_nearest(pxp, pyp, px, tile, INSPECT_REACH, &gl);
@@ -1679,7 +1717,7 @@ void world_update(float dt) {
         float mag = sqrtf(kx * kx + ky * ky);
         moving = mag > 0.15f;
         if (moving) {
-            float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? (drag_id == DRAG_ROCK ? ROCK_SPEED : DRAG_SPEED) : 1.0f);
+            float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? (drag_id == DRAG_ROCK ? ROCK_SPEED : DRAG_SPEED) : 1.0f) * (item_medium_held() ? CARRY_SPEED_MEDIUM : 1.0f);
             float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
             if (drag_on) {                                                      /* it trails behind us on a rope: we cannot outrun it (drag_step) */
                 if (!blocked(pxp + vx, pyp) && !drag_taut(vx, 0)) pxp += vx;

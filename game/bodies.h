@@ -16,7 +16,8 @@
 typedef struct {
     unsigned vessel;                    /* whose body: 1 = Aonia (at the circle, ritual.c), 2 = Doia ... */
     float tx, ty;                       /* where the feet are, in tiles (not used for vessel 1) */
-    unsigned char inv[ITEM_COUNT];      /* 1 = it carries that item */
+    unsigned char inv[ITEM_COUNT];      /* how many of that item it carries */
+    unsigned char cuts;                 /* story chunk 9: how far it has been cut up (0..BODIES_CUTS, section 6 of the plan) */
 } Body;
 
 void bodies_reset(void);                                        /* a new game: nobody lies anywhere */
@@ -26,6 +27,9 @@ const Body *bodies_get(int i);
 const Body *bodies_find(unsigned vessel);                       /* NULL when that vessel has no body */
 /* story chunk 8: the pockets of a body go into ours (item_give). returns how many things were taken (0: nothing, or no such body) */
 int  bodies_take_all(unsigned vessel);
+#define BODIES_CUTS 7
+int  bodies_cut(unsigned vessel);                               /* story chunk 9: the next stab: returns the step it reached (1..7), 0 when there is nothing left to cut or no such body */
+void bodies_cut_done(unsigned vessel);                          /* ... all of it at once (the rock) */
 /* "has a knife and a rock" style text for the toast: lower case, `out` of n bytes */
 void bodies_inv_text(const Body *b, char *out, int n);
 

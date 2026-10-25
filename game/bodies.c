@@ -34,9 +34,11 @@ int bodies_take_all(unsigned vessel) {
     const Body *cb = bodies_find(vessel); Body *b = (Body *)cb;
     if (!b) return 0;
     int n = 0;
-    for (int k = 0; k < ITEM_COUNT; k++) if (b->inv[k]) { item_give(k); b->inv[k] = 0; n++; }
+    for (int k = 0; k < ITEM_COUNT; k++) while (b->inv[k]) { if (item_size(k) == SIZE_MEDIUM && item_medium_held()) break; item_give(k); b->inv[k]--; n++; }
     return n;
 }
+int bodies_cut(unsigned vessel) { Body *b = (Body *)bodies_find(vessel); if (!b || b->cuts >= BODIES_CUTS) return 0; return ++b->cuts; }
+void bodies_cut_done(unsigned vessel) { Body *b = (Body *)bodies_find(vessel); if (b) b->cuts = BODIES_CUTS; }
 void bodies_inv_text(const Body *b, char *out, int cap) {
     if (!out || cap < 1) return;
     out[0] = 0;
