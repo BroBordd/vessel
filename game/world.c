@@ -668,9 +668,9 @@ int world_rock_in_reach(void) {
     return props_rock_gap(pxp, pyp, px, tile) <= INSPECT_REACH;
 }
 int world_rock_break(float *tx, float *ty) { return props_rock_break(tx, ty); }
-/* story chunk 8: THROW. the thing leaves our hand in the direction we face and flies up to THROW_RANGE tiles: a wall stops it (it drops in front of the wall), the
+/* story chunk 8: THROW. the thing leaves our hand in the direction we face and flies up to THROW_RANGE tiles (3): a wall stops it (it drops in front of the wall), the
  * crack does not (it goes in and is gone). returns 1 when it fell into the pit, 0 when it landed on the floor (a drop that lands with a thunk, and can be taken again) */
-#define THROW_RANGE 6
+#define THROW_RANGE 3
 int world_throw_item(int kind) {
     int dx = facing == FACE_LEFT ? -1 : facing == FACE_RIGHT ? 1 : 0, dy = facing == FACE_UP ? -1 : facing == FACE_DOWN ? 1 : 0;
     int x0 = (int)floorf(pxp / tile), y0 = (int)floorf(pyp / tile), lx = x0, ly = y0;
