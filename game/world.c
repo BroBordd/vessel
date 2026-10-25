@@ -238,11 +238,11 @@ static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }
 
 /* PULLING VESSEL 1 (ritual.c has his box): next to him the button takes hold of him from the side nearest to us (our hands float there); a tap lets go.
  * while we hold him we walk slower, he stays on the floor and is dragged along with us (never into a wall), our eyes shut with the effort, and the stone growls */
-#define DRAG_SPEED  0.45f       /* walking speed while we hold him */
+#define DRAG_SPEED  0.75f       /* walking speed while we hold him */
 #define DRAG_REACH  4.0f        /* cells: how far from his edge we may be to take hold */
-#define DRAG_TAU    0.30f       /* his lag: like the camera, he eases toward where our hands would have him (seconds) */
+#define DRAG_TAU    0.22f       /* his lag: like the camera, he eases toward where our hands would have him (seconds) */
 #define DRAG_SLACK  1.5f        /* cells: the rope is slack this much, he does not move until it is tight (a sandbag has to be started) */
-#define DRAG_MAXLAG 6.0f        /* cells: the most he can trail behind (our arms reach that far); at the limit we cannot walk on */
+#define DRAG_MAXLAG 8.0f        /* cells: the most he can trail behind (our arms reach that far); at the limit we cannot walk on */
 #define DRAG_STRAIN 0.30f       /* seconds the eyes stay shut after the last bit of pulling (no flicker) */
 static int body_box_px(float *x0, float *y0, float *x1, float *y1) {          /* his box in world px, 0 if there is no body to pull */
     float a, b, c, d, rx, ry;
@@ -1599,7 +1599,7 @@ void world_update(float dt) {
             near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = near_drag = 0; btn_down = btn_inside = 0; near_item = hand_down = hand_inside = 0; drag_on = 0;
         }
     }
-    {   float lv = drag_on ? fminf(drag_spd / 16.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the hiss of the stone: as loud as he is fast */
+    {   float lv = drag_on ? fminf(drag_spd / 28.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the hiss of the stone: as loud as he is fast */
         if (lv > 0 || drag_snd > 0) sfx_drag(lv);
         drag_snd = lv;
         strain_t = drag_on && dragged_now ? DRAG_STRAIN : (strain_t > dt ? strain_t - dt : 0.0f);

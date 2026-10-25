@@ -368,9 +368,9 @@ static void hit_mix(Sint16 *out, int frames) {
 /* ---------- the drag: a body sliding over stone, ground friction. a calm hiss: noise with the lows and the very highs taken out (a band
  * of roughly 300 Hz to 3 kHz), a slow soft swell on it, no pulses and no tone. its loudness follows how fast he slides ---------- */
 static int   drag_on;
-static float drag_tgt, drag_amp, drag_lp1, drag_lp2, drag_ph;
+static float drag_tgt, drag_amp, drag_lp1, drag_lp2, drag_ph, drag_slow;
 static unsigned drag_seed = 4242u;
-#define DRAG_GAIN 0.35f
+#define DRAG_GAIN 0.20f
 void sfx_drag(float level) {
     if (!dev) return;
     if (level < 0) level = 0;
@@ -386,12 +386,13 @@ static void drag_mix(Sint16 *out, int frames) {
         if (drag_tgt <= 0.0f && drag_amp < 0.0006f) { drag_on = 0; drag_amp = 0; return; }
         drag_seed = drag_seed * 1664525u + 1013904223u;
         float n = (float)(drag_seed >> 16) / 32768.0f - 1.0f;
-        drag_lp1 += (n - drag_lp1) * 0.30f;                                                          /* top off above ~2.5 kHz */
-        drag_lp2 += (drag_lp1 - drag_lp2) * 0.040f;                                                  /* ... and what is left of it minus a slow part: the lows go */
+        drag_lp1 += (n - drag_lp1) * 0.10f;                                                          /* top off above ~2.5 kHz */
+        drag_lp2 += (drag_lp1 - drag_lp2) * 0.025f;                                                  /* ... and what is left of it minus a slow part: the lows go */
         float band = drag_lp1 - drag_lp2;
         drag_ph += 1.3f / (float)OUT_RATE; if (drag_ph >= 1.0f) drag_ph -= 1.0f;
         float swell = 0.85f + 0.15f * sinf(6.2831853f * drag_ph);
-        float v = band * 1.6f * swell;
+        drag_slow += (n - drag_slow) * 0.0004f;                                                    /* a slow irregular unevenness: a scrape, not a steady hiss */
+        float v = band * 3.2f * swell * (0.75f + 2.5f * drag_slow);
         if (v > 1.0f) v = 1.0f; else if (v < -1.0f) v = -1.0f;
         int o16 = (int)(v * drag_amp * DRAG_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {
