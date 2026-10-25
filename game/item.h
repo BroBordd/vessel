@@ -86,6 +86,8 @@ void  item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t);
 
 /* an icon, top-left at (x, y), each cell `cell` px. */
 void  item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell);
+/* the same, every colour scaled toward black by `dark` (0..1): the item in the character's hand (char_set_held), in the shadow of the ruins */
+void  item_draw_icon_dark(SDL_Renderer *r, int kind, int x, int y, int cell, float dark);
 /* chunk 32: the magnifying glass (12 x 12, same style) on the interact button next to a body that can be searched (chunks 32, 39). not an item. */
 void  item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell);
 /* chunk 68: an open hand (12 x 12) on the hand button. not an item. */

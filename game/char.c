@@ -65,6 +65,9 @@ void char_set_photo(int on) { g_photo = on != 0; }
 static int   g_strain, g_grip;                      /* pulling: eyes shut / both hands sent to a point on the screen */
 static float g_gx, g_gy;
 void char_set_strain(int on) { g_strain = on != 0; }
+static int   g_held = -1;                            /* the item in the right hand (char_set_held) and what draws it */
+static void (*g_held_draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark);
+void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark)) { g_held = draw ? kind : -1; g_held_draw = draw; }
 static float g_gk = 1.0f, g_gmax = 14.0f;           /* the grip: how much of it (0 = the floating hands, 1 = at the point) and how far (cells) a hand may go from its rest cell */
 void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; }
 void char_set_grip_ex(float blend, float max_cells) { g_gk = blend < 0 ? 0 : blend > 1 ? 1 : blend; g_gmax = max_cells < 1 ? 1 : max_cells; }
@@ -173,6 +176,15 @@ static void hand_fill(SDL_Renderer *r, Rgb c, int x, int y, int s, float fx, flo
     g_alpha = sv;
 }
 
+/* the held item: its 12 x 12 picture at half a sprite pixel per cell, the hand (centre at (fx, fy) px from its rest cell) closed round its handle, which is
+ * where the picture's lower left is (the knife and the hammer are held there). drawn before the hand, so the fingers are over it. */
+static void draw_held(SDL_Renderer *r, int ox, int oy, int s, float fx, float fy) {
+    if (g_held < 0 || !g_held_draw) return;
+    int c = s / 2; if (c < 1) c = 1;
+    int hx = ox + (SPR_W - 1) * s + s / 2 + (int)lroundf(fx), hy = oy + 9 * s + s / 2 + (int)lroundf(fy);
+    g_held_draw(r, g_held, hx - (5 * c) / 2, hy - (19 * c) / 2, c, g_darken);
+}
+
 /* rows = how many sprite rows to draw; lift = which foot to raise (0 left, 1 right, -1 none) */
 static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, int oy,
                         int s, int rows, int lift) {
@@ -206,9 +218,13 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
                 if (g_grip) {                                                   /* the grip, blended with the floating hands (g_gk: 1 = all grip) so a reach starts and ends smoothly */
                     int h = dx < SPR_W / 2 ? 0 : 1;
                     float fx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, fy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;
-                    hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, fx + (gdx[h] - fx) * g_gk, fy + (gdy[h] - fy) * g_gk); continue;
+                    float hfx = fx + (gdx[h] - fx) * g_gk, hfy = fy + (gdy[h] - fy) * g_gk;
+                    if (dx == SPR_W - 1) draw_held(r, ox, oy, s, hfx, hfy);                 /* (it goes where the hand goes) */
+                    hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, hfx, hfy); continue;
                 }
-                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr);
+                float hfx = g_hdx + (dx < SPR_W / 2 ? 1 : -1) * 0.6f * g_hbr, hfy = (dx < SPR_W / 2 ? g_hdyl : g_hdyr) + g_hbr;
+                if (dx == SPR_W - 1) draw_held(r, ox, oy, s, hfx, hfy);
+                hand_fill(r, p->skin, ox + dx * s, oy + dy * s, s, hfx, hfy);
                 continue;
             }
             fill(r, ox + dx * s, oy + dy * s, s, s);

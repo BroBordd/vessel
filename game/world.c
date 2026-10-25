@@ -1081,7 +1081,9 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
         if (strain_t > 0) char_set_strain(1);                      /* pulling is hard: the eyes shut */
         if (pick_on && !pick_taken && !pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
+        { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
         char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
+        char_set_held(-1, NULL);
         if (pick_on && !pick_taken && pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_set_grip(0, 0, 0); char_set_strain(0);
     }

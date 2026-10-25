@@ -68,6 +68,10 @@ void char_set_strain(int on);
 void char_set_grip(int on, float x, float y);
 /* after char_set_grip(1, ...): blend 0..1 mixes the grip with the normal floating hands (1 = fully at the point), max_cells = how far a hand may reach from its rest cell (14 by default; char_set_grip resets both) */
 void char_set_grip_ex(float blend, float max_cells);
+/* the item in the hand: while on, the screen-right floating hand of every full body drawn (char_draw / char_draw_air) holds a picture, drawn by
+ * draw(r, kind, x, y, cell, dark): (x, y) its top-left, `cell` px per picture cell (12 x 12 cells), `dark` the shade the body is drawn with
+ * (char_set_darken). the hand follows its floating, so the item bobs with it. kind < 0 or draw NULL puts it away. set it back after the draw. */
+void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark));
 /* chunk 66: an old photo never blinks: while this is on, everything drawn has its eyes open (the grave portraits turn it on around their draw and off again) */
 void char_set_photo(int on);
 

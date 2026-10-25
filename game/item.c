@@ -416,6 +416,7 @@ static void rgb_of(char c, int *R, int *G, int *B) {
 
 /* the picture, optionally turned on its side (the handle points right): used for the one lying on the grass */
 static int icon_alpha = 255;                                    /* the alpha of draw_rows (the empty hand square is drawn faint) */
+static float icon_dark = 0.0f;                                  /* every colour of draw_rows scaled toward black by this much (the item in the hand, in the shadow of the ruins) */
 static void draw_rows(SDL_Renderer *r, const char *const *rows, int x, int y, int cell, int lying) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     for (int j = 0; j < ITEM_ICON_CELLS; j++)
@@ -423,6 +424,7 @@ static void draw_rows(SDL_Renderer *r, const char *const *rows, int x, int y, in
             char c = rows[j][i];
             if (c == '.') continue;
             int R, G, B; rgb_of(c, &R, &G, &B);
+            if (icon_dark > 0) { R = (int)(R * (1.0f - icon_dark)); G = (int)(G * (1.0f - icon_dark)); B = (int)(B * (1.0f - icon_dark)); }
             SDL_SetRenderDrawColor(r, R, G, B, icon_alpha);
             SDL_Rect q = { x + (lying ? j : i) * cell, y + (lying ? i : j) * cell, cell, cell };
             SDL_RenderFillRect(r, &q);
@@ -452,6 +454,12 @@ static void draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell, int lyi
 void item_draw_icon(SDL_Renderer *r, int kind, int x, int y, int cell) {
     if (kind < 0 || kind >= ITEM_COUNT || cell < 1) return;
     draw_icon(r, kind, x, y, cell, 0);
+}
+void item_draw_icon_dark(SDL_Renderer *r, int kind, int x, int y, int cell, float dark) {
+    if (kind < 0 || kind >= ITEM_COUNT || cell < 1) return;
+    icon_dark = dark < 0 ? 0 : dark > 1 ? 1 : dark;
+    draw_icon(r, kind, x, y, cell, 0);
+    icon_dark = 0.0f;
 }
 void item_draw_bag_icon(SDL_Renderer *r, int x, int y, int cell) {
     if (cell < 1) return;
