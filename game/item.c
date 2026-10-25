@@ -733,9 +733,18 @@ static int desc_room(void) { return dw - bigsz() - pad; }
 static int name_c(void) { return fcell(item_name(ui_sel), desc_room()); }
 static int desc_top(void) { return dy + font_height(name_c()) + qs + (item_equipped() == ui_sel ? font_height(dcell()) + qs : 0); }
 static void abtn_rect(int *x, int *y, int *w, int *h) { *x = dx; *w = dw; *h = act_h(); *y = dy + dh - *h; }       /* the one ACTION button, at the bottom of the detail area */
-static void btn_rect(int i, int *x, int *y, int *w, int *h) {  /* the i-th action of the list that opens above the ACTION button */
-    int a[4], na = act_n(a), ax, ay, aw, ah; abtn_rect(&ax, &ay, &aw, &ah);
-    *x = dx; *w = dw; *h = ah; *y = ay - (na - i) * (ah + pad);
+/* THE ACTION WINDOW: the ACTION button opens a small window of its own (centred, over the dimmed inventory): the name of the thing, a close button, one button per action */
+static int pop_x, pop_y, pop_w, pop_h;
+static void pop_layout(void) {
+    int a[4], na = act_n(a), in = bt + pad, bh = act_h();
+    pop_w = ww * 3 / 4; { int cap = (int)(240 * uu); if (pop_w > cap) pop_w = cap; }
+    pop_h = 2 * in + tb + pad + (na > 0 ? na * bh + (na - 1) * pad : 0);
+    pop_x = (W - pop_w) / 2; pop_y = (H - pop_h) / 2;
+}
+static void pop_close_rect(int *x, int *y, int *w, int *h) { pop_layout(); *x = pop_x + pop_w - (bt + pad) - tb; *y = pop_y + bt + pad; *w = *h = tb; }
+static void btn_rect(int i, int *x, int *y, int *w, int *h) {  /* the i-th action button in the action window */
+    pop_layout();
+    int in = bt + pad; *x = pop_x + in; *w = pop_w - 2 * in; *h = act_h(); *y = pop_y + in + tb + pad + i * (*h + pad);
 }
 /* B2: the HAND SQUARE in the inventory window (the tools row, left): drag a thing from the grid onto it to hold it; drag it out onto the grid, or tap it, to put it away.
  * B3: next to it the 2x2 CRAFTING SQUARES and the result. drag things from the grid onto a square (a tap on a filled square empties it, dragging it out onto the grid does too,
@@ -837,9 +846,7 @@ void item_ui_body_open(unsigned vessel, const char *name, const unsigned char in
 }
 
 static void win_tap(int x, int y) {                              /* a tap that began and ended in the window */
-    if (in_rect(x, y, cbx, cby, tb, tb)) { set_open(0); return; }
-    if (bw_on) { chest_tap(x, y); return; }
-    if (act_menu) {                                              /* the list of actions is open: a tap on one does it, a tap anywhere else closes the list */
+    if (act_menu && !bw_on) {                                    /* the action window is open: a tap on an action does it; the X or anywhere outside closes the window */
         int acts[4], na = act_n(acts);
         act_menu = 0;
         for (int i = 0; i < na; i++) {
@@ -850,6 +857,8 @@ static void win_tap(int x, int y) {                              /* a tap that b
         }
         return;
     }
+    if (in_rect(x, y, cbx, cby, tb, tb)) { set_open(0); return; }
+    if (bw_on) { chest_tap(x, y); return; }
     { int hx, hy, hw, hh;                                        /* B2: a tap on the hand square puts what is in it away */
       if (hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh)) { if (item_equipped() >= 0) { held = -1; sfx_blip(0.5f); } return; }
       int ci = craft_at(x, y); if (ci >= 0) { cq[ci] = -1; return; }                              /* B3: a tap on a craft square empties it */
@@ -869,10 +878,12 @@ static void win_tap(int x, int y) {                              /* a tap that b
 int item_ui_touch(int a, int x, int y) {
     if (ui_open) {                                               /* the window takes every touch */
         win_layout();
-        if (a == 0) { ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; if (ui_down == 2) drag_press(x, y); return 1; }
+        if (a == 0) { if (act_menu && !bw_on) { ui_down = 2; return 1; }          /* the action window takes the touch wherever it is */
+                      ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; if (ui_down == 2) drag_press(x, y); return 1; }
         if (a == 2) { drag_move(x, y); return 1; }
         if (a == 1) {
             int d = ui_down; ui_down = 0;
+            if (act_menu && !bw_on && d == 2) { win_tap(x, y); return 1; }
             if (drag_end(x, y)) return 1;                        /* a drag: dropped, not a tap */
             if (d == 3 && !in_rect(x, y, wx, wy, ww, wh)) set_open(0);       /* a tap outside closes it */
             else if (d == 2 && in_rect(x, y, wx, wy, ww, wh)) win_tap(x, y);
@@ -1025,7 +1036,33 @@ static void bag_overlay(SDL_Renderer *r) {                      /* B2, B3: the t
     item_draw_icon(r, drag_kind, fx + (sl - ITEM_ICON_CELLS * pcell) / 2, fy + (sl - ITEM_ICON_CELLS * pcell) / 2, pcell);
 }
 static void window_draw(SDL_Renderer *r);
-void item_ui_draw_window(SDL_Renderer *r) { window_draw(r); if (ui_open && !bw_on) bag_overlay(r); }
+static void action_window_draw(SDL_Renderer *r) {              /* the action window: over the dimmed inventory, over everything */
+    if (!ui_open || bw_on || !act_menu || !sel_ok()) return;
+    win_layout(); pop_layout();
+    int acts[4], na = act_n(acts), in = bt + pad;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 150); SDL_Rect all = { 0, 0, W, H }; SDL_RenderFillRect(r, &all);
+    box(r, pop_x, pop_y, pop_w, pop_h, 214, 170, 70, 6, 8, 20, 250);
+    const char *ttl = item_name(ui_sel); int tc = fcell(ttl, pop_w - tb - 4 * pad);
+    txt(r, ttl, pop_x + in, pop_y + in + (tb - font_height(tc)) / 2, tc, 235, 240, 255);
+    {   int cx, cy, cw, ch; pop_close_rect(&cx, &cy, &cw, &ch);
+        box(r, cx, cy, cw, ch, 236, 190, 78, 40, 34, 20, 255);
+        int n = 6, st = qs, ox = cx + (cw - n * st) / 2, oy = cy + (ch - n * st) / 2;
+        SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
+        for (int k = 0; k < n; k++) {
+            SDL_Rect p = { ox + k * st, oy + k * st, st, st }, q = { ox + (n - 1 - k) * st, oy + k * st, st, st };
+            SDL_RenderFillRect(r, &p); SDL_RenderFillRect(r, &q);
+        }
+    }
+    for (int j = 0; j < na; j++) {
+        int rx, ry, rw, rh; btn_rect(j, &rx, &ry, &rw, &rh);
+        const char *an = item_action_name(acts[j]);
+        int ac = fcell(an, rw - 2 * pad), tw = font_width(an, ac);
+        box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
+        txt(r, an, rx + (rw - tw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
+    }
+}
+void item_ui_draw_window(SDL_Renderer *r) { window_draw(r); if (ui_open && !bw_on) { bag_overlay(r); action_window_draw(r); } }
 /* the window itself: world.c draws it over the HUD, under the dialogs */
 static void window_draw(SDL_Renderer *r) {
     if (!ui_open) return;
@@ -1086,16 +1123,5 @@ static void window_draw(SDL_Renderer *r) {
         if (on) box(r, ax, ay, aw, ah, 236, 190, 78, 40, 34, 20, 255); else box(r, ax, ay, aw, ah, 60, 66, 90, 20, 24, 40, 255);
         if (on) txt(r, an, ax + (aw - tw) / 2, ay + (ah - font_height(ac)) / 2, ac, 255, 238, 170);
         else    txt(r, an, ax + (aw - tw) / 2, ay + (ah - font_height(ac)) / 2, ac, 122, 130, 156);
-    }
-    if (act_menu && na > 0) {                                   /* the list: one button per action, standing on the ACTION button */
-        int fx, fy, fw, fh; btn_rect(0, &fx, &fy, &fw, &fh);
-        box(r, fx - pad / 2, fy - pad, fw + pad, ay - fy + pad, 6, 8, 20, 6, 8, 20, 245);
-        for (int j = 0; j < na; j++) {
-            int rx, ry, rw, rh; btn_rect(j, &rx, &ry, &rw, &rh);
-            const char *an = item_action_name(acts[j]);
-            int ac = fcell(an, rw - 2 * pad), tw = font_width(an, ac);
-            box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
-            txt(r, an, rx + (rw - tw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
-        }
     }
 }
