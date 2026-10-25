@@ -71,8 +71,10 @@ void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int 
 static float g_gk = 1.0f, g_gmax = 14.0f;           /* the grip: how much of it (0 = the floating hands, 1 = at the point) and how far (cells) a hand may go from its rest cell */
 void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; }
 static int   g_stab; static float g_stab_a, g_stab_x, g_stab_y;   /* the self-stab pose (char_set_stab) */
+static float g_stab_clip = -1e9f;                                  /* the blade is hidden left of this x (screen px): it has gone into the neck */
+void char_set_stab_clip(float x) { g_stab_clip = x; }
 void char_set_stab(int on, float k, float ang, float gx, float gy) {
-    g_stab = on != 0; g_stab_a = ang; g_stab_x = gx; g_stab_y = gy;
+    g_stab = on != 0; g_stab_a = ang; g_stab_x = gx; g_stab_y = gy; g_stab_clip = -1e9f;
     if (on) { g_grip = 1; g_gk = k < 0 ? 0 : k > 1 ? 1 : k; g_gmax = 1000.0f; } else g_grip = 0;
 }
 void char_set_grip_ex(float blend, float max_cells) { g_gk = blend < 0 ? 0 : blend > 1 ? 1 : blend; g_gmax = max_cells < 1 ? 1 : max_cells; }
@@ -254,7 +256,9 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
         for (float d = 0.2f * s; d <= L; d += st) {                       /* the blade, thinner towards the tip */
             int w = d > L - 1.2f * s ? (q * 6) / 10 : q; if (w < 1) w = 1;
             setc(r, d > L - 1.2f * s ? 235 : 205, d > L - 1.2f * s ? 238 : 210, d > L - 1.2f * s ? 245 : 222);
-            fill(r, (int)(ax + kdx * d) - w / 2, (int)(ay + kdy * d) - w / 2, w, w);
+            int bx = (int)(ax + kdx * d) - w / 2, cw = w, cl = (int)floorf(g_stab_clip);
+            if (g_stab_clip > -1e8f) { if (bx + cw <= cl) continue; if (bx < cl) { cw -= cl - bx; bx = cl; } }       /* what is past the line is inside the neck: not drawn */
+            fill(r, bx, (int)(ay + kdy * d) - w / 2, cw, w);
         }
         for (int h = 0; h < 2; h++) {                                     /* (the same blend the loop above used) */
             float fx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, fy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;

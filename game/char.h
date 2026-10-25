@@ -75,6 +75,7 @@ void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int 
 /* the self-stab pose (full body, front view): both hands hold a knife by its handle, drawn on top of the body. k 0..1 mixes the hands from their floating into
  * the grip, ang is the blade's angle (0 = up, pi/2 = pointing left, towards the neck from the right), (gx, gy) the screen point of the handle. set on = 0 after the draw. */
 void char_set_stab(int on, float k, float ang, float gx, float gy);
+void char_set_stab_clip(float x);   /* after char_set_stab(1, ...): the blade is not drawn left of screen x (it has gone into the neck). char_set_stab resets it */
 /* chunk 66: an old photo never blinks: while this is on, everything drawn has its eyes open (the grave portraits turn it on around their draw and off again) */
 void char_set_photo(int on);
 

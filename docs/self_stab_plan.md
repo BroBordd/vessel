@@ -6,7 +6,8 @@ Written before any work, as asked. One commit per chunk, in order.
 
 Current: knife goes in, 1.1 s later the world fades and the death runs. Eyes reopen after the cutscene. New timeline (t = seconds from the knife going in, `FIN_HIT`):
 
-1. **Pierce.** The knife goes THROUGH the neck (tip comes out the far side: blade drawn over the neck and out past it, not stopping at the middle). Eyes stay shut from now on, for good (also after the scene: nothing may reopen them until the next life, `char_set_strain` stays on until the continue button).
+0. **Hesitation.** The knife comes in, stops and pulls back (twice), the hands tremble; the eyes shut after the second.
+1. **Push in.** The knife accelerates (cubic) and the blade goes INTO the neck: it is hidden past a vertical line at the neck's entry edge (`char_set_stab_clip`), so the tip vanishes gradually; it does not come out the far side. No blood stripes drawn: the fountain is enough. Eyes stay shut from now on, for good (also after the scene: nothing may reopen them until the next life, `char_set_strain` stays on until the continue button).
 2. **Silence** ~1.2 s: standing, eyes closed, knife in the neck. No sound, no movement.
 3. **Fountain** ~3 s: blood sprays out of the neck (particles, arcs, falls to the floor), the body shakes (small fast x jitter on the whole sprite), a fountain sound (wet rushing "woosh", looped noise, filtered) plays.
 4. **Red filter + text, instantly** (no fade, a hard cut for punch): the whole screen gets a red filter and the text `<NAME> HAS DIED` (the current vessel's name, from `story_vessel_name`, upper-cased: Doia -> `DOIA HAS DIED`) appears with it at the same frame. A hit sound on the cut.

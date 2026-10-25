@@ -108,9 +108,9 @@ static SDL_Texture *atex; static SDL_Renderer *aren;
 #define FIN_ZIN     0.9f            /* zooming in */
 #define FIN_RAISE   1.4f            /* the hands go up to the neck's height with the knife ... */
 #define FIN_RAISE_T 0.9f            /* ... this long */
-#define FIN_EYES    2.5f            /* the eyes close */
+#define FIN_EYES    (FIN_APP + 3.4f)    /* the eyes close: after the second hesitation, just before he does it */
 #define FIN_APP     3.0f            /* both hands bring the knife in, at the neck's height ... */
-#define FIN_APP_T   1.8f            /* ... this long (slow, then faster) */
+#define FIN_APP_T   4.7f            /* ... this long: in, back (hesitates), in closer, back (hesitates again), then the push in, faster and faster (fin_knife_x) */
 #define FIN_HIT     (FIN_APP + FIN_APP_T)
 /* after the knife is in (t from the start of the scene; FIN_HIT = the knife goes through): silence, then the fountain, then at FIN_RED a hard cut to the red filter and
  * "<NAME> HAS DIED", a hold (the body lies down, the fountain turns into a few drops, the last squirts), then the CONTINUE button fades in. its tap runs fin_cb (the death) */
@@ -122,6 +122,23 @@ static SDL_Texture *atex; static SDL_Renderer *aren;
 #define FIN_BTN_T   0.6f
 static int fin_on, fin_hit, fin_red, fin_lying, fin_down, fin_sput; static float fin_t, fin_acc; static void (*fin_cb)(void);
 static void fin_reset(void);
+static float fin_ss(float u);
+/* the knife's handle x (sprite px right of the body's middle) over the approach (seconds since FIN_APP): it comes in, stops and pulls back (the first hesitation), comes
+ * closer, pulls back again (the second), then the push: it accelerates (cubic) and the blade goes in. the neck's entry edge is at 2.0 (FIN_NECK_X): at the end the guard sits
+ * on it and the whole blade is inside. a faint tremble on the holds */
+#define FIN_NECK_X 2.0f
+static float fin_knife_x(float ta) {
+    static const float KT[10] = { 0.0f, 0.9f, 1.2f, 1.7f, 2.2f, 3.0f, 3.3f, 3.8f, 4.2f, FIN_APP_T };
+    static const float KX[10] = { 11.0f, 7.4f, 7.4f, 9.0f, 9.0f, 5.0f, 5.0f, 7.0f, 7.0f, FIN_NECK_X };
+    if (ta <= 0) return KX[0];
+    if (ta >= KT[9]) return KX[9];
+    int i = 0; while (i < 8 && ta >= KT[i + 1]) i++;
+    float u = (ta - KT[i]) / (KT[i + 1] - KT[i]);
+    if (i == 8) return KX[8] + (KX[9] - KX[8]) * u * u * u;                         /* the push: accelerates */
+    float x = KX[i] + (KX[i + 1] - KX[i]) * fin_ss(u);
+    if (KX[i] == KX[i + 1]) x += 0.12f * sinf(ta * 47.0f);                          /* holding: the hands tremble */
+    return x;
+}
 /* fin_lying stays on after the tap (until the next life: world_init / world_reload_ruins): the eyes stay shut, the body lies, and the blood stays on the floor */
 static float fin_ss(float u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3.0f - 2.0f * u); }
 
@@ -1239,26 +1256,18 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
             float bx0 = (float)sx0 - 5.0f * px, by0 = (float)sy0 - 12.0f * px;        /* the sprite's top-left */
             float chx = bx0 + 5.0f * px, ny = by0 + 8.0f * px;                         /* the body's middle, and the neck's height */
             float re = fin_ss((fin_t - FIN_RAISE) / FIN_RAISE_T);                      /* the raise: the hands go from the floating hands to the grip, the blade turns from up to sideways */
-            float a = (fin_t - FIN_APP) / FIN_APP_T; a = a < 0 ? 0 : a > 1 ? 1 : a; a = a * a;                 /* then the approach: slow, then faster */
-            float g0 = chx + 11.0f * px, g1 = chx + 3.0f * px;                         /* the handle's x: held out, and with the blade THROUGH the neck (the tip comes out the far side) */
-            float gx = g0 + (g1 - g0) * a, gy = (by0 + 9.5f * px + (ny - (by0 + 9.5f * px)) * re);
+            float g0 = chx + 11.0f * px;                                               /* the handle's x: held out ... */
+            float gx = chx + fin_knife_x(fin_t - FIN_APP) * px, gy = (by0 + 9.5f * px + (ny - (by0 + 9.5f * px)) * re);
             float rx = bx0 + 9.5f * px;                                                /* the raise starts at the right hand's rest */
             if (re < 1.0f) gx = rx + (g0 - rx) * re;
             char_set_stab(1, re, re * 1.5707963f, gx, gy);
+            char_set_stab_clip(chx + FIN_NECK_X * px);                                  /* the blade is hidden past the neck's entry edge: it goes in */
         } else { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
         if ((fin_on && fin_t >= FIN_EYES) || fin_lying) char_set_strain(1);        /* the eyes close, and stay shut until the next life */
         if (fin_lying) char_draw_lying(r, player_look, sx0, sy0, px);          /* the red cut: the body lies down (the sleeping sprite) */
         else char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
         char_set_stab(0, 0, 0, 0, 0);
         char_set_held(-1, NULL);
-        if (fin_on && fin_hit && !fin_lying) {                      /* the knife is in: blood runs down from the neck */
-            float age = fin_t - FIN_HIT, bx = (float)sx0 + 0.5f * px, by = (float)sy0 - 12.0f * px + 8.5f * px;
-            col(r, 150, 16, 28, 255);
-            for (int i = 0; i < 5; i++) {
-                float len = age * (3.0f + 0.9f * i) * px; float mx = (2.2f + 0.5f * i) * px; if (len > mx) len = mx;
-                fill(r, (int)(bx + (i - 2) * 0.6f * px), (int)by, (int)(0.45f * px) + 1, (int)len);
-            }
-        }
         fin_draw_drops(r, sx0 - fjit, sy0, px);                     /* the fountain, over the body */
         if (pick_on && !pick_taken && pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_set_grip(0, 0, 0); char_set_strain(0);
