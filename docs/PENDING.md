@@ -1,0 +1,20 @@
+# PENDING.md: undone changes, in order
+
+Written from the chat with the owner. Each item is one small chunk: one push, owner tests on the phone, then the next. Nothing here is done unless ticked.
+
+## A. Loot window (chest style)
+- [x] **A1.** Two grids (body on top, you below), details strip under the items, tap to select, tap again / TAKE / TAKE ALL (`item.c`: `chest_*`). Pushed as cb28804, untested.
+- [ ] **A2. Drag to loot.** Touch has no motion events in the window yet (`item_ui_touch` only handles down/up). Add a drag state: hold a stack, a floating icon follows the finger, drop on the other grid to move it (body to you = `body_cb`). A short tap must still select.
+- [ ] **A3. Reorder.** Needs a persistent slot array (today slots are derived from the kind order, `kind_at_slot`). Drag within our own grid and within the body's. Must survive death/respawn (`story.c` keeps ground items across a death; check the pockets too) and crafting/take/give.
+- [ ] **A4. Put back.** Drag from our grid into the body's. Needs `bodies_give(vessel, kind)` in `bodies.c`, and the medium/hands rule in reverse.
+- [ ] **A5. Cleanup.** Remove the dead `bw_on` branches in the bag window code (`hv`, `act_n`, `btn_*`, draw) once A1-A4 are tested. Handle many item kinds in a small window (grid scroll, or a smaller slot).
+
+## B. Hand button and inventory hand/craft squares (new)
+- [ ] **B1. One button under the map.** Replace the two small buttons (bag and the in-hand preview, `bag_rect` / `prev_rect` in `item.c`) with ONE button: same height as the current buttons (`bag`), same width as the map (`uw`). It shows a hand icon, or the equipped item when something is in hand. Tap opens the inventory window (like the bag button does today). Update `hit_btn`, the draw of the preview, `item_ui_bag_x/y`, and anything that places things relative to the two buttons (HUD, `world.c`, tests).
+- [ ] **B2. Hand square in the inventory window.** A grey hand square. Drag an item onto it to equip it (replaces the IN HAND / PUT AWAY button; drag it out or tap to put away). Uses the drag state from A2, so do A2 first.
+- [ ] **B3. Crafting squares.** Four squares, 2x2, like minecraft, in the inventory window. Drag items in; a result slot shows what the recipe makes (recipes: `story_craft`, `item_set_craft_cb`). Replaces the COMBINE flow (`craft_a`, WITH WHAT?). Needs drag from A2 and a way to give the items back if the window is closed with items in the squares.
+
+## C. To check when testing what is already pushed
+- [ ] Throw: random tile in the 3x3 round us, pit still reachable from the edge (`world_throw_item`, `world.c`).
+- [ ] Vessel 1's knife: a real item above his body (`story.c`, `story_start`), pockets empty, painted knife removed (`ritual.c`). Check the tile is sensible, and that the knife still works for the cuts and the second circle.
+- [ ] Loot window chunk A1 on the real screen: sizes, wide and tall layouts, an empty body, a medium thing with full hands (the story plays the error sound).
