@@ -377,6 +377,7 @@ static void stab_self_go(void) {
 /* YES: the final action. the controls go, the view zooms in, both hands bring the knife to the neck (world.c), and only then the stab itself happens */
 static void stab_self_begin(void) {
     if (dying || cp_busy || world_final_active()) return;
+    jukebox_scene_fade(0.6f); music_fade_out(0.6f);             /* the music goes first (custom music too); the next life's music starts again when the world comes back (game.c) */
     world_final_stab(stab_self_go);
 }
 static void story_action(int kind, int act) {
