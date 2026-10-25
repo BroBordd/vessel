@@ -670,11 +670,9 @@ static void btn_rect(int i, int *x, int *y, int *w, int *h) { *x = dx; *w = dw; 
 static const char *equip_label(void) { return item_equipped() == ui_sel ? "PUT AWAY" : "IN HAND"; }
 
 /* the two small buttons */
-static void bag_rect(int *x, int *y, int *w, int *h) { *x = ux + uw - bag; *y = uy; *w = bag; *h = bag; }
-static void prev_rect(int *x, int *y, int *w, int *h) { *x = ux + uw - 2 * bag - pad; *y = uy; *w = bag; *h = bag; }
+static void bag_rect(int *x, int *y, int *w, int *h) { *x = ux; *y = uy; *w = uw; *h = bag; }        /* B1: ONE button under the map: as wide as the map, as high as the buttons were */
 static int hit_btn(int x, int y) {
-    int a, b, c, d; bag_rect(&a, &b, &c, &d); if (in_rect(x, y, a, b, c, d)) return 1;
-    prev_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d);
+    int a, b, c, d; bag_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d);
 }
 
 int item_ui_hit(int x, int y) { return ui_open || hit_btn(x, y); }
@@ -687,7 +685,7 @@ int item_ui_slot_x(int kind) { int i = slot_of_kind(kind); if (i < 0) return -1;
 int item_ui_slot_y(int kind) { int i = slot_of_kind(kind); if (i < 0) return -1; win_layout(); return slot_y(i) + sl / 2; }
 int item_ui_action_x(int i) { win_layout(); int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; btn_rect(i, &x, &y, &w, &h); return x + w / 2; }
 int item_ui_action_y(int i) { win_layout(); int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; btn_rect(i, &x, &y, &w, &h); return y + h / 2; }
-int item_ui_bag_x(void) { return ux + uw - bag / 2; }
+int item_ui_bag_x(void) { return ux + uw / 2; }
 int item_ui_bag_y(void) { return uy + bag / 2; }
 
 static void set_open(int o) {
@@ -795,20 +793,17 @@ void item_ui_draw(SDL_Renderer *r, float t) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     int bounce = (new_t >= 0.0f && new_t < 0.2f) ? qs : 0;
     int hk = hand_kind();
-    {   int px_, py_, pw_, ph_; prev_rect(&px_, &py_, &pw_, &ph_);          /* the preview of what is in hand */
-        if (hk >= 0) box(r, px_, py_, pw_, ph_, 236, 190, 78, 6, 8, 20, 245);
-        else         box(r, px_, py_, pw_, ph_, 122, 130, 156, 6, 8, 20, 245);
-        if (hk >= 0) item_draw_icon(r, hk, px_ + (pw_ - ITEM_ICON_CELLS * icell) / 2, py_ + (ph_ - ITEM_ICON_CELLS * icell) / 2, icell);
-    }
-    {   int bx, by, bw, bh; bag_rect(&bx, &by, &bw, &bh);                   /* the bag */
-        int up = ui_open;
-        box(r, bx, by, bw, bh, up ? 236 : 214, up ? 190 : 170, up ? 78 : 70, 6, 8, 20, 245);
-        item_draw_bag_icon(r, bx + (bw - ITEM_ICON_CELLS * icell) / 2, by + (bh - ITEM_ICON_CELLS * icell) / 2 - bounce, icell);
+    {   int bx, by, bw, bh; bag_rect(&bx, &by, &bw, &bh);                   /* the one button: the hand, or what is in it; it opens the inventory */
+        int up = ui_open, ix_ = bx + (bw - ITEM_ICON_CELLS * icell) / 2, iy_ = by + (bh - ITEM_ICON_CELLS * icell) / 2 - bounce;
+        if (up)          box(r, bx, by, bw, bh, 236, 190, 78, 6, 8, 20, 245);
+        else if (hk >= 0) box(r, bx, by, bw, bh, 214, 170, 70, 6, 8, 20, 245);
+        else             box(r, bx, by, bw, bh, 122, 130, 156, 6, 8, 20, 245);
+        if (hk >= 0) item_draw_icon(r, hk, ix_, iy_, icell); else item_draw_hand_icon(r, ix_, iy_, icell);
         int cnt = shown();
         if (cnt > 0) {                                       /* the badge on the lower left corner */
             char num[16]; snprintf(num, sizeof num, "%d", cnt);
             int fc = fcell("00", bag / 2), tw = font_width(num, fc), th = font_height(fc);
-            int bw2 = tw + 2 * pad, bh2 = th + pad, x0 = bx - bw2 / 2, y0 = by + bh - bh2 + bh2 / 3 - bounce;
+            int bw2 = tw + 2 * pad, bh2 = th + pad, x0 = bx + qs, y0 = by + bh - bh2 + bh2 / 3 - bounce;
             int tick = new_t >= 0.0f && new_t < 0.3f;
             box(r, x0, y0, bw2, bh2, 236, 190, 78, tick ? 255 : 6, tick ? 238 : 8, tick ? 170 : 20, 255);
             SDL_SetRenderDrawColor(r, tick ? 6 : 255, tick ? 8 : 238, tick ? 20 : 170, 255);
