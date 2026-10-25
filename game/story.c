@@ -244,15 +244,21 @@ static void note_watch(void) {
     dialog_play(NOTE_DLG, (int)(sizeof NOTE_DLG / sizeof NOTE_DLG[0]), note_done);
 }
 
-/* ---------- inspecting a body (chunk 6) ---------- */
-/* the magnifying glass next to a body: a toast says what it carries, and the first look at Aonia is a thought */
-static void story_inspect(unsigned vessel) {
+/* ---------- inspecting a body (chunk 6, its own window in chunk 17) ---------- */
+/* the magnifying glass next to a body opens an inventory window for that body: what it carries in its slots (empty slots when it carries nothing). TAKE moves a
+ * stack to our pockets, TAKE ALL everything; the window shows the body again after each take. the first look at Aonia is a thought */
+static void body_window(unsigned vessel) {
     const Body *b = bodies_find(vessel);
-    char what[96], line[128];
-    bodies_inv_text(b, what, sizeof what);
-    int took = bodies_take_all(vessel);                         /* chunk 8: looking close means the pockets are ours now */
-    snprintf(line, sizeof line, "%s %s%s", story_vessel_name(vessel), what, took > 1 ? ". You take them." : took ? ". You take it." : "");
-    toast_info("YOU LOOK CLOSE", line);
+    unsigned char none[ITEM_COUNT]; memset(none, 0, sizeof none);
+    item_ui_body_open(vessel, story_vessel_name(vessel), b ? b->inv : none);
+}
+static void body_take(unsigned vessel, int kind) {
+    int took = kind < 0 ? bodies_take_all(vessel) : bodies_take_kind(vessel, kind);
+    if (!took && kind >= 0) sfx_error();                        /* the hands are full */
+    body_window(vessel);
+}
+static void story_inspect(unsigned vessel) {
+    body_window(vessel);
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
 }
 
@@ -474,6 +480,7 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
+    item_set_body_cb(body_take);
     item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);
     { int fx, fy; if (world_pit_spots(&fx, &fy, NULL, NULL)) ritual_c2_set(fx + 0.5f, fy + 0.5f); }    /* chunk 13: the empty carvings of the second circle lie on the far ledge */

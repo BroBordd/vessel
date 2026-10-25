@@ -37,6 +37,13 @@ int bodies_take_all(unsigned vessel) {
     for (int k = 0; k < ITEM_COUNT; k++) while (b->inv[k]) { if (item_size(k) == SIZE_MEDIUM && item_medium_held()) break; item_give(k); b->inv[k]--; n++; }
     return n;
 }
+int bodies_take_kind(unsigned vessel, int kind) {
+    Body *b = (Body *)bodies_find(vessel);
+    if (!b || kind < 0 || kind >= ITEM_COUNT) return 0;
+    int n = 0;
+    while (b->inv[kind]) { if (item_size(kind) == SIZE_MEDIUM && item_medium_held()) break; item_give(kind); b->inv[kind]--; n++; }
+    return n;
+}
 int bodies_remove(unsigned vessel) {
     if (vessel == 1) return 0;
     for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { memmove(&list[i], &list[i + 1], sizeof(Body) * (size_t)(n - i - 1)); n--; return 1; }

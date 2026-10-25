@@ -27,6 +27,7 @@ const Body *bodies_get(int i);
 const Body *bodies_find(unsigned vessel);                       /* NULL when that vessel has no body */
 /* story chunk 8: the pockets of a body go into ours (item_give). returns how many things were taken (0: nothing, or no such body) */
 int  bodies_take_all(unsigned vessel);
+int  bodies_take_kind(unsigned vessel, int kind);                /* story chunk 17: the whole stack of one kind into our pockets (a medium thing: one, and only with the hands free). returns how many */
 #define BODIES_CUTS 7
 int  bodies_remove(unsigned vessel);                            /* story chunk 11: it fell into the pit. 0 when there is no such body (vessel 1 is ritual.c's and stays) */
 int  bodies_cut(unsigned vessel);                               /* story chunk 9: the next stab: returns the step it reached (1..7), 0 when there is nothing left to cut or no such body */
