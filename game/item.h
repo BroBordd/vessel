@@ -98,6 +98,7 @@ int   item_ui_open(void);                               /* the inventory window 
 void  item_ui_close(void);                              /* story chunk 16: close the window (the back button, a new life) */
 void  item_ui_draw_window(SDL_Renderer *r);             /* story chunk 16: the window itself, drawn over the HUD (the two small buttons are item_ui_draw) */
 void  item_ui_body_open(unsigned vessel, const char *name, const unsigned char inv[ITEM_COUNT]);   /* story chunk 17: the window on a body's pockets (opens it, or refreshes it after a take); an empty body shows empty slots */
+void  item_set_body_give_cb(void (*cb)(unsigned vessel, int kind));   /* story chunk 20: a stack of ours was dragged onto the body's grid: the story moves it, then calls item_ui_body_open again */
 void  item_set_body_cb(void (*cb)(unsigned vessel, int kind));   /* TAKE (kind) or TAKE ALL (-1) on a body's window: the story moves the things, then calls item_ui_body_open again */
 int   item_equipped(void);                              /* story chunk 16: the kind set as the one in hand, -1 when none */
 void  item_equip(int kind);                             /* ... set it (-1 or a kind that is not owned: nothing in hand) */

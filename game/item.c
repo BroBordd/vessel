@@ -492,6 +492,8 @@ static float uu = 1.0f;                                    /* one unit: a 360th 
 static int bw_on; static unsigned bw_vessel; static char bw_name[32]; static unsigned char bw_inv[ITEM_COUNT];
 static void (*body_cb)(unsigned vessel, int kind);
 void item_set_body_cb(void (*cb)(unsigned vessel, int kind)) { body_cb = cb; }
+static void (*give_cb)(unsigned vessel, int kind);
+void item_set_body_give_cb(void (*cb)(unsigned vessel, int kind)) { give_cb = cb; }
 static int hv(int k) { return bw_on ? bw_inv[k] : have[k]; }     /* what the window shows: the body's things or ours */
 static int wx, wy, ww, wh, tb, cbx, cby;                    /* the window, the title bar height, the close button */
 static int gx, gy, gw, gh, rowsn, sl, pcell;                /* the slot grid: its area, rows, slot size, icon cell */
@@ -642,6 +644,7 @@ static int drag_end(int x, int y) {                             /* 1 = it was a 
     if (was != 2) return 0;
     int tgt = in_rect(x, y, cg_x[0], cg_y[0], cg_w[0], cg_h[0]) ? 0 : in_rect(x, y, cg_x[1], cg_y[1], cg_w[1], cg_h[1]) ? 1 : -1;
     if (drag_side == 0 && tgt == 1 && body_cb) body_cb(bw_vessel, drag_kind);       /* the body's stack dropped on our grid: taken */
+    else if (drag_side == 1 && tgt == 0 && give_cb) give_cb(bw_vessel, drag_kind);   /* A4: ours dropped on the body's grid: put in */
     else if (tgt == drag_side) {                                                    /* A3: dropped on its own grid: it takes the place under the finger (the end when none) */
         int at = ITEM_COUNT;
         for (int i = 0; i < cg_rows[tgt] * INV_COLS; i++) if (in_rect(x, y, cs_x(tgt, i) - pad / 2, cs_y(tgt, i) - pad / 2, csl + pad, csl + pad)) { at = i; break; }

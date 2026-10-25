@@ -257,6 +257,10 @@ static void body_take(unsigned vessel, int kind) {
     if (!took && kind >= 0) sfx_error();                        /* the hands are full */
     body_window(vessel);
 }
+static void body_give(unsigned vessel, int kind) {              /* chunk 20: one of our stacks is put into the body's pockets */
+    if (!bodies_give(vessel, kind)) sfx_error();                /* the orb and the hammer stay with us */
+    body_window(vessel);
+}
 static void story_inspect(unsigned vessel) {
     body_window(vessel);
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
@@ -480,7 +484,7 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     bodies_add(1, 0, 0, NULL);   /* Aonia lies at the circle (ritual.c), his hands empty: the knife lies on the floor beside him (below) */
     world_set_inspect_cb(story_inspect);
-    item_set_body_cb(body_take);
+    item_set_body_cb(body_take); item_set_body_give_cb(body_give);
     item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);
     { float bx, by; int kx, ky;                                                                   /* the knife lies on the floor next to him: a real item, to be taken */
