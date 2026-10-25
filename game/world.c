@@ -716,7 +716,7 @@ static void final_update(float dt) {
     }
     if (!fin_red && fin_t >= FIN_RED) {                                        /* the hard cut: the red filter and the text on this very frame */
         fin_red = 1; fin_lying = 1; fin_acc = 0;
-        sfx_blood_fountain(0.0f); sfx_hit();
+        sfx_blood_fountain(0.0f); sfx_punch();                                 /* the punch on the cut */
     }
     if (fin_red) {
         float ht = fin_t - FIN_RED, rate = 5.0f * (1.0f - ht / (FIN_HOLD + 3.0f)); if (rate < 1.0f) rate = 1.0f;

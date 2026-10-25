@@ -94,6 +94,8 @@ int  sfx_debug_pfft(void);              /* tests: how many times sfx_pfft was ca
 void sfx_blood_fountain(float level);   /* the self-stab scene: a wet rushing woosh, looped. call every frame while it spurts (0..1 = how hard); it eases in/out and dies away by itself ~0.25 s after the calls stop */
 void sfx_blood_sputter(float strength);   /* the last squirt of an empty ketchup bottle: a short ragged "bzzt" (0..1 = how big) */
 int  sfx_debug_sputters(void);            /* tests: how many times sfx_blood_sputter was called */
+void sfx_punch(void);                     /* a game-style punch impact (fast pitch drop, crack, slap, soft-clipped), ~0.38 s: the red cut of the self-stab scene */
+int  sfx_debug_punches(void);             /* tests: how many times sfx_punch was called */
 void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
 void sfx_drag(float level);             /* a body sliding over stone: a calm friction hiss, as loud as he is fast. call it every frame with 0..1 (0 = quiet; it eases in and out by itself) */
 void sfx_hold_hint(void);               /* chunk 55: a tap on a hammer button (a hold is needed): a short soft rising "bup" */

@@ -546,6 +546,45 @@ static void sp_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the punch (self-stab scene, the red cut): a game-style impact. a fast pitch drop (200 -> 42 Hz) for the body, a bright noise crack in the first ~40 ms, a short
+ * mid "slap" (noise through a low-pass) and a slow dull tail, all soft-clipped so it hits hard on a phone speaker. ~0.38 s. its own voice (a new call restarts it) ---------- */
+static int   pn_on, pn_pos, n_punch;
+static float pn_ph, pn_lp;
+static unsigned pn_seed = 8675309u;
+#define PN_T    0.38f
+#define PN_GAIN 0.62f
+void sfx_punch(void) {
+    n_punch++;
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    pn_on = 1; pn_pos = 0; pn_ph = 0.0f; pn_lp = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+int sfx_debug_punches(void) { return n_punch; }
+static void pn_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)pn_pos / (float)OUT_RATE;
+        if (tt >= PN_T) { pn_on = 0; return; }
+        pn_seed = pn_seed * 1664525u + 1013904223u;
+        float n = (float)(pn_seed >> 16) / 32768.0f - 1.0f;
+        float f = 42.0f + 158.0f * expf(-tt * 38.0f);                          /* the body: the pitch falls fast */
+        pn_ph += f / (float)OUT_RATE; if (pn_ph >= 1.0f) pn_ph -= 1.0f;
+        float body = sinf(6.2831853f * pn_ph) * expf(-tt * 11.0f);
+        float crack = n * expf(-tt * 90.0f);                                   /* the bright crack, gone in ~40 ms */
+        pn_lp += 0.18f * (n - pn_lp);
+        float slap = pn_lp * 1.8f * expf(-tt * 26.0f);                         /* the slap: dull noise, ~100 ms */
+        float x = 1.25f * body + 0.55f * crack + 0.6f * slap;
+        x = x / (1.0f + fabsf(x));                                             /* soft clip: dense and punchy */
+        float env = tt < 0.002f ? tt / 0.002f : 1.0f;                          /* no click on the way in */
+        int v = (int)(x * 1.6f * env * PN_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        pn_pos++;
+    }
+}
+
 /* ---------- the error buzz (chunk 33): two short low buzzes, "no". a square wave at 110 Hz softened with a sine, its own voice ---------- */
 static int   err_on, err_pos, n_errors;
 static float err_phase;
@@ -965,6 +1004,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (pfft_on) pfft_mix(out, frames);
     if (bf_on) bf_mix(out, frames);
     if (sp_on) sp_mix(out, frames);
+    if (pn_on) pn_mix(out, frames);
     if (sum_on) sum_mix(out, frames);
     sync_push(&cur_chunk);                            /* the chunk is complete: what the screen can look up once it is heard */
     /* our own estimate of the clock, for apps that do not send the speaker's timestamps: at this moment the speaker is at the frame
