@@ -16,6 +16,12 @@
 #include <SDL2/SDL.h>
 
 enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_COUNT };      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
+/* story chunk 7: size classes (docs/story/vessel.md section 4). SMALL goes in the pockets; MEDIUM is carried in the hands, one at a time, and slows the player a
+ * little (CARRY_SPEED_MEDIUM, times the walking speed); BIG cannot be picked up at all, only dragged (a whole body, a torso, the big rock: props.h) and slows the
+ * player a lot. nothing medium exists before chunk 9 (the parts that come off a body), so the carrying itself is built there; the table and the numbers are here */
+typedef enum { SIZE_SMALL, SIZE_MEDIUM, SIZE_BIG } ItemSize;
+#define CARRY_SPEED_MEDIUM 0.88f
+int item_size(int kind);                    /* the size class of an item kind (SIZE_SMALL for all four so far) */
 #define ITEM_ICON_CELLS 12                  /* an icon is 12 x 12 cells */
 #define ITEM_REACH_R    1.3f                /* tiles: this close and the hand button shows (chunk 68; it was the walk-over pick-up radius) */
 

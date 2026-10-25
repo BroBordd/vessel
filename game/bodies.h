@@ -6,7 +6,7 @@
  * next to one: world.c, then story.c says what it carries). the list lives in story terms (a vessel number, a place in tiles), so the look is always made
  * from the number and nothing is stored but a few bytes.
  * vessel 1 (Aonia) is in the list too, but his place is the ritual's (ritual.c draws him and moves him when he is dragged): `vessel == 1` means "ask ritual.c".
- * chunk 7 will let any body be dragged, later chunks cut them up. */
+ * chunk 7: any body can be dragged and leaves a fading blood trail, later chunks cut them up. */
 #ifndef BODIES_H
 #define BODIES_H
 #include <SDL2/SDL.h>
@@ -33,5 +33,17 @@ int  bodies_hit(float feet_x, float feet_y, int px, int tile);   /* would our fe
 /* the nearest body within `reach` cells of our feet (world px), vessel 1 left out. returns its index or -1, and the gap in cells */
 int  bodies_nearest(float feet_x, float feet_y, int px, int tile, float reach, float *gap);
 void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken);   /* the pools and the bodies, under the characters */
+
+/* chunk 7: any body can be dragged (world.c holds the rope). the box of a body in world px, like the one bodies_hit uses; 0 when that vessel has no body
+ * here (vessel 1 is ritual.c's, so 0 for him too). bodies_shift moves the body by a drag step (world px) */
+int  bodies_box(unsigned vessel, int px, int tile, float *x0, float *y0, float *x1, float *y1);
+void bodies_shift(unsigned vessel, float dx_px, float dy_px, int tile);
+
+/* chunk 7: THE BLOOD TRAIL. a body that is dragged leaves smears of blood on the floor, and they fade after a while (BODIES_TRAIL_LIFE seconds). world.c adds a
+ * smear every few cells of dragging, updates the ages, and draws them before everything else on the floor (so the circle, the pools and the bodies lie over them) */
+#define BODIES_TRAIL_LIFE 40.0f
+void bodies_trail_add(float world_x, float world_y, int tile);          /* a smear at this world px */
+void bodies_trail_update(float dt);
+void bodies_trail_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken);
 
 #endif

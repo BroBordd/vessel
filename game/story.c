@@ -12,6 +12,7 @@
 #include "events.h"
 #include "item.h"
 #include "bodies.h"
+#include "props.h"
 #include "toast.h"
 #include <stdio.h>
 #include "missions.h"
@@ -251,7 +252,7 @@ void story_start(void) {
     card_show_vas();                            /* the card says Vas until the note is read */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     item_clear();
-    bodies_reset();
+    bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
     world_ritual(story_vessel_look(1), story_woke);

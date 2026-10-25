@@ -30,6 +30,7 @@ int  world_player_tile_y(void);
 void world_player_tilef(float *x, float *y);   /* where the feet are, in tiles, with the fraction */
 int  world_controls_on(void);                  /* the player is free: the controls are showing and no cutscene runs (events.c waits for this) */
 int  world_dragging(void);                     /* we hold a body */
+int  world_dragging_rock(void);                /* we hold the big rock (story chunk 7) */
 int  world_drag_moving(void);                  /* ... and this frame the pull really moved it */
 
 /* finds a tile on the current map that the player can really walk to from where they stand (never

@@ -26,6 +26,7 @@
 #include "jukebox.h"
 #include "gfx.h"
 #include "bodies.h"
+#include "props.h"
 #include "gen.h"
 #include <time.h>
 #include <math.h>
@@ -68,7 +69,9 @@ static int   btn_down, btn_inside;
 static int   near_id = -1;          /* npc in talking range, or -1 */
 static int   near_grave;            /* the grave the story switched on is in reach: the button shows a grip, and HOLDING it pulls the body out (chunk 30) */
 static int   near_bury;             /* the body that was searched lies in reach (chunk 34): the button shows a hand lowering him, and HOLDING it buries him */
-static int   near_drag, drag_on;    /* vessel 1 lies in reach: the button holds him (a tap) and lets go; drag_on: we hold him and pull him along as we walk */
+static int   near_drag, drag_on;    /* something heavy lies in reach (a body or the big rock): the button holds it (a tap) and lets go; drag_on: we hold it and pull it along as we walk */
+static int   drag_cand = -1, drag_id = -1;   /* what the button would take hold of (DRAG_ROCK, 1 = vessel 1, n = vessel n's body; -1 none), and what we hold */
+static float trail_lx, trail_ly;            /* where the last smear of the blood trail was dropped (world px) */
 static float strain_t;              /* > 0: we are pulling, the eyes are shut */
 static int   dragged_now;           /* this frame the pull really moved him */
 static float drag_snd;              /* the friction hiss's level we sent last frame */
@@ -249,72 +252,119 @@ static int in_house(int x, int y, int margin) {             /* the hut's footpri
 }
 static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }
 
-/* PULLING VESSEL 1 (ritual.c has his box): next to him the button takes hold of him from the side nearest to us (our hands float there); a tap lets go.
- * while we hold him we walk slower, he stays on the floor and is dragged along with us (never into a wall), our eyes shut with the effort, and the stone growls */
-#define DRAG_SPEED  0.75f       /* walking speed while we hold him */
+/* PULLING THE HEAVY THINGS (story chunk 7: any body, and the big rock): next to one the button takes hold of it from the side nearest to us (our hands float
+ * there); a tap lets go. while we hold it we walk slower, it stays on the floor and is dragged along with us (never into a wall, never onto another body or the
+ * rock), our eyes shut with the effort, and the stone growls. a body leaves a blood trail (bodies.c). vessel 1's box is ritual.c's, a body's is bodies.c's, the
+ * rock's is props.c's: one id says which (DRAG_ROCK, 1, or the vessel number) */
+#define DRAG_ROCK   0
+#define DRAG_SPEED  0.75f       /* walking speed while we hold a body (the owner's tuning) */
+#define ROCK_SPEED  0.50f       /* ... and the big rock: SIZE_BIG slows us a lot (item.h) */
 #define INSPECT_REACH 5.0f      /* cells: how far from a body's edge the magnifying glass shows */
-#define DRAG_REACH  4.0f        /* cells: how far from his edge we may be to take hold */
-#define DRAG_TAU    0.22f       /* his lag: like the camera, he eases toward where our hands would have him (seconds) */
-#define DRAG_SLACK  1.5f        /* cells: the rope is slack this much, he does not move until it is tight (a sandbag has to be started) */
-#define DRAG_MAXLAG 8.0f        /* cells: the most he can trail behind (our arms reach that far); at the limit we cannot walk on */
+#define DRAG_REACH  4.0f        /* cells: how far from its edge we may be to take hold */
+#define DRAG_TAU    0.22f       /* its lag: like the camera, it eases toward where our hands would have it (seconds) */
+#define ROCK_TAU    0.36f       /* the rock is slower to start and to stop */
+#define DRAG_SLACK  1.5f        /* cells: the rope is slack this much, it does not move until it is tight (a sandbag has to be started) */
+#define DRAG_MAXLAG 8.0f        /* cells: the most it can trail behind (our arms reach that far); at the limit we cannot walk on */
+#define ROCK_MAXLAG 5.0f        /* ... the rock has less rope */
 #define DRAG_STRAIN 0.30f       /* seconds the eyes stay shut after the last bit of pulling (no flicker) */
-static int body_box_px(float *x0, float *y0, float *x1, float *y1) {          /* his box in world px, 0 if there is no body to pull */
+#define TRAIL_STEP  2.5f        /* cells of dragging between two smears of blood */
+static int v1_box_px(float *x0, float *y0, float *x1, float *y1) {            /* vessel 1's box in world px, 0 if there is no such body */
     float a, b, c, d, rx, ry;
     if (!ritual_scene() || cur_map != MAP_TEMPLE || !ritual_body_box(&a, &b, &c, &d)) return 0;
     ritual_centre(&rx, &ry);
     *x0 = rx * tile + a * px; *y0 = ry * tile + b * px; *x1 = rx * tile + c * px; *y1 = ry * tile + d * px;
     return 1;
 }
-static float body_gap(void) {                                               /* cells between our feet and his box (1e9: none) */
+static int target_box_px(int id, float *x0, float *y0, float *x1, float *y1) {   /* the box of a heavy thing in world px (DRAG_ROCK, 1 or a vessel number), 0 if it is not here */
+    if (cur_map != MAP_TEMPLE || id < 0) return 0;
+    if (id == DRAG_ROCK) return props_rock_box(px, tile, x0, y0, x1, y1);
+    if (id == 1) return v1_box_px(x0, y0, x1, y1);
+    return bodies_box((unsigned)id, px, tile, x0, y0, x1, y1);
+}
+static int drag_box_px(float *x0, float *y0, float *x1, float *y1) { return target_box_px(drag_on ? drag_id : drag_cand, x0, y0, x1, y1); }   /* what we hold (or could hold) */
+static float body_gap(void) {                                               /* cells between our feet and vessel 1's box (1e9: none) */
     float x0, y0, x1, y1;
-    if (!body_box_px(&x0, &y0, &x1, &y1)) return 1e9f;
+    if (!v1_box_px(&x0, &y0, &x1, &y1)) return 1e9f;
     float dx = fmaxf(fmaxf(x0 - (pxp + 3.0f * px), (pxp - 3.0f * px) - x1), 0.0f), dy = fmaxf(fmaxf(y0 - pyp, (pyp - 3.0f * px) - y1), 0.0f);
     return sqrtf(dx * dx + dy * dy) / (float)px;
 }
-static int body_hits(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on him (or on any other body, bodies.c)? */
+static void drag_pick(void) {                                               /* the nearest heavy thing within DRAG_REACH cells of our feet: vessel 1, another body or the rock */
+    drag_cand = -1;
+    if (cur_map != MAP_TEMPLE) return;
+    float best = DRAG_REACH, g = body_gap();
+    if (g <= best) { best = g; drag_cand = 1; }
+    int bi = bodies_nearest(pxp, pyp, px, tile, best, &g);
+    if (bi >= 0 && g <= best) { best = g; drag_cand = (int)bodies_get(bi)->vessel; }
+    g = props_rock_gap(pxp, pyp, px, tile);
+    if (g <= best) drag_cand = DRAG_ROCK;
+}
+static int body_hits(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on vessel 1, on any other body (bodies.c) or on the rock? */
     float x0, y0, x1, y1;
-    if (cur_map == MAP_TEMPLE && bodies_hit(fx, fy, px, tile)) return 1;
-    if (!body_box_px(&x0, &y0, &x1, &y1)) return 0;
+    if (cur_map == MAP_TEMPLE && (bodies_hit(fx, fy, px, tile) || props_rock_hit(fx, fy, px, tile))) return 1;
+    if (!v1_box_px(&x0, &y0, &x1, &y1)) return 0;
     return fx + 3.0f * px > x0 && fx - 3.0f * px < x1 && fy > y0 && fy - 3.0f * px < y1;
 }
-static int body_blocked(float sx, float sy) {                               /* would he end up in a wall if he moved by (sx, sy) px? */
+static int box_overlap(float a0, float b0, float a1, float b1, float c0, float d0, float c1, float d1) { return a0 < c1 && a1 > c0 && b0 < d1 && b1 > d0; }
+static int drag_blocked(float sx, float sy) {                               /* would what we hold end up in a wall, or on another body or the rock, if it moved by (sx, sy) px? */
     float x0, y0, x1, y1;
-    if (!body_box_px(&x0, &y0, &x1, &y1)) return 0;
-    x0 += sx; x1 += sx - 1; y0 += sy; y1 += sy - 1;
+    if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
+    float n0 = x0 + sx, m0 = y0 + sy, n1 = x1 + sx, m1 = y1 + sy;           /* the box where it would be */
+    float wx1 = n1 - 1, wy1 = m1 - 1;
     for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++)
-        if (solid_tile((int)floorf((x0 + (x1 - x0) * 0.5f * i) / tile), (int)floorf((y0 + (y1 - y0) * 0.5f * j) / tile))) return 1;
+        if (solid_tile((int)floorf((n0 + (wx1 - n0) * 0.5f * i) / tile), (int)floorf((m0 + (wy1 - m0) * 0.5f * j) / tile))) return 1;
+    float c0, d0, c1, d1;
+    if (drag_id != 1 && v1_box_px(&c0, &d0, &c1, &d1) && box_overlap(n0, m0, n1, m1, c0, d0, c1, d1) && !box_overlap(x0, y0, x1, y1, c0, d0, c1, d1)) return 1;
+    if (drag_id != DRAG_ROCK && props_rock_box(px, tile, &c0, &d0, &c1, &d1) && box_overlap(n0, m0, n1, m1, c0, d0, c1, d1) && !box_overlap(x0, y0, x1, y1, c0, d0, c1, d1)) return 1;
+    for (int i = 0; i < bodies_count(); i++) {
+        const Body *b = bodies_get(i);
+        if (!b || b->vessel == 1 || (int)b->vessel == drag_id || !bodies_box(b->vessel, px, tile, &c0, &d0, &c1, &d1)) continue;
+        if (box_overlap(n0, m0, n1, m1, c0, d0, c1, d1) && !box_overlap(x0, y0, x1, y1, c0, d0, c1, d1)) return 1;     /* (two that already overlap may still be pulled apart) */
+    }
     return 0;
 }
-static float drag_lag(float ppx, float ppy) {                              /* how far his middle is from where our hands want it, if we stood at (ppx, ppy) */
+static float drag_lag(float ppx, float ppy) {                              /* how far its middle is from where our hands want it, if we stood at (ppx, ppy) */
     float x0, y0, x1, y1;
-    if (!body_box_px(&x0, &y0, &x1, &y1)) return 0;
+    if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     return hypotf(ppx + drag_ox - (x0 + x1) * 0.5f, ppy + drag_oy - (y0 + y1) * 0.5f);
 }
 static int drag_taut(float dx, float dy) {                                  /* a step that would stretch the rope past its limit (and not ease it) */
     float now = drag_lag(pxp, pyp), then = drag_lag(pxp + dx, pyp + dy);
-    return then > DRAG_MAXLAG * px && then > now;
+    float lim = (drag_id == DRAG_ROCK ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
+    return then > lim && then > now;
 }
-static void drag_step(float dt) {                                           /* the sandbag: he eases toward our hands, lazily, and stops when the rope goes slack */
+static void drag_move(float dx, float dy) {                                 /* the held thing moves by (dx, dy) px */
+    if (drag_id == DRAG_ROCK) props_rock_shift(dx, dy, tile);
+    else if (drag_id == 1) ritual_body_shift(dx / px, dy / px);
+    else bodies_shift((unsigned)drag_id, dx, dy, tile);
+}
+static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack */
     drag_spd = 0;
     float x0, y0, x1, y1;
-    if (!drag_on || dt <= 0 || !body_box_px(&x0, &y0, &x1, &y1)) return;
+    if (!drag_on || dt <= 0 || !drag_box_px(&x0, &y0, &x1, &y1)) return;
     float ex = pxp + drag_ox - (x0 + x1) * 0.5f, ey = pyp + drag_oy - (y0 + y1) * 0.5f, len = hypotf(ex, ey);
     if (len < 0.001f) return;
+    int rock = drag_id == DRAG_ROCK;
     float eff = len - DRAG_SLACK * px; if (eff < 0) eff = 0;
-    float mv = eff * (1.0f - expf(-dt / DRAG_TAU));
-    if (len - mv > DRAG_MAXLAG * px) mv = len - DRAG_MAXLAG * px;
+    float mv = eff * (1.0f - expf(-dt / (rock ? ROCK_TAU : DRAG_TAU)));
+    float lim = (rock ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
+    if (len - mv > lim) mv = len - lim;
     float mx = ex / len * mv, my = ey / len * mv;
-    if (body_blocked(mx, 0)) mx = 0; else ritual_body_shift(mx / px, 0);
-    if (body_blocked(0, my)) my = 0; else ritual_body_shift(0, my / px);
+    if (drag_blocked(mx, 0)) mx = 0; else drag_move(mx, 0);
+    if (drag_blocked(0, my)) my = 0; else drag_move(0, my);
     drag_spd = hypotf(mx, my) / dt / (float)px;
+    if (!rock && (mx != 0 || my != 0) && drag_box_px(&x0, &y0, &x1, &y1)) {      /* a body leaves a smear of blood every few cells (the rock leaves nothing) */
+        float bx = (x0 + x1) * 0.5f, by = (y0 + y1) * 0.5f;
+        if (hypotf(bx - trail_lx, by - trail_ly) >= TRAIL_STEP * px) { bodies_trail_add(bx, by, tile); trail_lx = bx; trail_ly = by; }
+    }
 }
 static void drag_toggle(void) {
     if (drag_on) { drag_on = 0; return; }
     float x0, y0, x1, y1;
-    if (!body_box_px(&x0, &y0, &x1, &y1)) return;
-    drag_on = 1; drag_spd = 0;
+    if (drag_cand < 0 || !target_box_px(drag_cand, &x0, &y0, &x1, &y1)) return;
+    drag_id = drag_cand; drag_on = 1; drag_spd = 0;
     drag_ox = (x0 + x1) * 0.5f - pxp; drag_oy = (y0 + y1) * 0.5f - pyp;
-    float cyy = pyp - 4.0f * px, nx = pxp < x0 ? x0 : pxp > x1 ? x1 : pxp, ny = cyy < y0 ? y0 : cyy > y1 ? y1 : cyy;      /* turn to the point we hold him at */
+    trail_lx = (x0 + x1) * 0.5f; trail_ly = (y0 + y1) * 0.5f;
+    float cyy = pyp - 4.0f * px, nx = pxp < x0 ? x0 : pxp > x1 ? x1 : pxp, ny = cyy < y0 ? y0 : cyy > y1 ? y1 : cyy;      /* turn to the point we hold it at */
     float fdx = nx - pxp, fdy = ny - cyy;
     if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
     else                         facing = fdy < 0 ? FACE_UP : FACE_DOWN;
@@ -798,7 +848,7 @@ static void load_map(int which) {
     item_reset(px, tile); item_house = 0;      /* what lay on the old map is gone; the pockets stay */
     grave_reset(px, tile);                      /* the graves go with the map too: story.c puts them back (chunk 22) */
     bsearch_reset(tile); near_bsearch = 0;
-    near_shrine = near_grave = near_search = near_bury = 0; near_drag = drag_on = 0; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
+    near_shrine = near_grave = near_search = near_bury = 0; near_drag = drag_on = 0; drag_cand = drag_id = -1; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0; house_on = 0; indoors = 0; door_t = -1; near_door = door_in_range = 0;
     hole_on = near_hole = hole_in_range = 0; hole_cb = NULL;
     near_id = -1; btn_down = btn_inside = 0; talk_npc = -1;
     fight_npc = -1; fight_left = fight_total = 0; fight_cb = NULL; fight_cd = fight_swing = 0; fight_prog = fight_tick = btn_t = hint_t = self_prog = self_tick = aim_t = 0;   /* the npc ids are gone with the map */
@@ -943,7 +993,8 @@ int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
 void world_player_tilef(float *x, float *y) { if (x) *x = pxp / (float)tile; if (y) *y = pyp / (float)tile; }
 int world_controls_on(void) { return controls_visible && phase == PH_PLAY; }
-int world_dragging(void) { return drag_on; }
+int world_dragging(void) { return drag_on && drag_id != DRAG_ROCK; }          /* a body (the thoughts about bodies) */
+int world_dragging_rock(void) { return drag_on && drag_id == DRAG_ROCK; }
 int world_drag_moving(void) { return dragged_now; }
 
 /* the pit (gen.c): how far (tiles) the player's feet are from the nearest pit tile; 1e9 when this map has none. the story uses it for "arrives at the edge" */
@@ -1553,6 +1604,16 @@ static void camera_update(float dt) {
     cam_cx = cam_x + W / 2.0f; cam_cy = cam_y + H / 2.0f;        /* the clamped place is the state, so the camera never winds up behind an edge */
 }
 
+static void rock_place(void) {                                  /* the big rock lies on the south ledge, in front of the pit, to one side of the way through: three tiles of floor under it */
+    static const int off[8] = { 6, -6, 5, -5, 7, -7, 4, -4 };
+    int ty = edge_ty + 1;
+    for (int k = 0; k < 8; k++) {
+        int tx = edge_tx + off[k];
+        if (!solid_tile(tx - 1, ty) && !solid_tile(tx, ty) && !solid_tile(tx + 1, ty) && !solid_tile(tx, ty + 1)) { props_rock_place(tx + 0.5f, ty + 0.9f); return; }
+    }
+    props_rock_place(edge_tx + 6.5f, ty + 0.9f);               /* (cannot happen on the ruins: the ledge is wide) */
+}
+
 void world_update(float dt) {
     dragged_now = 0;
     if (mapwin_active() && (dialog_active() || !controls_visible || phase != PH_PLAY)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
@@ -1596,9 +1657,9 @@ void world_update(float dt) {
         float mag = sqrtf(kx * kx + ky * ky);
         moving = mag > 0.15f;
         if (moving) {
-            float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? DRAG_SPEED : 1.0f);
+            float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? (drag_id == DRAG_ROCK ? ROCK_SPEED : DRAG_SPEED) : 1.0f);
             float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
-            if (drag_on) {                                                      /* he trails behind us on a rope: we cannot outrun it (drag_step) */
+            if (drag_on) {                                                      /* it trails behind us on a rope: we cannot outrun it (drag_step) */
                 if (!blocked(pxp + vx, pyp) && !drag_taut(vx, 0)) pxp += vx;
                 if (!blocked(pxp, pyp + vy) && !drag_taut(0, vy)) pyp += vy;
             } else {
@@ -1607,7 +1668,7 @@ void world_update(float dt) {
             }
             if (fabsf(kx) > fabsf(ky)) facing = kx < 0 ? FACE_LEFT : FACE_RIGHT;
             else                       facing = ky < 0 ? FACE_UP : FACE_DOWN;
-            walk += dt * 8.0f * (drag_on ? 0.55f : 1.0f);
+            walk += dt * 8.0f * (drag_on ? (drag_id == DRAG_ROCK ? 0.4f : 0.55f) : 1.0f);
         } else walk = 0;
         drag_step(dt);
         dragged_now = drag_spd > 0.8f;
@@ -1624,6 +1685,8 @@ void world_update(float dt) {
         update_hole_range();
         update_door_range();
         item_update(dt);
+        bodies_trail_update(dt);
+        if (cur_map == MAP_TEMPLE && edge_tx >= 0 && !props_rock_placed()) rock_place();
         near_item = !dialog_active() && !near_hole && item_house == indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (on the grass: outside; in the house: inside); nothing is taken by walking */
         near_inspect = 0;                                                    /* story chunk 6: a body in reach (vessel 1 is ritual.c's, the rest are bodies.c's): the hand button turns into a magnifying glass */
         if (!near_item && !dialog_active() && !near_hole && !indoors && cur_map == MAP_TEMPLE) {
@@ -1637,7 +1700,8 @@ void world_update(float dt) {
         near_search = grave_search_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !indoors);
         near_bury = grave_bury_near(pxp, pyp, !dialog_active() && !near_hole && !near_shrine && !near_grave && !near_search && !indoors);
         near_bsearch = bsearch_near(pxp, pyp, !dialog_active() && !near_hole && indoors);          /* chunk 39: indoors, next to a body that was switched on */
-        near_drag = !dialog_active() && !near_hole && !indoors && !near_door && (drag_on || body_gap() <= DRAG_REACH);   /* vessel 1 lies in reach (or we hold him) */
+        drag_pick();
+        near_drag = !dialog_active() && !near_hole && !indoors && !near_door && (drag_on || drag_cand >= 0);   /* a body or the rock lies in reach (or we hold one) */
         near_id = (dialog_active() || near_drag || near_hole || near_shrine || near_grave || near_search || near_bsearch || near_bury || near_door || !npcs_here()) ? -1 : npc_nearby();
         if (near_id < 0 && !near_hole && !near_shrine && !near_grave && !near_search && !near_bsearch && !near_bury && !near_door && !near_drag) btn_down = btn_inside = 0;
         if (btn_down && btn_inside) btn_t += dt;
@@ -1882,9 +1946,15 @@ static void draw_interact_button(SDL_Renderer *r) {
         int a = br / 9; if (a < 2) a = 2;
         int jit = drag_on && dragged_now ? (int)(sinf(t * 30.0f) * a * 0.4f) : 0;
         int hv = drag_on ? 0 : 2 * a + (int)(sinf(t * 4.0f) * a * 0.5f);
+        if ((drag_on ? drag_id : drag_cand) == DRAG_ROCK) {                                    /* the big rock: a grey lump (the hands are the same) */
+            col(r, 150, 146, 164, 255); fill(r, bcx - 5 * a + jit, bcy,         4 * a, a);
+            col(r, 120, 116, 134, 255); fill(r, bcx - 6 * a + jit, bcy + a,     12 * a, 2 * a);
+            col(r, 84, 80, 98, 255);    fill(r, bcx - 5 * a + jit, bcy + 3 * a, 10 * a, a);
+        } else {
         col(r, 214, 218, 232, 255); fill(r, bcx - 5 * a + jit, bcy + a, 10 * a, 2 * a);        /* his body ... */
         col(r, 60, 66, 100, 255);   fill(r, bcx + 5 * a + jit, bcy + a, 2 * a, 2 * a);        /* ... his legs ... */
         col(r, 240, 196, 160, 255); fill(r, bcx - 7 * a + jit, bcy, 3 * a, 3 * a);            /* ... and his head, to the left */
+        }
         col(r, 255, 255, 255, 255);
         fill(r, bcx - 3 * a, bcy - a - hv, 2 * a, 2 * a);                                      /* the hands */
         fill(r, bcx + a,     bcy - a - hv, 2 * a, 2 * a);
@@ -2095,8 +2165,10 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         hcy = (int)((hole_ty + 0.5f) * tile) - cy;
         draw_hole(r, hcx, hcy, 0);
     }
+    if (cur_map == MAP_TEMPLE) bodies_trail_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                      /* the blood trails, under everything else on the floor (story chunk 7) */
     if (ritual_scene() && cur_map == MAP_TEMPLE) ritual_draw_floor(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, TEMPLE_SHADE);   /* the carved circle, the blood, the dead vessel */
     if (cur_map == MAP_TEMPLE) bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                          /* the other dead (story chunk 6) */
+    if (cur_map == MAP_TEMPLE) props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                           /* the big rock (story chunk 7) */
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
 
     /* characters, back to front so whoever is lower on screen draws on top. the shrine sorts with them. */
@@ -2219,7 +2291,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         char_draw_fall(r, player_look, sx0, sy0, px, 1.5708f * k * k);
     } else {
         float gx0, gy0, gx1, gy1;
-        if (drag_on && body_box_px(&gx0, &gy0, &gx1, &gy1)) {      /* holding him: the hands float to the nearest side of his body */
+        if (drag_on && drag_box_px(&gx0, &gy0, &gx1, &gy1)) {      /* holding it: the hands float to the nearest side */
             float cyy = (float)sy0 - 4.0f * px, nx = (float)sx0, ny = cyy;
             gx0 -= cx; gx1 -= cx; gy0 -= cy; gy1 -= cy;
             nx = nx < gx0 ? gx0 : nx > gx1 ? gx1 : nx; ny = ny < gy0 ? gy0 : ny > gy1 ? gy1 : ny;

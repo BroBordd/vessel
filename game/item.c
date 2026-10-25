@@ -114,6 +114,12 @@ static const char *BAG[ITEM_ICON_CELLS] = {
 static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE };
 static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE" };
 
+int item_size(int kind) {
+    switch (kind) {                         /* the hammer, the orb, the paper and the knife all fit a pocket. the arms, legs, heads and spines of chunk 9 will be SIZE_MEDIUM here */
+    default: return SIZE_SMALL;
+    }
+}
+
 const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[kind] : ""; }
 
 static int s = 1, tile = 16;                /* pixel scale and tile size of the current map */

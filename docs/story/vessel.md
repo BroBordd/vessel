@@ -223,6 +223,8 @@ player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas 
 - **AOI (area of interest) camera** (owner's call): near the pit (`AOI_NEAR`/`AOI_FAR` tiles) the view eases back (down to `AOI_MIN` 0.6) so the far ledge is in frame, and eases out again when we leave. `world.c`, SDL/CPU path only (the GPU replay's zoom texture cannot copy from a bigger one, so no AOI under `gfx_is_gpu()`).
 - **Drag sound** is a low rumble now (about 150 to 400 Hz, two-pole roll-off, two slow uneven swells), no hiss.
 - **The first body's blood** was cut by 60 % so his face shows.
+- **Any body can be dragged, and drags leave a blood trail** (chunk 7). The big rock is a prop (`props.c`), not an item: it cannot be picked up, only dragged (section 4, BIG), at 50 % walking speed. The thought for
+  bodies (EV_FIRST_DRAG) is for bodies only; the rock fires EV_CARRY_ROCK.
 
 ## Chunk checklist
 Each chunk says what is in it, so a cold instance can tell done from not done. `(part)` = some of it is built, the rest is listed.
@@ -236,9 +238,13 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [x] **4. Limbo and the first wake-up:** Vas's three-line conversation (`WAKE_DLG`, the soul's card now says Vas), then the stars fade into the ruins and the blood circle with Aonia and his flowing blood (already built, `ritual.c`). Later deaths: `story_die(DEATH_SELF|DEATH_PIT|DEATH_CIRCLE)` fades the world to black, limbo shows one skippable line by cause, the next vessel wakes in the circle (`world_return_to_clouds` + `world_ritual`). Nothing kills us yet but dev `VESSEL_DIE=self|pit|circle` (6 s after the world starts). The paper is chunk 5; bodies that stay are chunk 6 (until then the ritual shows the last dead vessel lying by the circle).
 - [x] **5. The note:** new item `ITEM_PAPER` (`item.c`, blood-written sheet, NOTE) lies below Aonia; the hand button takes it, `note_watch()` (story.c) reads it at once: 8 dialog pages in Aonia's face, the card flips Vas to Doia (`hud_set_person`: flash, coin, toast), the paper is gone for good, task `Read the note` becomes `Escape the ruins`, thought EV_READ_NOTE. The card starts as this body's face under the name Vas (`card_show_vas`). Dying before reading (`DEATH_SELF` in vessel 2) fires EV_SECRET_FAST_DEATH and there is never a note; bodies from vessel 3 on show their own name from the start (`hud_reset`).
 - [x] **6. Persistent bodies:** `bodies.c/.h`: a death (`story_die`, except the pit, whose pile is chunk 11) adds a body where it fell, kept with what the pockets held (`item_pack`); it lies in a pool of blood, is solid, and a body that fell on the circle is put at its edge so the next one can stand. Aonia is body 1 in the list (ritual.c draws him) with the knife (new `ITEM_KNIFE`). Inspect: next to any body the hand button turns into the magnifying glass, a tap toasts `<name> has a knife` (EV_INSPECT_BODY on the first look at Aonia). The pockets are emptied for each new body. Still left for chunk 7: drag any body.
-- [ ] **7. Dragging and carrying (part):** whole-body drag of vessel 1 is built (see Decisions). Left: the blood trail that fades, drag any body, size classes (medium things in the hands), the big rock.
+- [x] **7. Dragging and carrying:** any body can be dragged (not only vessel 1): `world.c` holds one rope for vessel 1 (`ritual.c`), a body (`bodies_box` / `bodies_shift`) and the big rock (`props.c`),
+  picks the nearest in reach (`drag_pick`), and the held thing never goes into a wall or onto another body or the rock. A dragged body leaves a **blood trail** (`bodies_trail_*`, a smear every 2.5 cells,
+  fades in 40 s, drawn under the circle and the bodies). **The big rock** (`props.c/.h`, SIZE_BIG): lies on the south ledge in front of the pit (put there by the world, once per game, and it keeps its place across
+  deaths), solid, dragged like a body but heavier (we walk at 50 %, it has more lag and less rope), the button shows a rock; dragging it is EV_CARRY_ROCK. **Size classes:** `ItemSize` and `item_size()` in `item.h`
+  (all four items are small), `CARRY_SPEED_MEDIUM`; the carrying of medium things in the hands needs the medium items that chunk 9 makes, so it is built there.
 - [ ] **8. Inventory window:** item image, description, actions; small rock **Throw**; knife **Stab** on anything or self.
-- [ ] **9. Cutting and parts:** the stab order of section 6, the big-rock smash, scattered items, the extra part cuts.
+- [ ] **9. Cutting and parts:** the stab order of section 6, the big-rock smash, scattered items, the extra part cuts, and carrying a medium part in the hands (`item_size` SIZE_MEDIUM, `CARRY_SPEED_MEDIUM`, one at a time).
 - [ ] **10. Crafting:** two-slot craft menu, every recipe of section 7, first-craft lines.
 - [ ] **11. The pit:** Swing (tied rock and spine hook), the echo, falls, the bridge of bodies.
 - [ ] **12. Secrets:** the reactions of section 11.
@@ -246,6 +252,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
 
 ## Status log
+- 2026-10-25: chunk 7 done (untested by rule): drag any body, the fading blood trail, the big rock (`props.c`, dragged, EV_CARRY_ROCK), item size classes. Medium-in-hands carrying moved to chunk 9. Next: chunk 8.
 - 2026-10-25: chunk 6 done (untested by rule): persistent bodies, inventories, Inspect. Next: chunk 7.
 - 2026-10-25: chunk 5 done (untested by rule): the note, the card flip, the tasks. Next: chunk 6.
 - 2026-10-25: chunk 4 done (untested by rule): Vas's opening conversation, `story_die` and the later-death limbo, dev `VESSEL_DIE`. Next: chunk 5.

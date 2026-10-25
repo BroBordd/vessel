@@ -111,6 +111,7 @@ static void think(EventId id) {
 
 /* the things the engine can see by itself */
 static void watch(float dt) {
+    if (world_dragging_rock() && world_drag_moving()) event_fire(EV_CARRY_ROCK);      /* the big rock, heavier still (chunk 7) */
     if (world_dragging() && world_drag_moving()) {
         event_fire(EV_FIRST_DRAG);
         drag_t += dt;

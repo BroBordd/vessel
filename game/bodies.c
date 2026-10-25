@@ -12,7 +12,12 @@
 static Body list[BODIES_MAX];
 static int  n;
 
-void bodies_reset(void) { n = 0; memset(list, 0, sizeof list); }
+#define TRAIL_MAX 220
+static struct { float tx, ty, age; unsigned char shape; } trail[TRAIL_MAX];     /* a ring: the newest overwrites the oldest */
+static int trail_n, trail_head;
+static unsigned trail_seed = 12345u;
+
+void bodies_reset(void) { n = 0; memset(list, 0, sizeof list); trail_n = trail_head = 0; }
 int  bodies_add(unsigned vessel, float tx, float ty, const unsigned char *inv) {
     if (n >= BODIES_MAX) return -1;
     Body *b = &list[n];
@@ -84,5 +89,41 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
         char_set_darken(darken);
         char_draw_lying(r, story_vessel_look(b->vessel), fx, fy, px);
         char_set_darken(0);
+    }
+}
+
+int bodies_box(unsigned vessel, int px, int tile, float *x0, float *y0, float *x1, float *y1) {
+    if (vessel == 1) return 0;
+    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { box(&list[i], px, tile, x0, y0, x1, y1); return 1; }
+    return 0;
+}
+void bodies_shift(unsigned vessel, float dx, float dy, int tile) {
+    if (vessel == 1 || tile <= 0) return;
+    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { list[i].tx += dx / (float)tile; list[i].ty += dy / (float)tile; return; }
+}
+
+void bodies_trail_add(float wx, float wy, int tile) {
+    if (tile <= 0) return;
+    trail_seed = trail_seed * 1664525u + 1013904223u;                           /* the shape of each smear: width, height and a nudge, from a small generator */
+    trail[trail_head].tx = wx / (float)tile; trail[trail_head].ty = wy / (float)tile; trail[trail_head].age = 0;
+    trail[trail_head].shape = (unsigned char)(trail_seed >> 24);
+    trail_head = (trail_head + 1) % TRAIL_MAX;
+    if (trail_n < TRAIL_MAX) trail_n++;
+}
+void bodies_trail_update(float dt) {
+    if (dt <= 0) return;
+    for (int i = 0; i < trail_n; i++) trail[i].age += dt;
+}
+void bodies_trail_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken) {
+    float k = 1.0f - darken; if (k < 0) k = 0;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < trail_n; i++) {
+        float f = 1.0f - trail[i].age / BODIES_TRAIL_LIFE;
+        if (f <= 0) continue;
+        int sh = trail[i].shape, w = 2 + (sh & 3), h = 2 + ((sh >> 2) & 1), ox = ((sh >> 3) & 3) - 1, oy = ((sh >> 5) & 1) - 1;
+        int x = (int)lroundf(trail[i].tx * (float)tile) - cam_x + (ox - w / 2) * px, y = (int)lroundf(trail[i].ty * (float)tile) - cam_y + (oy - h / 2) * px;
+        SDL_SetRenderDrawColor(r, (Uint8)(96 * k), (Uint8)(12 * k), (Uint8)(20 * k), (Uint8)(210.0f * f));
+        SDL_Rect q = { x, y, w * px, h * px };
+        SDL_RenderFillRect(r, &q);
     }
 }
