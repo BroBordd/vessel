@@ -19,6 +19,10 @@ void world_draw(SDL_Renderer *r);
 /* scripting helpers (used from story.c and events.c) */
 void world_set_controls_visible(int on);   /* analog stick + interact button */
 void world_player_tilef(float *x, float *y);   /* where the feet are, in tiles, with the fraction */
+/* THE FINAL ACTION, the self stab: the controls and the HUD go, the view zooms in on us, the cutscene plays (two hands bring the knife to the neck, the eyes close),
+ * then done runs (the death). world_final_active: it is running (game.c hides the top buttons) */
+void world_final_stab(void (*done)(void));
+int  world_final_active(void);
 int  world_controls_on(void);                  /* the player is free: the controls are showing (events.c waits for this) */
 int  world_dragging(void);                     /* we hold a body */
 int  world_dragging_rock(void);                /* we hold the big rock (story chunk 7) */

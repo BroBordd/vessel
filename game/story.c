@@ -374,12 +374,17 @@ static void stab_self_go(void) {
     }
     sfx_hit(); story_die(DEATH_SELF);
 }
+/* YES: the final action. the controls go, the view zooms in, both hands bring the knife to the neck (world.c), and only then the stab itself happens */
+static void stab_self_begin(void) {
+    if (dying || cp_busy || world_final_active()) return;
+    world_final_stab(stab_self_go);
+}
 static void story_action(int kind, int act) {
-    if (dying) return;
+    if (dying || world_final_active()) return;
     switch (act) {
     case ACT_STAB_SELF:
         if (cp_busy) return;
-        confirm_ask("STAB SELF", "This will kill you. Sure?", "YES", "NO", stab_self_go);
+        confirm_ask("STAB SELF", "This will kill you. Sure?", "YES", "NO", stab_self_begin);
         return;
     case ACT_STAB: {
         unsigned v = world_body_in_reach();

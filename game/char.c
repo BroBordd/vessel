@@ -70,6 +70,11 @@ static void (*g_held_draw)(SDL_Renderer *r, int kind, int x, int y, int cell, fl
 void char_set_held(int kind, void (*draw)(SDL_Renderer *r, int kind, int x, int y, int cell, float dark)) { g_held = draw ? kind : -1; g_held_draw = draw; }
 static float g_gk = 1.0f, g_gmax = 14.0f;           /* the grip: how much of it (0 = the floating hands, 1 = at the point) and how far (cells) a hand may go from its rest cell */
 void char_set_grip(int on, float x, float y) { g_grip = on != 0; g_gx = x; g_gy = y; g_gk = 1.0f; g_gmax = 14.0f; }
+static int   g_stab; static float g_stab_a, g_stab_x, g_stab_y;   /* the self-stab pose (char_set_stab) */
+void char_set_stab(int on, float k, float ang, float gx, float gy) {
+    g_stab = on != 0; g_stab_a = ang; g_stab_x = gx; g_stab_y = gy;
+    if (on) { g_grip = 1; g_gk = k < 0 ? 0 : k > 1 ? 1 : k; g_gmax = 1000.0f; } else g_grip = 0;
+}
 void char_set_grip_ex(float blend, float max_cells) { g_gk = blend < 0 ? 0 : blend > 1 ? 1 : blend; g_gmax = max_cells < 1 ? 1 : max_cells; }
 void char_set_lighten(float k) { g_lighten = k < 0 ? 0 : k > 1 ? 1 : k; }
 void char_set_alpha(float k) { g_alpha = k < 0 ? 0 : k > 1 ? 1 : k; }
@@ -190,7 +195,18 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
                         int s, int rows, int lift) {
     int flip = facing == FACE_LEFT;
     float gdx[2] = { 0, 0 }, gdy[2] = { 0, 0 };                      /* the grip: each hand's offset (px) from its rest cell, 0 = the left hand on screen, 1 = the right */
-    if (g_grip && !g_aim) {
+    float sdx[2] = { 0, 0 }, sdy[2] = { 0, 0 }, kdx = 0, kdy = 0;   /* the stab pose: both hands on the knife's handle (offsets from their rest cells), and the knife's direction */
+    if (g_grip && g_stab && !g_aim) {
+        kdx = -sinf(g_stab_a); kdy = -cosf(g_stab_a);                  /* where the blade points: angle 0 = up, pi/2 = left (towards the neck from the right) */
+        float restx[2] = { ox + 0.5f * s, ox + (SPR_W - 0.5f) * s }, resty = oy + 9.5f * s;
+        float p1x = g_stab_x - kdx * 0.6f * s, p1y = g_stab_y - kdy * 0.6f * s;      /* the hand nearer the blade ... */
+        float p2x = g_stab_x - kdx * 1.7f * s, p2y = g_stab_y - kdy * 1.7f * s;      /* ... and the one behind it */
+        int first_left = p1x <= p2x;                                    /* the screen-left hand takes the left spot, so they never cross */
+        sdx[0] = (first_left ? p1x : p2x) - restx[0]; sdy[0] = (first_left ? p1y : p2y) - resty;
+        sdx[1] = (first_left ? p2x : p1x) - restx[1]; sdy[1] = (first_left ? p2y : p1y) - resty;
+    }
+    if (g_grip && g_stab && !g_aim) { gdx[0] = sdx[0]; gdy[0] = sdy[0]; gdx[1] = sdx[1]; gdy[1] = sdy[1]; }
+    else if (g_grip && !g_aim) {
         float hy = oy + 9.5f * s, chx = ox + SPR_W * 0.5f * s, hx[2] = { ox + 0.5f * s, ox + (SPR_W - 0.5f) * s };
         float vx = g_gx - chx, vy = g_gy - hy, len = sqrtf(vx * vx + vy * vy);
         if (len < 1.0f) { vx = 0; vy = 1; len = 1; }
@@ -229,6 +245,22 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             }
             fill(r, ox + dx * s, oy + dy * s, s, s);
         }
+
+    if (g_grip && g_stab && !g_aim) {                                    /* the knife (round the handle point), then both hands closed over it */
+        float ax = g_stab_x, ay = g_stab_y, st = 0.4f * s; int q = (int)(0.9f * s); if (q < 1) q = 1;
+        for (float d = -2.2f * s; d <= 0.0f; d += st) { setc(r, 92, 62, 40);  fill(r, (int)(ax + kdx * d) - q / 2, (int)(ay + kdy * d) - q / 2, q, q); }   /* the handle */
+        { float px_ = -kdy, py_ = kdx; for (float d = -0.6f * s; d <= 0.6f * s; d += st) { setc(r, 150, 150, 160); fill(r, (int)(ax + px_ * d) - q / 2, (int)(ay + py_ * d) - q / 2, q, q); } }   /* the guard */
+        float L = 6.0f * s;
+        for (float d = 0.2f * s; d <= L; d += st) {                       /* the blade, thinner towards the tip */
+            int w = d > L - 1.2f * s ? (q * 6) / 10 : q; if (w < 1) w = 1;
+            setc(r, d > L - 1.2f * s ? 235 : 205, d > L - 1.2f * s ? 238 : 210, d > L - 1.2f * s ? 245 : 222);
+            fill(r, (int)(ax + kdx * d) - w / 2, (int)(ay + kdy * d) - w / 2, w, w);
+        }
+        for (int h = 0; h < 2; h++) {                                     /* (the same blend the loop above used) */
+            float fx = g_hdx + (h == 0 ? 1 : -1) * 0.6f * g_hbr, fy = (h == 0 ? g_hdyl : g_hdyr) + g_hbr;
+            hand_fill(r, p->skin, ox + (h ? SPR_W - 1 : 0) * s, oy + 9 * s, s, fx + (gdx[h] - fx) * g_gk, fy + (gdy[h] - fy) * g_gk);
+        }
+    }
 
     /* big eyes: 2x3 dark blocks with a 1px highlight, rows 4-6 of the head */
     if (facing != FACE_UP && !g_headless) {

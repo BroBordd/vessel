@@ -102,6 +102,20 @@ static void (*pit_cb)(unsigned vessel);   /* story chunk 11: a dragged body went
 static float aoi_z = 1.0f, aoi_fx, aoi_fy;      /* view scale (1 = normal, down to AOI_MIN) and the world px point at the middle of the view */
 static SDL_Texture *atex; static SDL_Renderer *aren;
 
+/* THE FINAL ACTION (the self stab): once it starts nothing is ours any more: the controls and the HUD are hidden, the view zooms in on us, and a cutscene plays
+ * to its end, then fin_cb runs (the death). timeline in seconds, see final_update / the draw in draw_scene */
+#define FIN_ZOOM    1.9f            /* the view's zoom on us */
+#define FIN_ZIN     0.9f            /* zooming in */
+#define FIN_RAISE   1.4f            /* the hands go up to the neck's height with the knife ... */
+#define FIN_RAISE_T 0.9f            /* ... this long */
+#define FIN_EYES    2.5f            /* the eyes close */
+#define FIN_APP     3.0f            /* both hands bring the knife in, at the neck's height ... */
+#define FIN_APP_T   1.8f            /* ... this long (slow, then faster) */
+#define FIN_HIT     (FIN_APP + FIN_APP_T)
+#define FIN_END     (FIN_HIT + 1.1f)
+static int fin_on, fin_hit; static float fin_t; static void (*fin_cb)(void);
+static float fin_ss(float u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3.0f - 2.0f * u); }
+
 static const Person *player_look = &VESSEL;   /* who the player looks like (world_set_player) */
 static float blackout_t = -1, blackout_dur; /* world_fade_to_black: seconds so far (-1 = not fading) and the length */
 static void (*blackout_cb)(void);
@@ -591,6 +605,19 @@ void world_player_to_tile(float tx, float ty) {             /* the feet go there
 }
 int world_ritual_running(void) { return ritual_active(); }
 
+void world_final_stab(void (*done)(void)) {
+    if (fin_on) return;
+    fin_on = 1; fin_hit = 0; fin_t = 0; fin_cb = done;
+    world_set_controls_visible(0);                              /* the stick and the buttons go; nothing else may take us now */
+    mapwin_close(); drag_on = 0; moving = 0; walk = 0; facing = FACE_DOWN;   /* we stand still and face the front */
+}
+int world_final_active(void) { return fin_on; }
+static void final_update(float dt) {
+    fin_t += dt; kx = ky = 0; stick_on = 0; moving = 0; walk = 0; facing = FACE_DOWN;
+    if (!fin_hit && fin_t >= FIN_HIT) { fin_hit = 1; sfx_hit(); }
+    if (fin_t >= FIN_END) { void (*cb)(void) = fin_cb; fin_cb = NULL; fin_on = 0; if (cb) cb(); }
+}
+
 void world_set_controls_visible(int on) {
     controls_visible = on;
     if (!on) { stick_on = 0; kx = ky = 0; btn_down = 0; }
@@ -870,6 +897,7 @@ void world_update(float dt) {
     missions_update(dt);
     toast_update(dt);
     hud_update(dt);
+    if (fin_on) final_update(dt);
 
     if (drag_on && (dialog_active() || !controls_visible)) drag_on = 0;   /* he is let go of when anything takes our hands */
     if (dialog_active()) { kx = ky = 0; stick_on = 0; }                  /* frozen while talking */
@@ -934,8 +962,11 @@ void world_update(float dt) {
     camera_update(dt);
 
     {   /* the area of interest: near the pit the view pulls back to take in the far ledge too, and eases back when we go away */
-        float tz = 1.0f, tfx = cam_cx, tfy = cam_cy;
-        if (!gfx_is_gpu() && cur_map == MAP_TEMPLE && pit_x0 >= 0 && far_tx >= 0) {
+        float tz = 1.0f, tfx = cam_cx, tfy = cam_cy, arate = AOI_SPEED;
+        if (fin_on) {                                                         /* the final action: close on us, the middle of the view at the neck */
+            tz = 1.0f + (FIN_ZOOM - 1.0f) * fin_ss(fin_t / FIN_ZIN);
+            tfx = pxp; tfy = pyp - 5.5f * px; arate = 3.5f;
+        } else if (!gfx_is_gpu() && cur_map == MAP_TEMPLE && pit_x0 >= 0 && far_tx >= 0) {
             float k = (AOI_FAR - world_dist_to_pit()) / (AOI_FAR - AOI_NEAR);
             k = k < 0 ? 0 : k > 1 ? 1 : k; k = k * k * (3.0f - 2.0f * k);
             float fpx = (far_tx + 0.5f) * tile, fpy = (far_ty + 0.5f) * tile;
@@ -946,10 +977,10 @@ void world_update(float dt) {
             tfx = cam_cx + ((pxp + fpx) * 0.5f - cam_cx) * k;                 /* the view's middle slides from where the camera is to between us and the ledge */
             tfy = cam_cy + ((pyp + fpy) * 0.5f - cam_cy) * k;
         }
-        if (aoi_z >= 0.999f) { aoi_fx = cam_cx; aoi_fy = cam_cy; }            /* not pulled back: the middle is just the camera's, so the pull starts without a jump */
-        float ea = 1.0f - expf(-AOI_SPEED * dt);
+        if (fabsf(aoi_z - 1.0f) < 0.001f) { aoi_fx = cam_cx; aoi_fy = cam_cy; }   /* not pulled back or in: the middle is just the camera's, so a pull starts without a jump */
+        float ea = 1.0f - expf(-arate * dt);
         aoi_z += (tz - aoi_z) * ea; aoi_fx += (tfx - aoi_fx) * ea; aoi_fy += (tfy - aoi_fy) * ea;
-        if (tz >= 1.0f && aoi_z > 0.998f) aoi_z = 1.0f;
+        if (tz >= 1.0f && aoi_z > 0.998f && aoi_z < 1.002f) aoi_z = 1.0f;
     }
 }
 
@@ -1082,9 +1113,30 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         }
         if (strain_t > 0) char_set_strain(1);                      /* pulling is hard: the eyes shut */
         if (pick_on && !pick_taken && !pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
-        { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
+        int stab_pose = fin_on && fin_t >= FIN_RAISE;
+        if (stab_pose) {                                            /* the self stab: both hands hold the knife at the neck's height, the blade towards the neck (from the right) */
+            float bx0 = (float)sx0 - 5.0f * px, by0 = (float)sy0 - 12.0f * px;        /* the sprite's top-left */
+            float chx = bx0 + 5.0f * px, ny = by0 + 8.0f * px;                         /* the body's middle, and the neck's height */
+            float re = fin_ss((fin_t - FIN_RAISE) / FIN_RAISE_T);                      /* the raise: the hands go from the floating hands to the grip, the blade turns from up to sideways */
+            float a = (fin_t - FIN_APP) / FIN_APP_T; a = a < 0 ? 0 : a > 1 ? 1 : a; a = a * a;                 /* then the approach: slow, then faster */
+            float g0 = chx + 11.0f * px, g1 = chx + 6.5f * px;                         /* the handle's x: held out, and with the tip in the neck */
+            float gx = g0 + (g1 - g0) * a, gy = (by0 + 9.5f * px + (ny - (by0 + 9.5f * px)) * re);
+            float rx = bx0 + 9.5f * px;                                                /* the raise starts at the right hand's rest */
+            if (re < 1.0f) gx = rx + (g0 - rx) * re;
+            char_set_stab(1, re, re * 1.5707963f, gx, gy);
+        } else { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
+        if (fin_on && fin_t >= FIN_EYES) char_set_strain(1);        /* the eyes close */
         char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
+        char_set_stab(0, 0, 0, 0, 0);
         char_set_held(-1, NULL);
+        if (fin_on && fin_hit) {                                    /* the knife is in: blood runs down from the neck */
+            float age = fin_t - FIN_HIT, bx = (float)sx0 + 0.5f * px, by = (float)sy0 - 12.0f * px + 8.5f * px;
+            col(r, 150, 16, 28, 255);
+            for (int i = 0; i < 5; i++) {
+                float len = age * (3.0f + 0.9f * i) * px; float mx = (2.2f + 0.5f * i) * px; if (len > mx) len = mx;
+                fill(r, (int)(bx + (i - 2) * 0.6f * px), (int)by, (int)(0.45f * px) + 1, (int)len);
+            }
+        }
         if (pick_on && !pick_taken && pk_late) item_draw_pulled(r, cx, cy, t, pk_bx, pk_by, pk_pe);
         char_set_grip(0, 0, 0); char_set_strain(0);
     }
@@ -1095,17 +1147,20 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
 void world_draw(SDL_Renderer *r) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
 
-    if (aoi_z < 0.995f && !gfx_is_gpu()) {
+    if ((aoi_z < 0.995f && !gfx_is_gpu()) || aoi_z > 1.005f) {          /* (zooming IN works on the GPU path too: a smaller part of the zoom texture is copied up) */
         int Wv = (int)(W / aoi_z + 0.5f), Hv = (int)(H / aoi_z + 0.5f);          /* the view in world px: bigger than the screen */
         if (aren != r || !atex) {
             if (atex) SDL_DestroyTexture(atex);
             atex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, (int)(W / AOI_MIN) + 2, (int)(H / AOI_MIN) + 2); aren = r;
 #if SDL_VERSION_ATLEAST(2, 0, 12)
-            if (atex) SDL_SetTextureScaleMode(atex, SDL_ScaleModeLinear);        /* shrunk by a changing factor: linear keeps the pixel art from shimmering */
+            if (atex && !gfx_is_gpu()) SDL_SetTextureScaleMode(atex, SDL_ScaleModeLinear);   /* shrunk by a changing factor: linear keeps the pixel art from shimmering */
 #endif
         }
         if (atex) {
             float ccx = cam_axis(aoi_fx - Wv / 2.0f, mw * tile, Wv), ccy = cam_axis(aoi_fy - Hv / 2.0f, mh * tile, Hv);
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+            if (!gfx_is_gpu()) SDL_SetTextureScaleMode(atex, aoi_z > 1.0f ? SDL_ScaleModeNearest : SDL_ScaleModeLinear);   /* zoomed in: crisp pixels, not blur */
+#endif
             int sw = W, sh = H;
             W = Wv; H = Hv;                                                      /* the scene is laid out for the bigger view ... */
             SDL_SetRenderTarget(r, atex);
@@ -1138,9 +1193,11 @@ void world_draw(SDL_Renderer *r) {
         int o1 = nowplaying_offset(), o2 = thought_offset();
         missions_set_offset(o1 > o2 ? o1 : o2);
     }
-    missions_draw(r);
-    toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
-    hud_draw(r);                                                  /* ID card, top-right */
+    if (!fin_on) {                                                /* (the final action hides all of it) */
+        missions_draw(r);
+        toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
+        hud_draw(r);                                              /* ID card, top-right */
+    }
     if (controls_visible) item_ui_draw_window(r);                 /* story chunk 16: the inventory window, over the HUD */
 
     if (t < FADE_IN_T) {                                          /* fade in from black */

@@ -351,8 +351,8 @@ int main(int argc, char **argv) {
             want_load = 0;
             state = ST_MENU;
         }
-        pausebtn_set_enabled(state == ST_WORLD);
-        thought_set_enabled(state == ST_WORLD);
+        pausebtn_set_enabled(state == ST_WORLD && !world_final_active());      /* the final action (the self stab) hides the top buttons too */
+        thought_set_enabled(state == ST_WORLD && !world_final_active());
         pausebtn_update(dt); pausebtn_draw_overlay(r);   /* paused: dim the world, under the buttons */
         nowplaying_set_wide(state == ST_WORLD);          /* the task panels only exist in the world: before that the card ends at the equalizer */
         nowplaying_update(dt); nowplaying_draw(r);       /* the top buttons, on top of every screen */
