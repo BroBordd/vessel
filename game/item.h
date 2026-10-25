@@ -94,7 +94,11 @@ void  item_ui_resize(int w, int h, int right_edge, int top, int width);   /* the
 void  item_ui_init(int w, int h, int right_edge, int top, int width);
 int   item_ui_touch(int action, int x, int y);          /* Android MotionEvent action. 1 = this touch is the inventory's (do not pass it on) */
 void  item_ui_draw(SDL_Renderer *r, float t);
-int   item_ui_open(void);                               /* (tests) the panel is open (asked open: it may still be easing out) */
+int   item_ui_open(void);                               /* the inventory window is open (the world is paused meanwhile: world.c) */
+void  item_ui_close(void);                              /* story chunk 16: close the window (the back button, a new life) */
+void  item_ui_draw_window(SDL_Renderer *r);             /* story chunk 16: the window itself, drawn over the HUD (the two small buttons are item_ui_draw) */
+int   item_equipped(void);                              /* story chunk 16: the kind set as the one in hand, -1 when none */
+void  item_equip(int kind);                             /* ... set it (-1 or a kind that is not owned: nothing in hand) */
 int   item_ui_hit(int x, int y);                        /* (tests) is (x, y) on the bag / the panel */
 float item_ui_progress(void);                           /* (tests) how far the panel is out: 0 closed .. 1 fully out (it eases both ways) */
 int   item_ui_selected(void);                           /* (tests) the kind whose name shows under the grid (-1 none) */

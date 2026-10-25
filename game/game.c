@@ -23,6 +23,7 @@
 #include "pausebtn.h"
 #include "brainwin.h"
 #include "mapwin.h"
+#include "item.h"
 #include "lang.h"
 #include "screen.h"
 #include "loading.h"
@@ -45,14 +46,14 @@ static void quit_app(void) {
 /* the Android back button (the app sends "k 4"). it never leaves the game: it closes the foreground-most window (the one that opened last, in
  * case several are stacked), else pauses / resumes the world. when there is nothing for it to do (the menu, limbo) it says so and the app
  * sends itself to the background instead. */
-enum { WIN_MAP, WIN_MUSIC, WIN_BRAIN, WIN_N };
+enum { WIN_MAP, WIN_MUSIC, WIN_BRAIN, WIN_ITEM, WIN_N };
 static int win_order[WIN_N], win_n;                         /* the open windows, oldest first: the last one is in front */
 
 static int win_active(int w) {
-    return w == WIN_MAP ? mapwin_active() : w == WIN_MUSIC ? musicwin_active() : brainwin_active();
+    return w == WIN_MAP ? mapwin_active() : w == WIN_MUSIC ? musicwin_active() : w == WIN_ITEM ? item_ui_open() : brainwin_active();
 }
 static void win_close(int w) {
-    if (w == WIN_MAP) mapwin_close(); else if (w == WIN_MUSIC) musicwin_close(); else brainwin_close();
+    if (w == WIN_MAP) mapwin_close(); else if (w == WIN_MUSIC) musicwin_close(); else if (w == WIN_ITEM) item_ui_close(); else brainwin_close();
 }
 /* called every frame: windows that just opened go on top of the stack, windows that are gone leave it */
 static void win_track(void) {

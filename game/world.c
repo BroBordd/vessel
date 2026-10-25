@@ -1581,6 +1581,7 @@ void world_touch_p(int pid, int a, int x, int y) {
     }
     if (!controls_visible || phase != PH_PLAY || door_t >= 0) return;
     if (pid == 0 && item_ui_touch(a, x, y)) return;                 /* the inventory under the minimap: tap to unfold / fold */
+    if (item_ui_open() && a == 0) return;                          /* chunk 16: the window is modal: no other finger starts a control */
     if (a == 0 && !mm_down && minimap_hit(x, y)) { mm_down = 1; mm_pid = pid; return; }          /* the minimap: tap it for the map window */
     if (mm_down && pid == mm_pid) {
         if (a == 1) { mm_down = 0; if (minimap_hit(x, y)) { stick_on = 0; kx = ky = 0; btn_down = btn_inside = 0; mapwin_open(); } }
@@ -1755,6 +1756,7 @@ static void rock_place(void) {                                  /* the big rock 
 }
 
 void world_update(float dt) {
+    if (item_ui_open()) return;                               /* story chunk 16: the inventory window is open: the world waits, as when paused */
     dragged_now = 0;
     if (mapwin_active() && (dialog_active() || !controls_visible || phase != PH_PLAY)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     if (death_msg[0]) death_msg_t += dt;
@@ -2591,6 +2593,7 @@ void world_draw(SDL_Renderer *r) {
     missions_draw(r);
     toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
     hud_draw(r);                                                  /* ID card, top-right */
+    if (controls_visible && phase == PH_PLAY) item_ui_draw_window(r);   /* story chunk 16: the inventory window, over the HUD */
 
     if (t < FADE_IN_T) {                                          /* fade in from black */
         col(r, 0, 0, 0, (int)(255 * (1.0f - t / FADE_IN_T)));

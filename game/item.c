@@ -294,6 +294,7 @@ static float fly_t = 99.0f; static int fly_kind, fly_x, fly_y;      /* chunk 70:
 static int   ui_open, ui_down;              /* the panel is asked open / which part of the inventory the finger went down on (1 bag, 2 panel) */
 static float ui_p, ui_idle;                 /* how far the panel is out (0..1), seconds since the last touch on it */
 static int   ui_sel = -1;                   /* the slot whose name shows */
+static int   held = -1;                     /* story chunk 16: the kind set as the one in hand */
 #define DROP_BOUNCE_T 0.2f
 #define DROP_HEIGHT   14                    /* units it falls from */
 
@@ -324,16 +325,12 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; }
+void item_clear(void) { memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; held = -1; }
 
 static int owned(void);
 void item_update(float dt) {
     if (new_t < 99.0f) new_t += dt;
     if (fly_t < INV_FLY_T) fly_t += dt;
-    if (owned() == 0) { ui_open = ui_down = 0; ui_p = 0; }
-    if (ui_open) { ui_idle += dt; if (ui_idle >= INV_IDLE_T) ui_open = 0; }        /* chunk 70: it never stays open by itself */
-    if (ui_open && ui_p < 1.0f) { ui_p += dt / INV_EASE_T; if (ui_p > 1.0f) ui_p = 1.0f; }
-    if (!ui_open && ui_p > 0.0f) { ui_p -= dt / INV_EASE_T; if (ui_p < 0.0f) ui_p = 0.0f; }
     for (int i = 0; i < ng; i++) {                              /* chunk 32: a dropped item falls first, and thunks when it lands */
         if (gnd[i].drop_t >= 99.0f) continue;
         float before = gnd[i].drop_t; gnd[i].drop_t += dt;
@@ -478,25 +475,29 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
     }
 }
 
-/* ---------- the inventory widget (chunk 70) ----------
- * closed: one small bag button under the minimap (nothing at all while the pockets are empty) with a badge that counts what is in them.
- * a tap on it, and the panel eases out under it (INV_EASE_T): framed square slots, the newest in gold, the name of the slot you touched last under the grid.
- * it folds back by itself after INV_IDLE_T without a touch, on a tap outside it, or on a tap on the bag. a new pick-up flies from the ground to the bag, then the
- * badge ticks and the slot flashes. pixel art only: square cells, no blend modes other than plain alpha. */
-#define INV_COLS 3
-static int W, H, ux, uy, uw, bt, bag, icell, pad, psl, pcell, qs;
+/* ---------- the inventory (story chunk 16) ----------
+ * closed: two small buttons under the minimap, always there. the left one is a PREVIEW of the one thing in hand (its 12 x 12 icon in a frame, an empty frame
+ * when nothing is in hand; a medium thing carried in the hands shows there too), the right one is the BAG: a tap on either opens the inventory window.
+ * open: a real panel over the game (the world is paused, world.c): a grid of slots, the picture, name, description and buttons of the selected item, the craft
+ * pair while COMBINE waits for its second item, and IN HAND to set the selected item as the one in hand. X, or a tap outside, or the back button closes it.
+ * a tap on an action button closes it and calls the action callback (the story decides what happens), as it did with the old folding panel. */
+#define INV_COLS 4
+#define DESC_LINES 7
+static int W, H, ux, uy, uw, bt, bag, icell, pad, qs;       /* the two buttons under the minimap */
+static float uu = 1.0f;                                    /* one unit: a 360th of the short side of the screen */
+static int wx, wy, ww, wh, tb, cbx, cby;                    /* the window, the title bar height, the close button */
+static int gx, gy, gw, gh, rowsn, sl, pcell;                /* the slot grid: its area, rows, slot size, icon cell */
+static int dx, dy, dw, dh;                                  /* the detail area (the selected item) */
 
 void item_ui_resize(int w, int h, int right_edge, int top, int width) {
     W = w; H = h;
-    float u = (w < h ? w : h) / 360.0f;
+    float u = (w < h ? w : h) / 360.0f; uu = u;
     bt = (int)(1.5f * u); if (bt < 1) bt = 1;
     pad = (int)(4 * u); if (pad < 2) pad = 2;
-    qs = (int)(2 * u); if (qs < 1) qs = 1;                                                  /* one step of the little ornaments */
+    qs = (int)(2 * u); if (qs < 1) qs = 1;                  /* one step of the little ornaments */
     uw = width; ux = right_edge - width; uy = top;
     bag = width / 3; if (bag < 24) bag = 24;
     icell = (bag - 2 * bt - 2 * pad) / ITEM_ICON_CELLS; if (icell < 1) icell = 1;
-    psl = (uw - 2 * bt - (INV_COLS + 1) * pad) / INV_COLS; if (psl < 24) psl = 24;
-    pcell = (psl - 2 * bt - pad) / ITEM_ICON_CELLS; if (pcell < 1) pcell = 1;
 }
 
 void item_ui_init(int w, int h, int right_edge, int top, int width) {
@@ -511,11 +512,6 @@ static int fcell(const char *name, int room) {              /* the biggest lette
     while (c > 1 && font_width(name, c) > room) c--;
     return c;
 }
-static int slots_n(void) { int n = owned(); int rows = (n + INV_COLS - 1) / INV_COLS; if (rows < 1) rows = 1; return rows * INV_COLS; }
-static int label_h(void) { return 2 * qs + font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + pad; }
-/* story chunk 8: under the name, the description of the selected item (a few short lines) and one button per action */
-#define DESC_LINES 7
-static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel] > 0; }
 static int dcell(void) { int c = (int)((W < H ? W : H) / 360.0f); if (c < 1) c = 1; if (c > 2) c = 2; return c; }
 static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) {      /* greedy word wrap; returns the number of lines */
     int n = 0; out[0][0] = 0; char word[64]; const char *p = text;
@@ -530,92 +526,146 @@ static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) 
     }
     return out[0][0] ? n + 1 : 0;
 }
-static int d_pitch(void) { return font_height(dcell()) + qs; }
-static int act_h(void) { return font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + 2 * pad; }
-static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() && craft_a < 0 ? wrap(item_desc(ui_sel), dcell(), uw - 2 * bt - 2 * pad, ln) : 0; }
-static int act_n(int out[4]) { return sel_ok() && craft_a < 0 ? item_actions(ui_sel, out) : 0; }
-static int extra_h(void) { int a[4], nl = desc_n(), na = act_n(a); return (nl ? nl * d_pitch() + pad : 0) + na * (act_h() + pad); }
-static int panel_full_h(void) { int rows = slots_n() / INV_COLS; return 2 * bt + pad + rows * psl + (rows - 1) * pad + pad + label_h() + extra_h(); }
-static int grid_bottom(void) { int rows = slots_n() / INV_COLS; return uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad; }
-static void act_rect(int i, int *x, int *y, int *w, int *h) {
-    int nl = desc_n();
-    *x = ux + bt + pad; *w = uw - 2 * bt - 2 * pad; *h = act_h();
-    *y = grid_bottom() + label_h() + (nl ? nl * d_pitch() + pad : 0) + i * (*h + pad);
-}
-static int panel_h(void) {                                  /* how tall it is right now: eased out, in whole steps of `pad` */
-    float k = 1.0f - ui_p, e = 1.0f - k * k * k; int full = panel_full_h();
-    if (ui_p >= 1.0f) return full;
-    int h = (int)(full * e) / pad * pad; return h > full ? full : h;
-}
-static void bag_rect(int *x, int *y, int *w, int *h) { *x = ux + uw - bag; *y = uy; *w = bag; *h = bag; }
-static void panel_rect(int *x, int *y, int *w, int *h) { *x = ux; *y = uy + bag + pad; *w = uw; *h = panel_h(); }
-static int in_rect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && y >= ry && x < rx + rw && y < ry + rh; }
-static int hit_bag(int x, int y) { int a, b, c, d; bag_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d); }
-static int hit_panel(int x, int y) { if (ui_p <= 0.0f) return 0; int a, b, c, d; panel_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d); }
-static int slot_x(int i) { return ux + bt + pad + (i % INV_COLS) * (psl + pad); }
-static int slot_y(int i) { return uy + bag + pad + bt + pad + (i / INV_COLS) * (psl + pad); }
+static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel] > 0; }
 static int kind_at_slot(int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0) { if (n == i) return k; n++; } return -1; }
 static int slot_of_kind(int kind) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0) { if (k == kind) return n; n++; } return -1; }
+static int in_rect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && y >= ry && x < rx + rw && y < ry + rh; }
 
-int item_ui_hit(int x, int y) { return owned() > 0 && (hit_bag(x, y) || hit_panel(x, y)); }
-int item_ui_open(void) { return ui_open && owned() > 0; }
-float item_ui_progress(void) { return ui_p; }
+/* the thing in hand: a medium thing carried in the hands first, else the one set as in hand (item_equip) */
+int item_equipped(void) { return held >= 0 && held < ITEM_COUNT && have[held] > 0 ? held : -1; }
+void item_equip(int kind) { held = kind >= 0 && kind < ITEM_COUNT && have[kind] > 0 ? kind : -1; }
+static int hand_kind(void) {
+    for (int k = 0; k < ITEM_COUNT; k++) if (have[k] > 0 && item_size(k) == SIZE_MEDIUM) return k;
+    return item_equipped();
+}
+
+/* where everything is: worked out from the screen, the pockets and the selection every time it is needed (cheap) */
+static void win_layout(void) {
+    int m = (int)(6 * uu); if (m < 4) m = 4;
+    int top = (int)(48 * uu); if (top < 24) top = 24;           /* clear of the top buttons */
+    wx = m; wy = top; ww = W - 2 * m; wh = H - top - m; if (wh < 60) wh = 60;
+    int in = bt + pad;
+    tb = font_height(fcell("INVENTORY", ww / 2)) + 2 * pad;
+    cbx = wx + ww - in - tb; cby = wy + in;
+    int ix = wx + in, iy = wy + in + tb + pad, iw = ww - 2 * in, ih = wy + wh - in - iy;
+    int wide = ww > wh * 13 / 10;                               /* a wide, short screen: the grid left, the item right */
+    int n = owned();
+    rowsn = (n + INV_COLS - 1) / INV_COLS; if (rowsn < 3) rowsn = 3;
+    gx = ix; gy = iy;
+    if (wide) { gw = iw * 45 / 100; gh = ih; dx = ix + gw + pad; dy = iy; dw = iw - gw - pad; dh = ih; }
+    else      { gw = iw; gh = ih * 42 / 100; dx = ix; dy = iy + gh + pad; dw = iw; dh = ih - gh - pad; }
+    sl = (gw - (INV_COLS + 1) * pad) / INV_COLS;
+    int sh = (gh - (rowsn + 1) * pad) / rowsn; if (sh < sl) sl = sh;
+    if (sl < 14) sl = 14;
+    pcell = (sl - 2 * bt - pad) / ITEM_ICON_CELLS; if (pcell < 1) pcell = 1;
+}
+static int grid_off(void) { int used = INV_COLS * sl + (INV_COLS + 1) * pad, o = (gw - used) / 2; return o > 0 ? o : 0; }
+static int slot_x(int i) { return gx + grid_off() + pad + (i % INV_COLS) * (sl + pad); }
+static int slot_y(int i) { return gy + pad + (i / INV_COLS) * (sl + pad); }
+static int grid_h(void) { int h = rowsn * (sl + pad) + pad; return h; }
+
+static int bigc(void) {                                         /* the cell size of the big picture */
+    int c = (int)(3 * uu); if (c < 2) c = 2;
+    while (c > 1 && (ITEM_ICON_CELLS * c + 2 * bt + 2 * pad > dh / 3 || ITEM_ICON_CELLS * c + 2 * bt + 2 * pad > dw / 3)) c--;
+    return c;
+}
+static int bigsz(void) { return ITEM_ICON_CELLS * bigc() + 2 * bt + 2 * pad; }
+static int btn_cell(void) { return fcell("MMMMMMMM", dw - 2 * pad); }
+static int act_h(void) { return font_height(btn_cell()) + 2 * pad; }
+static int d_pitch(void) { return font_height(dcell()) + qs; }
+static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() && craft_a < 0 ? wrap(item_desc(ui_sel), dcell(), dw, ln) : 0; }
+static int act_n(int out[4]) { return sel_ok() && craft_a < 0 ? item_actions(ui_sel, out) : 0; }
+static int desc_top(void) { return dy + bigsz() + pad; }
+static int btn_top(void) {
+    if (craft_a >= 0) return desc_top() + font_height(btn_cell()) + pad;      /* under the hint WITH WHAT? */
+    int nl = desc_n(); return desc_top() + (nl ? nl * d_pitch() + pad : 0);
+}
+static void btn_rect(int i, int *x, int *y, int *w, int *h) { *x = dx; *w = dw; *h = act_h(); *y = btn_top() + i * (*h + pad); }
+static const char *equip_label(void) { return item_equipped() == ui_sel ? "PUT AWAY" : "IN HAND"; }
+
+/* the two small buttons */
+static void bag_rect(int *x, int *y, int *w, int *h) { *x = ux + uw - bag; *y = uy; *w = bag; *h = bag; }
+static void prev_rect(int *x, int *y, int *w, int *h) { *x = ux + uw - 2 * bag - pad; *y = uy; *w = bag; *h = bag; }
+static int hit_btn(int x, int y) {
+    int a, b, c, d; bag_rect(&a, &b, &c, &d); if (in_rect(x, y, a, b, c, d)) return 1;
+    prev_rect(&a, &b, &c, &d); return in_rect(x, y, a, b, c, d);
+}
+
+int item_ui_hit(int x, int y) { return ui_open || hit_btn(x, y); }
+int item_ui_open(void) { return ui_open; }
+float item_ui_progress(void) { return ui_open ? 1.0f : 0.0f; }
 int item_ui_selected(void) { return ui_sel; }
 int item_ui_flying(void) { return fly_t < INV_FLY_T; }
 int item_ui_shown(void) { return shown(); }
-int item_ui_slot_x(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_x(i) + psl / 2; }
-int item_ui_slot_y(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_y(i) + psl / 2; }
-int item_ui_action_x(int i) { int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return x + w / 2; }
-int item_ui_action_y(int i) { int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return y + h / 2; }
+int item_ui_slot_x(int kind) { int i = slot_of_kind(kind); if (i < 0) return -1; win_layout(); return slot_x(i) + sl / 2; }
+int item_ui_slot_y(int kind) { int i = slot_of_kind(kind); if (i < 0) return -1; win_layout(); return slot_y(i) + sl / 2; }
+int item_ui_action_x(int i) { win_layout(); int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; btn_rect(i, &x, &y, &w, &h); return x + w / 2; }
+int item_ui_action_y(int i) { win_layout(); int a[4], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; btn_rect(i, &x, &y, &w, &h); return y + h / 2; }
 int item_ui_bag_x(void) { return ux + uw - bag / 2; }
 int item_ui_bag_y(void) { return uy + bag / 2; }
 
 static void set_open(int o) {
-    if (o && !ui_open) { ui_idle = 0; ui_sel = newest >= 0 && have[newest] > 0 ? newest : kind_at_slot(0); }
+    if (o && !ui_open) {
+        int k = item_equipped();
+        ui_sel = k >= 0 ? k : (newest >= 0 && have[newest] > 0 ? newest : kind_at_slot(0));
+        craft_a = -1;
+    }
     if (!o) craft_a = -1;
-    ui_open = o;
+    ui_open = o; ui_p = o ? 1.0f : 0.0f; ui_idle = 0;
 }
-int item_ui_touch(int a, int x, int y) {
-    if (owned() == 0) { ui_open = ui_down = 0; ui_p = 0; return 0; }
-    if (a == 0) {
-        if (hit_bag(x, y)) { ui_down = 1; return 1; }
-        if (ui_open && hit_panel(x, y)) { ui_down = 2; ui_idle = 0; return 1; }
-        if (ui_open) set_open(0);                            /* a tap outside folds it (and goes on to whatever is there) */
-        return 0;
-    }
-    if (!ui_down) return 0;
-    if (a == 1) {
-        if (ui_down == 1 && hit_bag(x, y)) set_open(!ui_open);
-        else if (ui_down == 2 && hit_panel(x, y)) {
-            ui_idle = 0;
-            int acts[4], na = ui_p >= 1.0f ? act_n(acts) : 0;
-            for (int i = 0; i < na; i++) {                   /* story chunk 8: an action button: fold the panel, then the story decides what happens */
-                int rx, ry, rw, rh; act_rect(i, &rx, &ry, &rw, &rh);
-                if (in_rect(x, y, rx, ry, rw, rh)) {
-                    int k = ui_sel; ui_down = 0;
-                    if (acts[i] == ACT_COMBINE) { craft_a = k; ui_idle = 0; return 1; }       /* chunk 10: now touch the second slot */
-                    ui_open = 0; if (action_cb) action_cb(k, acts[i]); return 1;
-                }
-            }
-            for (int i = 0; i < slots_n(); i++) {
-                int sx = slot_x(i), sy = slot_y(i);
-                if (in_rect(x, y, sx - pad / 2, sy - pad / 2, psl + pad, psl + pad) && kind_at_slot(i) >= 0) {
-                    int kk = kind_at_slot(i);
-                    if (craft_a >= 0) { int a0 = craft_a; craft_a = -1; ui_open = 0; if (craft_cb) craft_cb(a0, kk); }     /* chunk 10: the second half of a craft */
-                    else ui_sel = kk;
-                }
-            }
+void item_ui_close(void) { set_open(0); ui_down = 0; }
+
+static void win_tap(int x, int y) {                              /* a tap that began and ended in the window */
+    if (in_rect(x, y, cbx, cby, tb, tb)) { set_open(0); return; }
+    int acts[4], na = act_n(acts);
+    int nb = craft_a >= 0 ? 1 : (sel_ok() ? na + 1 : 0);
+    for (int i = 0; i < nb; i++) {
+        int rx, ry, rw, rh; btn_rect(i, &rx, &ry, &rw, &rh);
+        if (!in_rect(x, y, rx, ry, rw, rh)) continue;
+        if (craft_a >= 0) { craft_a = -1; return; }              /* CANCEL */
+        if (i < na) {
+            int k = ui_sel;
+            if (acts[i] == ACT_COMBINE) { craft_a = k; return; }   /* chunk 10: now touch the second slot */
+            set_open(0); if (action_cb) action_cb(k, acts[i]); return;
         }
-        ui_down = 0; return 1;
+        held = item_equipped() == ui_sel ? -1 : ui_sel; sfx_blip(0.5f); return;        /* IN HAND / PUT AWAY */
     }
-    if (a == 3) ui_down = 0;                                 /* cancelled */
-    return 1;                                                /* a drag that began on the inventory stays its own */
+    for (int i = 0; i < rowsn * INV_COLS; i++) {
+        int sx = slot_x(i), sy = slot_y(i), kk = kind_at_slot(i);
+        if (kk < 0 || !in_rect(x, y, sx - pad / 2, sy - pad / 2, sl + pad, sl + pad)) continue;
+        if (craft_a >= 0) { int a0 = craft_a; craft_a = -1; set_open(0); if (craft_cb) craft_cb(a0, kk); }     /* the second half of a craft */
+        else ui_sel = kk;
+        return;
+    }
+}
+
+int item_ui_touch(int a, int x, int y) {
+    if (ui_open) {                                               /* the window takes every touch */
+        win_layout();
+        if (a == 0) { ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; return 1; }
+        if (a == 1) {
+            int d = ui_down; ui_down = 0;
+            if (d == 3 && !in_rect(x, y, wx, wy, ww, wh)) set_open(0);       /* a tap outside closes it */
+            else if (d == 2 && in_rect(x, y, wx, wy, ww, wh)) win_tap(x, y);
+            return 1;
+        }
+        if (a == 3) ui_down = 0;
+        return 1;
+    }
+    if (a == 0) { if (hit_btn(x, y)) { ui_down = 1; return 1; } return 0; }
+    if (!ui_down) return 0;
+    if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) set_open(1); return 1; }
+    if (a == 3) ui_down = 0;
+    return 1;                                                    /* a drag that began on a button stays its own */
 }
 
 static void box(SDL_Renderer *r, int x, int y, int w, int h, int br, int bg, int bb, int fr, int fg, int fb, int fa) {
     SDL_Rect o = { x, y, w, h }, in = { x + bt, y + bt, w - 2 * bt, h - 2 * bt };
     SDL_SetRenderDrawColor(r, br, bg, bb, 255); SDL_RenderFillRect(r, &o);
     SDL_SetRenderDrawColor(r, fr, fg, fb, fa); SDL_RenderFillRect(r, &in);
+}
+static void txt(SDL_Renderer *r, const char *s, int x, int y, int c, int R, int G, int B) {
+    SDL_SetRenderDrawColor(r, R, G, B, 255); font_draw(r, s, x, y, c);
 }
 static void draw_flying(SDL_Renderer *r) {
     float k = fly_t / INV_FLY_T; if (k > 1.0f) k = 1.0f;
@@ -635,73 +685,26 @@ static void draw_flying(SDL_Renderer *r) {
     }
 }
 
+/* the two buttons under the minimap */
 void item_ui_draw(SDL_Renderer *r, float t) {
-    int n = owned();
-    if (n == 0) return;
     (void)t;
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    int flash = new_t >= 0.0f && new_t < 1.5f;
-    int blink = flash && ((int)(new_t * 8.0f) & 1) == 0;
-
-    /* the panel first (it comes out from under the bag) */
-    if (ui_p > 0.0f) {
-        int px_, py_, pw_, ph_; panel_rect(&px_, &py_, &pw_, &ph_);
-        int full = panel_full_h(), rows = slots_n() / INV_COLS;
-        SDL_Rect clip = { px_, py_, pw_, ph_ };
-        SDL_RenderSetClipRect(r, &clip);
-        box(r, px_, py_, pw_, full, 214, 170, 70, 6, 8, 20, 245);
-        for (int i = 0; i < slots_n(); i++) {
-            int sx = slot_x(i), sy = slot_y(i), k = kind_at_slot(i);
-            if (k < 0) { box(r, sx, sy, psl, psl, 40, 46, 70, 10, 12, 26, 255); continue; }        /* an empty slot */
-            int gold = k == newest, br = 122, bg = 130, bb = 156;
-            if (gold) { br = 236; bg = 190; bb = 78; if (blink) { br = 255; bg = 250; bb = 220; } }
-            else if (k == ui_sel) { br = 206; bg = 214; bb = 232; }
-            if (k == craft_a) { br = 255; bg = 130; bb = 150; }
-            box(r, sx, sy, psl, psl, br, bg, bb, 20, 24, 46, 255);
-            if (gold && flash) { SDL_SetRenderDrawColor(r, 255, 238, 170, blink ? 70 : 0); SDL_Rect in = { sx + bt, sy + bt, psl - 2 * bt, psl - 2 * bt }; SDL_RenderFillRect(r, &in); }
-            item_draw_icon(r, k, sx + (psl - ITEM_ICON_CELLS * pcell) / 2, sy + (psl - ITEM_ICON_CELLS * pcell) / 2, pcell);
-            if (have[k] > 1) {                                   /* chunk 9: more than one of a kind: the number in the corner */
-                char num[8]; snprintf(num, sizeof num, "%d", have[k]); int cc = dcell();
-                SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
-                font_draw(r, num, sx + psl - bt - font_width(num, cc) - qs, sy + psl - bt - font_height(cc) - qs, cc);
-            }
-        }
-        if (ui_sel >= 0 && have[ui_sel] > 0) {                    /* the name under the slot you touched: a little pointer, then the word */
-            int i = slot_of_kind(ui_sel), cx = slot_x(i) + psl / 2;
-            int gy = uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad;           /* the bottom of the grid */
-            SDL_SetRenderDrawColor(r, 236, 190, 78, 255);
-            SDL_Rect a0 = { cx - 2 * qs, gy + pad / 2, 4 * qs, qs }, a1 = { cx - qs, gy + pad / 2 + qs, 2 * qs, qs };
-            SDL_RenderFillRect(r, &a0); SDL_RenderFillRect(r, &a1);
-            const char *nm = craft_a >= 0 ? "WITH WHAT?" : item_name(ui_sel); int fc = fcell(nm, pw_ - 2 * bt - 2 * pad), tw = font_width(nm, fc);
-            int x0 = cx - tw / 2, lo = px_ + bt + pad, hi = px_ + pw_ - bt - pad - tw; if (x0 > hi) x0 = hi; if (x0 < lo) x0 = lo;
-            SDL_SetRenderDrawColor(r, 235, 240, 255, 255);
-            font_draw(r, nm, x0, gy + pad / 2 + 2 * qs + qs / 2, fc);
-            char ln[DESC_LINES][64]; int dc = dcell(), nl = wrap(item_desc(ui_sel), dc, pw_ - 2 * bt - 2 * pad, ln);      /* story chunk 8: what it is ... */
-            SDL_SetRenderDrawColor(r, 178, 190, 222, 255);
-            for (int j = 0; j < nl; j++) font_draw(r, ln[j], px_ + bt + pad, grid_bottom() + label_h() + j * d_pitch(), dc);
-            int acts[4], na = act_n(acts);                        /* ... and what it can do: one button each */
-            for (int j = 0; j < na; j++) {
-                int rx, ry, rw, rh; act_rect(j, &rx, &ry, &rw, &rh);
-                box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
-                const char *an = item_action_name(acts[j]); int ac = fcell(an, rw - 2 * pad), aw = font_width(an, ac);
-                SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
-                font_draw(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac);
-            }
-        }
-        SDL_RenderSetClipRect(r, NULL);
-        if (ph_ < full) { SDL_SetRenderDrawColor(r, 214, 170, 70, 255); SDL_Rect e = { px_, py_ + ph_ - bt, pw_, bt }; SDL_RenderFillRect(r, &e); }   /* the edge while it is still growing */
+    int bounce = (new_t >= 0.0f && new_t < 0.2f) ? qs : 0;
+    int hk = hand_kind();
+    {   int px_, py_, pw_, ph_; prev_rect(&px_, &py_, &pw_, &ph_);          /* the preview of what is in hand */
+        if (hk >= 0) box(r, px_, py_, pw_, ph_, 236, 190, 78, 6, 8, 20, 245);
+        else         box(r, px_, py_, pw_, ph_, 122, 130, 156, 6, 8, 20, 245);
+        if (hk >= 0) item_draw_icon(r, hk, px_ + (pw_ - ITEM_ICON_CELLS * icell) / 2, py_ + (ph_ - ITEM_ICON_CELLS * icell) / 2, icell);
     }
-
-    /* the bag */
-    {   int bx, by, bw, bh; bag_rect(&bx, &by, &bw, &bh);
-        int up = ui_open || ui_p > 0.0f, bounce = (new_t >= 0.0f && new_t < 0.2f) ? qs : 0;
+    {   int bx, by, bw, bh; bag_rect(&bx, &by, &bw, &bh);                   /* the bag */
+        int up = ui_open;
         box(r, bx, by, bw, bh, up ? 236 : 214, up ? 190 : 170, up ? 78 : 70, 6, 8, 20, 245);
         item_draw_bag_icon(r, bx + (bw - ITEM_ICON_CELLS * icell) / 2, by + (bh - ITEM_ICON_CELLS * icell) / 2 - bounce, icell);
         int cnt = shown();
         if (cnt > 0) {                                       /* the badge on the lower left corner */
             char num[16]; snprintf(num, sizeof num, "%d", cnt);
             int fc = fcell("00", bag / 2), tw = font_width(num, fc), th = font_height(fc);
-            int bw2 = tw + 2 * pad, bh2 = th + pad, x0 = bx - bw2 / 2, y0 = by + bh - bh2 + bh2 / 3 - (new_t >= 0.0f && new_t < 0.2f ? qs : 0);
+            int bw2 = tw + 2 * pad, bh2 = th + pad, x0 = bx - bw2 / 2, y0 = by + bh - bh2 + bh2 / 3 - bounce;
             int tick = new_t >= 0.0f && new_t < 0.3f;
             box(r, x0, y0, bw2, bh2, 236, 190, 78, tick ? 255 : 6, tick ? 238 : 8, tick ? 170 : 20, 255);
             SDL_SetRenderDrawColor(r, tick ? 6 : 255, tick ? 8 : 238, tick ? 20 : 170, 255);
@@ -709,4 +712,76 @@ void item_ui_draw(SDL_Renderer *r, float t) {
         }
     }
     if (fly_t < INV_FLY_T) draw_flying(r);
+}
+
+/* the window itself: world.c draws it over the HUD, under the dialogs */
+void item_ui_draw_window(SDL_Renderer *r) {
+    if (!ui_open) return;
+    win_layout();
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 150); SDL_Rect all = { 0, 0, W, H }; SDL_RenderFillRect(r, &all);      /* the game, dimmed */
+    box(r, wx, wy, ww, wh, 214, 170, 70, 6, 8, 20, 250);
+    int tc = fcell("INVENTORY", ww / 2);
+    txt(r, "INVENTORY", wx + bt + pad, wy + bt + pad + (tb - font_height(tc)) / 2, tc, 235, 240, 255);
+    box(r, cbx, cby, tb, tb, 236, 190, 78, 40, 34, 20, 255);                  /* the close button: an X of little squares */
+    {   int n = 6, st = qs, ox = cbx + (tb - n * st) / 2, oy = cby + (tb - n * st) / 2;
+        SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
+        for (int k = 0; k < n; k++) {
+            SDL_Rect p = { ox + k * st, oy + k * st, st, st }, q = { ox + (n - 1 - k) * st, oy + k * st, st, st };
+            SDL_RenderFillRect(r, &p); SDL_RenderFillRect(r, &q);
+        }
+    }
+
+    /* the grid */
+    box(r, gx, gy, gw, grid_h() < gh ? grid_h() : gh, 40, 46, 70, 10, 12, 26, 255);
+    for (int i = 0; i < rowsn * INV_COLS; i++) {
+        int sx = slot_x(i), sy = slot_y(i), k = kind_at_slot(i);
+        if (k < 0) { box(r, sx, sy, sl, sl, 40, 46, 70, 10, 12, 26, 255); continue; }              /* an empty slot */
+        int br = 122, bg = 130, bb = 156;
+        if (k == newest) { br = 236; bg = 190; bb = 78; }
+        if (k == ui_sel) { br = 206; bg = 214; bb = 232; if (k == newest) { br = 255; bg = 238; bb = 170; } }
+        if (k == craft_a) { br = 255; bg = 130; bb = 150; }
+        box(r, sx, sy, sl, sl, br, bg, bb, 20, 24, 46, 255);
+        item_draw_icon(r, k, sx + (sl - ITEM_ICON_CELLS * pcell) / 2, sy + (sl - ITEM_ICON_CELLS * pcell) / 2, pcell);
+        if (k == item_equipped()) { SDL_SetRenderDrawColor(r, 120, 230, 150, 255); SDL_Rect g = { sx + bt + qs / 2, sy + bt + qs / 2, 3 * qs, 3 * qs }; SDL_RenderFillRect(r, &g); }   /* in hand */
+        if (have[k] > 1) {                                   /* more than one of a kind: the number in the corner */
+            char num[8]; snprintf(num, sizeof num, "%d", have[k]); int cc = dcell();
+            txt(r, num, sx + sl - bt - font_width(num, cc) - qs, sy + sl - bt - font_height(cc) - qs, cc, 255, 238, 170);
+        }
+    }
+
+    /* the selected item */
+    int dcc = dcell(), bc2 = btn_cell();
+    if (!sel_ok()) {
+        const char *none = owned() ? "TAP A SLOT" : "NOTHING HERE";
+        txt(r, none, dx + pad, dy + pad, fcell(none, dw - 2 * pad), 122, 130, 156);
+        return;
+    }
+    int bc = bigc(), bs = bigsz();
+    box(r, dx, dy, bs, bs, 122, 130, 156, 20, 24, 46, 255);
+    item_draw_icon(r, ui_sel, dx + (bs - ITEM_ICON_CELLS * bc) / 2, dy + (bs - ITEM_ICON_CELLS * bc) / 2, bc);
+    if (craft_a >= 0) {                                      /* the craft pair: this one, a plus, and a slot waiting for the second */
+        int pw = font_width("+", bc2), x1 = dx + bs + pad;
+        txt(r, "+", x1, dy + (bs - font_height(bc2)) / 2, bc2, 235, 240, 255);
+        int x2 = x1 + pw + pad;
+        box(r, x2, dy, bs, bs, 255, 130, 150, 10, 12, 26, 255);
+        int qc = fcell("?", bs); txt(r, "?", x2 + (bs - font_width("?", qc)) / 2, dy + (bs - font_height(qc)) / 2, qc, 255, 130, 150);
+        txt(r, "WITH WHAT?", dx, desc_top(), bc2, 255, 190, 200);
+    } else {
+        const char *nm = item_name(ui_sel); int nc = fcell(nm, dw - bs - pad);
+        txt(r, nm, dx + bs + pad, dy, nc, 235, 240, 255);
+        if (item_equipped() == ui_sel) txt(r, "IN HAND", dx + bs + pad, dy + font_height(nc) + qs, dcc, 120, 230, 150);
+        char ln[DESC_LINES][64]; int nl = wrap(item_desc(ui_sel), dcc, dw, ln);
+        for (int j = 0; j < nl; j++) txt(r, ln[j], dx, desc_top() + j * d_pitch(), dcc, 178, 190, 222);
+    }
+    int acts[4], na = act_n(acts), nb = craft_a >= 0 ? 1 : na + 1;
+    for (int j = 0; j < nb; j++) {                           /* one button per action, then IN HAND, or just CANCEL while crafting */
+        int rx, ry, rw, rh; btn_rect(j, &rx, &ry, &rw, &rh);
+        const char *an = craft_a >= 0 ? "CANCEL" : (j < na ? item_action_name(acts[j]) : equip_label());
+        int eq = craft_a < 0 && j >= na, ac = fcell(an, rw - 2 * pad), aw = font_width(an, ac);
+        if (eq) box(r, rx, ry, rw, rh, 120, 230, 150, 14, 40, 30, 255);
+        else    box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
+        if (eq) txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 200, 255, 215);
+        else    txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
+    }
 }
