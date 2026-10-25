@@ -73,10 +73,12 @@ void story_after(float seconds, void (*fn)(void)) {
 }
 
 static void pit_watch(float dt);
+static void secrets_watch(float dt);
 void story_update(float dt) {
     note_watch();                               /* the paper has been taken: read it */
     if (item_has(ITEM_INTESTINE)) event_fire(EV_FIRST_INTESTINE);   /* chunk 9 */
     pit_watch(dt);                              /* chunk 11 */
+    secrets_watch(dt);                          /* chunk 12 */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
@@ -346,12 +348,24 @@ static void story_action(int kind, int act) {
         return; }
     case ACT_THROW:
         item_take(kind); sfx_blip(1.1f);
-        if (world_throw_item(kind)) pit_drop(0);                          /* the crack took it: the echo comes back later */
+        if (world_throw_item(kind)) {                                     /* the crack took it: the echo comes back later */
+            pit_drop(0);
+            if (kind == ITEM_KNIFE) event_fire(EV_SECRET_KNIFE_PIT);      /* chunk 12: the knife is gone for good */
+        }
         return;
     case ACT_DROP: {
         float x, y; item_take(kind); world_player_tilef(&x, &y); world_drop_item_near(kind, x, y); return; }
     case ACT_SMASH: {                                                                   /* the club: all of section 6 at once, no knife */
         unsigned v = world_body_in_reach();
+        if (!v && world_rock_in_reach()) {                                              /* chunk 12: the big rock breaks into small ones, to throw */
+            float tx, ty;
+            if (world_rock_break(&tx, &ty)) {
+                sfx_hit();
+                world_drop_item_near(ITEM_ROCK, tx - 0.8f, ty); world_drop_item_near(ITEM_ROCK, tx + 0.8f, ty); world_drop_item_near(ITEM_ROCK, tx, ty + 0.7f);
+                toast_notice("ROCK BROKEN", "Small rocks, easy to throw.");
+                return;
+            }
+        }
         if (!v) { sfx_error(); toast_notice("NOTHING TO SMASH", "Get close to a body."); return; }
         sfx_hit(); story_smash(v); return; }
     case ACT_SWING:
@@ -368,8 +382,52 @@ static void story_action(int kind, int act) {
     }
 }
 
+/* ---------- secrets: odd things get a reaction (chunk 12) ---------- */
+/* section 11 of the plan. already built elsewhere: the fast death (death_woke) and the crowd thoughts (story_vessel_set). here: Aonia dragged back onto the
+ * circle (the carvings glow), the parts of one body laid out in a human shape inside the circle, the three trophies worn together, standing still on the
+ * circle for a minute (the body hums), the knife thrown into the pit (story_action) and the club on the big rock (story_action). the memorial is dropped: it
+ * needs the blood paper, and chunk 10 left that out (there is no blood item and the paper is gone once read) */
+#define HUM_AFTER_S 60.0f
+static float still_t, still_x, still_y; static int hummed;
+static int human_shape(void) {
+    float cx, cy; ritual_centre(&cx, &cy);
+    int arms = 0, legs = 0, heads = 0, spine = 0, ribs = 0, heart = 0, liver = 0, gut = 0, head_row = 9999, spine_row = 0, leg_first = 9999;
+    for (int i = 0; i < item_ground_count(); i++) {
+        int k, tx, ty;
+        if (!item_ground_get(i, &k, &tx, &ty)) continue;
+        float dx = (float)tx + 0.5f - cx, dy = (float)ty + 0.5f - cy;
+        if (fabsf(dx) > 2.0f || fabsf(dy) > 1.0f) continue;                                     /* inside the carved circle (15 cells wide, 7.5 high) */
+        switch (k) {
+        case ITEM_ARM: arms++; break;
+        case ITEM_LEG: legs++; if (ty < leg_first) leg_first = ty; break;
+        case ITEM_HEAD: heads++; if (ty < head_row) head_row = ty; break;
+        case ITEM_SPINE: spine++; spine_row = ty; break;
+        case ITEM_RIBS: ribs++; break;
+        case ITEM_HEART: heart++; break;
+        case ITEM_LIVER: liver++; break;
+        case ITEM_INTESTINE: gut++; break;
+        }
+    }
+    if (arms < 2 || legs < 2 || !heads || !spine || !ribs || !heart || !liver || !gut) return 0;
+    return head_row <= spine_row && spine_row <= leg_first && head_row < leg_first;           /* the head above, the legs below, the spine between */
+}
+static void secrets_watch(float dt) {
+    if (dying) return;
+    if (!event_fired(EV_SECRET_BODY_ON_CIRCLE) && ritual_scene() && ritual_body_on_circle()) { ritual_glow(); event_fire(EV_SECRET_BODY_ON_CIRCLE); }
+    if (!event_fired(EV_SECRET_FESTIVE) && item_worn(ITEM_SKULL_STRING) && item_worn(ITEM_FINGER_NECKLACE) && item_worn(ITEM_TOOTH_NECKLACE)) event_fire(EV_SECRET_FESTIVE);
+    if (!event_fired(EV_SECRET_HUMAN_SHAPE) && ritual_scene() && human_shape()) { ritual_glow(); event_fire(EV_SECRET_HUMAN_SHAPE); }
+    /* a minute without moving on the circle: the body hums (once per body) */
+    float px_, py_, cx, cy; world_player_tilef(&px_, &py_); ritual_centre(&cx, &cy);
+    float ex = (px_ - cx) / 1.8f, ey = (py_ - cy) / 0.85f;
+    int on_circle = ritual_scene() && !ritual_active() && world_controls_on() && !world_dragging() && ex * ex + ey * ey < 1.0f;
+    if (!on_circle || fabsf(px_ - still_x) > 0.03f || fabsf(py_ - still_y) > 0.03f) still_t = 0;
+    still_x = px_; still_y = py_;
+    if (on_circle && !hummed && (still_t += dt) >= HUM_AFTER_S) { hummed = 1; sfx_summon(); ritual_glow(); }
+}
+
 /* ---------- the world starts ---------- */
 static void story_woke(void) {                                 /* the new body has formed in the circle */
+    hummed = 0; still_t = 0;
     event_fire(EV_WAKE);
     if (!note_read && task_note < 0 && story_vessel_index() == START_VESSEL) task_note = mission_add("Read the note");
 }

@@ -4,14 +4,15 @@
 #include "props.h"
 #include <math.h>
 
-static int   placed;
+static int   placed, broken;            /* broken: the club smashed it (chunk 12): it never lies there again */
 static float rtx, rty;                  /* the rock's feet, in tiles */
 
 #define ROCK_HW 5.0f                    /* half width, cells */
 #define ROCK_H  7.0f                    /* height, cells */
 
-void props_reset(void) { placed = 0; rtx = rty = 0; }
-int  props_rock_placed(void) { return placed; }
+void props_reset(void) { placed = broken = 0; rtx = rty = 0; }
+int  props_rock_placed(void) { return placed || broken; }
+int  props_rock_break(float *tx, float *ty) { if (!placed) return 0; *tx = rtx; *ty = rty; placed = 0; broken = 1; return 1; }
 void props_rock_place(float tx, float ty) { placed = 1; rtx = tx; rty = ty; }
 
 int props_rock_box(int px, int tile, float *x0, float *y0, float *x1, float *y1) {

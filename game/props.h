@@ -10,7 +10,8 @@
 #include <SDL2/SDL.h>
 
 void  props_reset(void);                                            /* a new game: no rock lies anywhere yet */
-int   props_rock_placed(void);
+int   props_rock_placed(void);                                      /* it lies somewhere, or it was smashed (the world must not put it back) */
+int   props_rock_break(float *tile_x, float *tile_y);               /* chunk 12: the club smashed it. says where it lay (feet, tiles); 0 when it was not placed */
 void  props_rock_place(float tile_x, float tile_y);                 /* it lies there (feet, tiles) */
 /* its box in world px: x +- 5 cells, y from 7 cells above the feet to the feet (a cell is one sprite pixel, `px` screen px). 0 when it is not placed */
 int   props_rock_box(int px, int tile, float *x0, float *y0, float *x1, float *y1);

@@ -27,6 +27,8 @@ int   ritual_active(void);                  /* the arrival is running (the playe
 int   ritual_update(float dt);              /* every frame. 1 on the frame the arrival has just finished */
 int   ritual_take_chime(void);              /* 1 once, when the charge begins (the sound) */
 float ritual_time(void);
+void  ritual_glow(void);                    /* story chunk 12: the carvings light up for a few seconds (a secret) */
+int   ritual_body_on_circle(void);          /* ... vessel 1 lies on the middle of the circle */
 int   ritual_player_rows(void);             /* rows of the new body shown, from the feet up: 0 .. 12 */
 void  ritual_centre(float *tile_x, float *tile_y);
 

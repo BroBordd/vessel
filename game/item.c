@@ -250,7 +250,7 @@ int item_worn(int kind) { return kind >= 0 && kind < ITEM_COUNT && worn_[kind] &
 int item_actions(int kind, int out[4]) {
     int n = 0;
     switch (kind) {
-    case ITEM_KNIFE: out[n++] = ACT_STAB; out[n++] = ACT_STAB_SELF; break;
+    case ITEM_KNIFE: out[n++] = ACT_STAB; out[n++] = ACT_STAB_SELF; out[n++] = ACT_THROW; break;
     case ITEM_ROCK:  out[n++] = ACT_THROW; break;
     case ITEM_ARM:   out[n++] = ACT_CUT_FINGERS; out[n++] = ACT_CUT_BONE; out[n++] = ACT_DROP; break;
     case ITEM_LEG:   out[n++] = ACT_CUT_BONE; out[n++] = ACT_DROP; break;
@@ -281,7 +281,7 @@ const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[
 
 static int s = 1, tile = 16;                /* pixel scale and tile size of the current map */
 /* story chunk 8: several things can lie on the map now (the paper, rocks, a thrown rock). the oldest is dropped if GROUND_MAX is passed */
-#define GROUND_MAX 12
+#define GROUND_MAX 16
 typedef struct { int kind, tx, ty, gs_x, gs_y, gs_seen; float drop_t; } Ground;       /* gs_*: where it was drawn last (screen px): its flight to the bag starts there. drop_t: seconds since it was dropped, 99 = simply placed */
 static Ground gnd[GROUND_MAX]; static int ng;
 static int have[ITEM_COUNT];

@@ -81,12 +81,14 @@ static void build(void) {
 
 /* ---------- the clock ---------- */
 static float flow_end(void) { return RITUAL_FLOW_AT + (float)maxd / RITUAL_FLOW_V; }
+static float lit;                                                /* chunk 12: a secret lights the carvings (1, fades over LIT_T seconds) */
+#define LIT_T 7.0f
 static float charge_at(void) { return flow_end() + 0.45f; }
 static float flash_at(void)  { return charge_at() + RITUAL_CHARGE_T; }
 static float form_at(void)   { return flash_at() + 0.10f; }
 static float end_at(void)    { return form_at() + RITUAL_FORM_T + RITUAL_DISS_T + RITUAL_HOLD_T; }
 
-void  ritual_begin(float tile_x, float tile_y, const Person *dead) { build(); bdx = bdy = 0; on = 1; active = 1; chime = chimed = 0; st = 0; cx_t = tile_x; cy_t = tile_y; dead_who = dead; }
+void  ritual_begin(float tile_x, float tile_y, const Person *dead) { lit = 0; build(); bdx = bdy = 0; on = 1; active = 1; chime = chimed = 0; st = 0; cx_t = tile_x; cy_t = tile_y; dead_who = dead; }
 void  ritual_cancel(void) { on = 0; active = 0; chime = 0; bdx = bdy = 0; }
 int   ritual_body_box(float *x0, float *y0, float *x1, float *y1) {        /* he lies 12 cells long and 9 across: feet at (BODY_X, BODY_Y), head 12 cells to the left of the feet */
     if (!on || active || !dead_who) return 0;
@@ -102,6 +104,7 @@ int   ritual_take_chime(void) { int c = chime; chime = 0; return c; }
 int   ritual_update(float dt) {
     if (!on) return 0;
     st += dt;
+    if (lit > 0) { lit -= dt / LIT_T; if (lit < 0) lit = 0; }
     if (active && !chimed && st >= charge_at()) { chimed = 1; chime = 1; }
     if (active && st >= end_at()) { active = 0; return 1; }
     return 0;
@@ -122,7 +125,16 @@ static void cell_at(SDL_Renderer *r, int sx, int sy, int cell, int x, int y, int
 static int is_carve(int x, int y) { return x >= -GO && x <= GO && y >= -GO && y <= GO && carve[y + GO][x + GO]; }
 static int lerp(int a, int b, float k) { return (int)(a + (b - a) * clamp01(k)); }
 
-static float brightness(void) {                                  /* 0 .. 1: how much the blood glows */
+void  ritual_glow(void) { lit = 1.0f; }
+int   ritual_body_on_circle(void) {                              /* the dead man lies on the circle's middle */
+    float x0, y0, x1, y1;
+    if (!ritual_body_box(&x0, &y0, &x1, &y1)) return 0;
+    float mx = (x0 + x1) * 0.5f, my = (y0 + y1) * 0.5f;
+    return fabsf(mx) < 5.0f && fabsf(my) < 2.5f;
+}
+static float brightness_base(void);
+static float brightness(void) { float b = brightness_base(), l = lit * (0.55f + 0.1f * sinf(st * 3.0f)); return l > b ? l : b; }
+static float brightness_base(void) {                             /* 0 .. 1: how much the blood glows */
     float c = charge_at(), f = flash_at();
     if (st < c) return 0.0f;
     if (st < f) { float u = (st - c) / RITUAL_CHARGE_T; return 0.15f + 0.85f * u * u; }

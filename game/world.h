@@ -129,6 +129,8 @@ int  world_swing_across(void (*done)(void));
 int  world_body_tile(unsigned vessel, float *tx, float *ty);   /* story chunk 9: where a body lies (feet, tiles); 0 = no such body here */
 void world_drop_item_near(int kind, float tx, float ty);       /* it falls on free floor around that spot */
 void world_set_smash_cb(void (*cb)(unsigned vessel));          /* the big rock dragged into a body: the callback gets the vessel */
+int  world_rock_in_reach(void);                           /* story chunk 12: the big rock is within the club's reach */
+int  world_rock_break(float *tile_x, float *tile_y);       /* ... and it breaks (gone for good); where it lay, 0 = nothing */
 unsigned world_body_in_reach(void);                       /* story chunk 8: the nearest body in reach (1 = Aonia), 0 = none: where a stab goes */
 int  world_throw_item(int kind);                          /* story chunk 8: it flies the way we face; 1 = it fell into the pit (gone), 0 = it lies on the floor */
 void world_set_inspect_cb(void (*cb)(unsigned vessel));   /* story chunk 6: next to a body the hand button is a magnifying glass; a tap calls this with the body's vessel number (1 = Aonia) */

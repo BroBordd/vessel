@@ -1104,6 +1104,12 @@ unsigned world_body_in_reach(void) {
     if (g1 <= gap && g1 <= gl) return 1;
     return bi >= 0 ? bodies_get(bi)->vessel : 0;
 }
+/* story chunk 12: the big rock under the club. in reach when it is as near as a body is for a stab; breaking it leaves the rock gone and says where it lay */
+int world_rock_in_reach(void) {
+    if (cur_map != MAP_TEMPLE || indoors || world_dragging_rock()) return 0;
+    return props_rock_gap(pxp, pyp, px, tile) <= INSPECT_REACH;
+}
+int world_rock_break(float *tx, float *ty) { return props_rock_break(tx, ty); }
 /* story chunk 8: THROW. the thing leaves our hand in the direction we face and flies up to THROW_RANGE tiles: a wall stops it (it drops in front of the wall), the
  * crack does not (it goes in and is gone). returns 1 when it fell into the pit, 0 when it landed on the floor (a drop that lands with a thunk, and can be taken again) */
 #define THROW_RANGE 6
