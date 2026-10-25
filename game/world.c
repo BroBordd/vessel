@@ -41,7 +41,7 @@
 
 enum { T_GRASS, T_FLOWER, T_WATER, T_SAND, T_TREE, T_CLOUD, T_SKY, T_HUT, T_WALL, T_FLOOR, T_FURN,
        T_MARBLE, T_STEP, T_PILLAR,         /* the goddess's temple in the clouds: floor, steps, columns (solid) */
-       T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE, T_RVOID };   /* the deep temple (gen.c): floor, wall, column, rubble, the sealed gate, rock. all but the floor are solid. keep the order: MAP_PAL */
+       T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE, T_RVOID, T_RPIT };   /* the ruins (gen.c): floor, wall, column, rubble, the sealed gate, rock, the pit. all but the floor are solid (the pit is open to the eye). keep the order: MAP_PAL */
 
 static uint8_t map[MAP_MAX][MAP_MAX];
 static int   mw, mh, cur_map;       /* size of the loaded map, and which one it is */
@@ -205,7 +205,7 @@ static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
     uint8_t v = map[ty][tx];
     return v == T_WATER || v == T_TREE || v == T_SKY || v == T_HUT || v == T_WALL || v == T_FURN || v == T_PILLAR ||
-           v == T_RWALL || v == T_RPILLAR || v == T_RRUBBLE || v == T_RGATE || v == T_RVOID;
+           v == T_RWALL || v == T_RPILLAR || v == T_RRUBBLE || v == T_RGATE || v == T_RVOID || v == T_RPIT;
 }
 
 /* ALEX'S HOUSE (house.h has the art). outside it is a solid prop on the Grasslands: HUT_W x HUT_H tiles of T_HUT, the doorstep tile
@@ -369,17 +369,20 @@ static void gen_cloud_map(void) {
 static uint32_t temple_seed;
 static int temple_sx, temple_sy;            /* where we wake */
 static int temple_gx = -1, temple_gy = -1;  /* the sealed gate */
+static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's box (tiles), -1: none */
+static int far_tx = -1, far_ty = -1, edge_tx = -1, edge_ty = -1;  /* the far ledge's spot (the second circle) and the near ledge's middle */
 static void gen_temple_map(void) {
     GenInfo gi;
     static uint8_t g[MAP_MAX][MAP_MAX];
     if (!gen_temple(&g[0][0], MAP_MAX, MAP_MAX, temple_seed, &gi)) {                       /* (cannot happen with this size: a plain room is the fallback) */
-        gi.w = gi.h = 20; gi.spawn_x = gi.spawn_y = 10; gi.gate_x = gi.gate_y = -1;
+        memset(&gi, 0, sizeof gi); gi.w = gi.h = 20; gi.spawn_x = gi.spawn_y = 10; gi.gate_x = gi.gate_y = -1; gi.pit_x0 = gi.pit_y0 = gi.pit_x1 = gi.pit_y1 = gi.far_x = gi.far_y = gi.edge_x = gi.edge_y = -1;
         for (int y = 0; y < 20; y++) for (int x = 0; x < 20; x++) g[y][x] = (x == 0 || y == 0 || x == 19 || y == 19) ? GEN_WALL : GEN_FLOOR;
     }
     mw = gi.w; mh = gi.h;
-    static const uint8_t to_tile[] = { T_RVOID, T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE };
+    static const uint8_t to_tile[] = { T_RVOID, T_RFLOOR, T_RWALL, T_RPILLAR, T_RRUBBLE, T_RGATE, T_RPIT };
     for (int y = 0; y < MAP_MAX; y++) for (int x = 0; x < MAP_MAX; x++) map[y][x] = (y < mh && x < mw) ? to_tile[g[y][x]] : T_RVOID;
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
+    pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
 }
 
 /* where the goddess stands (the story puts her there) */
@@ -584,6 +587,26 @@ static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y)
     float k = ruin_k(tx, ty);
     if (v == T_RVOID) { col(r, 0, 0, 0, 255); fill(r, x, y, tile, tile); return; }
     if (v == T_RFLOOR) { ruin_floor(r, tx, ty, x, y, k); return; }
+    if (v == T_RPIT) {                                                              /* the crack: black, deeper the further in, the far lip's cliff face on its north side, a ragged near lip */
+        uint32_t hh = hash2(tx, ty, 77);
+        col(r, 8, 6, 16, 255); fill(r, x, y, tile, tile);
+        col(r, 4, 3, 9, 255); fill(r, x, y + 4 * px, tile, 4 * px);
+        if (hh % 9 == 0) { col(r, 48, 36, 86, (int)(70 * k) + 20); fill(r, x + (int)((hh >> 5) % 6) * px, y + (int)((hh >> 9) % 6) * px, px, px); }       /* a far-away glint */
+        int above_pit = ty > 0 && map[ty - 1][tx] == T_RPIT, below_pit = ty + 1 < mh && map[ty + 1][tx] == T_RPIT;
+        if (!above_pit) {                                                            /* the north lip is a cliff: its face runs down into the dark */
+            rc(r, 60, 54, 72, k); fill(r, x, y, tile, 2 * px);
+            rc(r, 42, 38, 54, k); fill(r, x, y + 2 * px, tile, 2 * px);
+            rc(r, 26, 22, 36, k); fill(r, x, y + 4 * px, tile, px);
+            rc(r, 16, 13, 24, k); for (int i = 0; i < 4; i++) fill(r, x + (int)((hh >> (i * 3)) % 8) * px, y + 2 * px, px, (2 + (int)((hh >> (i + 9)) % 3)) * px);   /* cracks in the face */
+        }
+        if (!below_pit) {                                                            /* the south lip: crumbling chips of floor stick out over the edge */
+            for (int i = 0; i < 8; i++) {
+                int hgt = (int)((hh >> (i * 2)) % 4u);
+                if (hgt) { int v2 = 54 + (int)((hh >> 3) % 12u); rc(r, v2, v2 - 3, v2 + 10, k); fill(r, x + i * px, y + tile - hgt * px, px, hgt * px); }
+            }
+        }
+        return;
+    }
     if (v == T_RWALL || v == T_RGATE) {
         int front = !ruin_solid(tx, ty + 1);                                       /* floor below: the wall's face shows */
         rc(r, 34, 30, 44, k); fill(r, x, y, tile, tile);
@@ -722,7 +745,7 @@ static const uint8_t *map_for_display(void) {
  * grave are marked only once found (chunk 58 flags); npcs, the hole and the room door are not part of the found list and stay. */
 static const Rgb MAP_PAL[] = {
     { 76, 162, 78 }, { 240, 120, 170 }, { 48, 98, 196 }, { 224, 204, 144 }, { 28, 104, 40 }, { 244, 248, 255 }, { 96, 150, 226 }, { 176, 92, 66 }, { 96, 62, 38 }, { 190, 142, 90 }, { 150, 104, 64 }, { 250, 240, 208 }, { 232, 224, 200 }, { 226, 190, 90 },
-    { 74, 70, 92 }, { 40, 36, 52 }, { 120, 114, 132 }, { 96, 92, 104 }, { 170, 70, 220 }, { 0, 0, 0 } };      /* the deep temple: floor, wall, column, rubble, gate, rock */
+    { 74, 70, 92 }, { 40, 36, 52 }, { 120, 114, 132 }, { 96, 92, 104 }, { 170, 70, 220 }, { 0, 0, 0 }, { 22, 14, 40 } };      /* the ruins: floor, wall, column, rubble, gate, rock, pit */
 static int gather_marks(MiniMark *marks) {
     int nm = 0;
     for (int i = 0; i < MAX_MARKS; i++) marks[i].state = 0;
@@ -742,7 +765,7 @@ static int gather_marks(MiniMark *marks) {
 }
 static void map_source(MapView *v) {                        /* mapwin.h asks for this every frame while the window is open */
     static MiniMark marks[MAX_MARKS];
-    v->tiles = map_for_display(); v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 20;
+    v->tiles = map_for_display(); v->stride = MAP_MAX; v->mw = mw; v->mh = mh; v->pal = MAP_PAL; v->npal = 21;
     v->ptx = pxp / tile; v->pty = pyp / tile; v->facing = facing;
     v->nmarks = gather_marks(marks); v->marks = marks;
 }
@@ -768,6 +791,13 @@ static void load_map(int which) {
     else {
         pxp = ((which == MAP_CLOUD ? CLOUD_CX : mw / 2) + 0.5f) * tile;
         pyp = (which == MAP_CLOUD ? CLOUD_CY + 0.9f : mh / 2 + 0.9f) * tile;     /* the cloud spawn is the middle of the south island */
+    }
+    if (which == MAP_TEMPLE) {                                       /* dev: VESSEL_AT=edge | far puts us on the near ledge of the pit / on the far ledge (screenshots, tests) */
+        const char *e = getenv("VESSEL_AT"); int fx, fy, ex, ey;
+        if (e && world_pit_spots(&fx, &fy, &ex, &ey)) {
+            if (!strcmp(e, "edge")) { pxp = (ex + 0.5f) * tile; pyp = (ey + 0.5f) * tile; }
+            else if (!strcmp(e, "far")) { pxp = (fx + 0.5f) * tile; pyp = (fy + 0.5f) * tile; }
+        }
     }
     facing = FACE_DOWN;
     memset(seen, 0, sizeof seen); reveal();      /* a new map: nothing is known yet but what we can see from the spawn */
@@ -895,6 +925,26 @@ void world_set_controls_visible(int on) {
 float world_debug_zoom(void) { return zoom; }
 int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
+
+/* the pit (gen.c): how far (tiles) the player's feet are from the nearest pit tile; 1e9 when this map has none. the story uses it for "arrives at the edge" */
+float world_dist_to_pit(void) {
+    if (cur_map != MAP_TEMPLE || pit_x0 < 0) return 1e9f;
+    float best = 1e9f, fx = pxp / tile, fy = pyp / tile;
+    for (int y = pit_y0; y <= pit_y1; y++) for (int x = pit_x0; x <= pit_x1; x++) {
+        if (map[y][x] != T_RPIT) continue;
+        float dx = fx - (x + 0.5f), dy = fy - (y + 0.5f), d = sqrtf(dx * dx + dy * dy);
+        if (d < best) best = d;
+    }
+    return best;
+}
+int world_pit_spots(int *far_x, int *far_y, int *edge_x, int *edge_y) {        /* the far ledge's spot and the near ledge's middle (tiles); 0 = no pit */
+    if (cur_map != MAP_TEMPLE || pit_x0 < 0) return 0;
+    if (far_x) *far_x = far_tx;
+    if (far_y) *far_y = far_ty;
+    if (edge_x) *edge_x = edge_tx;
+    if (edge_y) *edge_y = edge_ty;
+    return 1;
+}
 
 float world_dist_to_npc(int npc_id) {
     if (npc_id < 0 || npc_id >= npc_count()) return 1e9f;
@@ -2226,7 +2276,7 @@ void world_draw(SDL_Renderer *r) {
 
     if (controls_visible && phase == PH_PLAY) {                   /* minimap: top-right, under the ID card */
         MiniMark marks[MAX_MARKS]; int nm = gather_marks(marks);
-        minimap_draw(r, map_for_display(), MAP_MAX, mw, mh, MAP_PAL, 20, pxp / tile, pyp / tile, facing, marks, nm, t);
+        minimap_draw(r, map_for_display(), MAP_MAX, mw, mh, MAP_PAL, 21, pxp / tile, pyp / tile, facing, marks, nm, t);
         item_ui_draw(r, t);                                       /* the inventory, right under it */
     }
     {   /* slide under the music button / card AND the brain button / card, whichever reaches lower: the

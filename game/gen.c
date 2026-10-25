@@ -1,8 +1,10 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE)
  *
- * GENERATION (see gen.h). the deep temple: rooms are dropped into the rock without touching, joined by two-tile halls, then walled,
- * decorated (pillars in the big rooms, rubble) and checked: every floor tile must still be reachable from the start or the decorations go. */
+ * GENERATION (see gen.h). THE RUINS: one way through, no maze. the circle room (where we wake), a short passage north, the fallen hall (two rows of
+ * broken columns, rubble, a niche in each side wall), a doorway, and the pit chamber: a crack runs right across it, wall to wall, with a ledge on the
+ * far side (the second circle's spot and the sealed gate). the far ledge is NOT reachable on foot: that is the point of the pit.
+ * the seed only moves things about (where the middle is, how long the hall is, which columns have fallen, where the niches are). */
 #include "gen.h"
 #include <string.h>
 
@@ -13,11 +15,9 @@ uint32_t gen_rand(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return 
 int gen_range(int lo, int hi) { return hi <= lo ? lo : lo + (int)(gen_rand() % (uint32_t)(hi - lo + 1)); }
 float gen_float(void) { return (float)(gen_rand() >> 8) * (1.0f / 16777216.0f); }
 
-/* ---------- the temple ---------- */
-#define TW 56                       /* the temple's size in tiles */
-#define TH 48
-#define MAX_ROOMS 12
-typedef struct { int x, y, w, h; } Room;
+/* ---------- the ruins ---------- */
+#define TW 46                       /* the ruins' size in tiles */
+#define TH 60
 
 static uint8_t *G;
 static int S;
@@ -25,13 +25,6 @@ static int S;
 
 static void carve(int x, int y, int w, int h) {
     for (int j = y; j < y + h; j++) for (int i = x; i < x + w; i++) if (i > 1 && j > 1 && i < TW - 2 && j < TH - 2) AT(i, j) = GEN_FLOOR;
-}
-static void hall_h(int x0, int x1, int y) { if (x0 > x1) { int t = x0; x0 = x1; x1 = t; } carve(x0, y, x1 - x0 + 2, 2); }
-static void hall_v(int y0, int y1, int x) { if (y0 > y1) { int t = y0; y0 = y1; y1 = t; } carve(x, y0, 2, y1 - y0 + 2); }
-static void join(const Room *a, const Room *b) {        /* an L-shaped hall between two room centres (which way round is random) */
-    int ax = a->x + a->w / 2, ay = a->y + a->h / 2, bx = b->x + b->w / 2, by = b->y + b->h / 2;
-    if (gen_rand() & 1) { hall_h(ax, bx, ay); hall_v(ay, by, bx); }
-    else                { hall_v(ay, by, ax); hall_h(ax, bx, by); }
 }
 
 static int16_t dist[TH][TW];
@@ -59,84 +52,81 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
     gen_seed(seed);
     for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) AT(x, y) = GEN_VOID;
 
-    /* 1. rooms: dropped at random, kept only if they keep three tiles from every other */
-    Room rm[MAX_ROOMS]; int nr = 0;
-    for (int tries = 0; tries < 300 && nr < MAX_ROOMS; tries++) {
-        Room c; c.w = nr == 0 ? gen_range(9, 12) : gen_range(5, 12); c.h = nr == 0 ? gen_range(7, 10) : gen_range(5, 10);   /* the first room is the start: big enough for the blood circle and the dead vessel beside it (ritual.c) */
-        c.x = gen_range(3, TW - c.w - 4); c.y = gen_range(3, TH - c.h - 4);
-        int ok = 1;
-        for (int i = 0; i < nr && ok; i++)
-            if (c.x < rm[i].x + rm[i].w + 3 && c.x + c.w + 3 > rm[i].x && c.y < rm[i].y + rm[i].h + 3 && c.y + c.h + 3 > rm[i].y) ok = 0;
-        if (ok) rm[nr++] = c;
+    int cx = gen_range(20, 25);                                   /* the middle line everything hangs on */
+
+    /* 1. the circle room (rows 47..55): big enough for the blood circle and the dead vessel beside it (ritual.c needs 9 x 7 at least) */
+    int sw = gen_range(12, 14), sx0 = cx - sw / 2, sy0 = 47, sh = 9;
+    carve(sx0, sy0, sw, sh);
+    /* 2. the passage north (rows 42..46), three wide */
+    carve(cx - 1, 42, 3, 5);
+    /* 3. the fallen hall (rows 24..41) */
+    int hw = gen_range(22, 24), hx0 = cx - hw / 2, hx1 = hx0 + hw - 1, hy0 = 24, hy1 = 41;
+    carve(hx0, hy0, hw, hy1 - hy0 + 1);
+    /* 4. a niche in each side wall of the hall (4 x 4, dead ends) */
+    int ny_w = gen_range(27, 36), ny_e = gen_range(27, 36);
+    carve(hx0 - 4, ny_w, 4, 4);
+    carve(hx1 + 1, ny_e, 4, 4);
+    /* 5. the doorway north (rows 20..23), six wide */
+    carve(cx - 3, 20, 6, 4);
+    /* 6. the pit chamber (rows 6..19): a south ledge (15..19), the crack (10..14, ragged), the far ledge (6..9) */
+    int px0 = cx - 10, px1 = cx + 9;
+    carve(px0, 6, px1 - px0 + 1, 14);
+    int pit_x0 = 99, pit_y0 = 99, pit_x1 = -1, pit_y1 = -1;
+    for (int x = px0; x <= px1; x++) {
+        int top = 10 + (int)(gen_rand() % 2u), bot = 14 - (int)(gen_rand() % 2u);        /* 3 to 5 rows deep, a ragged line */
+        if (x == px0 || x == px1) { top = 10; bot = 14; }
+        for (int y = top; y <= bot; y++) {
+            AT(x, y) = GEN_PIT;
+            if (x < pit_x0) pit_x0 = x;
+            if (x > pit_x1) pit_x1 = x;
+            if (y < pit_y0) pit_y0 = y;
+            if (y > pit_y1) pit_y1 = y;
+        }
     }
-    if (nr < 2) return 0;
-    for (int i = 0; i < nr; i++) carve(rm[i].x, rm[i].y, rm[i].w, rm[i].h);
 
-    /* 2. halls: each room to the next one made, then two extra loops so it is not one long snake */
-    for (int i = 0; i + 1 < nr; i++) join(&rm[i], &rm[i + 1]);
-    for (int k = 0; k < 2 && nr > 3; k++) join(&rm[gen_range(0, nr - 1)], &rm[gen_range(0, nr - 1)]);
-
-    /* 3. walls: every rock tile touching a floor tile (corners too) */
+    /* 7. walls: every rock tile touching floor or pit (corners too) */
     for (int y = 1; y < TH - 1; y++)
         for (int x = 1; x < TW - 1; x++) {
             if (AT(x, y) != GEN_VOID) continue;
             int near = 0;
-            for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (AT(x + i, y + j) == GEN_FLOOR) near = 1;
+            for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (AT(x + i, y + j) == GEN_FLOOR || AT(x + i, y + j) == GEN_PIT) near = 1;
             if (near) AT(x, y) = GEN_WALL;
         }
 
-    /* 4. the start: the middle of the first room */
-    int sx = rm[0].x + rm[0].w / 2, sy = rm[0].y + rm[0].h / 2;
-    int floors = 0;
-    for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) if (AT(x, y) == GEN_FLOOR) floors++;
-
-    /* 5. decoration: columns in the big rooms (every other tile, some missing: a ruin), rubble on open floor. never near the start */
-    for (int i = 1; i < nr; i++) {
-        if (rm[i].w < 7 || rm[i].h < 7) continue;
-        for (int y = rm[i].y + 2; y <= rm[i].y + rm[i].h - 3; y += 2)
-            for (int x = rm[i].x + 2; x <= rm[i].x + rm[i].w - 3; x += 2)
-                if (gen_float() < 0.75f && AT(x, y) == GEN_FLOOR) AT(x, y) = GEN_PILLAR;
+    /* 8. decoration: two rows of columns down the hall (every third row, some fallen into rubble), rubble heaps, never in the way of the middle
+     * line, never near the start */
+    int sx = cx, sy = sy0 + sh / 2;
+    for (int y = hy0 + 2; y <= hy1 - 2; y += 3) {
+        int xs[2] = { hx0 + 3, hx1 - 3 };
+        for (int k = 0; k < 2; k++) {
+            float f = gen_float();
+            AT(xs[k], y) = f < 0.62f ? GEN_PILLAR : f < 0.85f ? GEN_RUBBLE : GEN_FLOOR;
+        }
     }
     for (int y = 3; y < TH - 3; y++)
         for (int x = 3; x < TW - 3; x++) {
-            if (AT(x, y) != GEN_FLOOR || gen_float() > 0.045f) continue;
-            if (x > sx - 4 && x < sx + 4 && y > sy - 4 && y < sy + 4) continue;
+            if (AT(x, y) != GEN_FLOOR || gen_float() > 0.05f) continue;
+            if (x > cx - 3 && x < cx + 3 && y > 5 && y < 56) continue;                  /* the way through stays clear */
+            if (y >= sy0 - 1) continue;                                                  /* nothing in the circle room or its passage */
             int open = 1;
             for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (AT(x + i, y + j) != GEN_FLOOR) open = 0;
             if (open) AT(x, y) = GEN_RUBBLE;
         }
-    int reach = flood(sx, sy), solids = 0;
-    for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) if (AT(x, y) == GEN_PILLAR || AT(x, y) == GEN_RUBBLE) solids++;
-    if (reach < floors - solids)                                  /* the columns / rubble cut a floor tile off: take them all away, the plain temple is always joined */
+    int south_y = 17;                                                                    /* the south ledge, where we stand to look into the pit */
+    flood(sx, sy);
+    if (dist[south_y][cx] < 0)                                                           /* a column cut the way: take the decorations away */
         for (int y = 0; y < TH; y++) for (int x = 0; x < TW; x++) if (AT(x, y) == GEN_PILLAR || AT(x, y) == GEN_RUBBLE) AT(x, y) = GEN_FLOOR;
     flood(sx, sy);
 
-    /* 6. the sealed gate: in the top wall (else the bottom wall) of the room that is farthest to walk to; if that room has no free stretch of
-     * wall, the next farthest */
-    int gx = -1, gy = -1, tried[MAX_ROOMS] = { 0 };
-    for (int round = 1; round < nr && gx < 0; round++) {
-        int far_i = -1, far_d = -1;
-        for (int i = 1; i < nr; i++) {
-            if (tried[i]) continue;
-            int cx = rm[i].x + rm[i].w / 2, cy = rm[i].y + rm[i].h / 2, d = -1;
-            for (int j = -1; j <= 1 && d < 0; j++) for (int k = -1; k <= 1 && d < 0; k++) d = dist[cy + j][cx + k];
-            if (d > far_d) { far_d = d; far_i = i; }
-        }
-        if (far_i < 0) break;
-        tried[far_i] = 1;
-        Room *g = &rm[far_i]; int mid = g->x + g->w / 2;
-        for (int o = 0; o < g->w && gx < 0; o++) {
-            int xs[2] = { mid + o, mid - o };
-            for (int k = 0; k < 2 && gx < 0; k++) {
-                int x = xs[k];
-                if (x <= g->x || x >= g->x + g->w - 1) continue;
-                if (AT(x, g->y - 1) == GEN_WALL && AT(x, g->y) == GEN_FLOOR) { gx = x; gy = g->y - 1; }
-                else if (AT(x, g->y + g->h) == GEN_WALL && AT(x, g->y + g->h - 1) == GEN_FLOOR) { gx = x; gy = g->y + g->h; }
-            }
-        }
-    }
-    if (gx >= 0) AT(gx, gy) = GEN_GATE;
+    /* 9. the sealed gate, in the top wall of the far ledge (the way out, past the pit) */
+    int gx = cx, gy = 5;
+    if (AT(gx, gy) == GEN_WALL) AT(gx, gy) = GEN_GATE;
 
-    if (info) { info->w = TW; info->h = TH; info->spawn_x = sx; info->spawn_y = sy; info->gate_x = gx; info->gate_y = gy; info->rooms = nr; }
+    if (info) {
+        info->w = TW; info->h = TH; info->spawn_x = sx; info->spawn_y = sy; info->gate_x = gx; info->gate_y = gy; info->rooms = 6;
+        info->pit_x0 = pit_x0; info->pit_y0 = pit_y0; info->pit_x1 = pit_x1; info->pit_y1 = pit_y1;
+        info->far_x = cx; info->far_y = 8;                  /* the far ledge: where the second circle's carvings will be (chunk 13) */
+        info->edge_x = cx; info->edge_y = south_y;          /* the south ledge's middle */
+    }
     return 1;
 }

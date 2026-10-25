@@ -1,9 +1,32 @@
 # Vessel: the story (replaces the old vessel-1 / vessel-2 docs)
 
-> **Handoff file.** Read all of it, take the first unchecked chunk in the checklist, implement ONLY that chunk, commit,
-> tick its box in the same commit, push. One chunk = one commit = one push. The owner tests every push on a phone
-> (`git pull` + `scripts/run.sh`), so every chunk must leave the game building and playable.
-> `game/story.c` still holds the OLD story (goddess, Alex, Dia, Grasslands); it gets replaced by this one.
+> **Handoff file.** If you are an LLM picking this up mid-work: read this whole file, then `game/story.h`, `game/story.c`, `game/gen.h`, `game/ritual.h`
+> and `game/thought.h`. Take the first unchecked chunk in the [Chunk checklist](#chunk-checklist), implement ONLY that chunk, commit, tick its box
+> in the same commit and add a line to the [Status log](#status-log), push, then go to the next one. One chunk = one commit = one push. The owner
+> tests every push on a phone (`git pull` + `scripts/run.sh`), so every chunk must leave the game building and playable.
+> `game/story.c` is the restarted story (the old one, goddess and Alex and the Grasslands, is archived in `trash/story_old.c`).
+
+## Environment notes (for an instance that starts cold)
+- **Repo and push access.** `git clone https://github.com/BroBordd/vessel.git`. The owner gives a token in the chat; it is never written into any file,
+  commit or this plan. Push to `main` with `git pull --rebase` first. A fresh clone has no git identity: `git config user.name "Claude"` and
+  `git config user.email "claude@users.noreply.github.com"` (local, not `--global`).
+- **How the owner works.** They `git pull` and run the game on a phone (Termux, `scripts/run.sh`). Replies in the chat stay short: what was done, what
+  is next, no complaints about the token or the process. They test by feel, so sounds and movement are tuned by their words ("too slow", "annoying").
+- **SDL.** `apt-get update && apt-get install -y libsdl2-dev` works in the sandbox. Whole-game compile check (no link to the phone's static SDL):
+  `ls game/*.c | xargs -P8 -I{} sh -c 'cc -O0 -Wall -DGFX_REDIRECT -include game/gfx.h $(sdl2-config --cflags) -Igame -c {} -o build/chk/$(basename {} .c).o'`
+  then link with `$(sdl2-config --libs) -lm`.
+- **Headless looks.** `tools/ruinshot.c` renders the ruins (spawn / near ledge / far ledge, `VESSEL_AT=edge|far` warps there) to `build/*.bmp`;
+  `tools/ritualshot.c` renders the blood circle; `tools/gentest.c` checks the map generator over 500 seeds and prints one with `gentest <seed>`.
+- **Dev env vars.** `VESSEL_SEED=n` (map), `VESSEL_INDEX=n` (start in vessel n), `VESSEL_AT=edge|far` (start at the pit), `VESSEL_LIMBO=1`.
+
+## Workflow rules
+- Tick the chunk's checkbox and add its line to the Status log **in the same commit** that implements it. Commit message `story chunk N: <title>`
+  plus a paragraph of what changed.
+- Match the code style (C, short comments explaining why, GPL header on every new file). Everything the player sees uses only the font's characters
+  (letters, digits, space and `, . ! ? ' -`; no quotes, colons or parentheses in game text).
+- Thoughts are short (about 19 letters a line on a phone, 3 lines). Never reproduce real lyrics, poems or quotes from other works.
+- Sounds are tuned on the phone speaker: nothing under 120 Hz carries there, and steady buzz is annoying; prefer soft, uneven, low-passed noise.
+- Never write the token anywhere.
 
 ## Premise
 You are **Vas**, a soul. You live in numbered bodies (vessels): **Aonia** (1), **Doia** (2), **Tria** (3), **Ceathia** (4) ...
@@ -188,18 +211,38 @@ player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas 
 - What the long intestine rope is for later.
 - Who or what built the ruins, and what is across the pit?
 
+## Decisions made while building (they override the text above where they differ)
+- **Whole-body dragging, not by the leg** (owner's call). One button, next to a body: a tap takes hold from the side nearest to us, a tap lets go. Our
+  floating hands go to that side, our eyes shut while we pull. He is a **sandbag**: he eases toward where our hands would have him (lag 0.22 s, like the
+  camera), has 1.5 cells of slack so he has to be started, trails at most 8 cells (past that we cannot walk on), keeps sliding a moment after we stop, and
+  never goes into a wall. We walk at 75 % speed holding him. The sound is a soft, low, uneven scrape, as loud as he slides.
+- **The map is the ruins, a line, not a maze** (owner's call): the circle room, a passage, the fallen hall, the pit chamber with the crack across it and
+  the far ledge (second circle's spot, sealed gate). The far ledge is not reachable on foot (`tools/gentest.c` checks that over 500 seeds).
+- **The first body's blood** was cut by 60 % so his face shows.
+
 ## Chunk checklist
-- [ ] **1. Seeded looks:** `Person` generated from a vessel index, names from the Irish-number table (Aonia, Doia, Tria, Ceathia ... with a rule past ten).
-- [ ] **2. Ruins map:** one map with the circle, the fallen hall and the pit; remove the old maps.
-- [ ] **3. Event thoughts engine:** brain-button thoughts fired by events while the player acts, once-flags saved; the story-beat scripted thoughts replaced by this.
-- [ ] **4. Limbo and the first wake-up:** conversation, fade, circle, Aonia with flowing blood, the paper; the short skippable limbo after later deaths, by cause.
-- [ ] **5. The note:** blood-written, names Doia, card flip, paper disappears, task list.
+Each chunk says what is in it, so a cold instance can tell done from not done. `(part)` = some of it is built, the rest is listed.
+- [x] **1. Seeded looks:** `Person` generated from a vessel index (`vessel_gen.c`, golden test `tools/vgentest.c`), names from the Irish-number table,
+  `story_vessel_look(n)`, `story_vessel_next()`; vessel 1 stays the hand-made Aonia.
+- [x] **2. Ruins map:** `gen.c` builds the ruins (circle room, passage, fallen hall with two niches and broken columns, doorway, pit chamber with a ragged
+  3-5 row crack right across it, far ledge, sealed gate). New tile `T_RPIT` (solid, open to the eye: black, a cliff face on its north lip, a crumbling south
+  lip, a glint now and then), minimap colour, `world_dist_to_pit()`, `world_pit_spots()`. `tools/gentest.c`, `tools/ruinshot.c`. The old maps stay in the file
+  until chunk 14.
+- [ ] **3. Event thoughts engine:** brain-button thoughts fired by events while the player acts, once-flags, repeat flags, the thought also joins the brain window.
+- [ ] **4. Limbo and the first wake-up:** Vas's three-line conversation, the circle, Aonia with flowing blood, the paper; the short skippable limbo after later deaths, by cause.
+- [ ] **5. The note:** the paper on the floor, reading it flips the card to Doia, the paper disappears, task list.
 - [ ] **6. Persistent bodies:** death adds a body in place, bodies keep their inventory, **Inspect**.
-- [ ] **7. Dragging and carrying:** drag a body or the big rock by the leg, blood trail that fades, size classes slow the player.
+- [ ] **7. Dragging and carrying (part):** whole-body drag of vessel 1 is built (see Decisions). Left: the blood trail that fades, drag any body, size classes (medium things in the hands), the big rock.
 - [ ] **8. Inventory window:** item image, description, actions; small rock **Throw**; knife **Stab** on anything or self.
 - [ ] **9. Cutting and parts:** the stab order of section 6, the big-rock smash, scattered items, the extra part cuts.
 - [ ] **10. Crafting:** two-slot craft menu, every recipe of section 7, first-craft lines.
 - [ ] **11. The pit:** Swing (tied rock and spine hook), the echo, falls, the bridge of bodies.
 - [ ] **12. Secrets:** the reactions of section 11.
-- [ ] **13. Checkpoint circles:** the carved circle past the pit, knife on self fills it, "My consciousness is fading", death; the next vessel wakes there.
+- [ ] **13. Checkpoint circles:** the carved circle on the far ledge, knife on self fills it, "My consciousness is fading", death; the next vessel wakes there.
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
+
+## Status log
+- 2026-10-25: the first body's blood cut by 60 % (`ritual.c wounds()`), his face is clear. Whole-body dragging of vessel 1 (chunk 7, part): `ritual_body_box/shift`,
+  `char_set_grip/strain`, `sfx_drag`, the button icon; sandbag follow and a calm scrape (owner tuned: faster, softer). Story doc untrashed.
+- 2026-10-25: chunk 1 verified done (already in the tree). Chunk 2 done: ruins generator and pit tile. `gentest` 500 seeds ok; headless shots look right
+  (the pit reads as a black crack with a cliff face on its far side). Game builds. Next: chunk 3.

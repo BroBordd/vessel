@@ -18,7 +18,7 @@ enum { MAP_GREEN, MAP_CLOUD, MAP_TEMPLE };
 
 /* player-facing names of the maps. always use these in text, never the enum names. */
 #define SKYLAND_NAME   "the Sky"
-#define TEMPLE_NAME    "the Deep Temple"      /* the map the game starts in (MAP_TEMPLE, made by gen.c) */
+#define TEMPLE_NAME    "the Ruins"            /* the map the game starts in (MAP_TEMPLE, made by gen.c) */
 #define GRASSLANDS     "the Grasslands"       /* the ground map (MAP_GREEN) */
 const char *world_map_name(int which);
 
@@ -171,6 +171,10 @@ void world_ritual(const Person *dead, void (*on_done)(void));   /* the story's s
 int  world_ritual_running(void);
 void world_begin_dawn(void);                   /* the opening: the stars brighten into the sky, the cloud floor builds in, THEN the summoning runs */
 int  world_dawning(void);                      /* the dawn is running (game.c draws the stars under the world and keeps the buttons away) */
+
+/* the ruins' pit (gen.c): tiles from the player to the nearest pit tile (1e9: none on this map), and the spots on either side of it */
+float world_dist_to_pit(void);
+int   world_pit_spots(int *far_x, int *far_y, int *edge_x, int *edge_y);
 
 /* how far (in tiles) the player's feet are from an npc. a huge number if there is no such npc. */
 float world_dist_to_npc(int npc_id);
