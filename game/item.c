@@ -547,6 +547,56 @@ static int hand_kind(void) {
     return item_equipped();
 }
 
+/* story chunk 18: THE LOOT WINDOW, chest style. a body's window shows two grids, the body's pockets and ours, and a strip under them with the name and the text of the
+ * selected thing and the buttons. a tap selects a stack; a second tap on a selected stack of the body's takes it (or the TAKE button); TAKE ALL moves everything.
+ * the story moves the things (body_cb) and shows the window again, so both grids are always read from bw_inv and have. (the bag window below is untouched) */
+static int chest_side;                                          /* which grid holds the selection: 0 = the body's, 1 = ours */
+static int cg_x[2], cg_y[2], cg_w[2], cg_h[2], cg_rows[2], cg_hh, csl, cpc;      /* the two grids: their areas, rows, the header height, one slot size, icon cell */
+static int st_x, st_y, st_w, st_nameh, st_bh;                   /* the strip under them: its area, the name line, the button height */
+static int cnt(int side, int k) { return side ? have[k] : bw_inv[k]; }
+static int kind_on(int side, int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (cnt(side, k) > 0) { if (n == i) return k; n++; } return -1; }
+static int owned_on(int side) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) n += cnt(side, k) > 0 ? 1 : 0; return n; }
+static int chest_sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && cnt(chest_side, ui_sel) > 0; }
+static int cs_off(int s) { int used = INV_COLS * csl + (INV_COLS + 1) * pad, o = (cg_w[s] - used) / 2; return o > 0 ? o : 0; }
+static int cs_x(int s, int i) { return cg_x[s] + cs_off(s) + pad + (i % INV_COLS) * (csl + pad); }
+static int cs_y(int s, int i) { return cg_y[s] + cg_hh + pad + (i / INV_COLS) * (csl + pad); }
+static void chest_btn(int i, int *x, int *y, int *w, int *h) { *w = (st_w - pad) / 2; *h = st_bh; *x = st_x + i * (*w + pad); *y = st_y + st_nameh + 2 * (font_height(dcell()) + qs) + pad; }
+static void chest_layout(int ix, int iy, int iw, int ih) {
+    cg_hh = font_height(dcell()) + pad;
+    st_bh = font_height(fcell("TAKE ALL", iw / 2)) + 2 * pad;
+    st_nameh = font_height(fcell("MMMMMMMMMMMM", iw)) + qs;
+    int sh = st_nameh + 2 * (font_height(dcell()) + qs) + pad + st_bh;
+    st_x = ix; st_w = iw; st_y = iy + ih - sh;
+    int ga = st_y - pad - iy;                                   /* the room for the grids */
+    int wide = iw > ih * 13 / 10;                               /* a wide, short screen: the grids side by side */
+    for (int s = 0; s < 2; s++) {
+        int n = owned_on(s); cg_rows[s] = (n + INV_COLS - 1) / INV_COLS; if (cg_rows[s] < 2) cg_rows[s] = 2;
+        if (wide) { cg_w[s] = (iw - pad) / 2; cg_h[s] = ga; cg_x[s] = ix + s * (cg_w[s] + pad); cg_y[s] = iy; }
+        else      { cg_w[s] = iw; cg_h[s] = (ga - pad) / 2; cg_x[s] = ix; cg_y[s] = iy + s * (cg_h[s] + pad); }
+    }
+    int rm = cg_rows[0] > cg_rows[1] ? cg_rows[0] : cg_rows[1];
+    csl = (cg_w[0] - (INV_COLS + 1) * pad) / INV_COLS;
+    int sv = (cg_h[0] - cg_hh - (rm + 1) * pad) / rm; if (sv < csl) csl = sv;
+    if (csl < 14) csl = 14;
+    cpc = (csl - 2 * bt - pad) / ITEM_ICON_CELLS; if (cpc < 1) cpc = 1;
+}
+static void chest_tap(int x, int y) {
+    for (int s = 0; s < 2; s++)
+        for (int i = 0; i < cg_rows[s] * INV_COLS; i++) {
+            int kk = kind_on(s, i), sx = cs_x(s, i), sy = cs_y(s, i);
+            if (kk < 0 || !in_rect(x, y, sx - pad / 2, sy - pad / 2, csl + pad, csl + pad)) continue;
+            if (s == 0 && chest_side == 0 && ui_sel == kk) { if (body_cb) body_cb(bw_vessel, kk); return; }     /* a second tap on the body's stack takes it */
+            chest_side = s; ui_sel = kk; return;
+        }
+    for (int i = 0; i < 2; i++) {
+        int rx, ry, rw, rh; chest_btn(i, &rx, &ry, &rw, &rh);
+        if (!in_rect(x, y, rx, ry, rw, rh)) continue;
+        if (i == 0 && chest_side == 0 && chest_sel_ok()) { if (body_cb) body_cb(bw_vessel, ui_sel); }
+        else if (i == 1 && owned_on(0)) { if (body_cb) body_cb(bw_vessel, -1); }
+        return;
+    }
+}
+
 /* where everything is: worked out from the screen, the pockets and the selection every time it is needed (cheap) */
 static void win_layout(void) {
     int m = (int)(6 * uu); if (m < 4) m = 4;
@@ -556,6 +606,7 @@ static void win_layout(void) {
     tb = font_height(fcell("INVENTORY", ww / 2)) + 2 * pad;
     cbx = wx + ww - in - tb; cby = wy + in;
     int ix = wx + in, iy = wy + in + tb + pad, iw = ww - 2 * in, ih = wy + wh - in - iy;
+    if (bw_on) { chest_layout(ix, iy, iw, ih); return; }        /* chunk 18: a body's window has its own layout */
     int wide = ww > wh * 13 / 10;                               /* a wide, short screen: the grid left, the item right */
     int n = owned_w();
     rowsn = (n + INV_COLS - 1) / INV_COLS; if (rowsn < 3) rowsn = 3;
@@ -630,13 +681,14 @@ void item_ui_body_open(unsigned vessel, const char *name, const unsigned char in
     snprintf(bw_name, sizeof bw_name, "%s", name ? name : "");
     for (char *c = bw_name; *c; c++) *c = (char)toupper((unsigned char)*c);
     memcpy(bw_inv, inv, ITEM_COUNT);
-    if (!was) { craft_a = -1; ui_sel = -1; }
+    if (!was) { craft_a = -1; ui_sel = -1; chest_side = 0; }
     ui_open = 1; ui_p = 1.0f; ui_idle = 0; ui_down = 0;
-    if (!(ui_sel >= 0 && ui_sel < ITEM_COUNT && bw_inv[ui_sel] > 0)) ui_sel = kind_at_slot(0);
+    if (!chest_sel_ok()) { chest_side = 0; ui_sel = kind_on(0, 0); }       /* the selection is gone (taken): the first thing of the body */
 }
 
 static void win_tap(int x, int y) {                              /* a tap that began and ended in the window */
     if (in_rect(x, y, cbx, cby, tb, tb)) { set_open(0); return; }
+    if (bw_on) { chest_tap(x, y); return; }
     int acts[4], na = act_n(acts);
     int nb = craft_a >= 0 ? 1 : (bw_on ? (sel_ok() ? 2 : 0) : (sel_ok() ? na + 1 : 0));
     for (int i = 0; i < nb; i++) {
@@ -735,6 +787,42 @@ void item_ui_draw(SDL_Renderer *r, float t) {
     if (fly_t < INV_FLY_T) draw_flying(r);
 }
 
+static void chest_draw(SDL_Renderer *r) {
+    int dcc = dcell();
+    for (int s = 0; s < 2; s++) {
+        box(r, cg_x[s], cg_y[s], cg_w[s], cg_h[s], 40, 46, 70, 10, 12, 26, 255);
+        const char *hd = s == 0 ? bw_name : "YOU";
+        txt(r, hd, cg_x[s] + bt + pad, cg_y[s] + bt + qs, dcc, 178, 190, 222);
+        for (int i = 0; i < cg_rows[s] * INV_COLS; i++) {
+            int sx = cs_x(s, i), sy = cs_y(s, i), k = kind_on(s, i);
+            if (k < 0) { box(r, sx, sy, csl, csl, 40, 46, 70, 10, 12, 26, 255); continue; }
+            int br = 122, bg = 130, bb = 156;
+            if (s == 1 && k == newest) { br = 236; bg = 190; bb = 78; }
+            if (s == chest_side && k == ui_sel) { br = 206; bg = 214; bb = 232; }
+            box(r, sx, sy, csl, csl, br, bg, bb, 20, 24, 46, 255);
+            item_draw_icon(r, k, sx + (csl - ITEM_ICON_CELLS * cpc) / 2, sy + (csl - ITEM_ICON_CELLS * cpc) / 2, cpc);
+            if (s == 1 && k == item_equipped()) { SDL_SetRenderDrawColor(r, 120, 230, 150, 255); SDL_Rect g = { sx + bt + qs / 2, sy + bt + qs / 2, 3 * qs, 3 * qs }; SDL_RenderFillRect(r, &g); }
+            if (cnt(s, k) > 1) {
+                char num[8]; snprintf(num, sizeof num, "%d", cnt(s, k));
+                txt(r, num, sx + csl - bt - font_width(num, dcc) - qs, sy + csl - bt - font_height(dcc) - qs, dcc, 255, 238, 170);
+            }
+        }
+    }
+    if (chest_sel_ok()) {                                       /* under the items: the name and the text of the selected one */
+        const char *nm = item_name(ui_sel); int nc = fcell(nm, st_w);
+        txt(r, nm, st_x, st_y, nc, 235, 240, 255);
+        char ln[DESC_LINES][64]; int nl = wrap(item_desc(ui_sel), dcc, st_w, ln); if (nl > 2) nl = 2;
+        for (int j = 0; j < nl; j++) txt(r, ln[j], st_x, st_y + st_nameh + j * (font_height(dcc) + qs), dcc, 178, 190, 222);
+    } else txt(r, "TAP A SLOT", st_x, st_y, fcell("TAP A SLOT", st_w), 122, 130, 156);
+    for (int j = 0; j < 2; j++) {
+        int rx, ry, rw, rh; chest_btn(j, &rx, &ry, &rw, &rh);
+        const char *an = j == 0 ? "TAKE" : "TAKE ALL";
+        int on = j == 0 ? (chest_side == 0 && chest_sel_ok()) : owned_on(0) > 0, ac = fcell("TAKE ALL", rw - 2 * pad), aw = font_width(an, ac);
+        if (on) box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255); else box(r, rx, ry, rw, rh, 60, 66, 90, 20, 24, 40, 255);
+        if (on) txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
+        else    txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 122, 130, 156);
+    }
+}
 /* the window itself: world.c draws it over the HUD, under the dialogs */
 void item_ui_draw_window(SDL_Renderer *r) {
     if (!ui_open) return;
@@ -742,7 +830,7 @@ void item_ui_draw_window(SDL_Renderer *r) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 150); SDL_Rect all = { 0, 0, W, H }; SDL_RenderFillRect(r, &all);      /* the game, dimmed */
     box(r, wx, wy, ww, wh, 214, 170, 70, 6, 8, 20, 250);
-    const char *ttl = bw_on ? bw_name : "INVENTORY";
+    const char *ttl = bw_on ? "LOOT" : "INVENTORY";
     int tc = fcell(ttl, ww - tb - 4 * pad);
     txt(r, ttl, wx + bt + pad, wy + bt + pad + (tb - font_height(tc)) / 2, tc, 235, 240, 255);
     box(r, cbx, cby, tb, tb, 236, 190, 78, 40, 34, 20, 255);                  /* the close button: an X of little squares */
@@ -753,6 +841,8 @@ void item_ui_draw_window(SDL_Renderer *r) {
             SDL_RenderFillRect(r, &p); SDL_RenderFillRect(r, &q);
         }
     }
+
+    if (bw_on) { chest_draw(r); return; }                       /* chunk 18: the loot window is its own picture */
 
     /* the grid */
     box(r, gx, gy, gw, grid_h() < gh ? grid_h() : gh, 40, 46, 70, 10, 12, 26, 255);
