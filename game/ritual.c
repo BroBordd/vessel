@@ -117,6 +117,7 @@ int   ritual_body_box(float *x0, float *y0, float *x1, float *y1) {        /* he
     return 1;
 }
 void  ritual_body_shift(float dx, float dy) { bdx += dx; bdy += dy; }
+void  ritual_body_off(float *dx, float *dy) { if (dx) *dx = bdx; if (dy) *dy = bdy; }
 int   ritual_scene(void) { return on; }
 int   ritual_active(void) { return active; }
 float ritual_time(void) { return st; }

@@ -50,7 +50,11 @@ const Person *story_vessel_look(unsigned index) {
     if (index == 1 && STORY_CANON >= 1) return &VESSEL;
     if (index == 2 && STORY_CANON >= 2) return &VESSEL2;
     if (index == 3 && STORY_CANON >= 3) return &VESSEL3;
-    return vessel_gen_person(index);
+    if (index == 2) {                                           /* vessel 2 is Doia: the generated look under the story's name (the ID card, the body window, the death text all ask here) */
+        static Person doia; doia = *vessel_gen_person(2); doia.name = VESSEL2_NAME;
+        return &doia;
+    }
+    return vessel_gen_person(index);                            /* every other vessel: the generator's look AND its own name, made from the index */
 }
 const char *story_vessel_name(unsigned index) { return story_vessel_look(index)->name; }
 

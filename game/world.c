@@ -200,6 +200,8 @@ static int drag_blocked(float sx, float sy) {                               /* w
     for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++)
         if (solid_tile((int)floorf((n0 + (wx1 - n0) * 0.5f * i) / tile), (int)floorf((m0 + (wy1 - m0) * 0.5f * j) / tile))) return 1;
     float c0, d0, c1, d1;
+    {   float f0 = pxp - 3.0f * px, f1 = pxp + 3.0f * px, g0 = pyp - 3.0f * px, g1 = pyp;      /* it may not slide onto us (we would stand inside it, blocked every way) */
+        if (box_overlap(n0, m0, n1, m1, f0, g0, f1, g1) && !box_overlap(x0, y0, x1, y1, f0, g0, f1, g1)) return 1; }
     if (drag_id != 1 && v1_box_px(&c0, &d0, &c1, &d1) && box_overlap(n0, m0, n1, m1, c0, d0, c1, d1) && !box_overlap(x0, y0, x1, y1, c0, d0, c1, d1)) return 1;
     if (drag_id != DRAG_ROCK && props_rock_box(px, tile, &c0, &d0, &c1, &d1) && box_overlap(n0, m0, n1, m1, c0, d0, c1, d1) && !box_overlap(x0, y0, x1, y1, c0, d0, c1, d1)) return 1;
     for (int i = 0; i < bodies_count(); i++) {
@@ -831,7 +833,7 @@ void world_touch_p(int pid, int a, int x, int y) {
 }
 
 static int blocked(float fx, float fy) {           /* feet box centred at fx,fy */
-    if (body_hits(fx, fy)) return 1;                  /* a body lies there: not a place to stand */
+    if (body_hits(fx, fy) && !body_hits(pxp, pyp)) return 1;   /* a body lies there: not a place to stand (but if we already stand on one, we may walk out of it: never trapped in every direction) */
     float hw = 3.0f * px, hh = 1.5f * px;
     float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
     for (int i = 0; i < 2; i++)
@@ -1074,7 +1076,11 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     if (ritual_scene()) {                                                                                                      /* the carved circle, the blood, the dead vessel (the first circle) */
         float hx = 0, hy = 0; ritual_home(&hx, &hy);
         int hsx = (int)(hx * tile) - cx, hsy = (int)(hy * tile) - cy;
-        if (hsx > -40 * px && hsx < W + 40 * px && hsy > -30 * px && hsy < H + 30 * px) ritual_draw_floor(r, hsx, hsy, px, TEMPLE_SHADE);
+        float bdx_c = 0, bdy_c = 0; ritual_body_off(&bdx_c, &bdy_c);                      /* he may have been pulled far from the circle: he is on screen when his own place is, not only the circle's */
+        int bsx = hsx + (int)(bdx_c * px), bsy = hsy + (int)(bdy_c * px);
+        int near_c = hsx > -40 * px && hsx < W + 40 * px && hsy > -30 * px && hsy < H + 30 * px;
+        int near_b = bsx > -40 * px && bsx < W + 40 * px && bsy > -30 * px && bsy < H + 30 * px;
+        if (near_c || near_b) ritual_draw_floor(r, hsx, hsy, px, TEMPLE_SHADE);
     }
     if (ritual_c2_on()) {                                                                                                      /* the second circle on the far ledge (story chunk 13) */
         float qx = 0, qy = 0; ritual_c2_centre(&qx, &qy);
