@@ -262,17 +262,6 @@ static void draw_circle(SDL_Renderer *r, int sx, int sy, int cell, float darken,
         char_set_darken(0);
         wounds(r, sx + ox, sy + oy, cell, t);
     }
-    if (body) {                                                                       /* the knife lies above him: a shadow under it, the handle, the blade, a red tip */
-        const int kx = -31, ky = -9;
-        for (int i = 0; i < 8; i++) for (int j = 0; j < 3; j++) {
-            int x = kx + i, y = ky + j;
-            if (j == 2) { cell_at(r, sx, sy, cell, x, y, 0, 0, 0, 70); continue; }
-            if (i <= 2)                          cell_at(r, sx, sy, cell, x, y, 70, 46, 34, 255);
-            else if (i <= 6 && !(j == 0 && i == 6)) cell_at(r, sx, sy, cell, x, y, j == 0 ? 214 : 160, j == 0 ? 218 : 166, j == 0 ? 226 : 176, 255);
-            else if (i == 7 && j == 1)           cell_at(r, sx, sy, cell, x, y, 150, 14, 20, 255);
-        }
-        cell_at(r, sx, sy, cell, kx + 4, ky + 1, 150, 14, 20, 255); cell_at(r, sx, sy, cell, kx + 5, ky + 1, 150, 14, 20, 255);
-    }
 }
 
 void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) {          /* the first circle: vessel 1, the pool, the knife */

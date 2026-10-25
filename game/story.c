@@ -478,11 +478,14 @@ void story_start(void) {
     if (getenv("VESSEL_KNIFE")) item_give(ITEM_KNIFE);          /* dev: a knife in the pockets from the start (to try the second circle) */
     ritual_body_reset();                         /* vessel 1 lies where he fell, no second circle yet */
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
-    { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
+    bodies_add(1, 0, 0, NULL);   /* Aonia lies at the circle (ritual.c), his hands empty: the knife lies on the floor beside him (below) */
     world_set_inspect_cb(story_inspect);
     item_set_body_cb(body_take);
     item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);
+    { float bx, by; int kx, ky;                                                                   /* the knife lies on the floor next to him: a real item, to be taken */
+      if (!world_body_tile(1, &bx, &by)) { float cx, cy; ritual_centre(&cx, &cy); bx = cx - 2.2f; by = cy; }
+      if (world_free_tile_near(bx, by - 1.5f, &kx, &ky)) world_place_item(ITEM_KNIFE, kx, ky); }
     { int fx, fy; if (world_pit_spots(&fx, &fy, NULL, NULL)) ritual_c2_set(fx + 0.5f, fy + 0.5f); }    /* chunk 13: the empty carvings of the second circle lie on the far ledge */
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* chunk 15: two small rocks lie at random places round the room, off the circle and Aonia (they sparkle now and then: they can be taken) */

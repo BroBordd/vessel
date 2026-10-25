@@ -668,19 +668,21 @@ int world_rock_in_reach(void) {
     return props_rock_gap(pxp, pyp, px, tile) <= INSPECT_REACH;
 }
 int world_rock_break(float *tx, float *ty) { return props_rock_break(tx, ty); }
-/* story chunk 8: THROW. the thing leaves our hand in the direction we face and flies up to THROW_RANGE tiles (3): a wall stops it (it drops in front of the wall), the
- * crack does not (it goes in and is gone). returns 1 when it fell into the pit, 0 when it landed on the floor (a drop that lands with a thunk, and can be taken again) */
-#define THROW_RANGE 3
+/* story chunk 8: THROW. the thing leaves our hand and lands at random on a tile in the 3x3 round us (like minecraft: it can be our own tile): never in a wall. if that tile is
+ * the crack it goes in and is gone. returns 1 when it fell into the pit, 0 when it landed on the floor (a drop that lands with a thunk, and can be taken again) */
 int world_throw_item(int kind) {
-    int dx = facing == FACE_LEFT ? -1 : facing == FACE_RIGHT ? 1 : 0, dy = facing == FACE_UP ? -1 : facing == FACE_DOWN ? 1 : 0;
-    int x0 = (int)floorf(pxp / tile), y0 = (int)floorf(pyp / tile), lx = x0, ly = y0;
-    for (int i = 1; i <= THROW_RANGE; i++) {
-        int nx = x0 + dx * i, ny = y0 + dy * i;
-        if (nx >= 0 && ny >= 0 && nx < mw && ny < mh && map[ny][nx] == T_RPIT && cur_map == MAP_TEMPLE) return 1;
-        if (solid_tile(nx, ny)) break;
-        lx = nx; ly = ny;
+    static unsigned long long seed;
+    int x0 = (int)floorf(pxp / tile), y0 = (int)floorf(pyp / tile), cx[9], cy[9], n = 0;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+        int nx = x0 + i, ny = y0 + j;
+        if (nx < 0 || ny < 0 || nx >= mw || ny >= mh || solid_tile(nx, ny)) continue;
+        cx[n] = nx; cy[n] = ny; n++;
     }
-    world_drop_item(kind, lx, ly);
+    seed = seed * 6364136223846793005ULL + (unsigned long long)SDL_GetTicks() + 1442695040888963407ULL;
+    int k = n ? (int)((seed >> 33) % (unsigned)n) : -1;
+    int tx = k >= 0 ? cx[k] : x0, ty = k >= 0 ? cy[k] : y0;
+    if (cur_map == MAP_TEMPLE && map[ty][tx] == T_RPIT) return 1;
+    world_drop_item(kind, tx, ty);
     return 0;
 }
 int world_pit_spots(int *far_x, int *far_y, int *edge_x, int *edge_y) {        /* the far ledge's spot and the near ledge's middle (tiles); 0 = no pit */
