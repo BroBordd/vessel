@@ -263,11 +263,12 @@ int item_actions(int kind, int out[4]) {
     case ITEM_CLUB:       out[n++] = ACT_SMASH; out[n++] = ACT_DROP; break;
     case ITEM_SKULL_STRING: case ITEM_FINGER_NECKLACE: case ITEM_TOOTH_NECKLACE: out[n++] = ACT_WEAR; break;
     case ITEM_WATCHING_ROCK: out[n++] = ACT_DROP; break;
+    case ITEM_PAPER:      out[n++] = ACT_READ; break;                  /* the note: READ opens its window (story.c) */
     default: break;
     }
     return n;
 }
-const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : act == ACT_COMBINE ? "COMBINE" : act == ACT_SWING ? "SWING" : act == ACT_SMASH ? "SMASH" : act == ACT_WEAR ? "WEAR" : ""; }
+const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : act == ACT_COMBINE ? "COMBINE" : act == ACT_SWING ? "SWING" : act == ACT_SMASH ? "SMASH" : act == ACT_WEAR ? "WEAR" : act == ACT_READ ? "READ" : ""; }
 void item_set_action_cb(void (*cb)(int kind, int act)) { action_cb = cb; }
 
 int item_size(int kind) {

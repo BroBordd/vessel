@@ -7,6 +7,7 @@
 #include "item.h"
 #include "mapwin.h"
 #include "confirm.h"
+#include "notewin.h"
 #include "ritual.h"
 #include "story.h"
 #include "font.h"
@@ -1010,7 +1011,7 @@ static void rock_place(void) {                                  /* the big rock 
 }
 
 void world_update(float dt) {
-    if (item_ui_open() || confirm_active()) return;           /* story chunk 16: the inventory window is open: the world waits, as when paused (the confirm window too) */
+    if (item_ui_open() || confirm_active() || notewin_active()) return;           /* story chunk 16: the inventory window is open: the world waits, as when paused (the confirm window too) */
     dragged_now = 0;
     if (mapwin_active() && (dialog_active() || !controls_visible)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     t += dt;

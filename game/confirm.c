@@ -128,7 +128,8 @@ int confirm_no_y(void)  { if (!on) return -1; Lay L; layout(&L); return btn_y(&L
 
 /* a plain button in the look of the NO button (gold frame, dark body), for other screens (the self-stab scene's CONTINUE). alpha 0..255 fades the whole button */
 void confirm_button_draw(SDL_Renderer *r, int x, int y, int w, int h, const char *label, int cell, int pressed, int alpha) {
-    if (alpha <= 0) return; if (alpha > 255) alpha = 255;
+    if (alpha <= 0) return;
+    if (alpha > 255) alpha = 255;
     int b = bt();
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_Rect fr[4] = { { x, y, w, b }, { x, y + h - b, w, b }, { x, y + b, b, h - 2 * b }, { x + w - b, y + b, b, h - 2 * b } };   /* the frame, then the body inside it (no overlap: it fades evenly) */

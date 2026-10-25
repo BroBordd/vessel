@@ -25,6 +25,7 @@
 #include "mapwin.h"
 #include "item.h"
 #include "confirm.h"
+#include "notewin.h"
 #include "lang.h"
 #include "screen.h"
 #include "loading.h"
@@ -47,14 +48,14 @@ static void quit_app(void) {
 /* the Android back button (the app sends "k 4"). it never leaves the game: it closes the foreground-most window (the one that opened last, in
  * case several are stacked), else pauses / resumes the world. when there is nothing for it to do (the menu, limbo) it says so and the app
  * sends itself to the background instead. */
-enum { WIN_MAP, WIN_MUSIC, WIN_BRAIN, WIN_ITEM, WIN_CONFIRM, WIN_N };
+enum { WIN_MAP, WIN_MUSIC, WIN_BRAIN, WIN_ITEM, WIN_CONFIRM, WIN_NOTE, WIN_N };
 static int win_order[WIN_N], win_n;                         /* the open windows, oldest first: the last one is in front */
 
 static int win_active(int w) {
-    return w == WIN_MAP ? mapwin_active() : w == WIN_MUSIC ? musicwin_active() : w == WIN_ITEM ? item_ui_open() : w == WIN_CONFIRM ? confirm_active() : brainwin_active();
+    return w == WIN_MAP ? mapwin_active() : w == WIN_MUSIC ? musicwin_active() : w == WIN_ITEM ? item_ui_open() : w == WIN_CONFIRM ? confirm_active() : w == WIN_NOTE ? notewin_active() : brainwin_active();
 }
 static void win_close(int w) {
-    if (w == WIN_MAP) mapwin_close(); else if (w == WIN_MUSIC) musicwin_close(); else if (w == WIN_ITEM) item_ui_close(); else if (w == WIN_CONFIRM) confirm_cancel(); else brainwin_close();   /* (the confirm window: back answers NO) */
+    if (w == WIN_MAP) mapwin_close(); else if (w == WIN_MUSIC) musicwin_close(); else if (w == WIN_ITEM) item_ui_close(); else if (w == WIN_CONFIRM) confirm_cancel(); else if (w == WIN_NOTE) notewin_close(); else brainwin_close();   /* (the confirm window: back answers NO) */
 }
 /* called every frame: windows that just opened go on top of the stack, windows that are gone leave it */
 static void win_track(void) {
@@ -93,6 +94,7 @@ static void apply_size(int *W, int *H, int nw, int nh, int state) {
      * button. a = 3 only ever clears (never fires); the finger that is still down sends moves and a lift that now find nothing to hold */
     mapwin_touch(3, 0, 0);
     confirm_touch(3, 0, 0);
+    notewin_touch(3, 0, 0);
     musicwin_cancel();
     brainwin_touch(3, 0, 0);
     nowplaying_touch(3, 0, 0);
@@ -105,6 +107,7 @@ static void apply_size(int *W, int *H, int nw, int nh, int state) {
     musicwin_resize(nw, nh);
     brainwin_resize(nw, nh);
     confirm_resize(nw, nh);
+    notewin_resize(nw, nh);
     pausebtn_resize(nw, nh);
     loading_resize(nw, nh);
     if (state == ST_MENU) {
@@ -178,6 +181,7 @@ int main(int argc, char **argv) {
     brainwin_init(W, H);
     pausebtn_init(W, H);
     confirm_init(W, H);
+    notewin_init(W, H);
     State state = ST_MENU;
     /* dev: VESSEL_LIMBO=1 in the environment starts in limbo (desktop only), says its thought and stays there, so the screen can be looked at */
     if (getenv("VESSEL_LIMBO")) {
@@ -224,7 +228,7 @@ int main(int argc, char **argv) {
                      * when no window is open (a lift always gets through to the world, so no control stays held) */
                     if (mapwin_active()) mapwin_touch_p(pr + 1, a, x, y);
                     else if (musicwin_active()) musicwin_touch_p(pr + 1, a, x, y);
-                    if (state == ST_WORLD && (a != 0 || (!mapwin_active() && !musicwin_active() && !brainwin_active() && !confirm_active() && !pausebtn_paused())))
+                    if (state == ST_WORLD && (a != 0 || (!mapwin_active() && !musicwin_active() && !brainwin_active() && !confirm_active() && !notewin_active() && !pausebtn_paused())))
                         world_touch_p(pr + 1, a, x, y);
                 } else if (sscanf(s, "k %d", &a) == 1) {                    /* a key: 4 = the back button */
                     if (a == 4 && !handle_back(state)) { printf("back: unhandled\n"); fflush(stdout); }
@@ -237,6 +241,8 @@ int main(int argc, char **argv) {
                 } else if (sscanf(s, "t %d %d %d", &a, &x, &y) == 3) {
                     if (confirm_touch(a, x, y)) {
                         /* the confirm window is open: it takes every touch (it is the front one) */
+                    } else if (notewin_touch(a, x, y)) {
+                        /* the note window is open: it takes every touch */
                     } else if (state == ST_WORLD && world_final_active()) {
                         world_touch(a, x, y);                       /* the final action (the self stab): only its CONTINUE button listens (no map, music, brain, pause) */
                     } else if (mapwin_touch(a, x, y)) {
@@ -365,6 +371,7 @@ int main(int argc, char **argv) {
         musicwin_update(dt); musicwin_draw(r);           /* and the music window on top of that */
         brainwin_update(dt); brainwin_draw(r);           /* the brain window (never open together with the music one) */
         mapwin_update(dt); mapwin_draw(r);               /* the map window, over everything (a tap on the minimap opens it) */
+        notewin_update(dt); notewin_draw(r);             /* the note window (READ on the paper) */
         confirm_draw(r);                                 /* the confirm window (STAB SELF ...), the very front */
         SDL_RenderPresent(r);
         if (!gpu) memcpy(px, back, fbsz);

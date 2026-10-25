@@ -15,6 +15,7 @@
 #include "props.h"
 #include "toast.h"
 #include "confirm.h"
+#include "notewin.h"
 #include "audio.h"
 #include <stdio.h>
 #include "missions.h"
@@ -77,11 +78,9 @@ void story_after(float seconds, void (*fn)(void)) {
         if (!timers[i].fn) { timers[i].left = seconds; timers[i].fn = fn; return; }
 }
 
-static void note_watch(void);
 static void pit_watch(float dt);
 static void secrets_watch(float dt);
 void story_update(float dt) {
-    note_watch();                               /* the paper has been taken: read it */
     if (item_has(ITEM_INTESTINE)) event_fire(EV_FIRST_INTESTINE);   /* chunk 9 */
     pit_watch(dt);                              /* chunk 11 */
     secrets_watch(dt);                          /* chunk 12 */
@@ -223,30 +222,24 @@ static void dev_die(void) {
     story_die(!strcmp(e, "pit") ? DEATH_PIT : !strcmp(e, "circle") ? DEATH_CIRCLE : DEATH_SELF);
 }
 
-/* ---------- the note (chunk 5) ---------- */
-/* a paper lies by Aonia. TAKING it (the hand button, item.c) reads it, once: the pages play as a dialog in Aonia's face, the card flips from Vas to the
- * vessel's real name (name flash, coin ding, toast: hud_set_person), the paper is gone for good and the task changes. only vessel 2 can read it: it is
- * addressed to Doia, and a later body wakes with no paper on the floor (the map is made again and nothing puts it back). */
-static const DialogLine NOTE_DLG[] = {
-    { &VESSEL, "Hello, Doia. I am Aonia, Vessel 1. I died so that you could live." },
-    { &VESSEL, "Do not be afraid. I am you. Past the fallen hall the ground has broken open, and I could not cross it." },
-    { &VESSEL, "Every death takes what we knew. That is the price. Find a way out." },
-};
+/* ---------- the note (chunk 5, reworked) ---------- */
+/* a paper lies by Aonia. TAKING it (the hand button, item.c) only puts it in the pockets. its action READ opens the note window (notewin.c): a pixel-art page written in
+ * blood. the FIRST read completes the task "Read the note" at once; when the window is closed the card flips from Vas to the vessel's real name (hud_set_person) and the
+ * task "Escape the ruins" comes. the paper stays in the pockets (read it again any time) until we die. only vessel 2 can read it for the first time: it is addressed to
+ * Doia, and a later body wakes with no paper on the floor (the map is made again and nothing puts it back). */
 static Person card_vas;                                         /* the card before the note: this body's face under the plain name Vas */
 static void card_show_vas(void) { card_vas = *story_vessel_look(story_vessel_index()); card_vas.name = VESSEL_LATIN; hud_reset(&card_vas, 0); }
 
-static void note_done(void) {
-    hud_set_person(story_vessel_look(story_vessel_index()));    /* Doia: the card flashes, the coin dings, the toast says YOU ARE NOW Doia */
-    if (task_note >= 0) mission_complete(task_note);
-    task_note = -1;
+static void note_done(void) {                                   /* the window is closed after the first read */
+    hud_set_person(story_vessel_look(story_vessel_index()));    /* Doia: the card flashes and the coin dings */
     task_escape = mission_add("Escape the ruins");
     event_fire(EV_READ_NOTE);
 }
-static void note_watch(void) {
-    if (note_read || !item_has(ITEM_PAPER)) return;
+static void note_read_action(void) {
+    int first = !note_read;
     note_read = 1;
-    item_take(ITEM_PAPER);                                      /* it is read and gone: no notes after this one */
-    dialog_play(NOTE_DLG, (int)(sizeof NOTE_DLG / sizeof NOTE_DLG[0]), note_done);
+    if (first) { if (task_note >= 0) mission_complete(task_note); task_note = -1; }   /* the task is done the moment we read */
+    notewin_open(first ? note_done : NULL);
 }
 
 /* ---------- inspecting a body (chunk 6, its own window in chunk 17) ---------- */
@@ -387,6 +380,9 @@ static void stab_self_begin(void) {
 static void story_action(int kind, int act) {
     if (dying || world_final_active()) return;
     switch (act) {
+    case ACT_READ:
+        if (kind == ITEM_PAPER && item_has(ITEM_PAPER)) note_read_action();
+        return;
     case ACT_STAB_SELF:
         if (cp_busy) return;
         confirm_ask("STAB SELF", "This will kill you. Sure?", "YES", "NO", stab_self_begin);

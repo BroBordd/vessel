@@ -32,7 +32,7 @@ int item_size(int kind);                    /* the size class of an item kind (S
 const char *item_name(int kind);            /* "HAMMER", "ORB" (capitals: the pixel font) */
 /* story chunk 8: WHAT AN ITEM IS AND WHAT IT CAN DO. the open inventory shows, under the name of the slot you touched, a short description and one button per
  * action. the ACTION button (one, at the bottom) opens the list of actions; a tap on one folds the panel and calls the action callback (story.c decides what happens: the knife stabs a body or ourselves, the rock flies). */
-typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW, ACT_CUT_FINGERS, ACT_CUT_BONE, ACT_CUT_EYES, ACT_CUT_TEETH, ACT_CLEAN, ACT_DROP, ACT_COMBINE, ACT_SWING, ACT_SMASH, ACT_WEAR } ItemAction;
+typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW, ACT_CUT_FINGERS, ACT_CUT_BONE, ACT_CUT_EYES, ACT_CUT_TEETH, ACT_CLEAN, ACT_DROP, ACT_COMBINE, ACT_SWING, ACT_SMASH, ACT_WEAR, ACT_READ } ItemAction;
 const char *item_desc(int kind);                        /* a short text (letters, digits, space and , . ! ? ' -) */
 int         item_actions(int kind, int out[4]);         /* the actions of an item, 0 to 4 of them. returns how many */
 const char *item_action_name(int act);                  /* the button's words (capitals) */
