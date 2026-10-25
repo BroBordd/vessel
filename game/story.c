@@ -9,6 +9,7 @@
 #include "thought.h"
 #include "world.h"
 #include "jukebox.h"
+#include "events.h"
 #include "vessel_gen.h"
 #include <string.h>
 #include <stdlib.h>
@@ -43,7 +44,10 @@ const char *story_vessel_name(unsigned index) { return story_vessel_look(index)-
 #define START_VESSEL 2                                              /* vessel 1 (Aonia) lies dead in the ruins when the story starts: the player wakes in vessel 2 */
 static unsigned cur_vessel = START_VESSEL;
 unsigned story_vessel_index(void) { return cur_vessel; }
-void story_vessel_set(unsigned index) { cur_vessel = index ? index : START_VESSEL; world_set_player(story_vessel_look(cur_vessel)); }
+void story_vessel_set(unsigned index) {
+    cur_vessel = index ? index : START_VESSEL; world_set_player(story_vessel_look(cur_vessel));
+    if (cur_vessel >= 20) event_fire(EV_VESSEL_20); else if (cur_vessel >= 10) event_fire(EV_VESSEL_10); else if (cur_vessel >= 5) event_fire(EV_VESSEL_5);   /* the crowd thoughts (once each) */
+}
 void story_vessel_next(void) { story_vessel_set(cur_vessel + 1); }     /* a death: the soul wakes in the next vessel */
 
 /* ---------- timers ---------- */
@@ -56,6 +60,7 @@ void story_after(float seconds, void (*fn)(void)) {
 }
 
 void story_update(float dt) {
+    events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
         timers[i].left -= dt;
@@ -118,10 +123,12 @@ void story_limbo_begin(int stay) {
 }
 
 /* ---------- the world starts ---------- */
+static void story_woke(void) { event_fire(EV_WAKE); }     /* the new body has formed in the circle */
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    world_ritual(story_vessel_look(1), NULL);   /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
+    events_reset();
+    world_ritual(story_vessel_look(1), story_woke);   /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 
 /* saves are gone with the old story (the first save format is in trash/story_old.c) */

@@ -27,6 +27,8 @@
 - Thoughts are short (about 19 letters a line on a phone, 3 lines). Never reproduce real lyrics, poems or quotes from other works.
 - Sounds are tuned on the phone speaker: nothing under 120 Hz carries there, and steady buzz is annoying; prefer soft, uneven, low-passed noise.
 - Never write the token anywhere.
+- **Do not build-test in the sandbox.** No compile checks, no headless runs, no test tools: write the code carefully (read the headers you call), commit, push. The owner pulls,
+  builds and plays on the phone and reports back. Spend tokens on the code, not on checking it.
 
 ## Premise
 You are **Vas**, a soul. You live in numbered bodies (vessels): **Aonia** (1), **Doia** (2), **Tria** (3), **Ceathia** (4) ...
@@ -228,7 +230,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
   3-5 row crack right across it, far ledge, sealed gate). New tile `T_RPIT` (solid, open to the eye: black, a cliff face on its north lip, a crumbling south
   lip, a glint now and then), minimap colour, `world_dist_to_pit()`, `world_pit_spots()`. `tools/gentest.c`, `tools/ruinshot.c`. The old maps stay in the file
   until chunk 14.
-- [ ] **3. Event thoughts engine:** brain-button thoughts fired by events while the player acts, once-flags, repeat flags, the thought also joins the brain window.
+- [x] **3. Event thoughts engine:** `events.c/.h`: every thought of sections 10 and 11 is an `EventId` with its line; `event_fire(id)` from any chunk (once, or a repeat with a cooldown), a small queue thinks them one at a time, only while the player is free (world runs, no talk, no cutscene), with a breath between; each joins the brain window (tag 100+id, the oldest goes when it is full) with a soft chime. The engine sees by itself: wake (`story_woke`), step off the circle, first drag, long drag (10 s, repeat), pit edge, vessel 5/10/20. The rest are fired by their own chunks (`event_fire(EV_...)`). New `world_player_tilef/controls_on/dragging/drag_moving`.
 - [ ] **4. Limbo and the first wake-up:** Vas's three-line conversation, the circle, Aonia with flowing blood, the paper; the short skippable limbo after later deaths, by cause.
 - [ ] **5. The note:** the paper on the floor, reading it flips the card to Doia, the paper disappears, task list.
 - [ ] **6. Persistent bodies:** death adds a body in place, bodies keep their inventory, **Inspect**.
@@ -242,6 +244,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
 
 ## Status log
+- 2026-10-25: chunk 3 done: event thoughts engine (`events.c`), wired in `story.c` (`events_reset`, `events_update`, `story_woke`). Written untested by owner's rule. Next: chunk 4.
 - 2026-10-25: the first body's blood cut by 60 % (`ritual.c wounds()`), his face is clear. Whole-body dragging of vessel 1 (chunk 7, part): `ritual_body_box/shift`,
   `char_set_grip/strain`, `sfx_drag`, the button icon; sandbag follow and a calm scrape (owner tuned: faster, softer). Story doc untrashed.
 - 2026-10-25: chunk 1 verified done (already in the tree). Chunk 2 done: ruins generator and pit tile. `gentest` 500 seeds ok; headless shots look right

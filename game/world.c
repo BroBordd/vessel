@@ -925,6 +925,10 @@ void world_set_controls_visible(int on) {
 float world_debug_zoom(void) { return zoom; }
 int world_player_tile_x(void) { return (int)(pxp / tile); }
 int world_player_tile_y(void) { return (int)(pyp / tile); }
+void world_player_tilef(float *x, float *y) { if (x) *x = pxp / (float)tile; if (y) *y = pyp / (float)tile; }
+int world_controls_on(void) { return controls_visible && phase == PH_PLAY; }
+int world_dragging(void) { return drag_on; }
+int world_drag_moving(void) { return dragged_now; }
 
 /* the pit (gen.c): how far (tiles) the player's feet are from the nearest pit tile; 1e9 when this map has none. the story uses it for "arrives at the edge" */
 float world_dist_to_pit(void) {

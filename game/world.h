@@ -27,6 +27,10 @@ float world_debug_zoom(void);              /* current zoom (1 = none), for tests
 void world_set_controls_visible(int on);   /* analog stick + interact button */
 int  world_player_tile_x(void);
 int  world_player_tile_y(void);
+void world_player_tilef(float *x, float *y);   /* where the feet are, in tiles, with the fraction */
+int  world_controls_on(void);                  /* the player is free: the controls are showing and no cutscene runs (events.c waits for this) */
+int  world_dragging(void);                     /* we hold a body */
+int  world_drag_moving(void);                  /* ... and this frame the pull really moved it */
 
 /* finds a tile on the current map that the player can really walk to from where they stand (never
  * behind water or trees), with open ground all around it (so a character placed there is not
