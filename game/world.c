@@ -70,7 +70,8 @@ static int   near_bury;             /* the body that was searched lies in reach 
 static int   near_drag, drag_on;    /* vessel 1 lies in reach: the button holds him (a tap) and lets go; drag_on: we hold him and pull him along as we walk */
 static float strain_t;              /* > 0: we are pulling, the eyes are shut */
 static int   dragged_now;           /* this frame the pull really moved him */
-static float drag_snd;              /* the growl's level we sent last frame */
+static float drag_snd;              /* the friction hiss's level we sent last frame */
+static float drag_ox, drag_oy, drag_spd;   /* where his middle wants to be, from us (px, fixed when we took hold); how fast he really slides (cells / s) */
 static int   near_bsearch;          /* chunk 39: a dead npc's body that can be searched lies in reach (the same glass on the button) */
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
 static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
@@ -239,6 +240,9 @@ static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }
  * while we hold him we walk slower, he stays on the floor and is dragged along with us (never into a wall), our eyes shut with the effort, and the stone growls */
 #define DRAG_SPEED  0.45f       /* walking speed while we hold him */
 #define DRAG_REACH  4.0f        /* cells: how far from his edge we may be to take hold */
+#define DRAG_TAU    0.30f       /* his lag: like the camera, he eases toward where our hands would have him (seconds) */
+#define DRAG_SLACK  1.5f        /* cells: the rope is slack this much, he does not move until it is tight (a sandbag has to be started) */
+#define DRAG_MAXLAG 6.0f        /* cells: the most he can trail behind (our arms reach that far); at the limit we cannot walk on */
 #define DRAG_STRAIN 0.30f       /* seconds the eyes stay shut after the last bit of pulling (no flicker) */
 static int body_box_px(float *x0, float *y0, float *x1, float *y1) {          /* his box in world px, 0 if there is no body to pull */
     float a, b, c, d, rx, ry;
@@ -266,11 +270,35 @@ static int body_blocked(float sx, float sy) {                               /* w
         if (solid_tile((int)floorf((x0 + (x1 - x0) * 0.5f * i) / tile), (int)floorf((y0 + (y1 - y0) * 0.5f * j) / tile))) return 1;
     return 0;
 }
+static float drag_lag(float ppx, float ppy) {                              /* how far his middle is from where our hands want it, if we stood at (ppx, ppy) */
+    float x0, y0, x1, y1;
+    if (!body_box_px(&x0, &y0, &x1, &y1)) return 0;
+    return hypotf(ppx + drag_ox - (x0 + x1) * 0.5f, ppy + drag_oy - (y0 + y1) * 0.5f);
+}
+static int drag_taut(float dx, float dy) {                                  /* a step that would stretch the rope past its limit (and not ease it) */
+    float now = drag_lag(pxp, pyp), then = drag_lag(pxp + dx, pyp + dy);
+    return then > DRAG_MAXLAG * px && then > now;
+}
+static void drag_step(float dt) {                                           /* the sandbag: he eases toward our hands, lazily, and stops when the rope goes slack */
+    drag_spd = 0;
+    float x0, y0, x1, y1;
+    if (!drag_on || dt <= 0 || !body_box_px(&x0, &y0, &x1, &y1)) return;
+    float ex = pxp + drag_ox - (x0 + x1) * 0.5f, ey = pyp + drag_oy - (y0 + y1) * 0.5f, len = hypotf(ex, ey);
+    if (len < 0.001f) return;
+    float eff = len - DRAG_SLACK * px; if (eff < 0) eff = 0;
+    float mv = eff * (1.0f - expf(-dt / DRAG_TAU));
+    if (len - mv > DRAG_MAXLAG * px) mv = len - DRAG_MAXLAG * px;
+    float mx = ex / len * mv, my = ey / len * mv;
+    if (body_blocked(mx, 0)) mx = 0; else ritual_body_shift(mx / px, 0);
+    if (body_blocked(0, my)) my = 0; else ritual_body_shift(0, my / px);
+    drag_spd = hypotf(mx, my) / dt / (float)px;
+}
 static void drag_toggle(void) {
     if (drag_on) { drag_on = 0; return; }
     float x0, y0, x1, y1;
     if (!body_box_px(&x0, &y0, &x1, &y1)) return;
-    drag_on = 1;
+    drag_on = 1; drag_spd = 0;
+    drag_ox = (x0 + x1) * 0.5f - pxp; drag_oy = (y0 + y1) * 0.5f - pyp;
     float cyy = pyp - 4.0f * px, nx = pxp < x0 ? x0 : pxp > x1 ? x1 : pxp, ny = cyy < y0 ? y0 : cyy > y1 ? y1 : cyy;      /* turn to the point we hold him at */
     float fdx = nx - pxp, fdy = ny - cyy;
     if (fabsf(fdx) > fabsf(fdy)) facing = fdx < 0 ? FACE_LEFT : FACE_RIGHT;
@@ -1370,7 +1398,7 @@ void world_touch_p(int pid, int a, int x, int y) {
 }
 
 static int blocked(float fx, float fy) {           /* feet box centred at fx,fy */
-    if (!drag_on && body_hits(fx, fy)) return 1;      /* vessel 1 lies there: not a place to stand (while we hold him he moves with us) */
+    if (body_hits(fx, fy)) return 1;                  /* vessel 1 lies there: not a place to stand */
     float hw = 3.0f * px, hh = 1.5f * px;
     float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
     for (int i = 0; i < 2; i++)
@@ -1499,9 +1527,9 @@ void world_update(float dt) {
         if (moving) {
             float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? DRAG_SPEED : 1.0f);
             float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
-            if (drag_on) {                                                      /* he is pulled along: nothing moves if he would meet a wall */
-                if (!blocked(pxp + vx, pyp) && !body_blocked(vx, 0)) { pxp += vx; ritual_body_shift(vx / px, 0); dragged_now = 1; }
-                if (!blocked(pxp, pyp + vy) && !body_blocked(0, vy)) { pyp += vy; ritual_body_shift(0, vy / px); dragged_now = 1; }
+            if (drag_on) {                                                      /* he trails behind us on a rope: we cannot outrun it (drag_step) */
+                if (!blocked(pxp + vx, pyp) && !drag_taut(vx, 0)) pxp += vx;
+                if (!blocked(pxp, pyp + vy) && !drag_taut(0, vy)) pyp += vy;
             } else {
                 if (!blocked(pxp + vx, pyp)) pxp += vx;
                 if (!blocked(pxp, pyp + vy)) pyp += vy;
@@ -1510,6 +1538,8 @@ void world_update(float dt) {
             else                       facing = ky < 0 ? FACE_UP : FACE_DOWN;
             walk += dt * 8.0f * (drag_on ? 0.55f : 1.0f);
         } else walk = 0;
+        drag_step(dt);
+        dragged_now = drag_spd > 0.8f;
 
         grave_update(dt);
         npc_tick(dt);
@@ -1569,7 +1599,7 @@ void world_update(float dt) {
             near_id = -1; near_hole = near_shrine = near_grave = near_search = near_bsearch = near_bury = near_door = near_drag = 0; btn_down = btn_inside = 0; near_item = hand_down = hand_inside = 0; drag_on = 0;
         }
     }
-    {   float lv = drag_on && dragged_now ? 0.55f + 0.45f * fminf(sqrtf(kx * kx + ky * ky), 1.0f) : 0.0f;     /* the growl on the stone: only while he really moves */
+    {   float lv = drag_on ? fminf(drag_spd / 16.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the hiss of the stone: as loud as he is fast */
         if (lv > 0 || drag_snd > 0) sfx_drag(lv);
         drag_snd = lv;
         strain_t = drag_on && dragged_now ? DRAG_STRAIN : (strain_t > dt ? strain_t - dt : 0.0f);

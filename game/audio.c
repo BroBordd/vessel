@@ -365,11 +365,12 @@ static void hit_mix(Sint16 *out, int frames) {
     }
 }
 
-/* ---------- the drag: a body pulled over stone. low-passed noise cut up into a rough ~30 Hz growl (the "grrr"), a slow wobble on it, a dull tone under it ---------- */
+/* ---------- the drag: a body sliding over stone, ground friction. a calm hiss: noise with the lows and the very highs taken out (a band
+ * of roughly 300 Hz to 3 kHz), a slow soft swell on it, no pulses and no tone. its loudness follows how fast he slides ---------- */
 static int   drag_on;
-static float drag_tgt, drag_amp, drag_lp1, drag_lp2, drag_ph, drag_ph2, drag_ph3;
+static float drag_tgt, drag_amp, drag_lp1, drag_lp2, drag_ph;
 static unsigned drag_seed = 4242u;
-#define DRAG_GAIN 0.30f
+#define DRAG_GAIN 0.35f
 void sfx_drag(float level) {
     if (!dev) return;
     if (level < 0) level = 0;
@@ -381,22 +382,17 @@ void sfx_drag(float level) {
 }
 static void drag_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
-        drag_amp += (drag_tgt - drag_amp) * (drag_tgt > drag_amp ? 0.0007f : 0.0015f);              /* fades in over ~30 ms, out over ~15 ms: no clicks */
+        drag_amp += (drag_tgt - drag_amp) * (drag_tgt > drag_amp ? 0.00035f : 0.00060f);            /* eases in over ~65 ms, out over ~40 ms */
         if (drag_tgt <= 0.0f && drag_amp < 0.0006f) { drag_on = 0; drag_amp = 0; return; }
         drag_seed = drag_seed * 1664525u + 1013904223u;
         float n = (float)(drag_seed >> 16) / 32768.0f - 1.0f;
-        drag_lp1 += (n - drag_lp1) * 0.10f;
-        drag_lp2 += (drag_lp1 - drag_lp2) * 0.12f;                                                   /* grit around 500 Hz and below */
-        drag_ph  += (30.0f + 5.0f * sinf(6.2831853f * drag_ph2)) / (float)OUT_RATE;                  /* the growl: ~30 Hz pulses, the rate wobbling */
-        drag_ph2 += 2.3f / (float)OUT_RATE;
-        drag_ph3 += 92.0f / (float)OUT_RATE;
-        if (drag_ph >= 1.0f) drag_ph -= 1.0f;
-        if (drag_ph2 >= 1.0f) drag_ph2 -= 1.0f;
-        if (drag_ph3 >= 1.0f) drag_ph3 -= 1.0f;
-        float pulse = 0.5f + 0.5f * sinf(6.2831853f * drag_ph);
-        pulse *= pulse;
-        float grit = drag_lp2 * 7.0f; if (grit > 1.0f) grit = 1.0f; else if (grit < -1.0f) grit = -1.0f;
-        float v = (grit * (0.35f + 0.65f * pulse) + 0.22f * pulse * sinf(6.2831853f * drag_ph3)) * (0.85f + 0.15f * sinf(6.2831853f * drag_ph2));
+        drag_lp1 += (n - drag_lp1) * 0.30f;                                                          /* top off above ~2.5 kHz */
+        drag_lp2 += (drag_lp1 - drag_lp2) * 0.040f;                                                  /* ... and what is left of it minus a slow part: the lows go */
+        float band = drag_lp1 - drag_lp2;
+        drag_ph += 1.3f / (float)OUT_RATE; if (drag_ph >= 1.0f) drag_ph -= 1.0f;
+        float swell = 0.85f + 0.15f * sinf(6.2831853f * drag_ph);
+        float v = band * 1.6f * swell;
+        if (v > 1.0f) v = 1.0f; else if (v < -1.0f) v = -1.0f;
         int o16 = (int)(v * drag_amp * DRAG_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {
             int o = out[i * 2 + ch] + o16;

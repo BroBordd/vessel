@@ -92,7 +92,7 @@ int  sfx_debug_errors(void);
 void sfx_pfft(void);                    /* chunk 38.1: a watery pfft: a short burst of low-passed noise, the pitch falling, a little gurgle on it */
 int  sfx_debug_pfft(void);              /* tests: how many times sfx_pfft was called */
 void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
-void sfx_drag(float level);             /* a body dragged over the stone: a low rough growl, "grrrr". call it every frame with how hard we pull 0..1 (0 = quiet; it fades in and out by itself) */
+void sfx_drag(float level);             /* a body sliding over stone: a calm friction hiss, as loud as he is fast. call it every frame with 0..1 (0 = quiet; it eases in and out by itself) */
 void sfx_hold_hint(void);               /* chunk 55: a tap on a hammer button (a hold is needed): a short soft rising "bup" */
 int  sfx_debug_hints(void);             /* tests: how many times sfx_hold_hint was called */
 int  sfx_debug_hits(void);              /* tests: how many times sfx_hit was called */            /* tests: how many times sfx_error was called */
