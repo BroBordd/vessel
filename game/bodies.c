@@ -22,7 +22,7 @@ int  bodies_add(unsigned vessel, float tx, float ty, const unsigned char *inv) {
     if (n >= BODIES_MAX) return -1;
     Body *b = &list[n];
     memset(b, 0, sizeof *b);
-    b->vessel = vessel; b->tx = tx; b->ty = ty;
+    b->vessel = vessel; b->tx = tx; b->ty = ty; b->pool_x = tx; b->pool_y = ty;
     if (inv) memcpy(b->inv, inv, ITEM_COUNT);
     return n++;
 }
@@ -104,17 +104,22 @@ int bodies_nearest(float fx, float fy, int px, int tile, float reach, float *gap
 
 void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken) {
     float k = 1.0f - darken; if (k < 0) k = 0;
-    for (int i = 0; i < n; i++) {
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < n; i++) {                                                   /* the pools first, all of them, on the floor where they dried: a body dragged over a pool lies on it */
         const Body *b = &list[i];
         if (b->vessel == 1) continue;
-        int fx = (int)lroundf(b->tx * (float)tile) - cam_x, fy = (int)lroundf(b->ty * (float)tile) - cam_y;
-        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);                         /* the pool: a flat ellipse of blood, a little bigger than he is */
-        SDL_SetRenderDrawColor(r, (Uint8)(104 * k), (Uint8)(14 * k), (Uint8)(22 * k), 215);
+        int fx = (int)lroundf(b->pool_x * (float)tile) - cam_x, fy = (int)lroundf(b->pool_y * (float)tile) - cam_y;
+        SDL_SetRenderDrawColor(r, (Uint8)(104 * k), (Uint8)(14 * k), (Uint8)(22 * k), 215);   /* a flat ellipse of blood, a little bigger than he is */
         for (int j = -4; j <= 4; j++) {
             int w = (int)(sqrtf(1.0f - (float)(j * j) / 25.0f) * 11.0f);
             SDL_Rect q = { fx - w * px, fy - 4 * px + j * px, 2 * w * px, px };
             SDL_RenderFillRect(r, &q);
         }
+    }
+    for (int i = 0; i < n; i++) {
+        const Body *b = &list[i];
+        if (b->vessel == 1) continue;
+        int fx = (int)lroundf(b->tx * (float)tile) - cam_x, fy = (int)lroundf(b->ty * (float)tile) - cam_y;
         char_set_darken(darken);
         char_draw_lying(r, story_vessel_look(b->vessel), fx, fy, px);
         char_set_darken(0);

@@ -16,6 +16,7 @@
 typedef struct {
     unsigned vessel;                    /* whose body: 1 = Aonia (at the circle, ritual.c), 2 = Doia ... */
     float tx, ty;                       /* where the feet are, in tiles (not used for vessel 1) */
+    float pool_x, pool_y;               /* where the pool of blood lies, in tiles: where it died. the pool is the floor's, not the body's: dragging the body leaves it behind (only the smears follow) */
     unsigned char inv[ITEM_COUNT];      /* how many of that item it carries */
     unsigned char cuts;                 /* story chunk 9: how far it has been cut up (0..BODIES_CUTS, section 6 of the plan) */
 } Body;

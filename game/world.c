@@ -115,7 +115,7 @@ static SDL_Texture *atex; static SDL_Renderer *aren;
 #define FIN_ZIN     0.9f            /* zooming in */
 #define FIN_RAISE   1.4f            /* the hands go up to the neck's height with the knife ... */
 #define FIN_RAISE_T 0.9f            /* ... this long */
-#define FIN_EYES    (FIN_APP + 3.4f)    /* the eyes close: after the second hesitation, just before he does it */
+#define FIN_EYES    (FIN_APP + 0.9f)    /* the eyes close at the first hesitation (the knife stops: KT[1] of fin_knife_x) and stay shut for good: through the second one, the push, the fall and the body that lies after */
 #define FIN_APP     3.0f            /* both hands bring the knife in, at the neck's height ... */
 #define FIN_APP_T   4.7f            /* ... this long: in, back (hesitates), in closer, back (hesitates again), then the push in, faster and faster (fin_knife_x) */
 #define FIN_HIT     (FIN_APP + FIN_APP_T)
