@@ -352,6 +352,15 @@ static unsigned rock_body_hit(float sx, float sy) {                         /* t
     }
     return 0;
 }
+static int pit_probe(float x, float y) { int tx = (int)floorf(x / tile), ty = (int)floorf(y / tile); return tx >= 0 && ty >= 0 && tx < mw && ty < mh && map[ty][tx] == T_RPIT; }
+static int drag_into_pit(float sx, float sy) {                              /* chunk 11: would what we hold end up over the crack if it moved by (sx, sy) px? */
+    float x0, y0, x1, y1;
+    if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
+    float n0 = x0 + sx, m0 = y0 + sy, n1 = x1 + sx, m1 = y1 + sy, wx1 = n1 - 1, wy1 = m1 - 1;
+    for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++)
+        if (pit_probe(n0 + (wx1 - n0) * 0.5f * i, m0 + (wy1 - m0) * 0.5f * j)) return 1;
+    return 0;
+}
 static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack */
     drag_spd = 0;
     float x0, y0, x1, y1;
@@ -364,6 +373,12 @@ static void drag_step(float dt) {                                           /* t
     float lim = (rock ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
     if (len - mv > lim) mv = len - lim;
     float mx = ex / len * mv, my = ey / len * mv;
+    if (!rock && drag_id != 1 && drag_id >= 0 && mv > 0.2f * px && (drag_into_pit(mx, 0) || drag_into_pit(0, my))) {      /* chunk 11: pushed over the edge: it falls */
+        unsigned v = (unsigned)drag_id; drag_on = 0;
+        bodies_remove(v);
+        if (pit_cb) pit_cb(v);
+        return;
+    }
     if (rock && mv > 0.3f * px && smash_cd <= 0) {                           /* chunk 9: the rock pushed into a body smashes it */
         unsigned hit = rock_body_hit(mx, my);
         if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
@@ -455,7 +470,17 @@ static uint32_t temple_seed;
 static int temple_sx, temple_sy;            /* where we wake */
 static int temple_gx = -1, temple_gy = -1;  /* the sealed gate */
 static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's box (tiles), -1: none */
+/* story chunk 11: THE BRIDGE OF BODIES. every body that goes into the pit turns the lowest crack tile of the middle column (edge_tx, from the near ledge up to the far
+ * ledge) into floor. pit_pile counts them and outlives the map: a new map (a death) is filled again from it (gen_temple_map). when the column is floor the far
+ * ledge can be walked to */
+static int pit_pile;
+
 static int far_tx = -1, far_ty = -1, edge_tx = -1, edge_ty = -1;  /* the far ledge's spot (the second circle) and the near ledge's middle */
+static int pit_fill_one(void) {
+    if (pit_x0 < 0 || edge_tx < 0) return 0;
+    for (int y = pit_y1; y >= pit_y0; y--) if (map[y][edge_tx] == T_RPIT) { map[y][edge_tx] = T_RFLOOR; return 1; }
+    return 0;
+}
 static void gen_temple_map(void) {
     GenInfo gi;
     static uint8_t g[MAP_MAX][MAP_MAX];
@@ -468,6 +493,7 @@ static void gen_temple_map(void) {
     for (int y = 0; y < MAP_MAX; y++) for (int x = 0; x < MAP_MAX; x++) map[y][x] = (y < mh && x < mw) ? to_tile[g[y][x]] : T_RVOID;
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
     pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
+    for (int i = 0; i < pit_pile; i++) pit_fill_one();                  /* story chunk 11: the bodies that went in before stay in */
 }
 
 /* where the goddess stands (the story puts her there) */
@@ -1029,6 +1055,31 @@ float world_dist_to_pit(void) {
     return best;
 }
 /* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
+/* ---- story chunk 11: the pit ---- */
+void world_pit_reset(void) { pit_pile = 0; }
+int  world_pit_pile(void) { return pit_pile; }
+int  world_pit_left(void) {                                                 /* crack tiles still open in the bridge column */
+    int n = 0;
+    if (cur_map != MAP_TEMPLE || pit_x0 < 0 || edge_tx < 0) return 0;
+    for (int y = pit_y0; y <= pit_y1; y++) if (map[y][edge_tx] == T_RPIT) n++;
+    return n;
+}
+int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_fill_one(); return world_pit_left(); }
+static float pit_push_t;
+float world_pit_push_time(void) { return pit_push_t; }
+void  world_pit_push_clear(void) { pit_push_t = 0; }
+static void (*pit_cb)(unsigned vessel);
+void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
+/* THE SWING across the crack: the player flies from here to the far ledge in an arc of time (controls off), then done runs. 0 = there is no far ledge */
+static int swing_on; static float swing_t, swing_sx, swing_sy, swing_ex, swing_ey; static void (*swing_done)(void);
+int world_swing_across(void (*done)(void)) {
+    if (cur_map != MAP_TEMPLE || far_tx < 0 || swing_on) return 0;
+    swing_on = 1; swing_t = 0; swing_sx = pxp; swing_sy = pyp; swing_ex = (far_tx + 0.5f) * tile; swing_ey = (far_ty + 0.5f) * tile; swing_done = done;
+    drag_on = 0; moving = 0; stick_on = 0; kx = ky = 0;
+    world_set_controls_visible(0);
+    facing = swing_ey < swing_sy ? FACE_UP : FACE_DOWN;
+    return 1;
+}
 /* story chunk 9: the middle of a body (feet, tiles) for the parts to fall around. 0 when that vessel has no body here */
 int world_body_tile(unsigned vessel, float *tx, float *ty) {
     float x0, y0, x1, y1;
@@ -1746,6 +1797,20 @@ void world_update(float dt) {
         update_door_range();
         item_update(dt);
         bodies_trail_update(dt);
+        if (swing_on) {                                                      /* chunk 11: flying across the crack */
+            swing_t += dt / 1.5f;
+            float k = swing_t > 1.0f ? 1.0f : swing_t, e = k * k * (3.0f - 2.0f * k);
+            pxp = swing_sx + (swing_ex - swing_sx) * e; pyp = swing_sy + (swing_ey - swing_sy) * e;
+            moving = 1;
+            if (swing_t >= 1.0f) { swing_on = 0; moving = 0; world_set_controls_visible(1); if (swing_done) { void (*d)(void) = swing_done; swing_done = NULL; d(); } }
+        }
+        {   int push = 0;                                                    /* chunk 11: walking into the crack for a moment is a fall */
+            if (cur_map == MAP_TEMPLE && !indoors && !swing_on && controls_visible && (fabsf(kx) > 0.3f || fabsf(ky) > 0.3f)) {
+                float dx = kx > 0.3f ? 1.0f : kx < -0.3f ? -1.0f : 0.0f, dy = ky > 0.3f ? 1.0f : ky < -0.3f ? -1.0f : 0.0f;
+                push = pit_probe(pxp + dx * 0.6f * tile, pyp + dy * 0.6f * tile);
+            }
+            if (push) pit_push_t += dt; else pit_push_t = 0;
+        }
         if (cur_map == MAP_TEMPLE && edge_tx >= 0 && !props_rock_placed()) rock_place();
         near_item = !dialog_active() && !near_hole && item_house == indoors && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item (on the grass: outside; in the house: inside); nothing is taken by walking */
         near_inspect = 0;                                                    /* story chunk 6: a body in reach (vessel 1 is ritual.c's, the rest are bodies.c's): the hand button turns into a magnifying glass */

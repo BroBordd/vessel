@@ -115,6 +115,17 @@ void world_grave_tile(int i, float *tx, float *ty);       /* feet position in ti
  * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
+/* story chunk 11: THE PIT. world_pit_add: a body went in (the bridge column gets one more floor tile; returns the crack tiles still open), world_pit_pile: how many
+ * went in, world_pit_reset: a new game. the pile outlives the map. world_set_pit_cb: a dragged body was pushed over the edge (it is already out of the list).
+ * world_pit_push_time: seconds we have been walking into the crack (about 1 s is a fall; the story kills us). world_swing_across: fly to the far ledge, then done runs */
+void world_pit_reset(void);
+int  world_pit_pile(void);
+int  world_pit_left(void);
+int  world_pit_add(void);
+void world_set_pit_cb(void (*cb)(unsigned vessel));
+float world_pit_push_time(void);
+void world_pit_push_clear(void);
+int  world_swing_across(void (*done)(void));
 int  world_body_tile(unsigned vessel, float *tx, float *ty);   /* story chunk 9: where a body lies (feet, tiles); 0 = no such body here */
 void world_drop_item_near(int kind, float tx, float ty);       /* it falls on free floor around that spot */
 void world_set_smash_cb(void (*cb)(unsigned vessel));          /* the big rock dragged into a body: the callback gets the vessel */

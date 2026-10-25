@@ -72,9 +72,11 @@ void story_after(float seconds, void (*fn)(void)) {
         if (!timers[i].fn) { timers[i].left = seconds; timers[i].fn = fn; return; }
 }
 
+static void pit_watch(float dt);
 void story_update(float dt) {
     note_watch();                               /* the paper has been taken: read it */
     if (item_has(ITEM_INTESTINE)) event_fire(EV_FIRST_INTESTINE);   /* chunk 9 */
+    pit_watch(dt);                              /* chunk 11 */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
@@ -246,6 +248,50 @@ static void story_inspect(unsigned vessel) {
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
 }
 
+/* ---------- the pit: echoes, falls, the bridge (chunk 11) ---------- */
+/* anything dropped in is heard a moment later. a rock comes back faint and late; a body heavier; and the more bodies lie in the crack the sooner it comes back,
+ * which is how the player sees the bridge rise. the thoughts wait for the echo (EV_DROP_IN_PIT) and note when it comes sooner than the last one */
+static float echo_t = -1, echo_last = 0; static int echo_body;
+static void pit_drop(int body) {
+    int pile = world_pit_pile();
+    float d = body ? 2.6f - 0.35f * pile : 3.4f - 0.3f * pile;
+    if (d < 0.35f) d = 0.35f;
+    echo_t = d; echo_body = body;
+}
+static void echo_update(float dt) {
+    if (echo_t < 0) return;
+    echo_t -= dt; if (echo_t > 0) return;
+    float heard = echo_body ? 2.6f - 0.35f * world_pit_pile() : 3.4f - 0.3f * world_pit_pile();
+    echo_t = -1;
+    if (echo_body) sfx_hit(); else sfx_blip(0.5f);
+    event_fire(EV_DROP_IN_PIT);
+    if (echo_last > 0 && heard < echo_last - 0.05f) event_fire(EV_ECHO_SOONER);
+    echo_last = heard;
+    if (echo_body && world_pit_left() == 0) toast_notice("THE PIT", "The bodies reach the far side.");
+}
+static void story_pit_fall(unsigned v) {                            /* a dragged body was pushed over the edge */
+    (void)v;
+    world_pit_add();
+    pit_drop(1);
+}
+static void swing_done(void) { event_fire(EV_CLIMB_FAR); }
+static void pit_watch(float dt) {                                   /* every frame: the pit's own events */
+    echo_update(dt);
+    float d = world_dist_to_pit();
+    if (d < 4.5f) {
+        if (item_has(ITEM_TIED_ROCK)) event_fire(EV_HOLD_TIED_ROCK);
+        else if (item_has(ITEM_INTESTINE)) event_fire(EV_HOLD_INTESTINE);
+    }
+    { int fx, fy, ex, ey; float px_, py_;
+      if (world_pit_spots(&fx, &fy, &ex, &ey)) { world_player_tilef(&px_, &py_); if (hypotf(px_ - fx, py_ - fy) < 4.0f) event_fire(EV_CLIMB_FAR); } }
+    if (!dying && world_pit_push_time() > 1.0f) {                   /* we walked into the crack: a fall. the body is not left lying (nothing of it is found) but it fills the pit */
+        world_pit_push_clear();
+        world_pit_add();
+        event_fire(EV_FALL_IN_PIT);
+        story_die(DEATH_PIT);
+    }
+}
+
 /* ---------- cutting bodies, the inventory's actions (chunks 8 and 9) ---------- */
 /* each stab on a body takes the next step of section 6: a wound, the arms, the legs, the head, the torso opens. the parts fall on the floor around the body (they are
  * items, so a small one is taken with the hand button and a MEDIUM one (arm, leg, head, spine, bone) is carried, one at a time). a thrown big rock does all the
@@ -300,7 +346,7 @@ static void story_action(int kind, int act) {
         return; }
     case ACT_THROW:
         item_take(kind); sfx_blip(1.1f);
-        if (world_throw_item(kind)) event_fire(EV_DROP_IN_PIT);          /* the crack took it: the echo is chunk 11 */
+        if (world_throw_item(kind)) pit_drop(0);                          /* the crack took it: the echo comes back later */
         return;
     case ACT_DROP: {
         float x, y; item_take(kind); world_player_tilef(&x, &y); world_drop_item_near(kind, x, y); return; }
@@ -308,7 +354,11 @@ static void story_action(int kind, int act) {
         unsigned v = world_body_in_reach();
         if (!v) { sfx_error(); toast_notice("NOTHING TO SMASH", "Get close to a body."); return; }
         sfx_hit(); story_smash(v); return; }
-    case ACT_SWING: toast_notice("NOT HERE", "Swing it at the edge of the pit."); return;   /* the swing itself is chunk 11 */
+    case ACT_SWING:
+        if (world_dist_to_pit() > 3.0f) { toast_notice("NOT HERE", "Swing it at the edge of the pit."); return; }
+        if (!world_swing_across(swing_done)) { toast_notice("NOT HERE", "Nothing to swing at."); return; }
+        sfx_blip(0.8f); item_take(kind); event_fire(EV_SWING_HELD);         /* it wedges on the far side and stays there; the rope is left behind with it */
+        return;
     case ACT_WEAR: { int on = item_wear_toggle(kind); toast_notice(on ? "YOU WEAR IT" : "TAKEN OFF", item_name(kind)); return; }
     case ACT_CUT_FINGERS: if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_FINGERS); return;      /* the arm stays: fingers do not use it up */
     case ACT_CUT_EYES:    if (!item_has(ITEM_KNIFE)) { need_knife(); return; } sfx_hit(); item_give(ITEM_EYES); return;
@@ -333,7 +383,7 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
-    item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash);
+    item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */
