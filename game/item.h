@@ -15,7 +15,7 @@
 #define ITEM_H
 #include <SDL2/SDL.h>
 
-enum { ITEM_HAMMER, ITEM_ORB, ITEM_COUNT };      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
+enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_COUNT };      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
 #define ITEM_ICON_CELLS 12                  /* an icon is 12 x 12 cells */
 #define ITEM_REACH_R    1.3f                /* tiles: this close and the hand button shows (chunk 68; it was the walk-over pick-up radius) */
 

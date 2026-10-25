@@ -37,6 +37,21 @@ static const char *ORB[ITEM_ICON_CELLS] = {
     "..GGvvvvGG..",
     "....GGGG....",
 };
+/* the note (story chunk 5): a sheet of paper with a few lines written on it in blood. P paper, R blood */
+static const char *PAPER[ITEM_ICON_CELLS] = {
+    "..GGGGGGGG..",
+    ".GPPPPPPPPG.",
+    ".GPRRPPRPPG.",
+    ".GPPPPPPPPG.",
+    ".GPRRRPRRPG.",
+    ".GPPPPPPPPG.",
+    ".GPRRPRRRPG.",
+    ".GPPPPPPPPG.",
+    ".GPRPRRPPPG.",
+    ".GPPPPPPPPG.",
+    ".GGGGGGGGGG.",
+    "............",
+};
 /* the magnifying glass (chunk 32). B glass, b glint on the glass. the rim is light steel (L), not the dark outline, so it reads on the dark button */
 static const char *SEARCH[ITEM_ICON_CELLS] = {
     "...LLLLL....",
@@ -81,8 +96,8 @@ static const char *BAG[ITEM_ICON_CELLS] = {
     ".GwWWWWWwwG.",
     "..GGGGGGGG..",
 };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB };
-static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB" };
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER };
+static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE" };
 
 const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[kind] : ""; }
 
@@ -166,6 +181,8 @@ static void rgb_of(char c, int *R, int *G, int *B) {
         case 's': *R = 200; *G = 140; *B = 104; break;
         case 'Y': *R = 236; *G = 190; *B = 78;  break;
         case 'y': *R = 255; *G = 238; *B = 170; break;
+        case 'P': *R = 232; *G = 222; *B = 196; break;
+        case 'R': *R = 150; *G = 28;  *B = 34;  break;
         default:  *R = 132; *G = 84;  *B = 42;  break;      /* w */
     }
 }

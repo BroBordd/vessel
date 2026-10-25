@@ -10,11 +10,17 @@
 #include "world.h"
 #include "jukebox.h"
 #include "events.h"
+#include "item.h"
+#include "missions.h"
+#include "hud.h"
+#include "ritual.h"
+#include <math.h>
 #include "vessel_gen.h"
 #include <string.h>
 #include <stdlib.h>
 
 static void story_woke(void);                    /* the new body has formed in the circle (defined with story_start) */
+static int note_read, task_note = -1;            /* the note (chunk 5): it has been read (or can never be), and the id of the task "Read the note" */
 
 #define VESSEL_NAME  "Aonia"
 #define VESSEL2_NAME "Doia"
@@ -62,6 +68,7 @@ void story_after(float seconds, void (*fn)(void)) {
 }
 
 void story_update(float dt) {
+    note_watch();                               /* the paper has been taken: read it */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (!timers[i].fn) continue;
@@ -142,7 +149,11 @@ static DialogLine death_dlg[1];
 
 static void death_woke(void) {
     unsigned dead = story_vessel_index();
+    if (death_cause == DEATH_SELF && dead == START_VESSEL && !note_read) event_fire(EV_SECRET_FAST_DEATH);   /* stabbed ourselves before reading the note: there never is one */
     story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
+    hud_reset(story_vessel_look(story_vessel_index()), 0);      /* a body that is not the first knows its name from the moment it wakes: no flash, no toast */
+    item_clear(); note_read = 1;                                /* the pockets are empty; the note belongs to vessel 2 alone */
+    if (task_note >= 0) { mission_complete(task_note); task_note = -1; mission_add("Escape the ruins"); }
     world_return_to_clouds();                                   /* the ruins again (the same map), the blackout lifted */
     world_ritual(story_vessel_look(dead), story_woke);          /* the blood runs, the new body is drawn up out of it; the controls come back after */
     dying = 0;
@@ -172,14 +183,52 @@ static void dev_die(void) {
     story_die(!strcmp(e, "pit") ? DEATH_PIT : !strcmp(e, "circle") ? DEATH_CIRCLE : DEATH_SELF);
 }
 
+/* ---------- the note (chunk 5) ---------- */
+/* a paper lies by Aonia. TAKING it (the hand button, item.c) reads it, once: the pages play as a dialog in Aonia's face, the card flips from Vas to the
+ * vessel's real name (name flash, coin ding, toast: hud_set_person), the paper is gone for good and the task changes. only vessel 2 can read it: it is
+ * addressed to Doia, and a later body wakes with no paper on the floor (the map is made again and nothing puts it back). */
+static const DialogLine NOTE_DLG[] = {
+    { &VESSEL, "Hello, Doia." },
+    { &VESSEL, "If you are reading this, it worked. You are Vessel 2." },
+    { &VESSEL, "I am Aonia, Vessel 1, the one lying beside you. I died so that you could live." },
+    { &VESSEL, "Do not be afraid. I am you." },
+    { &VESSEL, "We are trapped in these ruins. Past the fallen hall, the ground has broken open. There is a pit with no bottom, and I could not cross it." },
+    { &VESSEL, "I was running out of time, so Vas and I decided. I would die, and you would take my place." },
+    { &VESSEL, "Every time we die, we lose what we knew. That is the price. I paid it. Now you have to." },
+    { &VESSEL, "I left you everything I had. Find a way out." },
+};
+static Person card_vas;                                         /* the card before the note: this body's face under the plain name Vas */
+static void card_show_vas(void) { card_vas = *story_vessel_look(story_vessel_index()); card_vas.name = VESSEL_LATIN; hud_reset(&card_vas, 0); }
+
+static void note_done(void) {
+    hud_set_person(story_vessel_look(story_vessel_index()));    /* Doia: the card flashes, the coin dings, the toast says YOU ARE NOW Doia */
+    if (task_note >= 0) mission_complete(task_note);
+    task_note = -1;
+    mission_add("Escape the ruins");
+    event_fire(EV_READ_NOTE);
+}
+static void note_watch(void) {
+    if (note_read || !item_has(ITEM_PAPER)) return;
+    note_read = 1;
+    item_take(ITEM_PAPER);                                      /* it is read and gone: no notes after this one */
+    dialog_play(NOTE_DLG, (int)(sizeof NOTE_DLG / sizeof NOTE_DLG[0]), note_done);
+}
+
 /* ---------- the world starts ---------- */
-static void story_woke(void) { event_fire(EV_WAKE); }     /* the new body has formed in the circle */
+static void story_woke(void) {                                 /* the new body has formed in the circle */
+    event_fire(EV_WAKE);
+    if (!note_read && task_note < 0 && story_vessel_index() == START_VESSEL) task_note = mission_add("Read the note");
+}
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    events_reset(); dying = 0; enter_pending = 0;
+    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1;
+    card_show_vas();                            /* the card says Vas until the note is read */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
-    world_ritual(story_vessel_look(1), story_woke);   /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
+    item_clear();
+    world_ritual(story_vessel_look(1), story_woke);
+    { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
+    /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 
 /* saves are gone with the old story (the first save format is in trash/story_old.c) */
