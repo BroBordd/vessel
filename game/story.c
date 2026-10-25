@@ -25,7 +25,7 @@
 #include <stdlib.h>
 
 static void story_woke(void);                    /* the new body has formed in the circle (defined with story_start) */
-static int note_read, task_note = -1;            /* the note (chunk 5): it has been read (or can never be), and the id of the task "Read the note" */
+static int note_read, task_note = -1, task_escape = -1;            /* the note (chunk 5): it has been read (or can never be), and the id of the task "Read the note" */
 
 #define VESSEL_NAME  "Aonia"
 #define VESSEL2_NAME "Doia"
@@ -157,6 +157,9 @@ static int dying, enter_pending;
 static DeathCause death_cause;
 static DialogLine death_dlg[1];
 static float die_tx, die_ty;                                    /* where the feet were when we died (tiles) */
+/* chunk 13: the second circle (the far ledge). cp_busy: our blood is running into it (a few seconds, then we die). cp_reached: it is full, every body wakes there from now on */
+static int cp_busy, cp_reached, cp_told;
+static void arrival_centre(float *x, float *y) { if (cp_reached || death_cause == DEATH_CIRCLE) ritual_c2_centre(x, y); else ritual_centre(x, y); }   /* where the next body will stand */
 
 static void death_woke(void) {
     unsigned dead = story_vessel_index();
@@ -164,7 +167,7 @@ static void death_woke(void) {
     for (int i = 0; i < item_ground_count() && gn < 16; i++) { int k, x, y; if (item_ground_get(i, &k, &x, &y) && k != ITEM_PAPER) { gk[gn] = k; gx[gn] = x; gy[gn] = y; gn++; } }
     if (death_cause != DEATH_PIT) {                             /* the body stays where it fell (a fall into the pit leaves nothing on the floor: chunk 11 keeps that pile) */
         unsigned char inv[ITEM_COUNT]; item_pack(inv);          /* ... with what it carried */
-        float cx, cy; ritual_centre(&cx, &cy);
+        float cx, cy; arrival_centre(&cx, &cy);
         float dx = die_tx - cx, dy = die_ty - cy;
         if (fabsf(dx) < 3.4f && fabsf(dy) < 2.6f) {             /* it fell on the circle, where the next body will stand: it lies at the circle's edge instead */
             die_tx = cx + (dx < 0 ? -3.4f : 3.4f); die_ty = cy + (dy < -1.5f ? -1.5f : dy > 1.5f ? 1.5f : dy);
@@ -172,12 +175,19 @@ static void death_woke(void) {
         bodies_add(dead, die_tx, die_ty, inv);
     }
     if (death_cause == DEATH_SELF && dead == START_VESSEL && !note_read) event_fire(EV_SECRET_FAST_DEATH);   /* stabbed ourselves before reading the note: there never is one */
+    if (death_cause == DEATH_CIRCLE) cp_reached = 1;            /* chunk 13: the checkpoint: from now on the next bodies wake at the second circle */
+    cp_busy = 0;
     story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
     hud_reset(story_vessel_look(story_vessel_index()), 0);      /* a body that is not the first knows its name from the moment it wakes: no flash, no toast */
     item_clear(); note_read = 1;                                /* the pockets are empty; the note belongs to vessel 2 alone */
-    if (task_note >= 0) { mission_complete(task_note); task_note = -1; mission_add("Escape the ruins"); }
+    if (task_note >= 0) { mission_complete(task_note); task_note = -1; task_escape = mission_add("Escape the ruins"); }
     world_return_to_clouds();                                   /* the ruins again (the same map), the blackout lifted */
-    world_ritual(story_vessel_look(dead), story_woke);          /* the blood runs, the new body is drawn up out of it; the controls come back after */
+    if (cp_reached) {                                           /* the second circle: we are put on it, its grooves are full, the body forms there */
+        float qx, qy; ritual_c2_centre(&qx, &qy);
+        world_player_to_tile(qx, qy);
+        world_ritual_c2(story_woke);
+    } else
+        world_ritual(story_vessel_look(1), story_woke);         /* the blood runs, the new body is drawn up out of it; the controls come back after. (vessel 1 lies there, not the one who just died: that body lies where it fell) */
     for (int i = 0; i < gn; i++) world_place_item(gk[i], gx[i], gy[i]);
     dying = 0;
     limbo_end();                                                /* game.c fades the stars out and the world in */
@@ -228,7 +238,7 @@ static void note_done(void) {
     hud_set_person(story_vessel_look(story_vessel_index()));    /* Doia: the card flashes, the coin dings, the toast says YOU ARE NOW Doia */
     if (task_note >= 0) mission_complete(task_note);
     task_note = -1;
-    mission_add("Escape the ruins");
+    task_escape = mission_add("Escape the ruins");
     event_fire(EV_READ_NOTE);
 }
 static void note_watch(void) {
@@ -284,6 +294,10 @@ static void pit_watch(float dt) {                                   /* every fra
         if (item_has(ITEM_TIED_ROCK)) event_fire(EV_HOLD_TIED_ROCK);
         else if (item_has(ITEM_INTESTINE)) event_fire(EV_HOLD_INTESTINE);
     }
+    if (ritual_c2_on() && !cp_reached) {                            /* chunk 13: the carvings on the far ledge */
+        float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
+        if (hypotf(ux - qx, uy - qy) < 3.2f) event_fire(EV_FIND_CIRCLE2);
+    }
     { int fx, fy, ex, ey; float px_, py_;
       if (world_pit_spots(&fx, &fy, &ex, &ey)) { world_player_tilef(&px_, &py_); if (hypotf(px_ - fx, py_ - fy) < 4.0f) event_fire(EV_CLIMB_FAR); } }
     if (!dying && world_pit_push_time() > 1.0f) {                   /* we walked into the crack: a fall. the body is not left lying (nothing of it is found) but it fills the pit */
@@ -333,10 +347,27 @@ static void story_craft(int a, int b) {
     toast_notice("YOU MAKE", item_name(r));
     event_fire(EV_FIRST_CRAFT);
 }
+/* chunk 13: the checkpoint. the blood runs into the carvings, a thought ("My consciousness is fading."), a few seconds, then we die (DEATH_CIRCLE) and the next vessel wakes here */
+static void cp_die(void) { if (cp_busy) story_die(DEATH_CIRCLE); }
+static void checkpoint_begin(void) {
+    cp_busy = 1;
+    sfx_hit();
+    ritual_c2_fill();
+    toast_notice("THE CARVINGS", "Your blood runs into the lines.");
+    event_fire(EV_FILL_CIRCLE);
+    story_after(4.0f, cp_die);
+}
 static void story_action(int kind, int act) {
     if (dying) return;
     switch (act) {
-    case ACT_STAB_SELF: sfx_hit(); story_die(DEATH_SELF); return;
+    case ACT_STAB_SELF:
+        if (cp_busy) return;
+        if (ritual_c2_on() && !cp_reached && !ritual_c2_filling()) {                    /* chunk 13: on the second circle the knife fills the carvings: the checkpoint */
+            float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
+            float ex = (ux - qx) / 1.8f, ey = (uy - qy) / 0.85f;
+            if (ex * ex + ey * ey < 1.0f) { checkpoint_begin(); return; }
+        }
+        sfx_hit(); story_die(DEATH_SELF); return;
     case ACT_STAB: {
         unsigned v = world_body_in_reach();
         if (!v) { sfx_error(); toast_notice("NOTHING TO STAB", "Get close to a body."); return; }
@@ -428,21 +459,29 @@ static void secrets_watch(float dt) {
 /* ---------- the world starts ---------- */
 static void story_woke(void) {                                 /* the new body has formed in the circle */
     hummed = 0; still_t = 0;
+    if (cp_reached && !cp_told) {                               /* chunk 13: the first wake at the second circle: part one is over */
+        cp_told = 1;
+        if (task_escape >= 0) { mission_complete(task_escape); task_escape = -1; }
+        toast_notice("THE SECOND CIRCLE", "The ruins are behind you.");
+    }
     event_fire(EV_WAKE);
     if (!note_read && task_note < 0 && story_vessel_index() == START_VESSEL) task_note = mission_add("Read the note");
 }
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1;
+    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1; task_escape = -1; cp_busy = cp_reached = cp_told = 0;
     card_show_vas();                            /* the card says Vas until the note is read */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     item_clear();
+    if (getenv("VESSEL_KNIFE")) item_give(ITEM_KNIFE);          /* dev: a knife in the pockets from the start (to try the second circle) */
+    ritual_body_reset();                         /* vessel 1 lies where he fell, no second circle yet */
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
     item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);
+    { int fx, fy; if (world_pit_spots(&fx, &fy, NULL, NULL)) ritual_c2_set(fx + 0.5f, fy + 0.5f); }    /* chunk 13: the empty carvings of the second circle lie on the far ledge */
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */
       world_place_item(ITEM_ROCK, (int)floorf(cx + 2.2f), (int)floorf(cy + 1.6f));

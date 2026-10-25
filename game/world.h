@@ -129,6 +129,8 @@ int  world_swing_across(void (*done)(void));
 int  world_body_tile(unsigned vessel, float *tx, float *ty);   /* story chunk 9: where a body lies (feet, tiles); 0 = no such body here */
 void world_drop_item_near(int kind, float tx, float ty);       /* it falls on free floor around that spot */
 void world_set_smash_cb(void (*cb)(unsigned vessel));          /* the big rock dragged into a body: the callback gets the vessel */
+void world_ritual_c2(void (*on_done)(void));              /* story chunk 13: the next body forms at the second circle (ritual_c2_set); put the player there first */
+void world_player_to_tile(float tile_x, float tile_y);     /* ... the feet go there (tiles) */
 int  world_rock_in_reach(void);                           /* story chunk 12: the big rock is within the club's reach */
 int  world_rock_break(float *tile_x, float *tile_y);       /* ... and it breaks (gone for good); where it lay, 0 = nothing */
 unsigned world_body_in_reach(void);                       /* story chunk 8: the nearest body in reach (1 = Aonia), 0 = none: where a stab goes */

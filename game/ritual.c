@@ -22,6 +22,13 @@ static float st;
 static float cx_t, cy_t;
 static const Person *dead_who;
 static float bdx, bdy;                   /* how far he has been pulled from where he fell, in cells */
+/* story chunk 13: THE SECOND CIRCLE. the first circle (home: vessel 1, the pool, the knife) never moves. the carvings of a second one lie on the far ledge (c2); once
+ * the player has filled them with blood the next bodies wake THERE (arr_c2): cx_t/cy_t is always the circle the new body forms at. */
+static float home_x, home_y;             /* the first circle's centre, in tiles */
+static int   arr_c2;                     /* the new body forms at the second circle */
+static int   c2_on;                      /* the second circle's carvings lie on the map */
+static float c2_x, c2_y;                 /* ... centre, tiles */
+static float c2_t = -1;                  /* seconds since the blood began to run into it (-1: still empty, 99: full for good) */
 
 static uint32_t hash(uint32_t a, uint32_t b) {
     uint32_t h = a * 374761393u + b * 668265263u;
@@ -88,8 +95,22 @@ static float flash_at(void)  { return charge_at() + RITUAL_CHARGE_T; }
 static float form_at(void)   { return flash_at() + 0.10f; }
 static float end_at(void)    { return form_at() + RITUAL_FORM_T + RITUAL_DISS_T + RITUAL_HOLD_T; }
 
-void  ritual_begin(float tile_x, float tile_y, const Person *dead) { lit = 0; build(); bdx = bdy = 0; on = 1; active = 1; chime = chimed = 0; st = 0; cx_t = tile_x; cy_t = tile_y; dead_who = dead; }
-void  ritual_cancel(void) { on = 0; active = 0; chime = 0; bdx = bdy = 0; }
+void  ritual_begin(float tile_x, float tile_y, const Person *dead) { lit = 0; build(); on = 1; active = 1; chime = chimed = 0; st = 0; arr_c2 = 0; cx_t = home_x = tile_x; cy_t = home_y = tile_y; dead_who = dead; }
+void  ritual_cancel(void) { on = 0; active = 0; chime = 0; }                       /* (vessel 1 keeps where he was pulled to: only ritual_body_reset, a new game, puts him back) */
+void  ritual_body_reset(void) { bdx = bdy = 0; arr_c2 = 0; c2_on = 0; c2_t = -1; home_x = home_y = 0; }
+void  ritual_home(float *tx, float *ty) { *tx = home_x; *ty = home_y; }
+void  ritual_c2_set(float tile_x, float tile_y) { c2_on = 1; c2_x = tile_x; c2_y = tile_y; }
+int   ritual_c2_on(void) { return c2_on; }
+void  ritual_c2_centre(float *tx, float *ty) { *tx = c2_x; *ty = c2_y; }
+void  ritual_c2_fill(void) { if (c2_on && c2_t < 0) c2_t = 0; }
+int   ritual_c2_filling(void) { return c2_t >= 0; }
+int   ritual_c2_full(void) { return c2_t >= 0 && (c2_t >= 98.0f || c2_t * RITUAL_FLOW_V >= (float)maxd); }
+int   ritual_arrives_at_c2(void) { return arr_c2; }
+void  ritual_begin_c2(void) {                                 /* a body wakes at the second circle: the grooves are already full, the charge starts at once */
+    if (!c2_on) return;
+    lit = 0; build(); on = 1; active = 1; chime = chimed = 0; arr_c2 = 1; cx_t = c2_x; cy_t = c2_y; c2_t = 99.0f;
+    st = RITUAL_FLOW_AT + (float)maxd / RITUAL_FLOW_V;        /* = flow_end() */
+}
 int   ritual_body_box(float *x0, float *y0, float *x1, float *y1) {        /* he lies 12 cells long and 9 across: feet at (BODY_X, BODY_Y), head 12 cells to the left of the feet */
     if (!on || active || !dead_who) return 0;
     *x0 = BODY_X + bdx - 6.0f; *x1 = BODY_X + bdx + 6.0f; *y0 = BODY_Y + bdy - 9.0f; *y1 = BODY_Y + bdy;
@@ -102,6 +123,7 @@ float ritual_time(void) { return st; }
 void  ritual_centre(float *tx, float *ty) { *tx = cx_t; *ty = cy_t; }
 int   ritual_take_chime(void) { int c = chime; chime = 0; return c; }
 int   ritual_update(float dt) {
+    if (c2_t >= 0 && c2_t < 98.0f) { c2_t += dt; if (c2_t * RITUAL_FLOW_V >= (float)maxd + 8.0f) c2_t = 99.0f; }   /* the blood runs into the second circle */
     if (!on) return 0;
     st += dt;
     if (lit > 0) { lit -= dt / LIT_T; if (lit < 0) lit = 0; }
@@ -176,22 +198,23 @@ static void wounds(SDL_Renderer *r, int sx, int sy, int cell, float t) {
     { int d = 2 + (int)fmodf(t * 3.0f, 2.0f); cell_at(r, sx, sy, cell, -22, d, 214, 44, 46, 255); }
 }
 
-void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) {
-    if (!on) return;
-    float t = st, front = (t - RITUAL_FLOW_AT) * RITUAL_FLOW_V, bright = brightness();
+/* body: the dead vessel, his pool and his knife lie by this circle (the first one). c2: the second circle (no channel from a body). front_override < -9000: the blood runs by the clock */
+static void draw_circle(SDL_Renderer *r, int sx, int sy, int cell, float darken, int body, float front_override, int c2) {
+    float t = st, front = front_override > -9000.0f ? front_override : (t - RITUAL_FLOW_AT) * RITUAL_FLOW_V, bright = brightness();
 
     /* the light on the floor under everything */
     if (bright > 0.02f) glow(r, sx, sy, cell, bright);
 
     /* the carving: a dark groove, a lit lip on its lower and right edges, a shadow on its upper and left ones */
     for (int y = -GO; y <= GO; y++) for (int x = -GO; x <= GO; x++) {
+        if (c2 && x < -15) continue;                                                                  /* the second circle has no channel from a body */
         if (carve[y + GO][x + GO]) { cell_at(r, sx, sy, cell, x, y, 20, 13, 16, 240); continue; }
         if (is_carve(x, y - 1) || is_carve(x - 1, y)) cell_at(r, sx, sy, cell, x, y, 200, 190, 200, 38);
         else if (is_carve(x, y + 1) || is_carve(x + 1, y)) cell_at(r, sx, sy, cell, x, y, 0, 0, 0, 60);
     }
 
     /* the pool under the dead vessel: it spreads slowly */
-    {
+    if (body) {
         float g = clamp01(t / 12.0f);
         float prx = 3.0f + 5.0f * g, pry = 1.6f + 3.4f * g, pcx = -26.0f, pcy = 2.0f;
         for (int y = -4; y <= 8; y++) for (int x = -36; x <= -17; x++) {
@@ -207,7 +230,7 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
     /* the blood in the grooves: it comes up the channel and runs round the whole circle */
     for (int i = 0; i < ncarve; i++) {
         int x = carve_x[i], y = carve_y[i], d = dist[y + GO][x + GO];
-        if ((float)d > front) continue;
+        if ((float)d > front || (c2 && x < -15)) continue;
         float s = 0.5f + 0.5f * sinf((float)d * 0.55f - t * 6.0f);
         int R = lerp(112, 182, s), G = lerp(8, 22, s), B = lerp(16, 32, s);
         if (!is_carve(x, y - 1)) { R = R * 78 / 100; G = G * 78 / 100; B = B * 78 / 100; }          /* the near wall of the groove shades it */
@@ -222,7 +245,7 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
         float u = t - charge_at(), a0 = u * u * 11.0f, fl = t >= flash_at() ? clamp01(1.0f - (t - flash_at()) / 0.3f) : 0.0f;
         for (int i = 0; i < ncarve; i++) {
             int x = carve_x[i], y = carve_y[i];
-            if (x * x + y * y < 16 || (float)dist[y + GO][x + GO] > front) continue;
+            if (x * x + y * y < 16 || (float)dist[y + GO][x + GO] > front || (c2 && x < -15)) continue;
             float ang = atan2f((float)(2 * y), (float)x), best = 9.0f;
             for (int k = 0; k < 2; k++) { float dd = fabsf(remainderf(ang - a0 - 3.14159265f * k, 6.2831853f)); if (dd < best) best = dd; }
             float h = clamp01(1.0f - best / 0.55f) * clamp01(u / 0.35f);
@@ -232,14 +255,14 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
     }
 
     /* the dead vessel and his knife */
-    if (dead_who) {
+    if (body && dead_who) {
         int ox = (int)lroundf(bdx * (float)cell), oy = (int)lroundf(bdy * (float)cell);     /* pulled: he (and his wounds) move, the pool stays */
         char_set_darken(darken);
         char_draw_lying(r, dead_who, sx + BODY_X * cell + ox, sy + BODY_Y * cell + oy, cell);
         char_set_darken(0);
         wounds(r, sx + ox, sy + oy, cell, t);
     }
-    {                                                                                 /* the knife lies above him: a shadow under it, the handle, the blade, a red tip */
+    if (body) {                                                                       /* the knife lies above him: a shadow under it, the handle, the blade, a red tip */
         const int kx = -31, ky = -9;
         for (int i = 0; i < 8; i++) for (int j = 0; j < 3; j++) {
             int x = kx + i, y = ky + j;
@@ -250,6 +273,26 @@ void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) 
         }
         cell_at(r, sx, sy, cell, kx + 4, ky + 1, 150, 14, 20, 255); cell_at(r, sx, sy, cell, kx + 5, ky + 1, 150, 14, 20, 255);
     }
+}
+
+void ritual_draw_floor(SDL_Renderer *r, int sx, int sy, int cell, float darken) {          /* the first circle: vessel 1, the pool, the knife */
+    if (!on) return;
+    float save = st;
+    if (arr_c2) st = 99.0f;                                                                  /* the new bodies wake at the second circle: this one lies still */
+    draw_circle(r, sx, sy, cell, darken, 1, -9999.0f, 0);
+    st = save;
+}
+void ritual_c2_draw(SDL_Renderer *r, int sx, int sy, int cell, float darken) {              /* the second circle: empty carvings, the blood running in, or the circle the new body forms at */
+    if (!c2_on) return;
+    float save = st, front = -1.0f;
+    if (arr_c2 && on) front = (st - RITUAL_FLOW_AT) * RITUAL_FLOW_V;                         /* its charge and flash run by the ritual clock */
+    else if (c2_t >= 0) {
+        float tt = c2_t >= 98.0f ? flow_end() : c2_t + RITUAL_FLOW_AT;
+        if (tt > charge_at() - 0.01f) tt = charge_at() - 0.01f;
+        st = tt; front = (tt - RITUAL_FLOW_AT) * RITUAL_FLOW_V;
+    } else st = 0;
+    draw_circle(r, sx, sy, cell, darken, 0, front, 1);
+    st = save;
 }
 
 /* the ring that goes out when the circle flashes, the blood pixels on the new body, the embers */

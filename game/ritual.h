@@ -22,6 +22,20 @@
 /* tile_x, tile_y: where the player will stand, in tiles (the circle is centred there). dead: who lies beside it. */
 void  ritual_begin(float tile_x, float tile_y, const Person *dead);
 void  ritual_cancel(void);                  /* scene gone */
+/* story chunk 13: THE SECOND CIRCLE (the end of part 1). the first circle (home) holds vessel 1 and never moves; ritual_centre is the circle the next body forms at.
+ * ritual_c2_set lays the empty carvings on the far ledge (tiles). ritual_c2_fill starts the blood running into them (a checkpoint); from then on a death wakes the
+ * next body there (ritual_begin_c2, the grooves already full). ritual_body_reset: a new game (vessel 1 back where he fell, no second circle yet) */
+void  ritual_body_reset(void);
+void  ritual_home(float *tile_x, float *tile_y);
+void  ritual_c2_set(float tile_x, float tile_y);
+int   ritual_c2_on(void);
+void  ritual_c2_centre(float *tile_x, float *tile_y);
+void  ritual_c2_fill(void);
+int   ritual_c2_filling(void);              /* the blood has begun to run */
+int   ritual_c2_full(void);                 /* the grooves are full */
+int   ritual_arrives_at_c2(void);
+void  ritual_begin_c2(void);
+void  ritual_c2_draw(SDL_Renderer *r, int sx, int sy, int cell, float darken);       /* under the characters, like ritual_draw_floor */
 int   ritual_scene(void);                   /* the circle is on the floor */
 int   ritual_active(void);                  /* the arrival is running (the player is not whole yet) */
 int   ritual_update(float dt);              /* every frame. 1 on the frame the arrival has just finished */

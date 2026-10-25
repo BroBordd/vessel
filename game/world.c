@@ -271,7 +271,7 @@ static int npcs_here(void) { return cur_map != MAP_GREEN || indoors; }
 static int v1_box_px(float *x0, float *y0, float *x1, float *y1) {            /* vessel 1's box in world px, 0 if there is no such body */
     float a, b, c, d, rx, ry;
     if (!ritual_scene() || cur_map != MAP_TEMPLE || !ritual_body_box(&a, &b, &c, &d)) return 0;
-    ritual_centre(&rx, &ry);
+    ritual_home(&rx, &ry);                                      /* vessel 1 lies by the FIRST circle, wherever the new bodies wake */
     *x0 = rx * tile + a * px; *y0 = ry * tile + b * px; *x1 = rx * tile + c * px; *y1 = ry * tile + d * px;
     return 1;
 }
@@ -1022,6 +1022,17 @@ void world_ritual(const Person *dead, void (*on_done)(void)) {
     ritual_begin(pxp / (float)tile, pyp / (float)tile, dead);
     world_set_controls_visible(0);
     moving = 0; walk = 0; facing = FACE_DOWN;
+}
+/* story chunk 13: the body wakes at the SECOND circle (the far ledge), whose grooves are full already. the player has been put on its centre first (world_player_to_tile) */
+void world_ritual_c2(void (*on_done)(void)) {
+    ritual_cb = on_done;
+    ritual_begin_c2();
+    world_set_controls_visible(0);
+    moving = 0; walk = 0; facing = FACE_DOWN;
+}
+void world_player_to_tile(float tx, float ty) {             /* the feet go there (tiles), the camera does not slide */
+    pxp = tx * (float)tile; pyp = ty * (float)tile; cam_snap = 1; facing = FACE_DOWN;
+    memset(seen, 0, sizeof seen); reveal();
 }
 int world_ritual_running(void) { return ritual_active(); }
 
@@ -2297,7 +2308,16 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         draw_hole(r, hcx, hcy, 0);
     }
     if (cur_map == MAP_TEMPLE) bodies_trail_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                      /* the blood trails, under everything else on the floor (story chunk 7) */
-    if (ritual_scene() && cur_map == MAP_TEMPLE) ritual_draw_floor(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, TEMPLE_SHADE);   /* the carved circle, the blood, the dead vessel */
+    if (ritual_scene() && cur_map == MAP_TEMPLE) {                                                                                              /* the carved circle, the blood, the dead vessel (the first circle) */
+        float hx = 0, hy = 0; ritual_home(&hx, &hy);
+        int hsx = (int)(hx * tile) - cx, hsy = (int)(hy * tile) - cy;
+        if (hsx > -40 * px && hsx < W + 40 * px && hsy > -30 * px && hsy < H + 30 * px) ritual_draw_floor(r, hsx, hsy, px, TEMPLE_SHADE);
+    }
+    if (cur_map == MAP_TEMPLE && ritual_c2_on()) {                                                                                              /* the second circle on the far ledge (story chunk 13) */
+        float qx = 0, qy = 0; ritual_c2_centre(&qx, &qy);
+        int qsx = (int)(qx * tile) - cx, qsy = (int)(qy * tile) - cy;
+        if (qsx > -40 * px && qsx < W + 40 * px && qsy > -30 * px && qsy < H + 30 * px) ritual_c2_draw(r, qsx, qsy, px, TEMPLE_SHADE);
+    }
     if (cur_map == MAP_TEMPLE) bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                          /* the other dead (story chunk 6) */
     if (cur_map == MAP_TEMPLE) props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                           /* the big rock (story chunk 7) */
     if (!dawn_on) summon_draw_back(r, (int)pxp - cx, (int)pyp - cy, px, W, H);  /* the ring's far half and the column of light (held back by the dawn) */
