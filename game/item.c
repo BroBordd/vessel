@@ -578,6 +578,7 @@ static int hand_kind(void) {
  * the story moves the things (body_cb) and shows the window again, so both grids are always read from bw_inv and have. (the bag window below is untouched) */
 static int chest_side;                                          /* which grid holds the selection: 0 = the body's, 1 = ours */
 static int cg_x[2], cg_y[2], cg_w[2], cg_h[2], cg_rows[2], cg_hh, csl, cpc;      /* the two grids: their areas, rows, the header height, one slot size, icon cell */
+static int chest_used;                                          /* the height the loot window really needs (it is not as tall as the screen: like the music window) */
 static int st_x, st_y, st_w, st_nameh, st_bh;                   /* the strip under them: its area, the name line, the button height */
 static int chest_sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && cnt(chest_side, ui_sel) > 0; }
 static int cs_off(int s) { int used = INV_COLS * csl + (INV_COLS + 1) * pad, o = (cg_w[s] - used) / 2; return o > 0 ? o : 0; }
@@ -603,6 +604,10 @@ static void chest_layout(int ix, int iy, int iw, int ih) {
     { int ct = (int)(30 * uu); if (ct < 16) ct = 16; if (csl > ct) csl = ct; }       /* small slots */
     if (csl < 14) csl = 14;
     cpc = (csl - 2 * bt - pad) / ITEM_ICON_CELLS; if (cpc < 1) cpc = 1;
+    int hg = cg_hh + rm * (csl + pad) + pad;                    /* each grid is as tall as its rows need, and the strip follows */
+    for (int s = 0; s < 2; s++) { cg_h[s] = hg; cg_y[s] = wide ? iy : iy + s * (hg + pad); }
+    st_y = iy + (wide ? hg : 2 * hg + pad) + pad;
+    chest_used = st_y + sh - iy;
 }
 static void chest_tap(int x, int y) {
     for (int s = 0; s < 2; s++)
@@ -658,6 +663,7 @@ static int drag_end(int x, int y) {                             /* 1 = it was a 
 
 /* where everything is: worked out from the screen, the pockets and the selection every time it is needed (cheap) */
 static int tl_x, tl_y, tl_ts, tl_hs, tl_cx, tl_ax, tl_rx, tl_aw;   /* B3: the tools row: the hand square at tl_x, the craft squares at tl_cx, the arrow, the result square at tl_rx */
+static int bigsz(void), d_pitch(void), act_h(void);          /* (below) */
 static void win_layout(void) {
     int m = (int)(6 * uu); if (m < 4) m = 4;
     int top = (int)(48 * uu); if (top < 24) top = 24;           /* clear of the top buttons */
@@ -666,7 +672,15 @@ static void win_layout(void) {
     tb = font_height(fcell("INVENTORY", ww / 2)) + 2 * pad;
     cbx = wx + ww - in - tb; cby = wy + in;
     int ix = wx + in, iy = wy + in + tb + pad, iw = ww - 2 * in, ih = wy + wh - in - iy;
-    if (bw_on) { chest_layout(ix, iy, iw, ih); return; }        /* chunk 18: a body's window has its own layout */
+    if (bw_on) {                                                /* chunk 18: a body's window has its own layout */
+        chest_layout(ix, iy, iw, ih);
+        if (chest_used < ih) {                                  /* only as tall as it needs, centred */
+            wh -= ih - chest_used;
+            int nwy = (H - wh) / 2; if (nwy < top) nwy = top;
+            int d = nwy - wy; wy += d; cby += d; st_y += d; cg_y[0] += d; cg_y[1] += d;
+        }
+        return;
+    }
     int wide = ww > wh * 13 / 10;                               /* a wide, short screen: the grid left, the item right */
     int n = owned_w();
     gx = ix; gy = iy;
@@ -687,6 +701,15 @@ static void win_layout(void) {
     tl_ts = ts; tl_hs = 2 * ts + pad; tl_x = tx; tl_y = wide ? iy : iy + gh + pad; tl_aw = ts / 2;
     tl_rx = tx + tw - tl_hs; tl_cx = tl_rx - gap - tl_aw - gap - tl_hs; tl_ax = tl_cx + tl_hs + gap;
     dx = tx; dw = tw; dy = tl_y + tl_hs + pad; dh = iy + ih - dy;
+    {   int need = bigsz() + pad + 5 * d_pitch() + pad + act_h();      /* only as tall as it needs (like the music window), centred */
+        int ihn = (dy - iy) + need, g2 = rowsn * (sl + pad) + pad;
+        if (g2 > ihn) ihn = g2;
+        if (ihn < ih) {
+            wh -= ih - ihn; dh = iy + ihn - dy;
+            int nwy = (H - wh) / 2; if (nwy < top) nwy = top;
+            int d = nwy - wy; wy += d; cby += d; gy += d; tl_y += d; dy += d;
+        }
+    }
 }
 static int grid_off(void) { int used = gcols * sl + (gcols + 1) * pad, o = (gw - used) / 2; return o > 0 ? o : 0; }
 static int slot_x(int i) { return gx + grid_off() + pad + (i % gcols) * (sl + pad); }
