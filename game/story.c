@@ -14,6 +14,7 @@
 #include "bodies.h"
 #include "props.h"
 #include "toast.h"
+#include "audio.h"
 #include <stdio.h>
 #include "missions.h"
 #include "hud.h"
@@ -154,6 +155,8 @@ static float die_tx, die_ty;                                    /* where the fee
 
 static void death_woke(void) {
     unsigned dead = story_vessel_index();
+    int gk[16], gx[16], gy[16], gn = 0;                         /* chunk 8: what lay on the floor (rocks, a thrown rock) lies there still after the map is made again. the paper does not come back */
+    for (int i = 0; i < item_ground_count() && gn < 16; i++) { int k, x, y; if (item_ground_get(i, &k, &x, &y) && k != ITEM_PAPER) { gk[gn] = k; gx[gn] = x; gy[gn] = y; gn++; } }
     if (death_cause != DEATH_PIT) {                             /* the body stays where it fell (a fall into the pit leaves nothing on the floor: chunk 11 keeps that pile) */
         unsigned char inv[ITEM_COUNT]; item_pack(inv);          /* ... with what it carried */
         float cx, cy; ritual_centre(&cx, &cy);
@@ -170,6 +173,7 @@ static void death_woke(void) {
     if (task_note >= 0) { mission_complete(task_note); task_note = -1; mission_add("Escape the ruins"); }
     world_return_to_clouds();                                   /* the ruins again (the same map), the blackout lifted */
     world_ritual(story_vessel_look(dead), story_woke);          /* the blood runs, the new body is drawn up out of it; the controls come back after */
+    for (int i = 0; i < gn; i++) world_place_item(gk[i], gx[i], gy[i]);
     dying = 0;
     limbo_end();                                                /* game.c fades the stars out and the world in */
 }
@@ -235,9 +239,31 @@ static void story_inspect(unsigned vessel) {
     const Body *b = bodies_find(vessel);
     char what[96], line[128];
     bodies_inv_text(b, what, sizeof what);
-    snprintf(line, sizeof line, "%s %s", story_vessel_name(vessel), what);
+    int took = bodies_take_all(vessel);                         /* chunk 8: looking close means the pockets are ours now */
+    snprintf(line, sizeof line, "%s %s%s", story_vessel_name(vessel), what, took > 1 ? ". You take them." : took ? ". You take it." : "");
     toast_notice("YOU LOOK CLOSE", line);
     if (vessel == 1) event_fire(EV_INSPECT_BODY);
+}
+
+/* ---------- the inventory's actions (chunk 8) ---------- */
+/* the knife stabs the body next to us, or ourselves; the rock is thrown the way we face. a stab on a body is only a first wound here (chunk 9 builds the cuts),
+ * a stab on ourselves is a death like any other: the knife stays in the dead body's pockets (death_woke packs them) */
+static void story_action(int kind, int act) {
+    if (dying) return;
+    if (act == ACT_STAB_SELF) { sfx_hit(); story_die(DEATH_SELF); return; }
+    if (act == ACT_STAB) {
+        unsigned v = world_body_in_reach();
+        if (!v) { sfx_error(); toast_notice("NOTHING TO STAB", "Get close to a body."); return; }
+        sfx_hit();
+        toast_notice("YOU STAB", story_vessel_name(v));
+        event_fire(EV_FIRST_STAB);
+        return;
+    }
+    if (act == ACT_THROW) {
+        item_take(kind);
+        sfx_blip(1.1f);
+        if (world_throw_item(kind)) event_fire(EV_DROP_IN_PIT);          /* the crack took it: the echo is chunk 11 */
+    }
 }
 
 /* ---------- the world starts ---------- */
@@ -255,8 +281,12 @@ void story_start(void) {
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     { unsigned char knife[ITEM_COUNT] = { 0 }; knife[ITEM_KNIFE] = 1; bodies_add(1, 0, 0, knife); }   /* Aonia lies at the circle (ritual.c), the knife in his hand */
     world_set_inspect_cb(story_inspect);
+    item_set_action_cb(story_action);
     world_ritual(story_vessel_look(1), story_woke);
     { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
+    { float cx, cy; ritual_centre(&cx, &cy);                                                      /* two small rocks lie in the circle room, to throw */
+      world_place_item(ITEM_ROCK, (int)floorf(cx + 2.2f), (int)floorf(cy + 1.6f));
+      world_place_item(ITEM_ROCK, (int)floorf(cx + 2.4f), (int)floorf(cy - 1.4f)); }
     /* the ruins: a blood circle carved in the floor, vessel 1 dead beside it, the new body drawn up out of the blood. the controls come back after */
 }
 

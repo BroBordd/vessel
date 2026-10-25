@@ -243,7 +243,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
   fades in 40 s, drawn under the circle and the bodies). **The big rock** (`props.c/.h`, SIZE_BIG): lies on the south ledge in front of the pit (put there by the world, once per game, and it keeps its place across
   deaths), solid, dragged like a body but heavier (we walk at 50 %, it has more lag and less rope), the button shows a rock; dragging it is EV_CARRY_ROCK. **Size classes:** `ItemSize` and `item_size()` in `item.h`
   (all four items are small), `CARRY_SPEED_MEDIUM`; the carrying of medium things in the hands needs the medium items that chunk 9 makes, so it is built there.
-- [ ] **8. Inventory window:** item image, description, actions; small rock **Throw**; knife **Stab** on anything or self.
+- [x] **8. Inventory window:** the open panel shows, under the slot's name, a short description (`item_desc`, word-wrapped) and one button per action (`item_actions`: knife STAB and STAB SELF, rock THROW; `item.c`); a tap on a button folds the panel and calls `story_action` (`story.c`). New item `ITEM_ROCK` (small rock, icon) with two rocks lying in the circle room. **Throw** flies the way we face up to 6 tiles (`world_throw_item`): a wall stops it, it lands with a thunk and can be taken again, the crack takes it for good (EV_DROP_IN_PIT; the echo is chunk 11). **Stab** goes to the body in reach (`world_body_in_reach`): sound, toast, EV_FIRST_STAB, no cuts yet (chunk 9); **Stab self** is `story_die(DEATH_SELF)` and the knife stays in the dead body's pockets. Ground items are a list now (several things can lie on the map), and what lies on the floor survives a death (the paper does not). Inspect now also takes everything the body carries (that is how we get Aonia's knife).
 - [ ] **9. Cutting and parts:** the stab order of section 6, the big-rock smash, scattered items, the extra part cuts, and carrying a medium part in the hands (`item_size` SIZE_MEDIUM, `CARRY_SPEED_MEDIUM`, one at a time).
 - [ ] **10. Crafting:** two-slot craft menu, every recipe of section 7, first-craft lines.
 - [ ] **11. The pit:** Swing (tied rock and spine hook), the echo, falls, the bridge of bodies.
@@ -252,6 +252,7 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - [ ] **14. Remove the old story:** drop the goddess, Alex, Dia, shrine, hole and Grasslands code and its tests.
 
 ## Status log
+- 2026-10-25: chunk 8 done (untested by rule): inventory descriptions and action buttons, small rock (Throw), knife (Stab / Stab self), several ground items, floor kept across deaths, Inspect takes the body's things. Next: chunk 9.
 - 2026-10-25: chunk 7 done (untested by rule): drag any body, the fading blood trail, the big rock (`props.c`, dragged, EV_CARRY_ROCK), item size classes. Medium-in-hands carrying moved to chunk 9. Next: chunk 8.
 - 2026-10-25: chunk 6 done (untested by rule): persistent bodies, inventories, Inspect. Next: chunk 7.
 - 2026-10-25: chunk 5 done (untested by rule): the note, the card flip, the tasks. Next: chunk 6.

@@ -15,7 +15,7 @@
 #define ITEM_H
 #include <SDL2/SDL.h>
 
-enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_COUNT };      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
+enum { ITEM_HAMMER, ITEM_ORB, ITEM_PAPER, ITEM_KNIFE, ITEM_ROCK, ITEM_COUNT };      /* story chunk 8: the small rock (thrown) */      /* chunk 5 of the restarted story: the paper, Aonia's note (taking it reads it, story.c) */      /* chunk 39: the orb (it is never on the ground: it goes straight into the pockets) */
 /* story chunk 7: size classes (docs/story/vessel.md section 4). SMALL goes in the pockets; MEDIUM is carried in the hands, one at a time, and slows the player a
  * little (CARRY_SPEED_MEDIUM, times the walking speed); BIG cannot be picked up at all, only dragged (a whole body, a torso, the big rock: props.h) and slows the
  * player a lot. nothing medium exists before chunk 9 (the parts that come off a body), so the carrying itself is built there; the table and the numbers are here */
@@ -26,6 +26,15 @@ int item_size(int kind);                    /* the size class of an item kind (S
 #define ITEM_REACH_R    1.3f                /* tiles: this close and the hand button shows (chunk 68; it was the walk-over pick-up radius) */
 
 const char *item_name(int kind);            /* "HAMMER", "ORB" (capitals: the pixel font) */
+/* story chunk 8: WHAT AN ITEM IS AND WHAT IT CAN DO. the open inventory shows, under the name of the slot you touched, a short description and one button per
+ * action. a tap on a button folds the panel and calls the action callback (story.c decides what happens: the knife stabs a body or ourselves, the rock flies). */
+typedef enum { ACT_NONE = 0, ACT_STAB, ACT_STAB_SELF, ACT_THROW } ItemAction;
+const char *item_desc(int kind);                        /* a short text (letters, digits, space and , . ! ? ' -) */
+int         item_actions(int kind, int out[2]);         /* the actions of an item, 0 to 2 of them. returns how many */
+const char *item_action_name(int act);                  /* the button's words (capitals) */
+void        item_set_action_cb(void (*cb)(int kind, int act));
+int         item_ui_action_x(int i);                    /* (tests) the centre of the i-th action button of the selected item (-1 none) */
+int         item_ui_action_y(int i);
 
 /* world hooks */
 void  item_reset(int pixel_scale, int tile_size);       /* a new map: whatever lay on the old one is gone (the inventory stays) */
@@ -41,6 +50,8 @@ void  item_set_locked(int kind, int on);
 int   item_locked(int kind);
 void  item_set_blocked_cb(void (*cb)(void));
 int   item_blocked_count(void);                         /* tests: how many presses were turned away */
+int   item_ground_count(void);                          /* story chunk 8: how many things lie on this map */
+int   item_ground_get(int i, int *kind, int *tile_x, int *tile_y);   /* the i-th of them (0 when i is out of range): the story keeps them across a death, the map is made again */
 int   item_exists(void);                                /* something lies on this map */
 void  item_tile(float *tx, float *ty);                  /* where, in tiles (minimap) */
 int   item_has(int kind);

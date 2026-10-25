@@ -1008,6 +1008,28 @@ float world_dist_to_pit(void) {
     }
     return best;
 }
+/* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
+unsigned world_body_in_reach(void) {
+    if (cur_map != MAP_TEMPLE || indoors) return 0;
+    float gap = INSPECT_REACH, g1 = body_gap(), gl = 1e9f; int bi = bodies_nearest(pxp, pyp, px, tile, INSPECT_REACH, &gl);
+    if (g1 <= gap && g1 <= gl) return 1;
+    return bi >= 0 ? bodies_get(bi)->vessel : 0;
+}
+/* story chunk 8: THROW. the thing leaves our hand in the direction we face and flies up to THROW_RANGE tiles: a wall stops it (it drops in front of the wall), the
+ * crack does not (it goes in and is gone). returns 1 when it fell into the pit, 0 when it landed on the floor (a drop that lands with a thunk, and can be taken again) */
+#define THROW_RANGE 6
+int world_throw_item(int kind) {
+    int dx = facing == FACE_LEFT ? -1 : facing == FACE_RIGHT ? 1 : 0, dy = facing == FACE_UP ? -1 : facing == FACE_DOWN ? 1 : 0;
+    int x0 = (int)floorf(pxp / tile), y0 = (int)floorf(pyp / tile), lx = x0, ly = y0;
+    for (int i = 1; i <= THROW_RANGE; i++) {
+        int nx = x0 + dx * i, ny = y0 + dy * i;
+        if (nx >= 0 && ny >= 0 && nx < mw && ny < mh && map[ny][nx] == T_RPIT && cur_map == MAP_TEMPLE) return 1;
+        if (solid_tile(nx, ny)) break;
+        lx = nx; ly = ny;
+    }
+    world_drop_item(kind, lx, ly);
+    return 0;
+}
 int world_pit_spots(int *far_x, int *far_y, int *edge_x, int *edge_y) {        /* the far ledge's spot and the near ledge's middle (tiles); 0 = no pit */
     if (cur_map != MAP_TEMPLE || pit_x0 < 0) return 0;
     if (far_x) *far_x = far_tx;

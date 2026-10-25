@@ -24,6 +24,8 @@ int  bodies_add(unsigned vessel, float tile_x, float tile_y, const unsigned char
 int  bodies_count(void);
 const Body *bodies_get(int i);
 const Body *bodies_find(unsigned vessel);                       /* NULL when that vessel has no body */
+/* story chunk 8: the pockets of a body go into ours (item_give). returns how many things were taken (0: nothing, or no such body) */
+int  bodies_take_all(unsigned vessel);
 /* "has a knife and a rock" style text for the toast: lower case, `out` of n bytes */
 void bodies_inv_text(const Body *b, char *out, int n);
 

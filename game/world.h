@@ -115,6 +115,8 @@ void world_grave_tile(int i, float *tx, float *ty);       /* feet position in ti
  * world_has_item asks the pockets, world_give_item fills them straight away, world_clear_items empties them (a new body). the shrine's
  * interact button only appears for a player who has the hammer (ITEM_HAMMER). */
 void world_place_item(int kind, int tile_x, int tile_y);
+unsigned world_body_in_reach(void);                       /* story chunk 8: the nearest body in reach (1 = Aonia), 0 = none: where a stab goes */
+int  world_throw_item(int kind);                          /* story chunk 8: it flies the way we face; 1 = it fell into the pit (gone), 0 = it lies on the floor */
 void world_set_inspect_cb(void (*cb)(unsigned vessel));   /* story chunk 6: next to a body the hand button is a magnifying glass; a tap calls this with the body's vessel number (1 = Aonia) */
 void world_lock_item(int kind, int on, void (*on_blocked)(void));   /* chunk 33: a locked item on the ground is not picked up; on_blocked runs when someone walks into it (at most every 3 s) */
 void world_enable_body_search(int npc_id, void (*on_done)(void));   /* chunk 39: next to that lying npc (indoors) the button shows the magnifying glass; a HOLD (chunk 64, a tap is only a hint) searches, then on_done once (bsearch.h) */

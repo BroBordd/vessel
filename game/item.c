@@ -111,8 +111,36 @@ static const char *BAG[ITEM_ICON_CELLS] = {
     ".GwWWWWWwwG.",
     "..GGGGGGGG..",
 };
-static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE };
-static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE" };
+/* the small rock (story chunk 8): a grey stone, lighter on the top left. L light, D dark */
+static const char *ROCK[ITEM_ICON_CELLS] = {
+    "............",
+    "............",
+    "....GGGG....",
+    "..GGLLLLGG..",
+    ".GLLLLLDDDG.",
+    ".GLLLLDDDDG.",
+    "GLLLDDDDDDDG",
+    "GLLDDDDDDDDG",
+    ".GDDDDDDDDG.",
+    "..GGDDDDGG..",
+    "....GGGG....",
+    "............",
+};
+static const char *const *ICONS[ITEM_COUNT] = { HAMMER, ORB, PAPER, KNIFE, ROCK };
+static const char *NAMES[ITEM_COUNT] = { "HAMMER", "ORB", "NOTE", "KNIFE", "ROCK" };
+static const char *DESCS[ITEM_COUNT] = {
+    "A heavy hammer.", "A violet orb. It glows.", "A note written in blood.",
+    "A sharp knife. It cuts bodies, and the one who holds it.", "A small rock. Fits a hand. Good for throwing.",
+};
+static void (*action_cb)(int kind, int act);
+const char *item_desc(int kind) { return kind >= 0 && kind < ITEM_COUNT ? DESCS[kind] : ""; }
+int item_actions(int kind, int out[2]) {
+    if (kind == ITEM_KNIFE) { out[0] = ACT_STAB; out[1] = ACT_STAB_SELF; return 2; }
+    if (kind == ITEM_ROCK)  { out[0] = ACT_THROW; return 1; }
+    return 0;
+}
+const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : ""; }
+void item_set_action_cb(void (*cb)(int kind, int act)) { action_cb = cb; }
 
 int item_size(int kind) {
     switch (kind) {                         /* the hammer, the orb, the paper and the knife all fit a pocket. the arms, legs, heads and spines of chunk 9 will be SIZE_MEDIUM here */
@@ -123,19 +151,20 @@ int item_size(int kind) {
 const char *item_name(int kind) { return kind >= 0 && kind < ITEM_COUNT ? NAMES[kind] : ""; }
 
 static int s = 1, tile = 16;                /* pixel scale and tile size of the current map */
-static int on, on_kind, tx, ty;             /* what lies on the map */
+/* story chunk 8: several things can lie on the map now (the paper, rocks, a thrown rock). the oldest is dropped if GROUND_MAX is passed */
+#define GROUND_MAX 12
+typedef struct { int kind, tx, ty, gs_x, gs_y, gs_seen; float drop_t; } Ground;       /* gs_*: where it was drawn last (screen px): its flight to the bag starts there. drop_t: seconds since it was dropped, 99 = simply placed */
+static Ground gnd[GROUND_MAX]; static int ng;
 static int have[ITEM_COUNT];
 static float new_t = 99.0f;                 /* seconds since the last pickup LANDED in the bag (the slot flashes, the badge ticks); negative while the icon is still flying */
 static int   newest = -1;                   /* chunk 70: the kind that came last (gold frame) */
 static float fly_t = 99.0f; static int fly_kind, fly_x, fly_y;      /* chunk 70: the icon flying from the ground to the bag */
-static int   gs_x, gs_y, gs_seen;           /* where the item lying on the map was drawn last (screen px): the flight starts there */
 #define INV_FLY_T   0.4f
 #define INV_EASE_T  0.25f
 #define INV_IDLE_T  4.0f
 static int   ui_open, ui_down;              /* the panel is asked open / which part of the inventory the finger went down on (1 bag, 2 panel) */
 static float ui_p, ui_idle;                 /* how far the panel is out (0..1), seconds since the last touch on it */
 static int   ui_sel = -1;                   /* the slot whose name shows */
-static float drop_t = 99.0f;                /* seconds since the item on the map was dropped (chunk 32); 99 = it was simply placed */
 #define DROP_BOUNCE_T 0.2f
 #define DROP_HEIGHT   14                    /* units it falls from */
 
@@ -145,12 +174,18 @@ void item_set_locked(int kind, int lk) { if (kind >= 0 && kind < ITEM_COUNT) loc
 int  item_locked(int kind) { return kind >= 0 && kind < ITEM_COUNT && locked[kind]; }
 void item_set_blocked_cb(void (*cb)(void)) { blocked_cb = cb; }
 int  item_blocked_count(void) { return n_blocked; }
-void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; on = 0; drop_t = 99.0f; memset(locked, 0, sizeof locked); blocked_cb = NULL; }
-void item_place(int kind, int tile_x, int tile_y) { if (kind < 0 || kind >= ITEM_COUNT) return; on = 1; on_kind = kind; tx = tile_x; ty = tile_y; drop_t = 99.0f; gs_seen = 0; }
-void item_drop(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); if (on) drop_t = 0; }
-int  item_dropping(void) { return on && drop_t < ITEM_DROP_T; }
-int  item_exists(void) { return on; }
-void item_tile(float *x, float *y) { *x = tx + 0.5f; *y = ty + 0.5f; }
+void item_reset(int pixel_scale, int tile_size) { s = pixel_scale; tile = tile_size; ng = 0; memset(locked, 0, sizeof locked); blocked_cb = NULL; }
+void item_place(int kind, int tile_x, int tile_y) {
+    if (kind < 0 || kind >= ITEM_COUNT) return;
+    if (ng == GROUND_MAX) { memmove(gnd, gnd + 1, sizeof(Ground) * (GROUND_MAX - 1)); ng--; }
+    Ground g = { kind, tile_x, tile_y, 0, 0, 0, 99.0f }; gnd[ng++] = g;
+}
+void item_drop(int kind, int tile_x, int tile_y) { int before = ng; item_place(kind, tile_x, tile_y); if (ng > 0 && (ng > before || before == GROUND_MAX)) gnd[ng - 1].drop_t = 0; }
+int  item_dropping(void) { for (int i = 0; i < ng; i++) if (gnd[i].drop_t < ITEM_DROP_T) return 1; return 0; }
+int  item_exists(void) { return ng > 0; }
+int  item_ground_count(void) { return ng; }
+int  item_ground_get(int i, int *kind, int *tile_x, int *tile_y) { if (i < 0 || i >= ng) return 0; *kind = gnd[i].kind; *tile_x = gnd[i].tx; *tile_y = gnd[i].ty; return 1; }
+void item_tile(float *x, float *y) { if (ng > 0) { *x = gnd[0].tx + 0.5f; *y = gnd[0].ty + 0.5f; } else { *x = *y = 0; } }
 int  item_has(int kind) { return kind >= 0 && kind < ITEM_COUNT && have[kind]; }
 void item_give(int kind) { if (kind < 0 || kind >= ITEM_COUNT) return; have[kind] = 1; new_t = 0; newest = kind; }
 void item_take(int kind) { if (kind >= 0 && kind < ITEM_COUNT) have[kind] = 0; }
@@ -166,26 +201,35 @@ void item_update(float dt) {
     if (ui_open) { ui_idle += dt; if (ui_idle >= INV_IDLE_T) ui_open = 0; }        /* chunk 70: it never stays open by itself */
     if (ui_open && ui_p < 1.0f) { ui_p += dt / INV_EASE_T; if (ui_p > 1.0f) ui_p = 1.0f; }
     if (!ui_open && ui_p > 0.0f) { ui_p -= dt / INV_EASE_T; if (ui_p < 0.0f) ui_p = 0.0f; }
-    if (on && drop_t < 99.0f) {                                 /* chunk 32: a dropped item falls first, and thunks when it lands */
-        float before = drop_t; drop_t += dt;
-        if (before < ITEM_DROP_T && drop_t >= ITEM_DROP_T) sfx_blip(0.42f);
-        if (drop_t > ITEM_DROP_T + DROP_BOUNCE_T + 1.0f) drop_t = 99.0f;
+    for (int i = 0; i < ng; i++) {                              /* chunk 32: a dropped item falls first, and thunks when it lands */
+        if (gnd[i].drop_t >= 99.0f) continue;
+        float before = gnd[i].drop_t; gnd[i].drop_t += dt;
+        if (before < ITEM_DROP_T && gnd[i].drop_t >= ITEM_DROP_T) sfx_blip(0.42f);
+        if (gnd[i].drop_t > ITEM_DROP_T + DROP_BOUNCE_T + 1.0f) gnd[i].drop_t = 99.0f;
     }
 }
-int item_in_reach(float pxw, float pyw) {
-    if (!on || item_dropping()) return 0;
-    float dx = pxw - (tx + 0.5f) * tile, dy = pyw - (ty + 0.5f) * tile;
-    return sqrtf(dx * dx + dy * dy) / tile < ITEM_REACH_R;
+static int nearest_in_reach(float pxw, float pyw) {              /* the nearest landed item within ITEM_REACH_R tiles of the feet, or -1 */
+    int best = -1; float bd = ITEM_REACH_R;
+    for (int i = 0; i < ng; i++) {
+        if (gnd[i].drop_t < ITEM_DROP_T) continue;
+        float dx = pxw - (gnd[i].tx + 0.5f) * tile, dy = pyw - (gnd[i].ty + 0.5f) * tile, d = sqrtf(dx * dx + dy * dy) / tile;
+        if (d < bd) { bd = d; best = i; }
+    }
+    return best;
 }
+int item_in_reach(float pxw, float pyw) { return nearest_in_reach(pxw, pyw) >= 0; }
 int item_grab(float pxw, float pyw) {                           /* chunk 68: the tap on the hand */
-    if (!item_in_reach(pxw, pyw)) return -1;
-    int k = on_kind;
+    int i = nearest_in_reach(pxw, pyw);
+    if (i < 0) return -1;
+    int k = gnd[i].kind;
     if (locked[k]) {                                            /* chunk 33: it stays where it is, every press says so */
         n_blocked++; if (blocked_cb) blocked_cb();
         return -1;
     }
-    on = 0; item_give(k);
-    if (gs_seen) { fly_kind = k; fly_x = gs_x; fly_y = gs_y; fly_t = 0; new_t = -INV_FLY_T; }      /* chunk 70: it flies to the bag, the flash and the badge wait for it */
+    int seen = gnd[i].gs_seen, gx = gnd[i].gs_x, gy = gnd[i].gs_y;
+    memmove(gnd + i, gnd + i + 1, sizeof(Ground) * (size_t)(ng - i - 1)); ng--;
+    item_give(k);
+    if (seen) { fly_kind = k; fly_x = gx; fly_y = gy; fly_t = 0; new_t = -INV_FLY_T; }      /* chunk 70: it flies to the bag, the flash and the badge wait for it */
     return k;
 }
 
@@ -262,17 +306,18 @@ void item_draw_search_icon(SDL_Renderer *r, int x, int y, int cell) {
 }
 
 void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
-    if (!on) return;
-    int x = (int)((tx + 0.5f) * tile) - cam_x, y = (int)((ty + 0.5f) * tile) - cam_y;      /* centre of the spot */
-    int bob = (int)floorf(sinf(t * 3.0f) * 0.9f + 0.5f);
+    for (int n = 0; n < ng; n++) {
+    Ground *g = &gnd[n]; float drop_t = g->drop_t;
+    int x = (int)((g->tx + 0.5f) * tile) - cam_x, y = (int)((g->ty + 0.5f) * tile) - cam_y;      /* centre of the spot */
+    int bob = (int)floorf(sinf(t * 3.0f + n) * 0.9f + 0.5f);
     int lift = 0;                                                                           /* chunk 32: how high a dropped item still is (units) */
     if (drop_t < ITEM_DROP_T) { float k = drop_t / ITEM_DROP_T; lift = (int)(DROP_HEIGHT * (1.0f - k * k) + 0.5f); bob = 0; }
     else if (drop_t < ITEM_DROP_T + DROP_BOUNCE_T) { lift = (int)(3.0f * sinf((drop_t - ITEM_DROP_T) / DROP_BOUNCE_T * 3.14159f) + 0.5f); bob = 0; }
-    gs_x = x; gs_y = y - 2 * s + bob * s - lift * s; gs_seen = 1;                           /* chunk 70: where the flight to the bag starts */
+    g->gs_x = x; g->gs_y = y - 2 * s + bob * s - lift * s; g->gs_seen = 1;                  /* chunk 70: where the flight to the bag starts */
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 0, 0, 0, 70);
     SDL_Rect sh = { x - 7 * s / 2, y + 3 * s / 2, 7 * s, s }; SDL_RenderFillRect(r, &sh);   /* ground shadow (chunk 69: half) */
-    draw_rows_half(r, ICONS[on_kind], x - 3 * s, y - 3 * s + bob * s - lift * s, s, 1);     /* chunk 69: half the size, centred on the tile */
+    draw_rows_half(r, ICONS[g->kind], x - 3 * s, y - 3 * s + bob * s - lift * s, s, 1);     /* chunk 69: half the size, centred on the tile */
     if (drop_t >= ITEM_DROP_T && drop_t < ITEM_DROP_T + 0.5f) {                             /* landed: a burst of glints */
         float k = (drop_t - ITEM_DROP_T) / 0.5f; int a = (int)(255 * (1.0f - k)), d = (int)(3 + 9 * k);
         SDL_SetRenderDrawColor(r, 255, 255, 255, a);
@@ -281,13 +326,14 @@ void item_draw_ground(SDL_Renderer *r, int cam_x, int cam_y, float t) {
             SDL_Rect v = { x + ox * s, y - 4 * s + oy * s, s, s }; SDL_RenderFillRect(r, &v);
         }
     }
-    float ph = fmodf(t * 0.8f, 1.0f);                                                       /* a glint, so it can be spotted on the grass */
+    float ph = fmodf(t * 0.8f + n * 0.37f, 1.0f);                                           /* a glint, so it can be spotted on the grass */
     if (ph < 0.35f) {
         int a = (int)(255 * sinf(ph / 0.35f * 3.14159f));
         int gx = x - 4 * s, gy = y - 7 * s + bob * s;
         SDL_SetRenderDrawColor(r, 255, 255, 255, a);
         SDL_Rect v = { gx, gy - s, s, 3 * s }, h = { gx - s, gy, 3 * s, s };
         SDL_RenderFillRect(r, &v); SDL_RenderFillRect(r, &h);
+    }
     }
 }
 
@@ -326,7 +372,35 @@ static int fcell(const char *name, int room) {              /* the biggest lette
 }
 static int slots_n(void) { int n = owned(); int rows = (n + INV_COLS - 1) / INV_COLS; if (rows < 1) rows = 1; return rows * INV_COLS; }
 static int label_h(void) { return 2 * qs + font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + pad; }
-static int panel_full_h(void) { int rows = slots_n() / INV_COLS; return 2 * bt + pad + rows * psl + (rows - 1) * pad + pad + label_h(); }
+/* story chunk 8: under the name, the description of the selected item (a few short lines) and one button per action */
+#define DESC_LINES 5
+static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel]; }
+static int dcell(void) { int c = (int)((W < H ? W : H) / 360.0f); if (c < 1) c = 1; if (c > 2) c = 2; return c; }
+static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) {      /* greedy word wrap; returns the number of lines */
+    int n = 0; out[0][0] = 0; char word[64]; const char *p = text;
+    while (*p) {
+        while (*p == ' ') p++;
+        int wl = 0; while (*p && *p != ' ' && wl < 63) word[wl++] = *p++;
+        word[wl] = 0; if (!wl) break;
+        char tr[140];
+        if (out[n][0]) snprintf(tr, sizeof tr, "%s %s", out[n], word); else snprintf(tr, sizeof tr, "%s", word);
+        if (out[n][0] && font_width(tr, cell) > room) { if (n + 1 >= DESC_LINES) break; n++; snprintf(out[n], 64, "%s", word); }
+        else snprintf(out[n], 64, "%s", tr);
+    }
+    return out[0][0] ? n + 1 : 0;
+}
+static int d_pitch(void) { return font_height(dcell()) + qs; }
+static int act_h(void) { return font_height(fcell("MMMMMM", uw - 2 * bt - 2 * pad)) + 2 * pad; }
+static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() ? wrap(item_desc(ui_sel), dcell(), uw - 2 * bt - 2 * pad, ln) : 0; }
+static int act_n(int out[2]) { return sel_ok() ? item_actions(ui_sel, out) : 0; }
+static int extra_h(void) { int a[2], nl = desc_n(), na = act_n(a); return (nl ? nl * d_pitch() + pad : 0) + na * (act_h() + pad); }
+static int panel_full_h(void) { int rows = slots_n() / INV_COLS; return 2 * bt + pad + rows * psl + (rows - 1) * pad + pad + label_h() + extra_h(); }
+static int grid_bottom(void) { int rows = slots_n() / INV_COLS; return uy + bag + pad + bt + pad + rows * psl + (rows - 1) * pad; }
+static void act_rect(int i, int *x, int *y, int *w, int *h) {
+    int nl = desc_n();
+    *x = ux + bt + pad; *w = uw - 2 * bt - 2 * pad; *h = act_h();
+    *y = grid_bottom() + label_h() + (nl ? nl * d_pitch() + pad : 0) + i * (*h + pad);
+}
 static int panel_h(void) {                                  /* how tall it is right now: eased out, in whole steps of `pad` */
     float k = 1.0f - ui_p, e = 1.0f - k * k * k; int full = panel_full_h();
     if (ui_p >= 1.0f) return full;
@@ -350,6 +424,8 @@ int item_ui_flying(void) { return fly_t < INV_FLY_T; }
 int item_ui_shown(void) { return shown(); }
 int item_ui_slot_x(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_x(i) + psl / 2; }
 int item_ui_slot_y(int kind) { int i = slot_of_kind(kind); return i < 0 ? -1 : slot_y(i) + psl / 2; }
+int item_ui_action_x(int i) { int a[2], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return x + w / 2; }
+int item_ui_action_y(int i) { int a[2], n = act_n(a); if (i < 0 || i >= n) return -1; int x, y, w, h; act_rect(i, &x, &y, &w, &h); return y + h / 2; }
 int item_ui_bag_x(void) { return ux + uw - bag / 2; }
 int item_ui_bag_y(void) { return uy + bag / 2; }
 
@@ -370,6 +446,11 @@ int item_ui_touch(int a, int x, int y) {
         if (ui_down == 1 && hit_bag(x, y)) set_open(!ui_open);
         else if (ui_down == 2 && hit_panel(x, y)) {
             ui_idle = 0;
+            int acts[2], na = ui_p >= 1.0f ? act_n(acts) : 0;
+            for (int i = 0; i < na; i++) {                   /* story chunk 8: an action button: fold the panel, then the story decides what happens */
+                int rx, ry, rw, rh; act_rect(i, &rx, &ry, &rw, &rh);
+                if (in_rect(x, y, rx, ry, rw, rh)) { int k = ui_sel; ui_open = 0; ui_down = 0; if (action_cb) action_cb(k, acts[i]); return 1; }
+            }
             for (int i = 0; i < slots_n(); i++) {
                 int sx = slot_x(i), sy = slot_y(i);
                 if (in_rect(x, y, sx - pad / 2, sy - pad / 2, psl + pad, psl + pad) && kind_at_slot(i) >= 0) ui_sel = kind_at_slot(i);
@@ -439,6 +520,17 @@ void item_ui_draw(SDL_Renderer *r, float t) {
             int x0 = cx - tw / 2, lo = px_ + bt + pad, hi = px_ + pw_ - bt - pad - tw; if (x0 > hi) x0 = hi; if (x0 < lo) x0 = lo;
             SDL_SetRenderDrawColor(r, 235, 240, 255, 255);
             font_draw(r, nm, x0, gy + pad / 2 + 2 * qs + qs / 2, fc);
+            char ln[DESC_LINES][64]; int dc = dcell(), nl = wrap(item_desc(ui_sel), dc, pw_ - 2 * bt - 2 * pad, ln);      /* story chunk 8: what it is ... */
+            SDL_SetRenderDrawColor(r, 178, 190, 222, 255);
+            for (int j = 0; j < nl; j++) font_draw(r, ln[j], px_ + bt + pad, grid_bottom() + label_h() + j * d_pitch(), dc);
+            int acts[2], na = act_n(acts);                        /* ... and what it can do: one button each */
+            for (int j = 0; j < na; j++) {
+                int rx, ry, rw, rh; act_rect(j, &rx, &ry, &rw, &rh);
+                box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
+                const char *an = item_action_name(acts[j]); int ac = fcell(an, rw - 2 * pad), aw = font_width(an, ac);
+                SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
+                font_draw(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac);
+            }
         }
         SDL_RenderSetClipRect(r, NULL);
         if (ph_ < full) { SDL_SetRenderDrawColor(r, 214, 170, 70, 255); SDL_Rect e = { px_, py_ + ph_ - bt, pw_, bt }; SDL_RenderFillRect(r, &e); }   /* the edge while it is still growing */
