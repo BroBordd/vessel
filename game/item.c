@@ -242,6 +242,7 @@ static int in_recipe(int kind) {
     for (unsigned i = 0; i < sizeof RECIPES / sizeof RECIPES[0]; i++) if (RECIPES[i].a == kind || RECIPES[i].b == kind) return 1;
     return 0;
 }
+static int cq[4] = { -1, -1, -1, -1 };                          /* B3: the four crafting squares (a kind each, or -1). they only point at things in the pockets: nothing moves until the result is tapped */
 static int craft_a = -1;                                    /* the first half of a craft is chosen: the next slot you touch is the second */
 static void (*craft_cb)(int a, int b);
 void item_set_craft_cb(void (*cb)(int a, int b)) { craft_cb = cb; }
@@ -264,7 +265,6 @@ int item_actions(int kind, int out[4]) {
     case ITEM_WATCHING_ROCK: out[n++] = ACT_DROP; break;
     default: break;
     }
-    if (in_recipe(kind) && n < 4) out[n++] = ACT_COMBINE;
     return n;
 }
 const char *item_action_name(int act) { return act == ACT_STAB ? "STAB" : act == ACT_STAB_SELF ? "STAB SELF" : act == ACT_THROW ? "THROW" : act == ACT_CUT_FINGERS ? "CUT FINGERS" : act == ACT_CUT_BONE ? "CUT BONE" : act == ACT_CUT_EYES ? "CUT EYES" : act == ACT_CUT_TEETH ? "CUT TEETH" : act == ACT_CLEAN ? "CLEAN SKULL" : act == ACT_DROP ? "PUT DOWN" : act == ACT_COMBINE ? "COMBINE" : act == ACT_SWING ? "SWING" : act == ACT_SMASH ? "SMASH" : act == ACT_WEAR ? "WEAR" : ""; }
@@ -326,7 +326,7 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; held = -1; }
+void item_clear(void) { for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; held = -1; }
 
 static int owned(void);
 void item_update(float dt) {
@@ -627,6 +627,7 @@ static int drag_end(int x, int y) {                             /* 1 = it was a 
 }
 
 /* where everything is: worked out from the screen, the pockets and the selection every time it is needed (cheap) */
+static int tl_x, tl_y, tl_ts, tl_hs, tl_cx, tl_ax, tl_rx, tl_aw;   /* B3: the tools row: the hand square at tl_x, the craft squares at tl_cx, the arrow, the result square at tl_rx */
 static void win_layout(void) {
     int m = (int)(6 * uu); if (m < 4) m = 4;
     int top = (int)(48 * uu); if (top < 24) top = 24;           /* clear of the top buttons */
@@ -640,12 +641,19 @@ static void win_layout(void) {
     int n = owned_w();
     rowsn = (n + INV_COLS - 1) / INV_COLS; if (rowsn < 3) rowsn = 3;
     gx = ix; gy = iy;
-    if (wide) { gw = iw * 45 / 100; gh = ih; dx = ix + gw + pad; dy = iy; dw = iw - gw - pad; dh = ih; }
-    else      { gw = iw; gh = ih * 42 / 100; dx = ix; dy = iy + gh + pad; dw = iw; dh = ih - gh - pad; }
+    int tx, tw;                                                 /* B3: the row of tools (the hand, the 2x2 crafting squares, the result) sits between the grid and the item */
+    if (wide) { gw = iw * 45 / 100; gh = ih; tx = ix + gw + pad; tw = iw - gw - pad; }
+    else      { gw = iw; gh = ih * 38 / 100; tx = ix; tw = iw; }
     sl = (gw - (INV_COLS + 1) * pad) / INV_COLS;
     int sh = (gh - (rowsn + 1) * pad) / rowsn; if (sh < sl) sl = sh;
     if (sl < 14) sl = 14;
     pcell = (sl - 2 * bt - pad) / ITEM_ICON_CELLS; if (pcell < 1) pcell = 1;
+    int gap = 2 * pad, ts = sl * 55 / 100, ih_cap = ih / 6; if (ts > ih_cap) ts = ih_cap;
+    while (ts > 10 && 3 * (2 * ts + pad) + ts / 2 + 4 * gap > tw) ts--;      /* the biggest squares that fit the width */
+    if (ts < 10) ts = 10;
+    tl_ts = ts; tl_hs = 2 * ts + pad; tl_x = tx; tl_y = wide ? iy : iy + gh + pad; tl_aw = ts / 2;
+    tl_rx = tx + tw - tl_hs; tl_cx = tl_rx - gap - tl_aw - gap - tl_hs; tl_ax = tl_cx + tl_hs + gap;
+    dx = tx; dw = tw; dy = tl_y + tl_hs + pad; dh = iy + ih - dy;
 }
 static int grid_off(void) { int used = INV_COLS * sl + (INV_COLS + 1) * pad, o = (gw - used) / 2; return o > 0 ? o : 0; }
 static int slot_x(int i) { return gx + grid_off() + pad + (i % INV_COLS) * (sl + pad); }
@@ -669,30 +677,52 @@ static int btn_top(void) {
     int nl = desc_n(); return desc_top() + (nl ? nl * d_pitch() + pad : 0);
 }
 static void btn_rect(int i, int *x, int *y, int *w, int *h) { *x = dx; *w = dw; *h = act_h(); *y = btn_top() + i * (*h + pad); }
-/* B2: the HAND SQUARE in the inventory window (top right of the detail area): drag a thing from the grid onto it to hold it; drag it out onto the grid, or tap it, to put it away.
- * (this replaces the IN HAND / PUT AWAY button) */
-static int hand_sq(int *x, int *y, int *w, int *h) {
-    if (bw_on || craft_a >= 0) return 0;
-    int bs = bigsz(); *w = *h = bs; *x = dx + dw - bs; *y = dy; return 1;
+/* B2: the HAND SQUARE in the inventory window (the tools row, left): drag a thing from the grid onto it to hold it; drag it out onto the grid, or tap it, to put it away.
+ * B3: next to it the 2x2 CRAFTING SQUARES and the result. drag things from the grid onto a square (a tap on a filled square empties it, dragging it out onto the grid does too,
+ * onto another square swaps). when exactly two squares are filled and they make something (item_recipe) the result square shows it: a tap on it crafts (story_craft). */
+static int hand_sq(int *x, int *y, int *w, int *h) { if (bw_on) return 0; *x = tl_x; *y = tl_y; *w = *h = tl_hs; return 1; }
+static int craft_sq(int i, int *x, int *y, int *w, int *h) { if (bw_on) return 0; *x = tl_cx + (i % 2) * (tl_ts + pad); *y = tl_y + (i / 2) * (tl_ts + pad); *w = *h = tl_ts; return 1; }
+static int res_sq(int *x, int *y, int *w, int *h) { if (bw_on) return 0; *x = tl_rx; *y = tl_y; *w = *h = tl_hs; return 1; }
+static int cq_result(int *ka, int *kb) {                        /* what the squares make, -1 when nothing (squares pointing at things we no longer have are emptied) */
+    int k[2] = { -1, -1 }, n = 0;
+    for (int i = 0; i < 4; i++) { if (cq[i] >= 0 && have[cq[i]] <= 0) cq[i] = -1; if (cq[i] >= 0) { if (n < 2) k[n] = cq[i]; n++; } }
+    if (n != 2) return -1;
+    int r = item_recipe(k[0], k[1]);
+    if (r < 0 || (k[0] == k[1] && have[k[0]] < 2)) return -1;
+    if (ka) *ka = k[0];
+    if (kb) *kb = k[1];
+    return r;
 }
+static int craft_at(int x, int y) { for (int i = 0; i < 4; i++) { int a, b, c, d; if (craft_sq(i, &a, &b, &c, &d) && in_rect(x, y, a, b, c, d)) return i; } return -1; }
+static int drag_idx;                                            /* the craft square a drag started from (drag_side 3) */
 static int bag_press(int x, int y) {
-    drag_on = 0; if (craft_a >= 0) return 0;
-    int hx, hy, hw, hh;
-    if (item_equipped() >= 0 && hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh)) { drag_on = 1; drag_side = 2; drag_kind = item_equipped(); drag_x0 = drag_x = x; drag_y0 = drag_y = y; return 1; }
+    drag_on = 0;
+    int hx, hy, hw, hh, ci = craft_at(x, y);
+    drag_x0 = drag_x = x; drag_y0 = drag_y = y;
+    if (ci >= 0) { if (cq[ci] >= 0) { drag_on = 1; drag_side = 3; drag_idx = ci; drag_kind = cq[ci]; return 1; } return 0; }
+    if (item_equipped() >= 0 && hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh)) { drag_on = 1; drag_side = 2; drag_kind = item_equipped(); return 1; }
     for (int i = 0; i < rowsn * INV_COLS; i++) {
         int kk = kind_at_slot(i);
         if (kk < 0 || !in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) continue;
-        drag_on = 1; drag_side = 1; drag_kind = kk; drag_x0 = drag_x = x; drag_y0 = drag_y = y; return 1;
+        drag_on = 1; drag_side = 1; drag_kind = kk; return 1;
     }
     return 0;
 }
 static int bag_end(int x, int y) {                              /* 1 = it was a drag */
     int was = drag_on; drag_on = 0;
     if (was != 2) return 0;
-    int hx, hy, hw, hh;
-    if (!hand_sq(&hx, &hy, &hw, &hh)) return 1;
-    if (drag_side == 1 && in_rect(x, y, hx, hy, hw, hh) && item_equipped() != drag_kind) { held = drag_kind; sfx_blip(0.5f); }       /* onto the hand: held */
-    else if (drag_side == 2 && in_rect(x, y, gx, gy, gw, grid_h() < gh ? grid_h() : gh)) { held = -1; sfx_blip(0.5f); }              /* out onto the grid: put away */
+    int hx, hy, hw, hh, ci = craft_at(x, y), on_hand = hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh);
+    int on_grid = in_rect(x, y, gx, gy, gw, grid_h() < gh ? grid_h() : gh);
+    if (drag_side == 1) {
+        if (on_hand && item_equipped() != drag_kind) { held = drag_kind; sfx_blip(0.5f); }                 /* onto the hand: held */
+        else if (ci >= 0) { cq[ci] = drag_kind; sfx_blip(0.5f); }                                         /* onto a craft square */
+    } else if (drag_side == 2) {
+        if (on_grid) { held = -1; sfx_blip(0.5f); }                                                        /* out onto the grid: put away */
+    } else if (drag_side == 3) {
+        if (on_grid) { cq[drag_idx] = -1; sfx_blip(0.5f); }                                                /* out onto the grid: emptied */
+        else if (ci >= 0 && ci != drag_idx) { int t = cq[ci]; cq[ci] = cq[drag_idx]; cq[drag_idx] = t; sfx_blip(0.5f); }   /* onto another square: they swap */
+        else if (on_hand) { held = drag_kind; cq[drag_idx] = -1; sfx_blip(0.5f); }
+    }
     return 1;
 }
 
@@ -723,7 +753,7 @@ static void set_open(int o) {
         craft_a = -1;
     }
     if (!o) { craft_a = -1; bw_on = 0; }
-    drag_on = 0;
+    drag_on = 0; if (!o) for (int i = 0; i < 4; i++) cq[i] = -1;
     ui_open = o; ui_p = o ? 1.0f : 0.0f; ui_idle = 0;
 }
 void item_ui_close(void) { set_open(0); ui_down = 0; }
@@ -734,7 +764,7 @@ void item_ui_body_open(unsigned vessel, const char *name, const unsigned char in
     snprintf(bw_name, sizeof bw_name, "%s", name ? name : "");
     for (char *c = bw_name; *c; c++) *c = (char)toupper((unsigned char)*c);
     memcpy(bw_inv, inv, ITEM_COUNT);
-    drag_on = 0;
+    drag_on = 0; for (int i = 0; i < 4; i++) cq[i] = -1;
     if (!was) { craft_a = -1; ui_sel = -1; chest_side = 0; }
     ui_open = 1; ui_p = 1.0f; ui_idle = 0; ui_down = 0;
     if (!chest_sel_ok()) { chest_side = 0; ui_sel = kind_on(0, 0); }       /* the selection is gone (taken): the first thing of the body */
@@ -744,7 +774,10 @@ static void win_tap(int x, int y) {                              /* a tap that b
     if (in_rect(x, y, cbx, cby, tb, tb)) { set_open(0); return; }
     if (bw_on) { chest_tap(x, y); return; }
     { int hx, hy, hw, hh;                                        /* B2: a tap on the hand square puts what is in it away */
-      if (hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh)) { if (item_equipped() >= 0) { held = -1; sfx_blip(0.5f); } return; } }
+      if (hand_sq(&hx, &hy, &hw, &hh) && in_rect(x, y, hx, hy, hw, hh)) { if (item_equipped() >= 0) { held = -1; sfx_blip(0.5f); } return; }
+      int ci = craft_at(x, y); if (ci >= 0) { cq[ci] = -1; return; }                              /* B3: a tap on a craft square empties it */
+      int ra, rb, rr = cq_result(&ra, &rb), rx, ry, rw, rh;
+      if (rr >= 0 && res_sq(&rx, &ry, &rw, &rh) && in_rect(x, y, rx, ry, rw, rh)) { set_open(0); if (craft_cb) craft_cb(ra, rb); return; } }       /* the result: made (the window folds, the story says what was made) */
     int acts[4], na = act_n(acts);
     int nb = craft_a >= 0 ? 1 : (bw_on ? (sel_ok() ? 2 : 0) : (sel_ok() ? na : 0));
     for (int i = 0; i < nb; i++) {
@@ -754,7 +787,6 @@ static void win_tap(int x, int y) {                              /* a tap that b
         if (bw_on) { if (body_cb) body_cb(bw_vessel, i == 0 ? ui_sel : -1); return; }       /* TAKE / TAKE ALL: the story moves it, then shows the body again */
         if (i < na) {
             int k = ui_sel;
-            if (acts[i] == ACT_COMBINE) { craft_a = k; return; }   /* chunk 10: now touch the second slot */
             set_open(0); if (action_cb) action_cb(k, acts[i]); return;
         }
     }
@@ -888,15 +920,34 @@ static void chest_draw(SDL_Renderer *r) {
         item_draw_icon(r, drag_kind, fx + (csl - ITEM_ICON_CELLS * cpc) / 2, fy + (csl - ITEM_ICON_CELLS * cpc) / 2, cpc);
     }
 }
-static void bag_overlay(SDL_Renderer *r) {                      /* B2: the hand square, and what is being dragged in the bag window */
+static void sq(SDL_Renderer *r, int x, int y, int w, int h, int hot, int kind, int c) {       /* a square of the tools row: grey, green while a drag is over it; its icon */
+    box(r, x, y, w, h, hot ? 120 : 90, hot ? 230 : 96, hot ? 150 : 112, 40, 44, 60, 255);
+    if (kind >= 0) item_draw_icon(r, kind, x + (w - ITEM_ICON_CELLS * c) / 2, y + (h - ITEM_ICON_CELLS * c) / 2, c);
+}
+static void bag_overlay(SDL_Renderer *r) {                      /* B2, B3: the tools row (hand, craft squares, arrow, result) and what is being dragged in the bag window */
     int hx, hy, hw, hh; if (!hand_sq(&hx, &hy, &hw, &hh)) return;
-    int over = drag_on == 2 && drag_side == 1, hk = item_equipped(), bc = bigc();
-    box(r, hx, hy, hw, hh, over ? 120 : 90, over ? 230 : 96, over ? 150 : 112, 40, 44, 60, 255);
-    int ix_ = hx + (hw - ITEM_ICON_CELLS * bc) / 2, iy_ = hy + (hh - ITEM_ICON_CELLS * bc) / 2;
-    if (hk >= 0 && !(drag_on == 2 && drag_side == 2)) item_draw_icon(r, hk, ix_, iy_, bc); else item_draw_hand_icon(r, ix_, iy_, bc);
-    if (drag_on != 2) return;
+    int dr = drag_on == 2, hk = item_equipped(), hc = (hw - 2 * bt - pad) / ITEM_ICON_CELLS, qc = (tl_ts - 2 * bt - pad) / ITEM_ICON_CELLS;
+    if (hc < 1) hc = 1;
+    if (qc < 1) qc = 1;
+    int hot_ci = dr && drag_side != 2 ? craft_at(drag_x, drag_y) : -1, hot_h = dr && drag_side != 2 && in_rect(drag_x, drag_y, hx, hy, hw, hh);
+    sq(r, hx, hy, hw, hh, hot_h, hk >= 0 && !(dr && drag_side == 2) ? hk : -2, hc);
+    if (!(hk >= 0 && !(dr && drag_side == 2))) item_draw_hand_icon(r, hx + (hw - ITEM_ICON_CELLS * hc) / 2, hy + (hh - ITEM_ICON_CELLS * hc) / 2, hc);
+    for (int i = 0; i < 4; i++) {
+        int cx, cy, cw, ch; craft_sq(i, &cx, &cy, &cw, &ch);
+        int k = cq[i] >= 0 && have[cq[i]] > 0 && !(dr && drag_side == 3 && drag_idx == i) ? cq[i] : -1;
+        sq(r, cx, cy, cw, ch, i == hot_ci, k, qc);
+    }
+    {   int ax = tl_ax, ay = tl_y + tl_hs / 2, aw = tl_aw, st = qs;                         /* the arrow: a shaft and a head, made of squares */
+        SDL_SetRenderDrawColor(r, 178, 190, 222, 255);
+        SDL_Rect sh = { ax, ay - st / 2, aw - 2 * st, st }; SDL_RenderFillRect(r, &sh);
+        for (int j = 0; j < 3; j++) { SDL_Rect hd = { ax + aw - (3 - j) * st, ay - (j + 1) * st + st / 2, st, (j + 1) * 2 * st - st }; SDL_RenderFillRect(r, &hd); }
+    }
+    int rx, ry, rw, rh, ra, rb, rr = cq_result(&ra, &rb); res_sq(&rx, &ry, &rw, &rh);
+    if (rr >= 0) { box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255); item_draw_icon(r, rr, rx + (rw - ITEM_ICON_CELLS * hc) / 2, ry + (rh - ITEM_ICON_CELLS * hc) / 2, hc); }
+    else         box(r, rx, ry, rw, rh, 60, 66, 90, 20, 24, 40, 255);
+    if (!dr) return;
     if (drag_side == 1) { int i = slot_of_kind(drag_kind); if (i >= 0) { SDL_SetRenderDrawColor(r, 6, 8, 20, 170); SDL_Rect dm = { slot_x(i), slot_y(i), sl, sl }; SDL_RenderFillRect(r, &dm); } }
-    else {                                                      /* from the hand: the grid is where it goes (a green frame) */
+    else {                                                      /* from the hand or a craft square: the grid is where it goes (a green frame) */
         int fh = grid_h() < gh ? grid_h() : gh;
         SDL_SetRenderDrawColor(r, 120, 230, 150, 255);
         SDL_Rect f[4] = { { gx, gy, gw, bt }, { gx, gy + fh - bt, gw, bt }, { gx, gy, bt, fh }, { gx + gw - bt, gy, bt, fh } };
@@ -965,7 +1016,7 @@ static void window_draw(SDL_Renderer *r) {
         int qc = fcell("?", bs); txt(r, "?", x2 + (bs - font_width("?", qc)) / 2, dy + (bs - font_height(qc)) / 2, qc, 255, 130, 150);
         txt(r, "WITH WHAT?", dx, desc_top(), bc2, 255, 190, 200);
     } else {
-        const char *nm = item_name(ui_sel); int nc = fcell(nm, dw - 2 * bs - 2 * pad);       /* (the hand square is on the right) */
+        const char *nm = item_name(ui_sel); int nc = fcell(nm, dw - bs - pad);
         txt(r, nm, dx + bs + pad, dy, nc, 235, 240, 255);
         if (!bw_on && item_equipped() == ui_sel) txt(r, "IN HAND", dx + bs + pad, dy + font_height(nc) + qs, dcc, 120, 230, 150);
         char ln[DESC_LINES][64]; int nl = wrap(item_desc(ui_sel), dcc, dw, ln);
