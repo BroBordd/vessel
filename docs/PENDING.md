@@ -5,7 +5,7 @@ Written from the chat with the owner. Each item is one small chunk: one push, ow
 ## A. Loot window (chest style)
 - [x] **A1.** Two grids (body on top, you below), details strip under the items, tap to select, tap again / TAKE / TAKE ALL (`item.c`: `chest_*`). Pushed as cb28804, untested.
 - [x] **A2. Drag to loot** (pushed, untested). Touch has no motion events in the window yet (`item_ui_touch` only handles down/up). Add a drag state: hold a stack, a floating icon follows the finger, drop on the other grid to move it (body to you = `body_cb`). A short tap must still select.
-- [ ] **A3. Reorder.** Needs a persistent slot array (today slots are derived from the kind order, `kind_at_slot`). Drag within our own grid and within the body's. Must survive death/respawn (`story.c` keeps ground items across a death; check the pockets too) and crafting/take/give.
+- [x] **A3. Reorder** (pushed, untested; done as an order list per grid (`ord`, `order_move`): new kinds go to the end, gone kinds drop out, a drag inside a grid moves the kind to the place under the finger. not saved across a death: `item_clear` resets it). Needs a persistent slot array (today slots are derived from the kind order, `kind_at_slot`). Drag within our own grid and within the body's. Must survive death/respawn (`story.c` keeps ground items across a death; check the pockets too) and crafting/take/give.
 - [ ] **A4. Put back.** Drag from our grid into the body's. Needs `bodies_give(vessel, kind)` in `bodies.c`, and the medium/hands rule in reverse.
 - [ ] **A5. Cleanup.** Remove the dead `bw_on` branches in the bag window code (`hv`, `act_n`, `btn_*`, draw) once A1-A4 are tested. Handle many item kinds in a small window (grid scroll, or a smaller slot).
 

@@ -242,6 +242,7 @@ static int in_recipe(int kind) {
     for (unsigned i = 0; i < sizeof RECIPES / sizeof RECIPES[0]; i++) if (RECIPES[i].a == kind || RECIPES[i].b == kind) return 1;
     return 0;
 }
+static unsigned char ord[2][ITEM_COUNT]; static int ordn[2];                /* A3: the order of the slots, below (ord_norm) */
 static int cq[4] = { -1, -1, -1, -1 };                          /* B3: the four crafting squares (a kind each, or -1). they only point at things in the pockets: nothing moves until the result is tapped */
 static int craft_a = -1;                                    /* the first half of a craft is chosen: the next slot you touch is the second */
 static void (*craft_cb)(int a, int b);
@@ -326,7 +327,7 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; held = -1; }
+void item_clear(void) { ordn[1] = 0; for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); craft_a = -1; new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; held = -1; }
 
 static int owned(void);
 void item_update(float dt) {
@@ -535,8 +536,29 @@ static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) 
     return out[0][0] ? n + 1 : 0;
 }
 static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && hv(ui_sel) > 0; }
-static int kind_at_slot(int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (hv(k) > 0) { if (n == i) return k; n++; } return -1; }
-static int slot_of_kind(int kind) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (hv(k) > 0) { if (k == kind) return n; n++; } return -1; }
+/* story chunk 19 (A3): THE ORDER OF THE SLOTS. a grid shows the kinds it holds in the order of a list (ord): kinds that came are put at the end, kinds that left drop out, and a drag
+ * inside a grid moves a kind to another place of the list. side 0 = the body's pockets, 1 = ours. (before this the order was always the order of the enum) */
+static int cnt(int side, int k) { return side ? have[k] : bw_inv[k]; }
+static void ord_norm(int side) {
+    unsigned char tmp[ITEM_COUNT]; char seen[ITEM_COUNT]; int n = 0;
+    memset(seen, 0, sizeof seen);
+    for (int i = 0; i < ordn[side]; i++) { int k = ord[side][i]; if (k < ITEM_COUNT && cnt(side, k) > 0 && !seen[k]) { tmp[n++] = (unsigned char)k; seen[k] = 1; } }
+    for (int k = 0; k < ITEM_COUNT; k++) if (cnt(side, k) > 0 && !seen[k]) tmp[n++] = (unsigned char)k;
+    memcpy(ord[side], tmp, (size_t)n); ordn[side] = n;
+}
+static int kind_on(int side, int i) { ord_norm(side); return i >= 0 && i < ordn[side] ? ord[side][i] : -1; }
+static int owned_on(int side) { ord_norm(side); return ordn[side]; }
+static void order_move(int side, int kind, int to) {            /* the kind goes to place `to` of the list (past the end = the end) */
+    ord_norm(side);
+    int p = -1; for (int i = 0; i < ordn[side]; i++) if (ord[side][i] == kind) p = i;
+    if (p < 0) return;
+    for (int i = p; i < ordn[side] - 1; i++) ord[side][i] = ord[side][i + 1];
+    int n = ordn[side] - 1; if (to > n) to = n; if (to < 0) to = 0;
+    for (int i = n; i > to; i--) ord[side][i] = ord[side][i - 1];
+    ord[side][to] = (unsigned char)kind;
+}
+static int kind_at_slot(int i) { return kind_on(bw_on ? 0 : 1, i); }
+static int slot_of_kind(int kind) { int s = bw_on ? 0 : 1; for (int i = 0; i < ITEM_COUNT; i++) { int k = kind_on(s, i); if (k < 0) break; if (k == kind) return i; } return -1; }
 static int in_rect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && y >= ry && x < rx + rw && y < ry + rh; }
 
 /* the thing in hand: a medium thing carried in the hands first, else the one set as in hand (item_equip) */
@@ -553,9 +575,6 @@ static int hand_kind(void) {
 static int chest_side;                                          /* which grid holds the selection: 0 = the body's, 1 = ours */
 static int cg_x[2], cg_y[2], cg_w[2], cg_h[2], cg_rows[2], cg_hh, csl, cpc;      /* the two grids: their areas, rows, the header height, one slot size, icon cell */
 static int st_x, st_y, st_w, st_nameh, st_bh;                   /* the strip under them: its area, the name line, the button height */
-static int cnt(int side, int k) { return side ? have[k] : bw_inv[k]; }
-static int kind_on(int side, int i) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) if (cnt(side, k) > 0) { if (n == i) return k; n++; } return -1; }
-static int owned_on(int side) { int n = 0; for (int k = 0; k < ITEM_COUNT; k++) n += cnt(side, k) > 0 ? 1 : 0; return n; }
 static int chest_sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && cnt(chest_side, ui_sel) > 0; }
 static int cs_off(int s) { int used = INV_COLS * csl + (INV_COLS + 1) * pad, o = (cg_w[s] - used) / 2; return o > 0 ? o : 0; }
 static int cs_x(int s, int i) { return cg_x[s] + cs_off(s) + pad + (i % INV_COLS) * (csl + pad); }
@@ -623,6 +642,11 @@ static int drag_end(int x, int y) {                             /* 1 = it was a 
     if (was != 2) return 0;
     int tgt = in_rect(x, y, cg_x[0], cg_y[0], cg_w[0], cg_h[0]) ? 0 : in_rect(x, y, cg_x[1], cg_y[1], cg_w[1], cg_h[1]) ? 1 : -1;
     if (drag_side == 0 && tgt == 1 && body_cb) body_cb(bw_vessel, drag_kind);       /* the body's stack dropped on our grid: taken */
+    else if (tgt == drag_side) {                                                    /* A3: dropped on its own grid: it takes the place under the finger (the end when none) */
+        int at = ITEM_COUNT;
+        for (int i = 0; i < cg_rows[tgt] * INV_COLS; i++) if (in_rect(x, y, cs_x(tgt, i) - pad / 2, cs_y(tgt, i) - pad / 2, csl + pad, csl + pad)) { at = i; break; }
+        order_move(tgt, drag_kind, at); sfx_blip(0.5f);
+    }
     return 1;
 }
 
@@ -716,6 +740,11 @@ static int bag_end(int x, int y) {                              /* 1 = it was a 
     if (drag_side == 1) {
         if (on_hand && item_equipped() != drag_kind) { held = drag_kind; sfx_blip(0.5f); }                 /* onto the hand: held */
         else if (ci >= 0) { cq[ci] = drag_kind; sfx_blip(0.5f); }                                         /* onto a craft square */
+        else if (on_grid) {                                                                                /* A3: inside the grid: it takes the place under the finger */
+            int at = ITEM_COUNT;
+            for (int i = 0; i < rowsn * INV_COLS; i++) if (in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) { at = i; break; }
+            order_move(1, drag_kind, at); sfx_blip(0.5f);
+        }
     } else if (drag_side == 2) {
         if (on_grid) { held = -1; sfx_blip(0.5f); }                                                        /* out onto the grid: put away */
     } else if (drag_side == 3) {
@@ -765,7 +794,7 @@ void item_ui_body_open(unsigned vessel, const char *name, const unsigned char in
     for (char *c = bw_name; *c; c++) *c = (char)toupper((unsigned char)*c);
     memcpy(bw_inv, inv, ITEM_COUNT);
     drag_on = 0; for (int i = 0; i < 4; i++) cq[i] = -1;
-    if (!was) { craft_a = -1; ui_sel = -1; chest_side = 0; }
+    if (!was) { craft_a = -1; ui_sel = -1; chest_side = 0; ordn[0] = 0; }
     ui_open = 1; ui_p = 1.0f; ui_idle = 0; ui_down = 0;
     if (!chest_sel_ok()) { chest_side = 0; ui_sel = kind_on(0, 0); }       /* the selection is gone (taken): the first thing of the body */
 }
