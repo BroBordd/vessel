@@ -701,7 +701,8 @@ static void win_layout(void) {
     tl_ts = ts; tl_hs = 2 * ts + pad; tl_x = tx; tl_y = wide ? iy : iy + gh + pad; tl_aw = ts / 2;
     tl_rx = tx + tw - tl_hs; tl_cx = tl_rx - gap - tl_aw - gap - tl_hs; tl_ax = tl_cx + tl_hs + gap;
     dx = tx; dw = tw; dy = tl_y + tl_hs + pad; dh = iy + ih - dy;
-    {   int need = bigsz() + pad + 5 * d_pitch() + pad + act_h();      /* only as tall as it needs (like the music window), centred */
+    {   int top_txt = font_height(fcell("MMMMMMMMMM", dw - bigsz() - pad)) + qs + font_height(dcell()) + qs, txt_h = top_txt + 5 * d_pitch();
+        int need = (txt_h > bigsz() ? txt_h : bigsz()) + pad + act_h();      /* only as tall as it needs (like the music window), centred */
         int ihn = (dy - iy) + need, g2 = rowsn * (sl + pad) + pad;
         if (g2 > ihn) ihn = g2;
         if (ihn < ih) {
@@ -725,9 +726,12 @@ static int bigsz(void) { return ITEM_ICON_CELLS * bigc() + 2 * bt + 2 * pad; }
 static int btn_cell(void) { return fcell("MMMMMMMM", dw - 2 * pad); }
 static int act_h(void) { return font_height(btn_cell()) + 2 * pad; }
 static int d_pitch(void) { return font_height(dcell()) + qs; }
-static int desc_n(void) { char ln[DESC_LINES][64]; return sel_ok() ? wrap(item_desc(ui_sel), dcell(), dw, ln) : 0; }
 static int act_n(int out[4]) { return sel_ok() && !bw_on ? item_actions(ui_sel, out) : 0; }
-static int desc_top(void) { return dy + bigsz() + pad; }
+/* the description sits under the name, at the name's x (right of the picture), and uses all the width that is left of the window */
+static int desc_x(void) { return dx + bigsz() + pad; }
+static int desc_room(void) { return dw - bigsz() - pad; }
+static int name_c(void) { return fcell(item_name(ui_sel), desc_room()); }
+static int desc_top(void) { return dy + font_height(name_c()) + qs + (item_equipped() == ui_sel ? font_height(dcell()) + qs : 0); }
 static void abtn_rect(int *x, int *y, int *w, int *h) { *x = dx; *w = dw; *h = act_h(); *y = dy + dh - *h; }       /* the one ACTION button, at the bottom of the detail area */
 static void btn_rect(int i, int *x, int *y, int *w, int *h) {  /* the i-th action of the list that opens above the ACTION button */
     int a[4], na = act_n(a), ax, ay, aw, ah; abtn_rect(&ax, &ay, &aw, &ah);
@@ -1071,12 +1075,12 @@ static void window_draw(SDL_Renderer *r) {
         int bc = bigc(), bs = bigsz();
         box(r, dx, dy, bs, bs, 122, 130, 156, 20, 24, 46, 255);
         item_draw_icon(r, ui_sel, dx + (bs - ITEM_ICON_CELLS * bc) / 2, dy + (bs - ITEM_ICON_CELLS * bc) / 2, bc);
-        const char *nm = item_name(ui_sel); int nc = fcell(nm, dw - bs - pad);
+        const char *nm = item_name(ui_sel); int nc = name_c();
         txt(r, nm, dx + bs + pad, dy, nc, 235, 240, 255);
         if (item_equipped() == ui_sel) txt(r, "IN HAND", dx + bs + pad, dy + font_height(nc) + qs, dcc, 120, 230, 150);
-        char ln[DESC_LINES][64]; int nl = wrap(item_desc(ui_sel), dcc, dw, ln);
+        char ln[DESC_LINES][64]; int nl = wrap(item_desc(ui_sel), dcc, desc_room(), ln);
         int room = (ay - pad - desc_top()) / d_pitch(); if (nl > room) nl = room > 0 ? room : 0;       /* never run into the ACTION button */
-        for (int j = 0; j < nl; j++) txt(r, ln[j], dx, desc_top() + j * d_pitch(), dcc, 178, 190, 222);
+        for (int j = 0; j < nl; j++) txt(r, ln[j], desc_x(), desc_top() + j * d_pitch(), dcc, 178, 190, 222);
     }
     {   const char *an = "ACTION"; int ac = fcell(an, aw - 2 * pad), tw = font_width(an, ac), on = sel_ok() && na > 0;
         if (on) box(r, ax, ay, aw, ah, 236, 190, 78, 40, 34, 20, 255); else box(r, ax, ay, aw, ah, 60, 66, 90, 20, 24, 40, 255);
