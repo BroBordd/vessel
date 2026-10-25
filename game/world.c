@@ -122,6 +122,7 @@ static int   ucell;                 /* one chunky pixel of the controls (same gr
 static float cam_x, cam_y;          /* the camera's top-left on screen (what draw reads) */
 static float cam_cx, cam_cy;        /* the lazy camera's own centre, in world px (see camera_update) */
 static int   cam_snap = 1;          /* 1 = put the camera on the player next frame, no easing (a new map, a door, a teleport) */
+static void (*pit_cb)(unsigned vessel);   /* story chunk 11: a dragged body went over the edge (declared early: the drag code at the top uses it) */
 
 /* talking to an npc: the view lerps in on the point halfway between the player and the npc, and back out afterwards */
 #define ZOOM_TALK  1.6f             /* how far we zoom in while talking */
@@ -1079,7 +1080,7 @@ int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_fill_one()
 static float pit_push_t;
 float world_pit_push_time(void) { return pit_push_t; }
 void  world_pit_push_clear(void) { pit_push_t = 0; }
-static void (*pit_cb)(unsigned vessel);
+/* (declared above, before the drag code uses it) */
 void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
 /* THE SWING across the crack: the player flies from here to the far ledge in an arc of time (controls off), then done runs. 0 = there is no far ledge */
 static int swing_on; static float swing_t, swing_sx, swing_sy, swing_ex, swing_ey; static void (*swing_done)(void);

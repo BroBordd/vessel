@@ -72,6 +72,7 @@ void story_after(float seconds, void (*fn)(void)) {
         if (!timers[i].fn) { timers[i].left = seconds; timers[i].fn = fn; return; }
 }
 
+static void note_watch(void);
 static void pit_watch(float dt);
 static void secrets_watch(float dt);
 void story_update(float dt) {
