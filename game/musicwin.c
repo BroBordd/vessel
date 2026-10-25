@@ -265,6 +265,7 @@ int musicwin_touch(int a, int x, int y) {
         }
         else if (!inside(win, x, y)) grab = 3;
         else grab = 0;
+        if (grab == 2 || grab == 4 || grab == 6 || grab == 7 || grab == 10) sfx_tap();
         return 1;
     }
     if (a == 2) {

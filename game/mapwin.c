@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "mapwin.h"
+#include "audio.h"
 #include "font.h"
 #include "mapicon.h"
 #include <math.h>
@@ -156,6 +157,7 @@ int mapwin_touch(int a, int x, int y) {
             return 1;
         }
         pressed = inside(close_r, x, y) ? 1 : inside(zin_r, x, y) ? 2 : inside(zout_r, x, y) ? 3 : inside(you_r, x, y) ? 4 : 0;
+        if (pressed) sfx_tap();
         drag = !pressed && inside(view, x, y); lx = x; ly = y; p2 = pinch = drag_pid = 0;
     } else if (a == 2 && drag) {
         if (pinch) { lx = x; ly = y; pinch_step(lx, ly, p2x, p2y); }

@@ -213,7 +213,7 @@ void dialog_touch(int a, int x, int y) {
     if (talk_active()) { talk_touch(a, x, y); return; }
     if (reply_mode) {                           /* TALK / BYE buttons, once the text has finished typing */
         if (!typing_done()) return;
-        if (a == 0) btn_press = btn_at(x, y);
+        if (a == 0) { btn_press = btn_at(x, y); if (btn_press) sfx_tap(); }
         else if (a == 2) { if (btn_press && btn_at(x, y) != btn_press) btn_press = 0; }
         else if (a == 3) btn_press = 0;
         else if (a == 1) {

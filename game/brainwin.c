@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "brainwin.h"
+#include "audio.h"
 #include "char.h"
 #include "font.h"
 #include "hud.h"
@@ -205,6 +206,7 @@ int brainwin_touch(int a, int x, int y) {
         else if (inside(auto_r, x, y)) grab = 2;
         else if (!inside(win, x, y)) grab = 3;
         else for (int i = 0; i < nth; i++) if (inside(pick_r[i], x, y)) { grab = 10 + i; break; }
+        if (grab == 1 || grab == 2 || grab >= 10) sfx_tap();
         return 1;
     }
     if (a == 1 || a == 3) {

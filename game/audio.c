@@ -434,6 +434,37 @@ static void hint_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the tap: a button was touched. a very short, soft, dry "tick": a sine dropping from 760 to 520 Hz with a hair of noise on the first millisecond ---------- */
+static int   tap_on, tap_pos;
+static float tap_phase;
+static unsigned tap_seed = 4242u;
+#define TAP_T     0.05f
+#define TAP_GAIN  0.16f
+void sfx_tap(void) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    tap_on = 1; tap_pos = 0; tap_phase = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+static void tap_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)tap_pos / (float)OUT_RATE;
+        if (tt >= TAP_T) { tap_on = 0; return; }
+        float k = tt / TAP_T;
+        float env = (1.0f - k) * (1.0f - k) * (k < 0.04f ? k / 0.04f : 1.0f);   /* a 2 ms attack (no pop), then a quick fall */
+        tap_phase += (760.0f - 240.0f * k) / (float)OUT_RATE;
+        if (tap_phase >= 1.0f) tap_phase -= 1.0f;
+        tap_seed = tap_seed * 1664525u + 1013904223u;
+        float nz = ((float)(tap_seed >> 16) / 32768.0f - 1.0f) * (tt < 0.001f ? 0.25f : 0.0f);
+        int v = (int)((sinf(6.2831853f * tap_phase) + nz) * env * TAP_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        tap_pos++;
+    }
+}
+
 /* ---------- the pfft (chunk 38.1): noise through a low-pass whose cutoff falls (the pitch sinks), a slow wobble on it so it sounds wet ---------- */
 static int   pfft_on, pfft_pos, n_pfft;
 static float pfft_lp;
@@ -1000,6 +1031,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (err_on) err_mix(out, frames);
     if (hit_on) hit_mix(out, frames);
     if (hint_on) hint_mix(out, frames);
+    if (tap_on) tap_mix(out, frames);
     if (drag_on) drag_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);
     if (bf_on) bf_mix(out, frames);

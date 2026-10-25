@@ -5,6 +5,7 @@
  * the same chunky pixel size. everything that looks random comes from a hash of the position (no state, the same page every time). the letters are the game's pixel
  * font drawn one by one with a small wobble, a dark bleed under each, and now and then a drip that runs down from the stroke. */
 #include "notewin.h"
+#include "audio.h"
 #include "confirm.h"
 #include "font.h"
 #include <math.h>
@@ -94,7 +95,7 @@ void notewin_close(void) {
 int notewin_touch(int a, int x, int y) {
     if (!on) return 0;
     Lay L; layout(&L);
-    if (a == 0) down = in_btn(&L, x, y);
+    if (a == 0) { down = in_btn(&L, x, y); if (down) sfx_tap(); }
     else if (a == 3) down = 0;
     else if (a == 1) { int d = down; down = 0; if (d && in_btn(&L, x, y)) notewin_close(); }
     return 1;                                                        /* modal: every touch is ours while it is open */

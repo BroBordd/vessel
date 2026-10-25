@@ -4,6 +4,7 @@
  * THE CONFIRM WINDOW (confirm.h): same look as the inventory's action window (gold frame, dark body, pixel letters), a title, the text wrapped to the
  * width, and two buttons side by side: YES (red) on the right under the thumb's way out, NO on the left. a press must start and end on the same button. */
 #include "confirm.h"
+#include "audio.h"
 #include "font.h"
 #include <stdio.h>
 #include <string.h>
@@ -78,7 +79,7 @@ void confirm_cancel(void) { on = 0; down = -1; yes_cb = NULL; }
 
 int confirm_touch(int a, int x, int y) {
     if (!on) return 0;
-    if (a == 0) { down = hit(x, y); return 1; }
+    if (a == 0) { down = hit(x, y); if (down >= 0) sfx_tap(); return 1; }
     if (a == 3) { down = -1; return 1; }
     if (a == 1) {
         int d = down; down = -1;

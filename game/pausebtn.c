@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "pausebtn.h"
+#include "audio.h"
 #include "nowplaying.h"
 #include "font.h"
 #include <math.h>
@@ -37,9 +38,9 @@ int pausebtn_touch(int a, int x, int y) {
     if (!enabled) return 0;
     SDL_Rect b = btn_rect(), rs = resume_rect(), mr = menu_rect();
     if (a == 0) {
-        if (inside(b, x, y)) { pdown = 1; return 1; }
-        if (paused && inside(rs, x, y)) { rdown = 1; return 1; }
-        if (paused && inside(mr, x, y)) { mdown = 1; return 1; }
+        if (inside(b, x, y)) { pdown = 1; sfx_tap(); return 1; }
+        if (paused && inside(rs, x, y)) { rdown = 1; sfx_tap(); return 1; }
+        if (paused && inside(mr, x, y)) { mdown = 1; sfx_tap(); return 1; }
         return paused ? 1 : 0;                       /* paused: the world below does not get touches */
     }
     if (pdown) {

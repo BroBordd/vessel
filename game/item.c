@@ -606,6 +606,11 @@ static void order_move(int side, int kind, int to) {            /* the kind goes
 static int kind_at_slot(int i) { return kind_on(bw_on ? 0 : 1, i); }
 static int slot_of_kind(int kind) { int s = bw_on ? 0 : 1; for (int i = 0; i < ITEM_COUNT; i++) { int k = kind_on(s, i); if (k < 0) break; if (k == kind) return i; } return -1; }
 static int in_rect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && y >= ry && x < rx + rw && y < ry + rh; }
+/* the finger, for the pressed look of the buttons: where it went down and where it is now. a button is PRESSED while the finger is down on it and still over it
+ * (slide off and it lets go, like every other button of the game; the fill goes lighter, as in ui_button_frame / confirm_button_draw) */
+static int ptr_on, ptr_dx, ptr_dy, ptr_x, ptr_y;
+static int pr(int x, int y, int w, int h) { return ptr_on && in_rect(ptr_dx, ptr_dy, x, y, w, h) && in_rect(ptr_x, ptr_y, x, y, w, h); }
+#define GOLD_FILL(p) (p) ? 78 : 40, (p) ? 66 : 34, (p) ? 36 : 20
 
 /* the thing in hand: a medium thing carried in the hands first, else the one set as in hand (item_equip) */
 int item_equipped(void) { return held >= 0 && held < ITEM_COUNT && have[held] > 0 ? held : -1; }
@@ -908,7 +913,7 @@ static void win_tap(int x, int y) {                              /* a tap that b
       if (rr >= 0 && res_sq(&rx, &ry, &rw, &rh) && in_rect(x, y, rx, ry, rw, rh)) { set_open(0); if (craft_cb) craft_cb(ra, rb); return; } }       /* the result: made (the window folds, the story says what was made) */
     int acts[4], na = act_n(acts);
     { int ax, ay, aw, ah; abtn_rect(&ax, &ay, &aw, &ah);          /* the ACTION button opens the list of what the selected thing can do */
-      if (na > 0 && in_rect(x, y, ax, ay, aw, ah)) { act_menu = 1; sfx_blip(0.5f); return; } }
+      if (na > 0 && in_rect(x, y, ax, ay, aw, ah)) { act_menu = 1; return; } }
     for (int i = 0; i < rowsn * gcols; i++) {                    /* a tap on a cell selects it: a thing shows its info, an empty cell hides the info of the one before */
         int sx = slot_x(i), sy = slot_y(i), kk = kind_at_slot(i);
         if (!in_rect(x, y, sx - pad / 2, sy - pad / 2, sl + pad, sl + pad)) continue;
@@ -917,10 +922,32 @@ static void win_tap(int x, int y) {                              /* a tap that b
     }
 }
 
+static int btn_under(int x, int y) {                           /* is there a working button under this point (the tap sound on touch-down)? */
+    if (act_menu && !bw_on) {
+        int acts[4], na = act_n(acts), cx, cy, cw, ch; pop_close_rect(&cx, &cy, &cw, &ch);
+        if (in_rect(x, y, cx, cy, cw, ch)) return 1;
+        for (int i = 0; i < na; i++) { int rx, ry, rw, rh; btn_rect(i, &rx, &ry, &rw, &rh); if (in_rect(x, y, rx, ry, rw, rh)) return 1; }
+        return 0;
+    }
+    if (in_rect(x, y, cbx, cby, tb, tb)) return 1;
+    if (bw_on) {
+        for (int i = 0; i < 2; i++) { int rx, ry, rw, rh; chest_btn(i, &rx, &ry, &rw, &rh);
+            if (in_rect(x, y, rx, ry, rw, rh) && (i == 0 ? (chest_side == 0 && chest_sel_ok()) : owned_on(0) > 0)) return 1; }
+        return 0;
+    }
+    { int acts[4], na = act_n(acts), ax, ay, aw, ah; abtn_rect(&ax, &ay, &aw, &ah); if (na > 0 && in_rect(x, y, ax, ay, aw, ah)) return 1; }
+    { int ra, rb, rr = cq_result(&ra, &rb), rx, ry, rw, rh; if (rr >= 0 && res_sq(&rx, &ry, &rw, &rh) && in_rect(x, y, rx, ry, rw, rh)) return 1; }
+    return 0;
+}
+
 int item_ui_touch(int a, int x, int y) {
+    if (a == 0) { ptr_on = 1; ptr_dx = ptr_x = x; ptr_dy = ptr_y = y; }       /* (for the pressed look of the buttons) */
+    else if (a == 2) { ptr_x = x; ptr_y = y; }
+    else if (a == 1 || a == 3) ptr_on = 0;
     if (ui_open) {                                               /* the window takes every touch */
         win_layout();
-        if (a == 0) { if (act_menu && !bw_on) { ui_down = 2; return 1; }          /* the action window takes the touch wherever it is */
+        if (a == 0) { if (btn_under(x, y)) sfx_tap();
+                      if (act_menu && !bw_on) { ui_down = 2; return 1; }          /* the action window takes the touch wherever it is */
                       ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; if (ui_down == 2) drag_press(x, y); return 1; }
         if (a == 2) { drag_move(x, y); return 1; }
         if (a == 1) {
@@ -934,7 +961,7 @@ int item_ui_touch(int a, int x, int y) {
         if (a == 3) { ui_down = 0; drag_on = 0; }
         return 1;
     }
-    if (a == 0) { if (hit_btn(x, y)) { ui_down = 1; return 1; } return 0; }
+    if (a == 0) { if (hit_btn(x, y)) { sfx_tap(); ui_down = 1; return 1; } return 0; }
     if (!ui_down) return 0;
     if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) set_open(1); return 1; }
     if (a == 3) ui_down = 0;
@@ -975,9 +1002,10 @@ void item_ui_draw(SDL_Renderer *r, float t) {
     int hk = hand_kind();
     {   int bx, by, bw, bh; bag_rect(&bx, &by, &bw, &bh);                   /* the one button: the hand, or what is in it; it opens the inventory */
         int up = ui_open, ix_ = bx + (bw - ITEM_ICON_CELLS * icell) / 2, iy_ = by + (bh - ITEM_ICON_CELLS * icell) / 2 - bounce;
-        if (up)          box(r, bx, by, bw, bh, 236, 190, 78, 6, 8, 20, 245);
-        else if (hk >= 0) box(r, bx, by, bw, bh, 214, 170, 70, 6, 8, 20, 245);
-        else             box(r, bx, by, bw, bh, 122, 130, 156, 6, 8, 20, 245);
+        int pd = !ui_open && pr(bx, by, bw, bh), f0 = pd ? 38 : 6, f1 = pd ? 46 : 8, f2 = pd ? 84 : 20;     /* pressed: the fill lights up bluish, like the other buttons */
+        if (up)          box(r, bx, by, bw, bh, 236, 190, 78, f0, f1, f2, 245);
+        else if (hk >= 0) box(r, bx, by, bw, bh, 214, 170, 70, f0, f1, f2, 245);
+        else             box(r, bx, by, bw, bh, 122, 130, 156, f0, f1, f2, 245);
         if (hk >= 0) item_draw_icon(r, hk, ix_, iy_, icell); else item_draw_hand_icon(r, ix_, iy_, icell);
         int cnt = shown();
         if (cnt > 0) {                                       /* the badge on the lower left corner */
@@ -1030,7 +1058,7 @@ static void chest_draw(SDL_Renderer *r) {
         int rx, ry, rw, rh; chest_btn(j, &rx, &ry, &rw, &rh);
         const char *an = j == 0 ? "TAKE" : "TAKE ALL";
         int on = j == 0 ? (chest_side == 0 && chest_sel_ok()) : owned_on(0) > 0, ac = fcell("TAKE ALL", rw - 2 * pad), aw = font_width(an, ac);
-        if (on) box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255); else box(r, rx, ry, rw, rh, 60, 66, 90, 20, 24, 40, 255);
+        if (on) box(r, rx, ry, rw, rh, 236, 190, 78, GOLD_FILL(pr(rx, ry, rw, rh)), 255); else box(r, rx, ry, rw, rh, 60, 66, 90, 20, 24, 40, 255);
         if (on) txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
         else    txt(r, an, rx + (rw - aw) / 2, ry + (rh - font_height(ac)) / 2, ac, 122, 130, 156);
     }
@@ -1088,7 +1116,7 @@ static void action_window_draw(SDL_Renderer *r) {              /* the action win
     const char *ttl = item_name(ui_sel); int tc = fcell(ttl, pop_w - tb - 4 * pad);
     txt(r, ttl, pop_x + in, pop_y + in + (tb - font_height(tc)) / 2, tc, 235, 240, 255);
     {   int cx, cy, cw, ch; pop_close_rect(&cx, &cy, &cw, &ch);
-        box(r, cx, cy, cw, ch, 236, 190, 78, 40, 34, 20, 255);
+        box(r, cx, cy, cw, ch, 236, 190, 78, GOLD_FILL(pr(cx, cy, cw, ch)), 255);
         int n = 6, st = qs, ox = cx + (cw - n * st) / 2, oy = cy + (ch - n * st) / 2;
         SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
         for (int k = 0; k < n; k++) {
@@ -1100,7 +1128,7 @@ static void action_window_draw(SDL_Renderer *r) {              /* the action win
         int rx, ry, rw, rh; btn_rect(j, &rx, &ry, &rw, &rh);
         const char *an = item_action_name(acts[j]);
         int ac = fcell(an, rw - 2 * pad), tw = font_width(an, ac);
-        box(r, rx, ry, rw, rh, 236, 190, 78, 40, 34, 20, 255);
+        box(r, rx, ry, rw, rh, 236, 190, 78, GOLD_FILL(pr(rx, ry, rw, rh)), 255);
         txt(r, an, rx + (rw - tw) / 2, ry + (rh - font_height(ac)) / 2, ac, 255, 238, 170);
     }
 }
@@ -1115,7 +1143,7 @@ static void window_draw(SDL_Renderer *r) {
     const char *ttl = bw_on ? "LOOT" : "INVENTORY";
     int tc = fcell(ttl, ww - tb - 4 * pad);
     txt(r, ttl, wx + bt + pad, wy + bt + pad + (tb - font_height(tc)) / 2, tc, 235, 240, 255);
-    box(r, cbx, cby, tb, tb, 236, 190, 78, 40, 34, 20, 255);                  /* the close button: an X of little squares */
+    box(r, cbx, cby, tb, tb, 236, 190, 78, GOLD_FILL(pr(cbx, cby, tb, tb)), 255);                  /* the close button: an X of little squares */
     {   int n = 6, st = qs, ox = cbx + (tb - n * st) / 2, oy = cby + (tb - n * st) / 2;
         SDL_SetRenderDrawColor(r, 255, 238, 170, 255);
         for (int k = 0; k < n; k++) {
@@ -1162,7 +1190,7 @@ static void window_draw(SDL_Renderer *r) {
         for (int j = 0; j < nl; j++) txt(r, ln[j], desc_x(), desc_top() + j * d_pitch(), dcc, 178, 190, 222);
     }
     {   const char *an = "ACTION"; int ac = fcell(an, aw - 2 * pad), tw = font_width(an, ac), on = sel_ok() && na > 0;
-        if (on) box(r, ax, ay, aw, ah, 236, 190, 78, 40, 34, 20, 255); else box(r, ax, ay, aw, ah, 60, 66, 90, 20, 24, 40, 255);
+        if (on) box(r, ax, ay, aw, ah, 236, 190, 78, GOLD_FILL(pr(ax, ay, aw, ah)), 255); else box(r, ax, ay, aw, ah, 60, 66, 90, 20, 24, 40, 255);
         if (on) txt(r, an, ax + (aw - tw) / 2, ay + (ah - font_height(ac)) / 2, ac, 255, 238, 170);
         else    txt(r, an, ax + (aw - tw) / 2, ay + (ah - font_height(ac)) / 2, ac, 122, 130, 156);
     }

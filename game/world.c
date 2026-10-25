@@ -931,7 +931,7 @@ void world_touch_p(int pid, int a, int x, int y) {
     }
 
     /* chunk 68: the hand button: press on it, release on it = take what lies in reach (a pick-up is a tap, not a tool use) */
-    if (a == 0 && !hand_down && (near_item || near_inspect) && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
+    if (a == 0 && !hand_down && (near_item || near_inspect) && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; sfx_tap(); return; }
     if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
         if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) pick_start(); else if (inspect_cb) inspect_cb(inspect_vessel); } }
@@ -939,7 +939,7 @@ void world_touch_p(int pid, int a, int x, int y) {
     }
 
     /* interact button: press on it, release on it = take hold of the heavy thing in reach / let go of it */
-    if (a == 0 && !btn_down && near_drag && button_hit(x, y)) { btn_down = 1; btn_inside = 1; btn_pid = pid; return; }
+    if (a == 0 && !btn_down && near_drag && button_hit(x, y)) { btn_down = 1; btn_inside = 1; btn_pid = pid; sfx_tap(); return; }
     if (btn_down && pid == btn_pid) {
         if (a == 2) btn_inside = button_hit(x, y);
         if (a == 1 || a == 3) {

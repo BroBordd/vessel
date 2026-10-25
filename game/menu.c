@@ -1,6 +1,7 @@
 /* Vessel - Copyright (C) 2026 BroBordd
  * SPDX-License-Identifier: GPL-3.0-only (see LICENSE) */
 #include "menu.h"
+#include "audio.h"
 #include "font.h"
 #include "space.h"
 
@@ -61,6 +62,7 @@ MenuAction menu_touch(int a, int x, int y) {
     case 0:                                     /* down */
         pressed = hit(x, y);
         inside = pressed >= 0;
+        if (inside) sfx_tap();
         break;
     case 2:                                     /* move */
         if (pressed >= 0) inside = hit(x, y) == pressed;

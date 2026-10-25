@@ -24,3 +24,9 @@ Written from the chat with the owner. Each item is one small chunk: one push, ow
 - [ ] Recipes with 3 or 4 items (the 2x2 squares only match pairs, `item_recipe(a, b)`).
 - [ ] Slot order is not saved across a death (`item_clear`).
 - [ ] Test everything in section C on the phone and report what breaks; nothing in A and B was run yet.
+
+## E. Hands, buttons (to check on the phone)
+- [ ] Pulling a body / the rock: the hands travel out to it when you take hold (0.18 s) and back to the sides when you let go (0.22 s); no jump when the nearest side changes. (`world.c`: `dg_k`, `dg_x`, `dg_y`.)
+- [ ] Hands under / over the body: a body or item north of us = hands drawn under the body sprite; south or beside = over it. Pick-up reach does the same (`char_set_grip_behind`). Check the moment it flips (item crossing the feet line).
+- [ ] Buttons: pressed fill (bluish on dark buttons, lighter gold on gold ones) on the bag/hand button, the window X, ACTION, TAKE / TAKE ALL, the action list and its X; a short tick (`sfx_tap`) on touch-down on every button of the game (menu, pause, music card, thought card, dialog TALK/BYE, confirm, note, map, brain window, music window buttons).
+
