@@ -434,29 +434,31 @@ static void hint_mix(Sint16 *out, int frames) {
     }
 }
 
-/* ---------- the tap: a button was touched. a very short, soft, dry "tick": a sine dropping from 760 to 520 Hz with a hair of noise on the first millisecond ---------- */
+/* ---------- the tap: a UI button was pressed. a CLICK, not a note: a few milliseconds of high-passed noise with a very fast fall (the plastic of a switch), and under it
+ * a tiny, dull knock (a low sine, 2 ms attack, gone in 12 ms) so it is not a bare hiss. nothing pitched sweeps. ---------- */
 static int   tap_on, tap_pos;
-static float tap_phase;
+static float tap_lp;                                            /* the one-pole filter state: noise minus its low part = the bright "tick" */
 static unsigned tap_seed = 4242u;
-#define TAP_T     0.05f
-#define TAP_GAIN  0.16f
+#define TAP_T     0.030f
+#define TAP_GAIN  0.30f
 void sfx_tap(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
-    tap_on = 1; tap_pos = 0; tap_phase = 0.0f;
+    tap_on = 1; tap_pos = 0; tap_lp = 0.0f;
     SDL_UnlockAudioDevice(dev);
 }
 static void tap_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)tap_pos / (float)OUT_RATE;
         if (tt >= TAP_T) { tap_on = 0; return; }
-        float k = tt / TAP_T;
-        float env = (1.0f - k) * (1.0f - k) * (k < 0.04f ? k / 0.04f : 1.0f);   /* a 2 ms attack (no pop), then a quick fall */
-        tap_phase += (760.0f - 240.0f * k) / (float)OUT_RATE;
-        if (tap_phase >= 1.0f) tap_phase -= 1.0f;
         tap_seed = tap_seed * 1664525u + 1013904223u;
-        float nz = ((float)(tap_seed >> 16) / 32768.0f - 1.0f) * (tt < 0.001f ? 0.25f : 0.0f);
-        int v = (int)((sinf(6.2831853f * tap_phase) + nz) * env * TAP_GAIN * 32767.0f);
+        float nz = (float)(tap_seed >> 16) / 32768.0f - 1.0f;
+        tap_lp += (nz - tap_lp) * 0.35f;                                         /* the low part of the noise ... */
+        float hp = nz - tap_lp;                                                  /* ... taken away: the bright tick */
+        float env_t = expf(-tt / 0.0022f);                                       /* the tick: gone in ~8 ms */
+        float env_k = expf(-tt / 0.0035f) * (tt < 0.0015f ? tt / 0.0015f : 1.0f); /* the knock under it, with a 1.5 ms attack */
+        float knock = sinf(6.2831853f * 190.0f * tt) * env_k * 0.55f;
+        int v = (int)((hp * env_t * 0.9f + knock) * TAP_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {
             int o = out[i * 2 + ch] + v;
             out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);

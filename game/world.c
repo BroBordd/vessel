@@ -759,7 +759,7 @@ static void fin_continue(void) {                                   /* the tap: t
 static void final_touch(int a, int x, int y) {
     if (a == 0) fin_down = fin_btn_a() > 0.5f && fin_btn_hit(x, y);
     else if (a == 3) fin_down = 0;
-    else if (a == 1) { int d = fin_down; fin_down = 0; if (d && fin_btn_hit(x, y)) fin_continue(); }
+    else if (a == 1) { int d = fin_down; fin_down = 0; if (d && fin_btn_hit(x, y)) { sfx_tap(); fin_continue(); } }
 }
 
 void world_final_stab(void (*done)(void)) {
@@ -979,7 +979,7 @@ void world_touch_p(int pid, int a, int x, int y) {
     if (a == 0 && !hand_down && (near_item || near_inspect) && hand_hit(x, y)) { hand_down = 1; hand_inside = 1; hand_pid = pid; return; }
     if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
-        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { sfx_tap(); if (near_item) pick_start(); else if (inspect_cb) inspect_cb(inspect_vessel); } }
+        if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) pick_start(); else if (inspect_cb) inspect_cb(inspect_vessel); } }
         return;
     }
 
@@ -990,7 +990,7 @@ void world_touch_p(int pid, int a, int x, int y) {
         if (a == 1 || a == 3) {
             int fire = a == 1 && btn_inside && near_drag;
             btn_down = btn_inside = 0;
-            if (fire) { sfx_tap(); drag_toggle(); }                                                      /* take hold of a body / the rock, or let go */
+            if (fire) drag_toggle();                                                      /* take hold of a body / the rock, or let go */
         }
         return;
     }
