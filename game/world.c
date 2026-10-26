@@ -86,9 +86,13 @@ static float pk_ss(float k) { k = k < 0 ? 0 : k > 1 ? 1 : k; return k * k * (3.0
 #define DG_OUT 0.22f
 static float dg_k, dg_x, dg_y; static int dg_behind;
 static int   near_item;             /* chunk 68: an item lies in reach: the HAND button shows next to the interact button, and a TAP on it takes the item */
-static int   hand_pid, btn_pid, stick_pid, mm_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
+static int   hand_pid, btn_pid, stick_pid, mm_pid, jump_pid;     /* multitouch: which finger (0 = the primary, else the app's pointer id + 1) holds each control */
 static int   hand_down, hand_inside;      /* the finger is on the hand / still on it */
 static int   hbx, hby, hbr;               /* the hand button: centre and radius */
+static int   near_pit, jump_down, jump_inside;   /* the JUMP button: at the crack's edge (JUMP_REACH tiles) an arrow button shows above the interact button; a TAP calls jump_cb (story.c asks first) */
+static int   jbx, jby, jbr;               /* the jump button: centre and radius */
+static void (*jump_cb)(void);
+#define JUMP_REACH 2.2f                   /* tiles from the nearest crack tile (centre to feet) */
 static int   mm_down;                     /* a finger went down on the minimap: let go on it and the map window opens */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
 static int   ucell;                 /* one chunky pixel of the controls (same grid as the ID card) */
@@ -579,6 +583,7 @@ static void load_map(void) {
     ritual_cancel(); ritual_cb = NULL;           /* the circle is part of the map */
     item_reset(px, tile); pick_on = 0;           /* what lay on the old map is gone; the pockets stay */
     near_drag = drag_on = 0; drag_cand = drag_id = -1; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0;
+    near_pit = jump_down = jump_inside = 0;
     btn_down = btn_inside = 0;
     pxp = (temple_sx + 0.5f) * tile; pyp = (temple_sy + 0.5f) * tile;   /* the first room's middle */
     {                                            /* dev: VESSEL_AT=edge | far puts us on the near ledge of the pit / on the far ledge (screenshots, tests) */
@@ -612,6 +617,7 @@ static void world_layout(int w, int h) {
     sx = margin + sr; sy = H - margin - sr;
     br = (int)(44 * u);
     bcx = W - margin - br; bcy = H - margin - br;
+    jbr = br * 3 / 4; jbx = bcx; jby = bcy - br - jbr - (int)(10 * u);                                  /* the jump arrow, straight above the interact button */
     hbr = br * 3 / 4; hbx = bcx - br - hbr - (int)(10 * u); hby = bcy + br - hbr;                      /* chunk 68: the hand, on the interact button's left, resting on the same line */
 }
 
@@ -923,6 +929,7 @@ int world_pit_spots(int *far_x, int *far_y, int *edge_x, int *edge_y) {        /
 }
 
 void world_set_inspect_cb(void (*cb)(unsigned vessel)) { inspect_cb = cb; }
+void world_set_jump_cb(void (*cb)(void)) { jump_cb = cb; }
 void world_place_item(int kind, int tile_x, int tile_y) { item_place(kind, tile_x, tile_y); }
 int  world_has_item(int kind) { return item_has(kind); }
 void world_give_item(int kind) { item_give(kind); }
@@ -954,6 +961,11 @@ static int button_hit(int x, int y) {
     return sqrtf(dx * dx + dy * dy) <= br * 1.3f;                /* generous hit area */
 }
 
+static int jump_hit(int x, int y) {
+    float dx = (float)(x - jbx), dy = (float)(y - jby);
+    return sqrtf(dx * dx + dy * dy) <= jbr * 1.3f;
+}
+
 static int hand_hit(int x, int y) {
     float dx = (float)(x - hbx), dy = (float)(y - hby);
     return sqrtf(dx * dx + dy * dy) <= hbr * 1.3f;
@@ -961,8 +973,8 @@ static int hand_hit(int x, int y) {
 
 void world_touch(int a, int x, int y) {
     if (a == 3) {                                       /* a cancel (paused, the app left): EVERY finger lets go of what it holds */
-        const int ps[4] = { stick_pid, btn_pid, hand_pid, mm_pid };
-        for (int i = 0; i < 4; i++) world_touch_p(ps[i], 3, x, y);
+        const int ps[5] = { stick_pid, btn_pid, hand_pid, mm_pid, jump_pid };
+        for (int i = 0; i < 5; i++) world_touch_p(ps[i], 3, x, y);
     }
     world_touch_p(0, a, x, y);
 }
@@ -992,6 +1004,14 @@ void world_touch_p(int pid, int a, int x, int y) {
     if (hand_down && pid == hand_pid) {
         if (a == 2) hand_inside = hand_hit(x, y);
         if (a == 1 || a == 3) { int fire = a == 1 && hand_inside && (near_item || near_inspect); hand_down = hand_inside = 0; if (fire) { if (near_item) pick_start(); else if (inspect_cb) inspect_cb(inspect_vessel); } }
+        return;
+    }
+
+    /* the jump button (at the crack's edge): press on it, release on it = jump (the story asks "This will kill you. Sure?" first) */
+    if (a == 0 && !jump_down && near_pit && jump_hit(x, y)) { jump_down = 1; jump_inside = 1; jump_pid = pid; return; }
+    if (jump_down && pid == jump_pid) {
+        if (a == 2) jump_inside = jump_hit(x, y);
+        if (a == 1 || a == 3) { int fire = a == 1 && jump_inside && near_pit; jump_down = jump_inside = 0; if (fire && jump_cb) { stick_on = 0; kx = ky = 0; jump_cb(); } }
         return;
     }
 
@@ -1163,6 +1183,8 @@ void world_update(float dt) {
     drag_pick();
     near_drag = !dialog_active() && (drag_on || drag_cand >= 0);   /* a body or the rock lies in reach (or we hold one) */
     if (!near_drag) btn_down = btn_inside = 0;
+    near_pit = !dialog_active() && !drag_on && !pick_on && cur_map == MAP_TEMPLE && world_dist_to_pit() < JUMP_REACH;      /* hands free, at the crack: the jump arrow */
+    if (!near_pit) jump_down = jump_inside = 0;
     {   float lv = drag_on ? fminf(drag_spd / 28.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the scrape: as loud as he is fast */
         if (lv > 0 || drag_snd > 0) sfx_drag(lv);
         drag_snd = lv;
@@ -1231,6 +1253,23 @@ static void draw_hand_button(SDL_Renderer *r) {                  /* chunk 68: th
     int side = ITEM_ICON_CELLS * a;
     if (near_item) item_draw_hand_icon(r, hbx - side / 2, hby - side / 2 + bob, a);
     else           item_draw_search_icon(r, hbx - side / 2, hby - side / 2 + bob, a);        /* story chunk 6: a body lies in reach */
+}
+
+static void draw_jump_button(SDL_Renderer *r) {                  /* the same two-tone edge as the hand button; a red arrow pointing down into the crack */
+    int down = jump_down && jump_inside;
+    int pulse = 170 + (int)(70.0f * sinf(t * 5.0f));
+    col(r, UI_DARK, 235); pring(r, jbx, jby, jbr + ucell, 1, ucell);
+    if (down) col(r, 70, 80, 130, 240); else col(r, 24, 28, 48, 235);
+    pdisc(r, jbx, jby, jbr, ucell);
+    col(r, 255, 255, 255, down ? 255 : pulse);
+    pring(r, jbx, jby, jbr, 1, ucell);
+    int a = jbr / 7; if (a < 2) a = 2;
+    int bob = down ? a : (int)(sinf(t * 4.0f) * a * 0.5f);          /* it nods down, again and again */
+    col(r, 232, 84, 84, 255);
+    fill(r, jbx - a, jby - 4 * a + bob, 2 * a, 4 * a);              /* the shaft ... */
+    fill(r, jbx - 3 * a, jby + 0 * a + bob, 6 * a, a);              /* ... and the head: three rows, narrowing */
+    fill(r, jbx - 2 * a, jby + 1 * a + bob, 4 * a, a);
+    fill(r, jbx - a,     jby + 2 * a + bob, 2 * a, a);
 }
 
 static void draw_interact_button(SDL_Renderer *r) {
@@ -1391,6 +1430,7 @@ void world_draw(SDL_Renderer *r) {
         int kcx = sx + (int)floorf(kx * reach / ucell + (kx < 0 ? -0.5f : 0.5f)) * ucell, kcy = sy + (int)floorf(ky * reach / ucell + (ky < 0 ? -0.5f : 0.5f)) * ucell;
         draw_stick(r, sx, sy, sr, kr, kcx, kcy, stick_on);
         if (near_drag) draw_interact_button(r);
+        if (near_pit) draw_jump_button(r);                                                               /* the jump arrow, at the crack's edge */
         if (near_item || near_inspect) draw_hand_button(r);                                              /* chunk 68: the hand, when something lies in reach */
     }
 

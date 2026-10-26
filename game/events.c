@@ -20,32 +20,17 @@ typedef struct {
 
 static const EvRow ROWS[EV_COUNT] = {
     [EV_WAKE]              = { "Where am I?", BRAIN_SCENE_AGAIN, 0 },
-    [EV_INSPECT_BODY]      = { "That's me. Was me.", BRAIN_SCENE_AGAIN, 0 },
     [EV_READ_NOTE]         = { "Doia. ...Fine. It's a name.", BRAIN_SCENE_ORB, 0 },
-    [EV_FIRST_DRAG]        = { "He's heavier than he looks.", BRAIN_SCENE_ORB, 0 },
-    [EV_DRAG_LONG]         = { "Why am I doing this.", BRAIN_SCENE_ORB, 90.0f },
-    [EV_CARRY_ROCK]        = { "This is a mistake.", BRAIN_SCENE_ORB, 0 },
-    [EV_FIRST_STAB]        = { "I'm sorry. ...Not really.", BRAIN_SCENE_ORB, 0 },
-    [EV_ARM_OFF]           = { "That's not how arms work.", BRAIN_SCENE_ORB, 0 },
-    [EV_HEAD_OFF]          = { "Don't look at the face.", BRAIN_SCENE_ORB, 0 },
-    [EV_TORSO_OPEN]        = { "So that's what's in there.", BRAIN_SCENE_ORB, 0 },
-    [EV_FIRST_INTESTINE]   = { "Long. Surprisingly long.", BRAIN_SCENE_ORB, 0 },
-    [EV_FIRST_CRAFT]       = { "Don't think about it.", BRAIN_SCENE_ORB, 0 },
     [EV_HOLD_INTESTINE]    = { "That would reach... if something held the other end.", BRAIN_SCENE_ORB, 0 },
     [EV_HOLD_TIED_ROCK]    = { "Throw it. Hope.", BRAIN_SCENE_ORB, 0 },
     [EV_SWING_HELD]        = { "...It held. It held!", BRAIN_SCENE_ORB, 0 },
     [EV_ECHO_SOONER]       = { "It's getting shallower.", BRAIN_SCENE_ORB, 0 },
-    [EV_FALL_IN_PIT]       = { "Oh.", BRAIN_SCENE_ORB, 0 },
-    [EV_CLIMB_FAR]         = { "Covered in blood. Good enough.", BRAIN_SCENE_ORB, 0 },
     [EV_FIND_CIRCLE2]      = { "Another one. He'd have wanted this.", BRAIN_SCENE_AGAIN, 0 },
     [EV_FILL_CIRCLE]       = { "My consciousness is fading.", BRAIN_SCENE_AGAIN, 0 },
     [EV_SECRET_BODY_ON_CIRCLE] = { "He looks comfortable.", BRAIN_SCENE_AGAIN, 0 },
     [EV_SECRET_HUMAN_SHAPE]    = { "He's not coming back. But he looks better.", BRAIN_SCENE_AGAIN, 0 },
     [EV_SECRET_FESTIVE]    = { "I look... festive.", BRAIN_SCENE_ORB, 0 },
     [EV_SECRET_MEMORIAL]   = { "A little memorial.", BRAIN_SCENE_ORB, 0 },
-    [EV_VESSEL_5]          = { "I'm getting good at this.", BRAIN_SCENE_ORB, 0 },
-    [EV_VESSEL_10]         = { "A crowd.", BRAIN_SCENE_ORB, 0 },
-    [EV_VESSEL_20]         = { "There's no room left.", BRAIN_SCENE_ORB, 0 },
     [EV_SECRET_KNIFE_PIT]  = { "That was dumb.", BRAIN_SCENE_ORB, 0 },
 };
 
@@ -53,7 +38,6 @@ static const EvRow ROWS[EV_COUNT] = {
 #define QUEUE_MAX  8
 #define GAP        1.6f     /* a breath between two thoughts (s), counted from when the first one has folded away */
 #define SETTLE     1.2f     /* the player must have been free this long before a thought comes (s) */
-#define DRAG_LONG_S 10.0f   /* seconds of really pulling a body that make EV_DRAG_LONG */
 #define MEMORY_MAX BRAIN_MAX_THOUGHTS
 
 static unsigned char fired[EV_COUNT];
@@ -62,11 +46,10 @@ static EventId queue[QUEUE_MAX]; static int nq;
 static EventId held[MEMORY_MAX]; static int nheld;      /* the thoughts in the brain window, oldest first (so the oldest can go when the window is full) */
 static float free_t, gap_t, now_t;
 static int   was_active;
-static float drag_t, drag_rep;              /* seconds of pulling in a row (total), and when the long drag may fire next */
 
 void events_reset(void) {
     memset(fired, 0, sizeof fired); memset(cooldown, 0, sizeof cooldown);
-    nq = 0; nheld = 0; free_t = gap_t = now_t = 0; was_active = 0; drag_t = 0; drag_rep = 0;
+    nq = 0; nheld = 0; free_t = gap_t = now_t = 0; was_active = 0;
     brainwin_clear();
 }
 
@@ -104,22 +87,12 @@ static void think(EventId id) {
     if (brainwin_acquire(r->text, r->scene, TAG_BASE + (int)id) >= 0 && nheld < MEMORY_MAX) held[nheld++] = id;
 }
 
-/* the things the engine can see by itself */
-static void watch(float dt) {
-    if (world_dragging_rock() && world_drag_moving()) event_fire(EV_CARRY_ROCK);      /* the big rock, heavier still (chunk 7) */
-    if (world_dragging() && world_drag_moving()) {
-        event_fire(EV_FIRST_DRAG);
-        drag_t += dt;
-        if (drag_t >= DRAG_LONG_S && now_t >= drag_rep) { event_fire(EV_DRAG_LONG); drag_t = 0; drag_rep = now_t + 60.0f; }
-    }
-}
-
 void events_update(float dt) {
     if (dt <= 0) return;                                                 /* paused: nothing moves on */
     now_t += dt;
     for (int i = 1; i < EV_COUNT; i++) if (cooldown[i] > 0) cooldown[i] -= dt;
     int free_now = world_controls_on() && !world_ritual_running() && !dialog_active() && !brainwin_active();
-    if (free_now) { free_t += dt; watch(dt); } else free_t = 0;
+    if (free_now) free_t += dt; else free_t = 0;
     int act = thought_active();
     if (was_active && !act) gap_t = GAP;                                  /* one just folded away: a breath */
     was_active = act;

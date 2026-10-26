@@ -65,7 +65,6 @@ static unsigned cur_vessel = START_VESSEL;
 unsigned story_vessel_index(void) { return cur_vessel; }
 void story_vessel_set(unsigned index) {
     cur_vessel = index ? index : START_VESSEL; world_set_player(story_vessel_look(cur_vessel));
-    if (cur_vessel >= 20) event_fire(EV_VESSEL_20); else if (cur_vessel >= 10) event_fire(EV_VESSEL_10); else if (cur_vessel >= 5) event_fire(EV_VESSEL_5);   /* the crowd thoughts (once each) */
 }
 void story_vessel_next(void) { story_vessel_set(cur_vessel + 1); }     /* a death: the soul wakes in the next vessel */
 
@@ -81,7 +80,6 @@ void story_after(float seconds, void (*fn)(void)) {
 static void pit_watch(float dt);
 static void secrets_watch(float dt);
 void story_update(float dt) {
-    if (item_has(ITEM_INTESTINE)) event_fire(EV_FIRST_INTESTINE);   /* chunk 9 */
     pit_watch(dt);                              /* chunk 11 */
     secrets_watch(dt);                          /* chunk 12 */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
@@ -260,7 +258,6 @@ static void body_give(unsigned vessel, int kind) {              /* chunk 20: one
 }
 static void story_inspect(unsigned vessel) {
     body_window(vessel);
-    if (vessel == 1) event_fire(EV_INSPECT_BODY);
 }
 
 /* ---------- the pit: echoes, falls, the bridge (chunk 11) ---------- */
@@ -288,7 +285,6 @@ static void story_pit_fall(unsigned v) {                            /* a dragged
     world_pit_add();
     pit_drop(1);
 }
-static void swing_done(void) { event_fire(EV_CLIMB_FAR); }
 static void pit_watch(float dt) {                                   /* every frame: the pit's own events */
     echo_update(dt);
     float d = world_dist_to_pit();
@@ -300,12 +296,9 @@ static void pit_watch(float dt) {                                   /* every fra
         float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
         if (hypotf(ux - qx, uy - qy) < 3.2f) event_fire(EV_FIND_CIRCLE2);
     }
-    { int fx, fy, ex, ey; float px_, py_;
-      if (world_pit_spots(&fx, &fy, &ex, &ey)) { world_player_tilef(&px_, &py_); if (hypotf(px_ - fx, py_ - fy) < 4.0f) event_fire(EV_CLIMB_FAR); } }
     if (!dying && world_pit_push_time() > 1.0f) {                   /* we walked into the crack: a fall. the body is not left lying (nothing of it is found) but it fills the pit */
         world_pit_push_clear();
         world_pit_add();
-        event_fire(EV_FALL_IN_PIT);
         story_die(DEATH_PIT);
     }
 }
@@ -318,12 +311,12 @@ static void part_fall(unsigned v, int kind) { float tx, ty; if (world_body_tile(
 static const char *cut_step(unsigned v, int step) {                 /* what step `step` (1..7) does; the words for the toast */
     switch (step) {
     case 1: return "A wound. The blood runs again.";
-    case 2: case 3: part_fall(v, ITEM_ARM); event_fire(EV_ARM_OFF); return "An arm comes off.";
+    case 2: case 3: part_fall(v, ITEM_ARM); return "An arm comes off.";
     case 4: case 5: part_fall(v, ITEM_LEG); return "A leg comes off.";
-    case 6: part_fall(v, ITEM_HEAD); event_fire(EV_HEAD_OFF); return "The head comes off.";
+    case 6: part_fall(v, ITEM_HEAD); return "The head comes off.";
     default:
         part_fall(v, ITEM_RIBS); part_fall(v, ITEM_HEART); part_fall(v, ITEM_LIVER); part_fall(v, ITEM_INTESTINE); part_fall(v, ITEM_SPINE);
-        event_fire(EV_TORSO_OPEN); return "The torso opens.";
+        return "The torso opens.";
     }
 }
 static void story_smash(unsigned v) {                               /* the big rock ran into a body */
@@ -332,7 +325,6 @@ static void story_smash(unsigned v) {                               /* the big r
     for (int s = b->cuts + 1; s <= BODIES_CUTS; s++) cut_step(v, s);
     bodies_cut_done(v);
     for (int k = 0; k < ITEM_COUNT; k++) while (b->inv[k]) { part_fall(v, k); b->inv[k]--; }      /* what he carried flies around */
-    event_fire(EV_FIRST_STAB);
     toast_info("SMASHED", "The rock leaves only pieces.");
 }
 static void story_full(void) { toast_info("HANDS FULL", "Put something down first."); }
@@ -346,7 +338,6 @@ static void story_craft(int a, int b) {
     if (item_size(r) == SIZE_MEDIUM && item_medium_held() && !frees) { sfx_error(); story_full(); return; }
     item_take(a); item_take(b); item_give(r);
     toast_info("YOU MAKE", item_name(r));
-    event_fire(EV_FIRST_CRAFT);
 }
 /* chunk 13: the checkpoint. the blood runs into the carvings, a thought ("My consciousness is fading."), a few seconds, then we die (DEATH_CIRCLE) and the next vessel wakes here */
 static void cp_die(void) { if (cp_busy) story_die(DEATH_CIRCLE); }
@@ -375,6 +366,18 @@ static void stab_self_begin(void) {
     jukebox_scene_fade(0.6f); music_fade_out(0.6f);             /* the music goes first (custom music too); the next life's music starts again when the world comes back (game.c) */
     world_final_stab(stab_self_go);
 }
+/* JUMP: the arrow at the crack's edge (world.c). like STAB SELF the window asks first, and YES is the same fall as walking into the crack: our body fills the pit, we die (DEATH_PIT) */
+static void jump_go(void) {
+    if (dying || cp_busy || world_final_active()) return;
+    world_pit_push_clear();
+    world_pit_add();
+    sfx_swoop();
+    story_die(DEATH_PIT);
+}
+static void story_jump(void) {
+    if (dying || cp_busy || world_final_active()) return;
+    confirm_ask("JUMP", "This will kill you. Sure?", "YES", "NO", jump_go);
+}
 static void story_action(int kind, int act) {
     if (dying || world_final_active()) return;
     switch (act) {
@@ -391,7 +394,6 @@ static void story_action(int kind, int act) {
         int step = bodies_cut(v);
         if (!step) { sfx_error(); toast_info("NOTHING LEFT", "There is nothing left to cut."); return; }
         sfx_hit();
-        event_fire(EV_FIRST_STAB);
         toast_info("YOU STAB", cut_step(v, step));
         return; }
     case ACT_THROW:
@@ -418,7 +420,7 @@ static void story_action(int kind, int act) {
         sfx_hit(); story_smash(v); return; }
     case ACT_SWING:
         if (world_dist_to_pit() > 3.0f) { toast_info("NOT HERE", "Swing it at the edge of the pit."); return; }
-        if (!world_swing_across(swing_done)) { toast_info("NOT HERE", "Nothing to swing at."); return; }
+        if (!world_swing_across(NULL)) { toast_info("NOT HERE", "Nothing to swing at."); return; }
         sfx_blip(0.8f); item_take(kind); event_fire(EV_SWING_HELD);         /* it wedges on the far side and stays there; the rope is left behind with it */
         return;
     case ACT_WEAR: { int on = item_wear_toggle(kind); toast_info(on ? "YOU WEAR IT" : "TAKEN OFF", item_name(kind)); return; }
@@ -495,7 +497,7 @@ void story_start(void) {
     ritual_body_reset();                         /* vessel 1 lies where he fell, no second circle yet */
     bodies_reset(); props_reset();               /* nobody lies anywhere; the big rock is put on the ledge by the world once the ruins are there */
     bodies_add(1, 0, 0, NULL);   /* Aonia lies at the circle (ritual.c), his hands empty: the knife lies on the floor beside him (below) */
-    world_set_inspect_cb(story_inspect);
+    world_set_inspect_cb(story_inspect); world_set_jump_cb(story_jump);
     item_set_body_cb(body_take); item_set_body_give_cb(body_give);
     item_set_action_cb(story_action); item_set_full_cb(story_full); item_set_craft_cb(story_craft); world_set_smash_cb(story_smash); world_set_pit_cb(story_pit_fall); world_pit_reset(); echo_t = -1; echo_last = 0;
     world_ritual(story_vessel_look(1), story_woke);

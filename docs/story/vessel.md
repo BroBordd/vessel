@@ -164,37 +164,21 @@ player acts**. Each fires **once** unless marked (repeat). Lines are short. Vas 
 | Event | Thought |
 |---|---|
 | wakes in the circle (vessel 2) | "Where am I?" |
-| first looks at Aonia (inspect) | "That's me. Was me." |
 | reads the note | "Doia. ...Fine. It's a name." |
-| first drag of a body | "He's heavier than he looks." |
-| after dragging 10 seconds (repeat, rare) | "Why am I doing this." |
-| carries the big rock | "This is a mistake." |
-| first stab of a body | "I'm sorry. ...Not really." |
-| arm comes off | "That's not how arms work." |
-| head comes off | "Don't look at the face." |
-| torso opens | "So that's what's in there." |
-| first intestine collected | "Long. Surprisingly long." |
-| first craft | "Don't think about it." |
-| arrives at the pit edge | "Too wide to jump. Too deep to guess." |
 | holds an intestine at the pit | "That would reach... if something held the other end." |
 | holds a tied rock at the pit | "Throw it. Hope." |
 | Swing wedges on the far side | "...It held. It held!" |
-| drops something into the pit | (waits for the echo) "Still falling." |
 | echo comes back sooner than last time | "It's getting shallower." |
-| falls into the pit | "Oh." |
-| climbs up the far side | "Covered in blood. Good enough." |
 | finds the second circle | "Another one. He'd have wanted this." |
 | fills the circle | "My consciousness is fading." |
 
 ## 11. Secrets: odd things get reactions
 | What the player does | What happens |
 |---|---|
-| stabs themselves in the first circle before reading the note | no note; the next vessel wakes beside two bodies. Thought: "That was fast. Too fast." |
 | drags Aonia back onto the circle | the carvings glow. Thought: "He looks comfortable." |
 | puts every part of one body back in the circle in a human shape | Thought: "He's not coming back. But he looks better." |
 | wears the necklaces and the skull on a string together | Thought: "I look... festive." |
 | draws a mark in blood next to every body | Thought: "A little memorial." |
-| reaches vessel 5 / 10 / 20 | Thought: "I'm getting good at this." / "A crowd." / "There's no room left." |
 | throws the knife into the pit | it is gone; Thought: "That was dumb." (the knife is also in Aonia's inventory only, so a lost knife means the bridge by falls only) |
 | stands still on the circle for a minute | the body hums |
 | smashes the big rock with the club | it breaks into small rocks (it can't be a throw weapon, but it gives more to throw) |
@@ -280,3 +264,5 @@ Each chunk says what is in it, so a cold instance can tell done from not done. `
 - 2026-10-25: chunk 1 verified done (already in the tree). Chunk 2 done: ruins generator and pit tile. `gentest` 500 seeds ok; headless shots look right
   (the pit reads as a black crack with a cliff face on its far side). Game builds. Next: chunk 3.
 - 2026-10-25: the note reworked. Taking the paper only puts it in the pockets; its action READ (`ACT_READ`, `story.c: note_read_action`) opens the note window (`notewin.c`: pixel-art page, text in blood, CLOSE button, back closes it). The first read completes `Read the note` at once; closing the window flips the card Vas to Doia (`hud_set_person`), adds `Escape the ruins` and fires EV_READ_NOTE. The paper stays in the pockets (read again any time) until we die. `note_watch` and the 8 dialog pages are gone.
+- **Thoughts that carry nothing are gone** (the body forgets everything at death, so no quips, reactions or counting of lives): kept are the wake line, the note, the pit hints (intestine, tied rock, echo, swing), the second circle, and the secrets. Falling into the pit and a self-stab before the note have no thought at all. `EV_SECRET_FAST_DEATH`'s "no note" rule is gone with it (the note is read once, by the first body).
+- **Jump:** at the crack's edge (2.2 tiles, hands free) a red down-arrow button shows above the interact button; a tap asks "This will kill you. Sure?" (like STAB SELF), YES is the same fall as walking into the crack (`DEATH_PIT`, our body fills the pit).

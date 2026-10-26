@@ -63,6 +63,7 @@ int  world_rock_break(float *tile_x, float *tile_y);       /* ... and it breaks 
 unsigned world_body_in_reach(void);                       /* story chunk 8: the nearest body in reach (1 = Aonia), 0 = none: where a stab goes */
 int  world_throw_item(int kind);                          /* story chunk 8: it flies the way we face; 1 = it fell into the pit (gone), 0 = it lies on the floor */
 void world_set_inspect_cb(void (*cb)(unsigned vessel));   /* story chunk 6: next to a body the hand button is a magnifying glass; a tap calls this with the body's vessel number (1 = Aonia) */
+void world_set_jump_cb(void (*cb)(void));   /* at the edge of the pit (2.2 tiles, hands free) a JUMP arrow shows above the interact button; a tap calls this (story.c asks "This will kill you. Sure?") */
 
 /* the blood circle (ritual.c): world_ritual carves it where the player stands with `dead` lying beside it, the new body forms out of the blood and on_done
  * (may be NULL) runs then, the controls come back. world_ritual_c2: the same at the second circle (story chunk 13): put the player on it first (world_player_to_tile) */
