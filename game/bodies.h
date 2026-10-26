@@ -16,7 +16,8 @@
 typedef struct {
     unsigned vessel;                    /* whose body: 1 = Aonia (at the circle, ritual.c), 2 = Doia ... */
     float tx, ty;                       /* where the feet are, in tiles (not used for vessel 1) */
-    float pool_x, pool_y;               /* where the pool of blood lies, in tiles: where it died. the pool is the floor's, not the body's: dragging the body leaves it behind (only the smears follow) */
+    unsigned char falling;              /* it is going over the edge of the pit (BODIES_FALL_T seconds, see bodies_fall): it can no longer be held, touched or stood against */
+    float fall_t, fall_dx, fall_dy;     /* seconds since it lost its footing, and the way it was going (unit vector) */
     unsigned char inv[ITEM_COUNT];      /* how many of that item it carries */
     unsigned char cuts;                 /* story chunk 9: how far it has been cut up (0..BODIES_CUTS, section 6 of the plan) */
 } Body;
@@ -43,6 +44,14 @@ int  bodies_hit(float feet_x, float feet_y, int px, int tile);   /* would our fe
 /* the nearest body within `reach` cells of our feet (world px), vessel 1 left out. returns its index or -1, and the gap in cells */
 int  bodies_nearest(float feet_x, float feet_y, int px, int tile, float reach, float *gap);
 void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken);   /* the pools and the bodies, under the characters */
+
+/* THE FALL into the pit: a body pushed out over the crack loses its footing when its middle is past the edge (world.c decides). bodies_fall starts it: for BODIES_FALL_T seconds it
+ * slides on the way it was going, then drops, faster and faster, darker and darker, clipped to the crack (bodies_set_pit: its box in tiles, -1 = none); then it is removed and
+ * gone(vessel) runs (the story counts it). a falling body is nobody's: not hit, not nearest, no box. its pool of blood stays where it died */
+#define BODIES_FALL_T 1.1f
+void bodies_set_pit(int tx0, int ty0, int tx1, int ty1);
+void bodies_fall(unsigned vessel, float dir_x, float dir_y);
+void bodies_update(float dt, void (*gone)(unsigned vessel));
 
 /* chunk 7: any body can be dragged (world.c holds the rope). the box of a body in world px, like the one bodies_hit uses; 0 when that vessel has no body
  * here (vessel 1 is ritual.c's, so 0 for him too). bodies_shift moves the body by a drag step (world px) */

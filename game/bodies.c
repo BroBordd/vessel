@@ -15,14 +15,17 @@ static int  n;
 #define TRAIL_MAX 220
 static struct { float tx, ty, age; unsigned char shape; } trail[TRAIL_MAX];     /* a ring: the newest overwrites the oldest */
 static int trail_n, trail_head;
+static struct { float tx, ty; } pool[BODIES_MAX]; static int pool_n;     /* the pools of blood: the floor's, not the body's (a pulled body leaves its pool, a body in the pit leaves it too) */
+static int pit_t0 = -1, pit_t1 = -1, pit_u0 = -1, pit_u1 = -1;          /* the pit's box in tiles (x0, y0, x1, y1 as t0, u0, t1, u1), -1: none */
 static unsigned trail_seed = 12345u;
 
-void bodies_reset(void) { n = 0; memset(list, 0, sizeof list); trail_n = trail_head = 0; }
+void bodies_reset(void) { n = 0; memset(list, 0, sizeof list); trail_n = trail_head = 0; pool_n = 0; }
 int  bodies_add(unsigned vessel, float tx, float ty, const unsigned char *inv) {
     if (n >= BODIES_MAX) return -1;
     Body *b = &list[n];
     memset(b, 0, sizeof *b);
-    b->vessel = vessel; b->tx = tx; b->ty = ty; b->pool_x = tx; b->pool_y = ty;
+    b->vessel = vessel; b->tx = tx; b->ty = ty;
+    if (pool_n < BODIES_MAX) { pool[pool_n].tx = tx; pool[pool_n].ty = ty; pool_n++; }
     if (inv) memcpy(b->inv, inv, ITEM_COUNT);
     return n++;
 }
@@ -82,7 +85,7 @@ static void box(const Body *b, int px, int tile, float *x0, float *y0, float *x1
 
 int bodies_hit(float fx, float fy, int px, int tile) {
     for (int i = 0; i < n; i++) {
-        if (list[i].vessel == 1) continue;
+        if (list[i].vessel == 1 || list[i].falling) continue;
         float x0, y0, x1, y1; box(&list[i], px, tile, &x0, &y0, &x1, &y1);
         if (fx + 3.0f * px > x0 && fx - 3.0f * px < x1 && fy > y0 && fy - 3.0f * px < y1) return 1;
     }
@@ -92,7 +95,7 @@ int bodies_hit(float fx, float fy, int px, int tile) {
 int bodies_nearest(float fx, float fy, int px, int tile, float reach, float *gap) {
     int best = -1; float bg = reach;
     for (int i = 0; i < n; i++) {
-        if (list[i].vessel == 1) continue;
+        if (list[i].vessel == 1 || list[i].falling) continue;
         float x0, y0, x1, y1; box(&list[i], px, tile, &x0, &y0, &x1, &y1);
         float dx = fmaxf(fmaxf(x0 - (fx + 3.0f * px), (fx - 3.0f * px) - x1), 0.0f), dy = fmaxf(fmaxf(y0 - fy, (fy - 3.0f * px) - y1), 0.0f);
         float g = sqrtf(dx * dx + dy * dy) / (float)px;
@@ -105,10 +108,8 @@ int bodies_nearest(float fx, float fy, int px, int tile, float reach, float *gap
 void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float darken) {
     float k = 1.0f - darken; if (k < 0) k = 0;
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    for (int i = 0; i < n; i++) {                                                   /* the pools first, all of them, on the floor where they dried: a body dragged over a pool lies on it */
-        const Body *b = &list[i];
-        if (b->vessel == 1) continue;
-        int fx = (int)lroundf(b->pool_x * (float)tile) - cam_x, fy = (int)lroundf(b->pool_y * (float)tile) - cam_y;
+    for (int i = 0; i < pool_n; i++) {                                              /* the pools first, all of them, on the floor where they dried: a body dragged over a pool lies on it */
+        int fx = (int)lroundf(pool[i].tx * (float)tile) - cam_x, fy = (int)lroundf(pool[i].ty * (float)tile) - cam_y;
         SDL_SetRenderDrawColor(r, (Uint8)(104 * k), (Uint8)(14 * k), (Uint8)(22 * k), 215);   /* a flat ellipse of blood, a little bigger than he is */
         for (int j = -4; j <= 4; j++) {
             int w = (int)(sqrtf(1.0f - (float)(j * j) / 25.0f) * 11.0f);
@@ -120,20 +121,35 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
         const Body *b = &list[i];
         if (b->vessel == 1) continue;
         int fx = (int)lroundf(b->tx * (float)tile) - cam_x, fy = (int)lroundf(b->ty * (float)tile) - cam_y;
-        char_set_darken(darken);
+        float d = darken;
+        int clipped = 0;
+        if (b->falling) {                                                           /* the swoop: it slides on a little the way it was going, then drops, faster and faster, into the dark */
+            float u = b->fall_t / BODIES_FALL_T; if (u > 1.0f) u = 1.0f;
+            float v = (u - 0.12f) / 0.88f; if (v < 0) v = 0;                         /* a beat of hanging in the air first */
+            float slide = 1.0f - (1.0f - u) * (1.0f - u);
+            fx += (int)lroundf((b->fall_dx * 5.0f * slide + sinf(b->fall_t * 17.0f) * 0.7f * v) * (float)px);
+            fy += (int)lroundf((b->fall_dy * 5.0f * slide + 38.0f * v * v) * (float)px);
+            d = darken + (1.0f - darken) * 0.92f * v;
+            if (pit_t0 >= 0) {                                                       /* it is inside the crack: it goes under the lips, not over the floor beyond */
+                SDL_Rect cl = { pit_t0 * tile - cam_x, pit_u0 * tile - cam_y, (pit_t1 - pit_t0 + 1) * tile, (pit_u1 - pit_u0 + 1) * tile };
+                SDL_RenderSetClipRect(r, &cl); clipped = 1;
+            }
+        }
+        char_set_darken(d);
         char_draw_lying(r, story_vessel_look(b->vessel), fx, fy, px);
         char_set_darken(0);
+        if (clipped) SDL_RenderSetClipRect(r, NULL);
     }
 }
 
 int bodies_box(unsigned vessel, int px, int tile, float *x0, float *y0, float *x1, float *y1) {
     if (vessel == 1) return 0;
-    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { box(&list[i], px, tile, x0, y0, x1, y1); return 1; }
+    for (int i = 0; i < n; i++) if (list[i].vessel == vessel && !list[i].falling) { box(&list[i], px, tile, x0, y0, x1, y1); return 1; }
     return 0;
 }
 void bodies_shift(unsigned vessel, float dx, float dy, int tile) {
     if (vessel == 1 || tile <= 0) return;
-    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { list[i].tx += dx / (float)tile; list[i].ty += dy / (float)tile; return; }
+    for (int i = 0; i < n; i++) if (list[i].vessel == vessel && !list[i].falling) { list[i].tx += dx / (float)tile; list[i].ty += dy / (float)tile; return; }
 }
 
 void bodies_trail_add(float wx, float wy, int tile) {
@@ -159,5 +175,24 @@ void bodies_trail_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, 
         SDL_SetRenderDrawColor(r, (Uint8)(96 * k), (Uint8)(12 * k), (Uint8)(20 * k), (Uint8)(210.0f * f));
         SDL_Rect q = { x, y, w * px, h * px };
         SDL_RenderFillRect(r, &q);
+    }
+}
+
+void bodies_set_pit(int tx0, int ty0, int tx1, int ty1) { pit_t0 = tx0; pit_u0 = ty0; pit_t1 = tx1; pit_u1 = ty1; }
+void bodies_fall(unsigned vessel, float dir_x, float dir_y) {
+    Body *b = (Body *)bodies_find(vessel);
+    if (!b || vessel == 1 || b->falling) return;
+    b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y;
+}
+void bodies_update(float dt, void (*gone)(unsigned vessel)) {
+    if (dt <= 0) return;
+    for (int i = 0; i < n; i++) {
+        if (!list[i].falling) continue;
+        list[i].fall_t += dt;
+        if (list[i].fall_t < BODIES_FALL_T) continue;
+        unsigned v = list[i].vessel;
+        bodies_remove(v);                                                           /* gone (its pool stays) */
+        if (gone) gone(v);
+        i--;                                                                        /* the list shifted */
     }
 }

@@ -467,6 +467,39 @@ static void tap_mix(Sint16 *out, int frames) {
     }
 }
 
+/* ---------- the swoop: something goes over the edge of the pit. an air rush falling away: noise through a low-pass whose cutoff sinks from ~1.8 kHz to ~140 Hz, the level
+ * swelling for a moment then dying with the fall (~1.1 s, the length of the body's fall animation) ---------- */
+static int   swoop_on, swoop_pos;
+static float swoop_lp, swoop_lp2;
+static unsigned swoop_seed = 777u;
+#define SWOOP_T    1.10f
+#define SWOOP_GAIN 0.20f
+void sfx_swoop(void) {
+    if (!dev) return;
+    SDL_LockAudioDevice(dev);
+    swoop_on = 1; swoop_pos = 0; swoop_lp = swoop_lp2 = 0.0f;
+    SDL_UnlockAudioDevice(dev);
+}
+static void swoop_mix(Sint16 *out, int frames) {
+    for (int i = 0; i < frames; i++) {
+        float tt = (float)swoop_pos / (float)OUT_RATE;
+        if (tt >= SWOOP_T) { swoop_on = 0; return; }
+        float u = tt / SWOOP_T;
+        float fc = 140.0f + 1660.0f * (1.0f - u) * (1.0f - u);                         /* the cutoff sinks */
+        float a = 1.0f - expf(-6.2831853f * fc / (float)OUT_RATE);
+        swoop_seed = swoop_seed * 1664525u + 1013904223u;
+        float nz = (float)(swoop_seed >> 16) / 32768.0f - 1.0f;
+        swoop_lp += (nz - swoop_lp) * a; swoop_lp2 += (swoop_lp - swoop_lp2) * a;      /* two poles: a soft rush, not a hiss */
+        float env = (u < 0.12f ? u / 0.12f : 1.0f) * (1.0f - u) * (1.0f - u * 0.4f);
+        int v = (int)(swoop_lp2 * 3.2f * env * SWOOP_GAIN * 32767.0f);
+        for (int ch = 0; ch < 2; ch++) {
+            int o = out[i * 2 + ch] + v;
+            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
+        }
+        swoop_pos++;
+    }
+}
+
 /* ---------- the pfft (chunk 38.1): noise through a low-pass whose cutoff falls (the pitch sinks), a slow wobble on it so it sounds wet ---------- */
 static int   pfft_on, pfft_pos, n_pfft;
 static float pfft_lp;
@@ -1034,6 +1067,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (hit_on) hit_mix(out, frames);
     if (hint_on) hint_mix(out, frames);
     if (tap_on) tap_mix(out, frames);
+    if (swoop_on) swoop_mix(out, frames);
     if (drag_on) drag_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);
     if (bf_on) bf_mix(out, frames);

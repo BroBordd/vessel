@@ -179,7 +179,6 @@ static void death_woke(void) {
         }
         bodies_add(dead, die_tx, die_ty, inv);
     }
-    if (death_cause == DEATH_SELF && dead == START_VESSEL && !note_read) event_fire(EV_SECRET_FAST_DEATH);   /* stabbed ourselves before reading the note: there never is one */
     if (death_cause == DEATH_CIRCLE) cp_reached = 1;            /* chunk 13: the checkpoint: from now on the next bodies wake at the second circle */
     cp_busy = 0;
     story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
@@ -266,7 +265,7 @@ static void story_inspect(unsigned vessel) {
 
 /* ---------- the pit: echoes, falls, the bridge (chunk 11) ---------- */
 /* anything dropped in is heard a moment later. a rock comes back faint and late; a body heavier; and the more bodies lie in the crack the sooner it comes back,
- * which is how the player sees the bridge rise. the thoughts wait for the echo (EV_DROP_IN_PIT) and note when it comes sooner than the last one */
+ * which is how the player sees the bridge rise. a thought notes when it comes sooner than the last one (EV_ECHO_SOONER) */
 static float echo_t = -1, echo_last = 0; static int echo_body;
 static void pit_drop(int body) {
     int pile = world_pit_pile();
@@ -280,7 +279,6 @@ static void echo_update(float dt) {
     float heard = echo_body ? 2.6f - 0.35f * world_pit_pile() : 3.4f - 0.3f * world_pit_pile();
     echo_t = -1;
     if (echo_body) sfx_hit(); else sfx_blip(0.5f);
-    event_fire(EV_DROP_IN_PIT);
     if (echo_last > 0 && heard < echo_last - 0.05f) event_fire(EV_ECHO_SOONER);
     echo_last = heard;
     if (echo_body && world_pit_left() == 0) toast_info("THE PIT", "The bodies reach the far side.");

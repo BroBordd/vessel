@@ -97,6 +97,7 @@ static float cam_x, cam_y;          /* the camera's top-left on screen (what dra
 static float cam_cx, cam_cy;        /* the lazy camera's own centre, in world px (see camera_update) */
 static int   cam_snap = 1;          /* 1 = put the camera on the player next frame, no easing (a new map, a teleport) */
 static void (*pit_cb)(unsigned vessel);   /* story chunk 11: a dragged body went over the edge (declared early: the drag code uses it) */
+static void fall_done(unsigned vessel) { if (pit_cb) pit_cb(vessel); }   /* the body has dropped out of sight (bodies_update): now the story counts it */
 
 /* AREA OF INTEREST (AOI): near the pit the camera pulls back, smoothly, so the far ledge across the crack is in view too, and eases back out when we leave.
  * the scene is drawn into a bigger texture (the view is W/aoi_z x H/aoi_z world px) and shrunk to the screen. CPU (SDL) path only: the GPU replay owns a
@@ -230,8 +231,11 @@ static int drag_blocked(float sx, float sy) {                               /* w
     if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     float n0 = x0 + sx, m0 = y0 + sy, n1 = x1 + sx, m1 = y1 + sy;           /* the box where it would be */
     float wx1 = n1 - 1, wy1 = m1 - 1;
-    for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++)
-        if (solid_tile((int)floorf((n0 + (wx1 - n0) * 0.5f * i) / tile), (int)floorf((m0 + (wy1 - m0) * 0.5f * j) / tile))) return 1;
+    int over_ok = drag_id > 1;                                              /* a body (not the rock, not vessel 1) may hang out over the crack: it falls when it has no footing (pit_footing) */
+    for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {
+        int tx_ = (int)floorf((n0 + (wx1 - n0) * 0.5f * i) / tile), ty_ = (int)floorf((m0 + (wy1 - m0) * 0.5f * j) / tile);
+        if (solid_tile(tx_, ty_) && !(over_ok && tx_ >= 0 && ty_ >= 0 && tx_ < mw && ty_ < mh && map[ty_][tx_] == T_RPIT)) return 1;
+    }
     float c0, d0, c1, d1;
     {   float f0 = pxp - 3.0f * px, f1 = pxp + 3.0f * px, g0 = pyp - 3.0f * px, g1 = pyp;      /* it may not slide onto us (we would stand inside it, blocked every way) */
         if (box_overlap(n0, m0, n1, m1, f0, g0, f1, g1) && !box_overlap(x0, y0, x1, y1, f0, g0, f1, g1)) return 1; }
@@ -275,14 +279,16 @@ static unsigned rock_body_hit(float sx, float sy) {                         /* t
     return 0;
 }
 static int pit_probe(float x, float y) { int tx = (int)floorf(x / tile), ty = (int)floorf(y / tile); return tx >= 0 && ty >= 0 && tx < mw && ty < mh && map[ty][tx] == T_RPIT; }
-static int drag_into_pit(float sx, float sy) {                              /* chunk 11: would what we hold end up over the crack if it moved by (sx, sy) px? */
+static float pit_cover(float sx, float sy) {                                 /* how much of what we hold would lie over the crack if it moved by (sx, sy) px (0..1: 9 spots of its box) */
     float x0, y0, x1, y1;
     if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     float n0 = x0 + sx, m0 = y0 + sy, n1 = x1 + sx, m1 = y1 + sy, wx1 = n1 - 1, wy1 = m1 - 1;
+    int c = 0;
     for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++)
-        if (pit_probe(n0 + (wx1 - n0) * 0.5f * i, m0 + (wy1 - m0) * 0.5f * j)) return 1;
-    return 0;
+        if (pit_probe(n0 + (wx1 - n0) * 0.5f * i, m0 + (wy1 - m0) * 0.5f * j)) c++;
+    return (float)c / 9.0f;
 }
+static float last_push_x, last_push_y;                                      /* the way we pushed it last (px): the way it goes when it falls */
 static float push_dx, push_dy;                                              /* how far we pushed the held thing this frame (px): the walking code fills it, drag_step uses it (the scrape, the trail) */
 static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack. it is PULLED by the rope, never pushed by it (it does not creep away from us) */
     drag_spd = 0;
@@ -300,9 +306,10 @@ static void drag_step(float dt) {                                           /* t
         {   float ax = (x0 + x1) * 0.5f - pxp, ay = (y0 + y1) * 0.5f - pyp, al = hypotf(ax, ay);        /* the rope only pulls: whatever part of its move would take it AWAY from us is dropped */
             if (al > 0.001f) { float dot = (mx * ax + my * ay) / al; if (dot > 0) { mx -= ax / al * dot; my -= ay / al * dot; } }
         }
-        if (!rock && drag_id != 1 && drag_id >= 0) {                        /* the hole is for pushing: pulled along the crack a body stops at its edge */
-            if (mx != 0 && drag_into_pit(mx, 0)) mx = 0;
-            if (my != 0 && drag_into_pit(0, my)) my = 0;
+        if (!rock && drag_id != 1 && drag_id >= 0) {                        /* the hole is for pushing: the rope never draws a body further out over the crack (it may draw it back) */
+            float c0 = pit_cover(0, 0);
+            if (mx != 0 && pit_cover(mx, 0) > c0) mx = 0;
+            if (my != 0 && pit_cover(0, my) > c0) my = 0;
         }
         if (rock && mv > 0.3f * px && smash_cd <= 0) {                       /* chunk 9: the rock run into a body smashes it */
             unsigned hit = rock_body_hit(mx, my);
@@ -319,7 +326,8 @@ static void drag_step(float dt) {                                           /* t
     }
 }
 /* PUSHING: we walk into what we hold and it goes ahead of us (the same step as ours). the one way a body goes into the hole: pushed over the edge (pit_cb). returns 1 when
- * we pushed it (we may take the step), 2 when it fell in (the hold is over), 0 when it is not the held thing in our way, or it cannot move that way */
+ * we pushed it (we may take the step), 0 when it is not the held thing in our way, or it cannot move that way. a pushed body may hang out over the crack, where we cannot
+ * follow; its footing is pit_footing's business */
 static int wall_hits(float fx, float fy) {                                  /* the walls (solid tiles) under our feet box at (fx, fy) */
     float hw = 3.0f * px, hh = 1.5f * px;
     float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
@@ -344,20 +352,23 @@ static int push_step(float vx, float vy) {
     if (wall_hits(nx, ny) || hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     if (!(nx + 3.0f * px > x0 && nx - 3.0f * px < x1 && ny > y0 && ny - 3.0f * px < y1)) return 0;     /* it is not the held thing that is in our way */
     int rock = drag_id == DRAG_ROCK;
-    if (!rock && drag_id != 1 && drag_id >= 0 && drag_into_pit(vx, vy)) {                          /* chunk 11: pushed over the edge: it falls */
-        unsigned v = (unsigned)drag_id; drag_on = 0;
-        bodies_remove(v);
-        if (pit_cb) pit_cb(v);
-        return 2;
-    }
     if (rock && smash_cd <= 0) {                                                                    /* chunk 9: the rock pushed into a body smashes it */
         unsigned hit = rock_body_hit(vx, vy);
         if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
     }
     if (drag_blocked(vx, vy)) return 0;                                                             /* a wall, another body, the rock behind it: it does not move, nor do we */
     drag_move(vx, vy);
-    push_dx += vx; push_dy += vy;
+    push_dx += vx; push_dy += vy; last_push_x = vx; last_push_y = vy;
     return 1;
+}
+/* chunk 11: the body in our hands has no footing once its middle is past the edge of the crack: we let go, it goes (bodies.c plays the fall, then the story counts it) */
+static void pit_footing(void) {
+    float x0, y0, x1, y1;
+    if (!drag_on || drag_id <= 1 || cur_map != MAP_TEMPLE || !drag_box_px(&x0, &y0, &x1, &y1)) return;
+    if (!pit_probe((x0 + x1) * 0.5f, (y0 + y1) * 0.5f)) return;
+    float l = hypotf(last_push_x, last_push_y);
+    bodies_fall((unsigned)drag_id, l > 0 ? last_push_x / l : 0.0f, l > 0 ? last_push_y / l : 0.0f);
+    drag_on = 0; sfx_swoop();
 }
 static void drag_toggle(void) {
     if (drag_on) { drag_on = 0; return; }
@@ -401,6 +412,7 @@ static void gen_temple_map(void) {
     for (int y = 0; y < MAP_MAX; y++) for (int x = 0; x < MAP_MAX; x++) map[y][x] = (y < mh && x < mw) ? to_tile[g[y][x]] : T_RVOID;
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
     pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
+    bodies_set_pit(pit_x0, pit_y0, pit_x1, pit_y1);
     for (int i = 0; i < pit_pile; i++) pit_fill_one();                  /* story chunk 11: the bodies that went in before stay in */
 }
 
@@ -1101,6 +1113,7 @@ void world_update(float dt) {
         walk += dt * 8.0f * (drag_on ? (drag_id == DRAG_ROCK ? 0.4f : 0.55f) : 1.0f);
     } else walk = 0;
     drag_step(dt);
+    pit_footing();
     push_dx = push_dy = 0;
     dragged_now = drag_spd > 0.8f;
     {   float gx0, gy0, gx1, gy1;                                        /* the hold: where the hands want to be, and how much of the way they are there */
@@ -1123,6 +1136,7 @@ void world_update(float dt) {
         if (pick_t >= PK_TAKE + PK_RET) pick_on = 0;
     }
     bodies_trail_update(dt);
+    bodies_update(dt, fall_done);
     if (swing_on) {                                                      /* chunk 11: flying across the crack */
         swing_t += dt / 1.5f;
         float k = swing_t > 1.0f ? 1.0f : swing_t, e = k * k * (3.0f - 2.0f * k);

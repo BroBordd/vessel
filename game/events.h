@@ -30,18 +30,15 @@ typedef enum {
     EV_TORSO_OPEN,      /* the torso opens */
     EV_FIRST_INTESTINE, /* first intestine collected */
     EV_FIRST_CRAFT,     /* first craft */
-    EV_PIT_EDGE,        /* arrives at the pit edge */
     EV_HOLD_INTESTINE,  /* holds an intestine at the pit */
     EV_HOLD_TIED_ROCK,  /* holds a tied rock at the pit */
     EV_SWING_HELD,      /* Swing wedges on the far side */
-    EV_DROP_IN_PIT,     /* drops something into the pit (waits for the echo) */
     EV_ECHO_SOONER,     /* the echo comes back sooner than last time */
     EV_FALL_IN_PIT,     /* falls into the pit */
     EV_CLIMB_FAR,       /* climbs up the far side */
     EV_FIND_CIRCLE2,    /* finds the second circle */
     EV_FILL_CIRCLE,     /* fills the circle */
     /* section 11: secrets */
-    EV_SECRET_FAST_DEATH,   /* stabs themselves in the first circle before reading the note */
     EV_SECRET_BODY_ON_CIRCLE, /* drags Aonia back onto the circle */
     EV_SECRET_HUMAN_SHAPE,  /* every part of one body put back in the circle in a human shape */
     EV_SECRET_FESTIVE,      /* wears the necklaces and the skull on a string together */

@@ -31,17 +31,14 @@ static const EvRow ROWS[EV_COUNT] = {
     [EV_TORSO_OPEN]        = { "So that's what's in there.", BRAIN_SCENE_ORB, 0 },
     [EV_FIRST_INTESTINE]   = { "Long. Surprisingly long.", BRAIN_SCENE_ORB, 0 },
     [EV_FIRST_CRAFT]       = { "Don't think about it.", BRAIN_SCENE_ORB, 0 },
-    [EV_PIT_EDGE]          = { "Too wide to jump. Too deep to guess.", BRAIN_SCENE_ORB, 0 },
     [EV_HOLD_INTESTINE]    = { "That would reach... if something held the other end.", BRAIN_SCENE_ORB, 0 },
     [EV_HOLD_TIED_ROCK]    = { "Throw it. Hope.", BRAIN_SCENE_ORB, 0 },
     [EV_SWING_HELD]        = { "...It held. It held!", BRAIN_SCENE_ORB, 0 },
-    [EV_DROP_IN_PIT]       = { "Still falling.", BRAIN_SCENE_ORB, 0 },
     [EV_ECHO_SOONER]       = { "It's getting shallower.", BRAIN_SCENE_ORB, 0 },
     [EV_FALL_IN_PIT]       = { "Oh.", BRAIN_SCENE_ORB, 0 },
     [EV_CLIMB_FAR]         = { "Covered in blood. Good enough.", BRAIN_SCENE_ORB, 0 },
     [EV_FIND_CIRCLE2]      = { "Another one. He'd have wanted this.", BRAIN_SCENE_AGAIN, 0 },
     [EV_FILL_CIRCLE]       = { "My consciousness is fading.", BRAIN_SCENE_AGAIN, 0 },
-    [EV_SECRET_FAST_DEATH] = { "That was fast. Too fast.", BRAIN_SCENE_ORB, 0 },
     [EV_SECRET_BODY_ON_CIRCLE] = { "He looks comfortable.", BRAIN_SCENE_AGAIN, 0 },
     [EV_SECRET_HUMAN_SHAPE]    = { "He's not coming back. But he looks better.", BRAIN_SCENE_AGAIN, 0 },
     [EV_SECRET_FESTIVE]    = { "I look... festive.", BRAIN_SCENE_ORB, 0 },
@@ -57,7 +54,6 @@ static const EvRow ROWS[EV_COUNT] = {
 #define GAP        1.6f     /* a breath between two thoughts (s), counted from when the first one has folded away */
 #define SETTLE     1.2f     /* the player must have been free this long before a thought comes (s) */
 #define DRAG_LONG_S 10.0f   /* seconds of really pulling a body that make EV_DRAG_LONG */
-#define PIT_NEAR   2.5f     /* tiles: this close to the pit is its edge */
 #define MEMORY_MAX BRAIN_MAX_THOUGHTS
 
 static unsigned char fired[EV_COUNT];
@@ -116,7 +112,6 @@ static void watch(float dt) {
         drag_t += dt;
         if (drag_t >= DRAG_LONG_S && now_t >= drag_rep) { event_fire(EV_DRAG_LONG); drag_t = 0; drag_rep = now_t + 60.0f; }
     }
-    if (!event_fired(EV_PIT_EDGE) && world_dist_to_pit() < PIT_NEAR) event_fire(EV_PIT_EDGE);
 }
 
 void events_update(float dt) {
