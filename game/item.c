@@ -245,6 +245,9 @@ static int in_recipe(int kind) {
 static unsigned char ord[2][ITEM_COUNT]; static int ordn[2];                /* A3: the order of the slots, below (ord_norm) */
 static int cq[4] = { -1, -1, -1, -1 };                          /* B3: the four crafting squares (a kind each, or -1). what lies in them MOVED there from the grid (see cnt / placed): still ours, back in the grid when the window closes; the result is made when it is tapped */
 static int cpos[ITEM_COUNT];                                    /* the slot (+1) a kind had before it all went out to the craft cells: it comes back to it (0 = none) */
+#define HOLE 0xFF                                               /* a blank slot of the bag grid (hord, below) */
+static unsigned char hord[ITEM_COUNT + 1]; static int hordn;
+static int ord_cap;                                             /* how many slots the grid shows (rowsn * gcols): nothing may sit beyond them */
 static void (*craft_cb)(int a, int b);
 void item_set_craft_cb(void (*cb)(int a, int b)) { craft_cb = cb; }
 static int worn_[ITEM_COUNT];
@@ -333,7 +336,7 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { ui_csel = -1; memset(cpos, 0, sizeof cpos); ordn[1] = 0; for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; ui_cell = -1; act_menu = 0; held = -1; }
+void item_clear(void) { ui_csel = -1; memset(cpos, 0, sizeof cpos); ordn[1] = 0; hordn = 0; memset(hord, 0xFF, sizeof hord); for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; ui_cell = -1; act_menu = 0; held = -1; }
 
 static int owned(void);
 void item_update(float dt) {
@@ -619,8 +622,53 @@ static void order_move(int side, int kind, int to) {            /* the kind goes
     for (int i = n; i > to; i--) ord[side][i] = ord[side][i - 1];
     ord[side][to] = (unsigned char)kind;
 }
-static int kind_at_slot(int i) { return kind_on(bw_on ? 0 : 1, i); }
-static int slot_of_kind(int kind) { int s = bw_on ? 0 : 1; for (int i = 0; i < ITEM_COUNT; i++) { int k = kind_on(s, i); if (k < 0) break; if (k == kind) return i; } return -1; }
+/* THE BAG'S LAYOUT (not the loot window's, which stays a compact list): a real grid. every thing has its slot and keeps it; a slot whose thing is gone stays BLANK (no sliding
+ * over); a new thing takes the first blank slot (the end, when there are none); a drag onto a blank slot puts the thing exactly there (hole = 0xFF). hord = the slots,
+ * hordn = how many slots are in use (the last used one + 1). things that lie out in the craft cells (cnt = 0 but still ours) remember their slot (cpos) and come back to it */
+static void hord_norm(void) {
+    unsigned char t[ITEM_COUNT + 1]; char seen[ITEM_COUNT]; int len = hordn;
+    memset(t, HOLE, sizeof t); memset(seen, 0, sizeof seen);
+    for (int i = 0; i < hordn; i++) {
+        int k = hord[i]; if (k >= ITEM_COUNT || seen[k]) continue;
+        if (cnt(1, k) > 0) { t[i] = (unsigned char)k; seen[k] = 1; }
+        else if (have[k] > 0) { cpos[k] = i + 1; seen[k] = 1; }       /* out in the craft cells: its slot waits */
+    }
+    int cap = ord_cap > 0 && ord_cap < ITEM_COUNT ? ord_cap : ITEM_COUNT;
+    for (int i = cap; i < ITEM_COUNT; i++) if (t[i] != HOLE) { for (int j = 0; j < cap; j++) if (t[j] == HOLE) { t[j] = t[i]; t[i] = HOLE; break; } }   /* the grid got smaller: whatever sits beyond the last slot moves to the first blank one */
+    for (int k = 0; k < ITEM_COUNT; k++) {
+        if (have[k] <= 0) cpos[k] = 0;
+        if (cnt(1, k) <= 0 || seen[k]) continue;
+        int at = -1;
+        if (cpos[k] && cpos[k] - 1 < ITEM_COUNT && t[cpos[k] - 1] == HOLE && cpos[k] - 1 < cap) at = cpos[k] - 1;
+        cpos[k] = 0;
+        if (at < 0) { for (int i = 0; i < ITEM_COUNT; i++) if (t[i] == HOLE) { at = i; break; } }          /* the first blank slot */
+        if (at >= 0) { t[at] = (unsigned char)k; if (at >= len) len = at + 1; }
+    }
+    while (len > 0 && t[len - 1] == HOLE) len--;
+    memcpy(hord, t, sizeof hord); hordn = len;
+}
+static int hkind(int i) { hord_norm(); return i >= 0 && i < hordn && hord[i] != HOLE ? hord[i] : -1; }
+static void hord_move(int kind, int to) {                          /* the kind goes to slot `to`: a blank one takes it as it is, a full one makes room (the others slide, as before) */
+    hord_norm();
+    int p = -1; for (int i = 0; i < hordn; i++) if (hord[i] == kind) p = i;
+    if (p < 0) return;
+    if (ord_cap > 0 && to >= ord_cap) to = ord_cap - 1;
+    if (to >= ITEM_COUNT) to = ITEM_COUNT - 1;
+    if (to < 0) to = 0;
+    if (to == p) return;
+    if (hord[to] == HOLE) { hord[to] = (unsigned char)kind; hord[p] = HOLE; }
+    else if (p < to) { for (int i = p; i < to; i++) hord[i] = hord[i + 1]; hord[to] = (unsigned char)kind; }
+    else             { for (int i = p; i > to; i--) hord[i] = hord[i - 1]; hord[to] = (unsigned char)kind; }
+    hordn = hordn > to + 1 ? hordn : to + 1;
+    while (hordn > 0 && hord[hordn - 1] == HOLE) hordn--;
+}
+static int first_kind(void) { hord_norm(); for (int i = 0; i < hordn; i++) if (hord[i] != HOLE) return hord[i]; return -1; }
+static int kind_at_slot(int i) { return bw_on ? kind_on(0, i) : hkind(i); }
+static int slot_of_kind(int kind) {
+    if (!bw_on) { hord_norm(); for (int i = 0; i < hordn; i++) if (hord[i] == kind) return i; return -1; }
+    for (int i = 0; i < ITEM_COUNT; i++) { int k = kind_on(0, i); if (k < 0) break; if (k == kind) return i; }
+    return -1;
+}
 static int in_rect(int x, int y, int rx, int ry, int rw, int rh) { return x >= rx && y >= ry && x < rx + rw && y < ry + rh; }
 /* the finger, for the pressed look of the buttons: where it went down and where it is now. a button is PRESSED while the finger is down on it and still over it
  * (slide off and it lets go, like every other button of the game; the fill goes lighter, as in ui_button_frame / confirm_button_draw) */
@@ -754,6 +802,7 @@ static void win_layout(void) {
     gcols = (gw - pad) / (tgt + pad); if (gcols < 4) gcols = 4; if (gcols > 8) gcols = 8;
     sl = (gw - (gcols + 1) * pad) / gcols; if (sl > tgt) sl = tgt;
     rowsn = (n + gcols - 1) / gcols; if (rowsn < 4) rowsn = 4;
+    ord_cap = rowsn * gcols;
     int sh = (gh - (rowsn + 1) * pad) / rowsn; if (sh < sl) sl = sh;
     if (sl < 14) sl = 14;
     pcell = (sl - 2 * bt - pad) / ITEM_ICON_CELLS; if (pcell < 1) pcell = 1;
@@ -857,7 +906,7 @@ static int bag_end(int x, int y) {                              /* 1 = it was a 
         else if (on_grid) {                                                                                /* A3: inside the grid: it takes the place under the finger */
             int at = ITEM_COUNT;
             for (int i = 0; i < rowsn * gcols; i++) if (in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) { at = i; break; }
-            order_move(1, drag_kind, at); sfx_blip(0.5f);
+            hord_move(drag_kind, at); sfx_blip(0.5f);
         }
     } else if (drag_side == 2) {
         if (on_grid) { held = -1; sfx_blip(0.5f); }                                                        /* out onto the grid: put away */
@@ -866,7 +915,7 @@ static int bag_end(int x, int y) {                              /* 1 = it was a 
             int at = ITEM_COUNT;
             cq[drag_idx] = -1;
             for (int i = 0; i < rowsn * gcols; i++) if (in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) { at = i; break; }
-            if (at < ITEM_COUNT) order_move(1, drag_kind, at);
+            if (at < ITEM_COUNT) hord_move(drag_kind, at);
             if (ui_csel == drag_idx) { ui_csel = -1; ui_sel = drag_kind; ui_cell = -1; }
             sfx_blip(0.5f);
         }
@@ -899,7 +948,7 @@ static void set_open(int o) {
     if (o && !ui_open) {
         bw_on = 0;                                               /* opened from the bag: our own pockets */
         int k = item_equipped();
-        ui_sel = k >= 0 ? k : (newest >= 0 && have[newest] > 0 ? newest : kind_at_slot(0));
+        ui_sel = k >= 0 ? k : (newest >= 0 && have[newest] > 0 ? newest : first_kind());
         ui_cell = -1;
     }
     act_menu = 0; ui_csel = -1;
