@@ -315,6 +315,7 @@ static void drag_step(float dt) {                                           /* t
             float c0 = pit_cover(0, 0);
             if (mx != 0 && pit_cover(mx, 0) > c0) mx = 0;
             if (my != 0 && pit_cover(0, my) > c0) my = 0;
+            if (c0 > 0 && (push_dx != 0 || push_dy != 0)) mx = my = 0;       /* we are pushing it out over the crack this frame: the rope does not draw it back */
         }
         if (rock && mv > 0.3f * px && smash_cd <= 0) {                       /* chunk 9: the rock run into a body smashes it */
             unsigned hit = rock_body_hit(mx, my);
@@ -363,7 +364,11 @@ static int push_step(float vx, float vy) {
     int hang = 0;                                                                                   /* at the lip of the crack we cannot follow: the body goes on out over it, we stay (it falls once its middle is past the edge: pit_footing) */
     if (wall_hits(nx, ny)) { if (drag_id > 1 && !wall_hits_np(nx, ny)) hang = 1; else return 0; }
     if (hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
-    if (!(nx + 3.0f * px > x0 && nx - 3.0f * px < x1 && ny > y0 && ny - 3.0f * px < y1)) return 0;     /* it is not the held thing that is in our way */
+    {   /* it must be the held thing in our way. at the lip (hang) we cannot follow it, so after the first step it is no longer touching us: our arms reach one tile further, so we keep pushing it out until its middle is past the edge */
+        float reach = hang ? (float)tile : 0.0f;
+        float rx = vx > 0 ? reach : 0, lx = vx < 0 ? reach : 0, dn = vy > 0 ? reach : 0, up = vy < 0 ? reach : 0;
+        if (!(nx + 3.0f * px + rx > x0 && nx - 3.0f * px - lx < x1 && ny + dn > y0 && ny - 3.0f * px - up < y1)) return 0;
+    }
     int rock = drag_id == DRAG_ROCK;
     if (rock && smash_cd <= 0) {                                                                    /* chunk 9: the rock pushed into a body smashes it */
         unsigned hit = rock_body_hit(vx, vy);
