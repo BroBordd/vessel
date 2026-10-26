@@ -93,14 +93,14 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
             if (near) AT(x, y) = GEN_WALL;
         }
 
-    /* 8. decoration: two rows of columns down the hall (every third row, some fallen into rubble), rubble heaps, never in the way of the middle
-     * line, never near the start */
+    /* 8. decoration: (REMOVED: the rows of columns and the rubble heaps were solid and blocked walking; the random draws below are kept as they were) was: two rows of columns
+     * down the hall (every third row, some fallen into rubble), rubble heaps, never in the way of the middle line, never near the start */
     int sx = cx, sy = sy0 + sh / 2;
     for (int y = hy0 + 2; y <= hy1 - 2; y += 3) {
         int xs[2] = { hx0 + 3, hx1 - 3 };
         for (int k = 0; k < 2; k++) {
-            float f = gen_float();
-            AT(xs[k], y) = f < 0.62f ? GEN_PILLAR : f < 0.85f ? GEN_RUBBLE : GEN_FLOOR;
+            float f = gen_float(); (void)f;
+            (void)xs[k];                                                                 /* no columns, no rubble: nothing static stands in the way (the draws are kept so a seed makes the same temple otherwise) */
         }
     }
     for (int y = 3; y < TH - 3; y++)
@@ -110,7 +110,7 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
             if (y >= sy0 - 1) continue;                                                  /* nothing in the circle room or its passage */
             int open = 1;
             for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) if (AT(x + i, y + j) != GEN_FLOOR) open = 0;
-            if (open) AT(x, y) = GEN_RUBBLE;
+            (void)open;                                                                  /* (no rubble heaps either) */
         }
     int south_y = 17;                                                                    /* the south ledge, where we stand to look into the pit */
     flood(sx, sy);
