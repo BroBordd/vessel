@@ -68,13 +68,13 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
     carve(hx1 + 1, ny_e, 4, 4);
     /* 5. the doorway north (rows 20..23), six wide */
     carve(cx - 3, 20, 6, 4);
-    /* 6. the pit chamber (rows 6..19): a south ledge (15..19), the crack (10..14, straight), the far ledge (6..9) */
+    /* 6. the pit chamber (rows 6..19): a south ledge (15..19), the hole (9..14: six straight rows, a near half 12..14 and a far half 9..11), the far ledge (6..8) */
     int px0 = cx - 10, px1 = cx + 9;
     carve(px0, 6, px1 - px0 + 1, 14);
     int pit_x0 = 99, pit_y0 = 99, pit_x1 = -1, pit_y1 = -1;
     for (int x = px0; x <= px1; x++) {
         (void)gen_rand(); (void)gen_rand();                                              /* (the old ragged edge drew two numbers per column: keep the sequence, so the same seed makes the same rooms) */
-        int top = 10, bot = 14;                                                          /* the crack is a straight band: 5 rows, the same in every column (a body falls when its middle is past a straight line) */
+        int top = 9, bot = 14;                                                          /* the crack is a straight band: 6 rows, the same in every column (a body falls when its middle is past a straight line) */
         for (int y = top; y <= bot; y++) {
             AT(x, y) = GEN_PIT;
             if (x < pit_x0) pit_x0 = x;
@@ -125,7 +125,7 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
     if (info) {
         info->w = TW; info->h = TH; info->spawn_x = sx; info->spawn_y = sy; info->gate_x = gx; info->gate_y = gy; info->rooms = 6;
         info->pit_x0 = pit_x0; info->pit_y0 = pit_y0; info->pit_x1 = pit_x1; info->pit_y1 = pit_y1;
-        info->far_x = cx; info->far_y = 8;                  /* the far ledge: where the second circle's carvings will be (chunk 13) */
+        info->far_x = cx; info->far_y = 7;                  /* the far ledge: where the second circle's carvings will be (chunk 13) */
         info->edge_x = cx; info->edge_y = south_y;          /* the south ledge's middle */
     }
     return 1;

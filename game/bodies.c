@@ -124,14 +124,12 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
         int fx = (int)lroundf(b->tx * (float)tile) - cam_x, fy = (int)lroundf(b->ty * (float)tile) - cam_y;
         float d = darken;
         int clipped = 0;
-        if (b->falling) {                                                           /* the swoop: it slides on a little the way it was going, then drops, faster and faster, into the dark */
+        if (b->falling) {                                                           /* a short drop into the hole: it sinks to the bottom (faster and faster), darker, behind the lips */
             float u = b->fall_t / BODIES_FALL_T; if (u > 1.0f) u = 1.0f;
-            float v = (u - 0.12f) / 0.88f; if (v < 0) v = 0;                         /* a beat of hanging in the air first */
-            float slide = 1.0f - (1.0f - u) * (1.0f - u);
-            fx += (int)lroundf((b->fall_dx * 5.0f * slide + sinf(b->fall_t * 17.0f) * 0.7f * v) * (float)px);
-            fy += (int)lroundf((b->fall_dy * 5.0f * slide + 38.0f * v * v) * (float)px);
-            d = darken + (1.0f - darken) * 0.92f * v;
-            if (pit_t0 >= 0) {                                                       /* it is inside the crack: it goes under the lips, not over the floor beyond */
+            float e = u * u;
+            fx += (int)lroundf(b->fall_ex * e * (float)px); fy += (int)lroundf(b->fall_ey * e * (float)px);
+            d = darken + (1.0f - darken) * 0.45f * u;                               /* (the same shade as the bodies that lie at the bottom: world.c) */
+            if (pit_t0 >= 0) {                                                       /* it is inside the hole: it goes under the lips, not over the floor beyond */
                 SDL_Rect cl = { pit_t0 * tile - cam_x, pit_u0 * tile - cam_y, (pit_t1 - pit_t0 + 1) * tile, (pit_u1 - pit_u0 + 1) * tile };
                 SDL_RenderSetClipRect(r, &cl); clipped = 1;
             }
@@ -183,13 +181,17 @@ void bodies_trail_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, 
 void bodies_fall_at(unsigned vessel, float tile_x, float tile_y, float dir_x, float dir_y) {
     Body *b = (Body *)bodies_find(vessel);
     if (!b || b->falling) return;
-    b->tx = tile_x; b->ty = tile_y; b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y;
+    b->tx = tile_x; b->ty = tile_y; b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y; b->fall_ex = dir_x * 3.0f; b->fall_ey = dir_y * 3.0f + 6.0f;
 }
 void bodies_set_pit(int tx0, int ty0, int tx1, int ty1) { pit_t0 = tx0; pit_u0 = ty0; pit_t1 = tx1; pit_u1 = ty1; }
 void bodies_fall(unsigned vessel, float dir_x, float dir_y) {
     Body *b = (Body *)bodies_find(vessel);
     if (!b || vessel == 1 || b->falling) return;
-    b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y;
+    b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y; b->fall_ex = dir_x * 3.0f; b->fall_ey = dir_y * 3.0f + 6.0f;
+}
+void bodies_fall_to(unsigned vessel, float end_x, float end_y) {
+    Body *b = (Body *)bodies_find(vessel);
+    if (b && b->falling) { b->fall_ex = end_x; b->fall_ey = end_y; }
 }
 void bodies_update(float dt, void (*gone)(unsigned vessel)) {
     if (dt <= 0) return;

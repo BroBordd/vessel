@@ -266,14 +266,14 @@ static void story_inspect(unsigned vessel) {
 static float echo_t = -1, echo_last = 0; static int echo_body;
 static void pit_drop(int body) {
     int pile = world_pit_pile();
-    float d = body ? 2.6f - 0.35f * pile : 3.4f - 0.3f * pile;
-    if (d < 0.35f) d = 0.35f;
-    echo_t = d; echo_body = body;
+    (void)pile;
+    echo_t = body ? 0.04f : 0.7f;                               /* the hole has a bottom: a body lands (its fall just ended) and you hear it at once; a rock a moment later */
+    echo_body = body;
 }
 static void echo_update(float dt) {
     if (echo_t < 0) return;
     echo_t -= dt; if (echo_t > 0) return;
-    float heard = echo_body ? 2.6f - 0.35f * world_pit_pile() : 3.4f - 0.3f * world_pit_pile();
+    float heard = echo_body ? 0.9f - 0.1f * world_pit_pile() : 1.2f - 0.1f * world_pit_pile();   /* (only for the thought: the stack makes the hole shallower) */
     echo_t = -1;
     if (echo_body) sfx_hit(); else sfx_blip(0.5f);
     if (echo_last > 0 && heard < echo_last - 0.05f) event_fire(EV_ECHO_SOONER);

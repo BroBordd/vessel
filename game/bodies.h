@@ -18,6 +18,7 @@ typedef struct {
     float tx, ty;                       /* where the feet are, in tiles (not used for vessel 1) */
     unsigned char falling;              /* it is going over the edge of the pit (BODIES_FALL_T seconds, see bodies_fall): it can no longer be held, touched or stood against */
     float fall_t, fall_dx, fall_dy;     /* seconds since it lost its footing, and the way it was going (unit vector) */
+    float fall_ex, fall_ey;             /* where it ends up, from where it stood, in px units (the hole has a bottom: it lands there, see bodies_fall_to) */
     unsigned char inv[ITEM_COUNT];      /* how many of that item it carries */
     unsigned char cuts;                 /* story chunk 9: how far it has been cut up (0..BODIES_CUTS, section 6 of the plan) */
 } Body;
@@ -48,7 +49,8 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
 /* THE FALL into the pit: a body pushed out over the crack loses its footing when its middle is past the edge (world.c decides). bodies_fall starts it: for BODIES_FALL_T seconds it
  * slides on the way it was going, then drops, faster and faster, darker and darker, clipped to the crack (bodies_set_pit: its box in tiles, -1 = none); then it is removed and
  * gone(vessel) runs (the story counts it). a falling body is nobody's: not hit, not nearest, no box. its pool of blood stays where it died */
-#define BODIES_FALL_T 1.1f
+#define BODIES_FALL_T 0.45f                                     /* (the hole has a visible bottom now: a short drop, the thud comes right after) */
+void bodies_fall_to(unsigned vessel, float end_x, float end_y);   /* after bodies_fall: it lands end_x/end_y px units from where it stood (world.c: the bottom, a little higher for each body already there) */
 void bodies_set_pit(int tx0, int ty0, int tx1, int ty1);
 void bodies_fall(unsigned vessel, float dir_x, float dir_y);
 void bodies_fall_at(unsigned vessel, float tile_x, float tile_y, float dir_x, float dir_y);   /* the same for vessel 1 (Aonia): it also sets where he lies */

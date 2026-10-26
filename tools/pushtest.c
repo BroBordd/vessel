@@ -42,6 +42,11 @@ int main(int argc, char **argv) {
             if (getenv("V")) printf("f%03d player x=%.2f y=%.2f body %s mid_y=%.2f (pit top y=%d) drag_on=%d fell_cb=%d\n", i, pxp / tile, pyp / tile, have ? "" : "-", have ? (y0 + y1) / 2 / tile : -1.0f, pit_y0, drag_on, fell_cb);
         if (!drag_on && i > 5) { for (int k = 0; k < 150; k++) world_update(DT); break; }
     }
+    if (getenv("RELOAD") && fell_cb) {   /* the death after a jump: the ruins again, the ritual draws vessel 1 lying at the circle (story_die) */
+        world_reload_ruins(); world_ritual(story_vessel_look(1), NULL);
+        for (int k = 0; k < 600; k++) world_update(DT);
+        float a, b, c, d; printf("after reload: vessel 1 box present = %d, in list = %d\n", ritual_body_box(&a, &b, &c, &d), bodies_find(1) != NULL);
+    }
     printf("RESULT %s\n", fell_cb ? "FELL" : "STUCK");
     return 0;
 }

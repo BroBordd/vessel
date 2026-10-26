@@ -103,6 +103,19 @@ static float cam_cx, cam_cy;        /* the lazy camera's own centre, in world px
 static int   cam_snap = 1;          /* 1 = put the camera on the player next frame, no easing (a new map, a teleport) */
 static void (*pit_cb)(unsigned vessel);   /* story chunk 11: a dragged body went over the edge (declared early: the drag code uses it) */
 static void fall_done(unsigned vessel) { if (pit_cb) pit_cb(vessel); }   /* the body has dropped out of sight (bodies_update): now the story counts it */
+static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's box (tiles), -1: none */
+#define PIT_HALF_BODIES 4
+static int pit_pile;
+#define LAND_MAX 32
+static struct { const Person *look; float x, y, delay; } landed[LAND_MAX];   /* feet (tiles); delay: seconds until it is down (the fall is still playing) */
+static int landed_n;
+static float pit_land(const Person *look, float fx_t, float fy_t) {   /* a body will lie here (feet, tiles) when its fall is over; returns how high this one lies above the last (px units) */
+    float lift = (float)(landed_n % PIT_HALF_BODIES) * 1.0f;
+    if (landed_n == LAND_MAX) { memmove(&landed[0], &landed[1], sizeof landed[0] * (LAND_MAX - 1)); landed_n--; }
+    landed[landed_n].look = look; landed[landed_n].x = fx_t; landed[landed_n].y = fy_t; landed[landed_n].delay = BODIES_FALL_T; landed_n++;
+    return lift;
+}
+
 
 /* AREA OF INTEREST (AOI): near the pit the camera pulls back, smoothly, so the far ledge across the crack is in view too, and eases back out when we leave.
  * the scene is drawn into a bigger texture (the view is W/aoi_z x H/aoi_z world px) and shrunk to the screen. CPU (SDL) path only: the GPU replay owns a
@@ -383,11 +396,18 @@ static int push_step(float vx, float vy) {
 static void pit_footing(void) {
     float x0, y0, x1, y1;
     if (!drag_on || drag_id < 1 || cur_map != MAP_TEMPLE || !drag_box_px(&x0, &y0, &x1, &y1)) return;
-    if (!pit_probe((x0 + x1) * 0.5f, (y0 + y1) * 0.5f)) return;
+    float xm = (x0 + x1) * 0.5f;                                                                  /* it has no footing only when its FEET are well over the hole (2 px past the lip: no ground left under it) */
+    if (!(pit_probe(x0 + px, y1 + 2.0f * px) && pit_probe(xm, y1 + 2.0f * px) && pit_probe(x1 - px, y1 + 2.0f * px))) return;
     float l = hypotf(last_push_x, last_push_y);
     float fdx = l > 0 ? last_push_x / l : 0.0f, fdy = l > 0 ? last_push_y / l : 0.0f;
     if (drag_id == 1) { bodies_fall_at(1, (x0 + x1) * 0.5f / (float)tile, y1 / (float)tile, fdx, fdy); ritual_body_hide(); }   /* Aonia goes over like any body: ritual.c lets him go, bodies.c plays the fall */
     else bodies_fall((unsigned)drag_id, fdx, fdy);
+    {   float ex = fdx * 2.0f, endy = y1 + 4.0f * px, lipy = (float)((pit_y1 + 1) * tile) - 3.0f * px;   /* it lands on the bottom, in sight: not hidden behind the near lip (px units from where it stood) */
+        if (endy > lipy) endy = lipy;
+        float lift = pit_land(story_vessel_look((unsigned)drag_id), (xm + ex * px) / (float)tile, endy / (float)tile);
+        endy -= lift * px; landed[landed_n - 1].y = endy / (float)tile;
+        bodies_fall_to((unsigned)drag_id, ex, (endy - y1) / px);
+    }
     drag_on = 0; sfx_swoop();
 }
 static void drag_toggle(void) {
@@ -408,17 +428,16 @@ static void drag_toggle(void) {
 static uint32_t temple_seed;
 static int temple_sx, temple_sy;            /* where we wake */
 static int temple_gx = -1, temple_gy = -1;  /* the sealed gate */
-static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's box (tiles), -1: none */
-/* story chunk 11: THE BRIDGE OF BODIES. every body that goes into the pit turns the lowest crack tile of the middle column (edge_tx, from the near ledge up to the far
- * ledge) into floor. pit_pile counts them and outlives the map: a new map (a death) is filled again from it (gen_temple_map). when the column is floor the far
- * ledge can be walked to */
-static int pit_pile;
-
+/* story chunk 11: THE BRIDGE OF BODIES. the pit is a hole six rows deep (pit_y0..pit_y1) with a visible bottom: a near half (the three rows at the near ledge) and a far
+ * half. every body that goes in lies at the bottom, in sight (landed[], drawn clipped to the hole), a little higher for each one before it. four bodies fill the near half
+ * to the brim: its three tiles in the bridge column (edge_tx) become floor (a platform of bodies); four more fill the far half: the far ledge can be walked to. pit_pile
+ * counts the bodies (the jump counts too) and outlives the map: a new map (a death) is built again from it (gen_temple_map), and the bodies still lie at the bottom */
 static int far_tx = -1, far_ty = -1, edge_tx = -1, edge_ty = -1;  /* the far ledge's spot (the second circle) and the near ledge's middle */
-static int pit_fill_one(void) {
-    if (pit_x0 < 0 || edge_tx < 0) return 0;
-    for (int y = pit_y1; y >= pit_y0; y--) if (map[y][edge_tx] == T_RPIT) { map[y][edge_tx] = T_RFLOOR; return 1; }
-    return 0;
+static void pit_apply(void) {                                         /* the bridge column's floor for the bodies that lie in the hole */
+    if (pit_x0 < 0 || edge_tx < 0) return;
+    int half = (pit_y1 - pit_y0 + 1) / 2;
+    if (pit_pile >= PIT_HALF_BODIES)     for (int y = pit_y1 - half + 1; y <= pit_y1; y++) if (map[y][edge_tx] == T_RPIT) map[y][edge_tx] = T_RFLOOR;
+    if (pit_pile >= 2 * PIT_HALF_BODIES) for (int y = pit_y0; y < pit_y0 + half; y++)      if (map[y][edge_tx] == T_RPIT) map[y][edge_tx] = T_RFLOOR;
 }
 static void gen_temple_map(void) {
     GenInfo gi;
@@ -433,7 +452,7 @@ static void gen_temple_map(void) {
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
     pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
     bodies_set_pit(pit_x0, pit_y0, pit_x1, pit_y1);
-    for (int i = 0; i < pit_pile; i++) pit_fill_one();                  /* story chunk 11: the bodies that went in before stay in */
+    pit_apply();                                                         /* story chunk 11: the bodies that went in before stay in */
 }
 
 
@@ -493,20 +512,29 @@ static void ruin_floor(SDL_Renderer *r, int tx, int ty, int x, int y, float k) {
 static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y) {
     float k = ruin_k(tx, ty);
     if (v == T_RVOID) { col(r, 0, 0, 0, 255); fill(r, x, y, tile, tile); return; }
-    if (v == T_RFLOOR) { ruin_floor(r, tx, ty, x, y, k); return; }
-    if (v == T_RPIT) {                                                              /* the crack: black, deeper the further in, the far lip's cliff face on its north side, a ragged near lip */
+    if (v == T_RFLOOR) {
+        ruin_floor(r, tx, ty, x, y, k);
+        if (pit_x0 >= 0 && tx == edge_tx && ty >= pit_y0 && ty <= pit_y1) {          /* the bridge column over the hole: the bodies, stacked to the brim */
+            uint32_t hb = hash2(tx, ty, 91);
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            rc(r, 88, 30, 38, k); SDL_SetRenderDrawColor(r, 88, 30, 38, 150); fill(r, x, y, tile, tile);
+            rc(r, 120, 44, 50, k); SDL_SetRenderDrawColor(r, 120, 44, 50, 170); fill(r, x + (int)(hb % 3) * px, y + 2 * px, 4 * px, 2 * px); fill(r, x + 3 * px, y + (4 + (int)((hb >> 3) % 3)) * px, 4 * px, 2 * px);
+        }
+        return;
+    }
+    if (v == T_RPIT) {                                                              /* the hole: a stone bottom you can see, the far lip's cliff face on its north side, a straight near lip */
         uint32_t hh = hash2(tx, ty, 77);
-        col(r, 8, 6, 16, 255); fill(r, x, y, tile, tile);
-        col(r, 4, 3, 9, 255); fill(r, x, y + 4 * px, tile, 4 * px);
-        if (hh % 9 == 0) { col(r, 48, 36, 86, (int)(70 * k) + 20); fill(r, x + (int)((hh >> 5) % 6) * px, y + (int)((hh >> 9) % 6) * px, px, px); }       /* a far-away glint */
+        rc(r, 40, 35, 52, k); fill(r, x, y, tile, tile);                             /* the bottom */
+        if (hh % 3 == 0) { rc(r, 52, 46, 66, k); fill(r, x + (int)((hh >> 5) % 6) * px, y + (int)((hh >> 9) % 6) * px, 2 * px, px); }   /* a pebble */
+        if (hh % 7 == 1) { rc(r, 30, 26, 40, k); fill(r, x + (int)((hh >> 4) % 5) * px, y + (int)((hh >> 8) % 6) * px, 3 * px, px); }   /* a crack in the bottom */
         int above_pit = ty > 0 && map[ty - 1][tx] == T_RPIT, below_pit = ty + 1 < mh && map[ty + 1][tx] == T_RPIT;
-        if (!above_pit) {                                                            /* the north lip is a cliff: its face runs down into the dark */
+        if (!above_pit) {                                                            /* the north lip is a cliff: its face runs down to the bottom */
             rc(r, 60, 54, 72, k); fill(r, x, y, tile, 2 * px);
             rc(r, 42, 38, 54, k); fill(r, x, y + 2 * px, tile, 2 * px);
-            rc(r, 26, 22, 36, k); fill(r, x, y + 4 * px, tile, px);
-            rc(r, 16, 13, 24, k); for (int i = 0; i < 4; i++) fill(r, x + (int)((hh >> (i * 3)) % 8) * px, y + 2 * px, px, (2 + (int)((hh >> (i + 9)) % 3)) * px);   /* cracks in the face */
+            rc(r, 30, 26, 40, k); fill(r, x, y + 4 * px, tile, px);
         }
-        if (!below_pit) {                                                            /* the south lip: a straight edge of floor (the body falls when its middle is past this line) */
+        if (!below_pit) {                                                            /* the south lip: a straight edge of floor (the body falls when its feet are past this line), a shadow under it */
+            rc(r, 26, 22, 36, k); fill(r, x, y + tile - 3 * px, tile, 2 * px);
             rc(r, 62, 56, 74, k); fill(r, x, y + tile - px, tile, px);
         }
         return;
@@ -861,6 +889,7 @@ int world_pit_jump(void (*done)(void)) {
     float dx = bx - fx, dy = by - fy, l = hypotf(dx, dy);
     if (l < 0.001f) { dx = 0; dy = -1; l = 1; }
     pfall_dx = dx / l * best * (float)TILE_U; pfall_dy = dy / l * best * (float)TILE_U;      /* in pixel units: out to the middle of that crack tile */
+    { float lift = pit_land(player_look, bx, by + 0.12f); landed[landed_n - 1].y = by + 0.12f - lift / (float)TILE_U; }   /* our body stays down there */
     pfall_on = 1; pfall_t = 0; pfall_cb = done;
     drag_on = 0; world_set_controls_visible(0);
     if (fabsf(dx) > fabsf(dy)) facing = dx < 0 ? FACE_LEFT : FACE_RIGHT; else facing = dy < 0 ? FACE_UP : FACE_DOWN;
@@ -869,7 +898,7 @@ int world_pit_jump(void (*done)(void)) {
 int world_pit_jumping(void) { return pfall_on; }
 /* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
 /* ---- story chunk 11: the pit ---- */
-void world_pit_reset(void) { pit_pile = 0; }
+void world_pit_reset(void) { pit_pile = 0; landed_n = 0; }
 int  world_pit_pile(void) { return pit_pile; }
 int  world_pit_left(void) {                                                 /* crack tiles still open in the bridge column */
     int n = 0;
@@ -877,7 +906,7 @@ int  world_pit_left(void) {                                                 /* c
     for (int y = pit_y0; y <= pit_y1; y++) if (map[y][edge_tx] == T_RPIT) n++;
     return n;
 }
-int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_fill_one(); return world_pit_left(); }
+int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_apply(); return world_pit_left(); }
 /* (declared above, before the drag code uses it) */
 void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
 /* THE SWING across the crack: the player flies from here to the far ledge in an arc of time (controls off), then done runs. 0 = there is no far ledge */
@@ -1165,6 +1194,7 @@ void world_update(float dt) {
         else                       facing = ky < 0 ? FACE_UP : FACE_DOWN;
         walk += dt * 8.0f * (drag_on ? (drag_id == DRAG_ROCK ? 0.4f : 0.55f) : 1.0f);
     } else walk = 0;
+    for (int i = 0; i < landed_n; i++) if (landed[i].delay > 0) landed[i].delay -= dt;
     drag_step(dt);
     pit_footing();
     push_dx = push_dy = 0;
@@ -1176,7 +1206,7 @@ void world_update(float dt) {
             if (dg_k <= 0.0f) { dg_x = pxp; dg_y = pyp - 4.0f * px; }     /* start from the body's middle: the hands then travel out to the thing */
             float a = 1.0f - expf(-dt * 16.0f);                            /* the point eases to the nearest spot (no jump when it changes side) */
             dg_x += (tx_ - dg_x) * a; dg_y += (ty_ - dg_y) * a;
-            dg_behind = ty_ < pyp - 5.0f * px;                              /* north of us: behind */
+            dg_behind = ty_ < pyp - 5.0f * px || (gy0 + gy1) * 0.5f < pyp - 6.0f * px;   /* north of us: behind (a body pushed in front touches our feet: its middle is above them, even when its nearest point is not) */
             dg_k += dt / DG_IN; if (dg_k > 1.0f) dg_k = 1.0f;
         } else if (dg_k > 0.0f) { dg_k -= dt / DG_OUT; if (dg_k < 0.0f) dg_k = 0.0f; }
         if (pick_on) dg_k = 0.0f;
@@ -1372,6 +1402,14 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         float qx = 0, qy = 0; ritual_c2_centre(&qx, &qy);
         int qsx = (int)(qx * tile) - cx, qsy = (int)(qy * tile) - cy;
         if (qsx > -40 * px && qsx < W + 40 * px && qsy > -30 * px && qsy < H + 30 * px) ritual_c2_draw(r, qsx, qsy, px, TEMPLE_SHADE);
+    }
+    if (landed_n > 0 && cur_map == MAP_TEMPLE && pit_x0 >= 0) {                                                                    /* the bodies at the bottom of the hole, in sight, under the lips */
+        SDL_Rect cl = { pit_x0 * tile - cx, pit_y0 * tile - cy, (pit_x1 - pit_x0 + 1) * tile, (pit_y1 - pit_y0 + 1) * tile };
+        SDL_RenderSetClipRect(r, &cl);
+        char_set_darken(TEMPLE_SHADE + (1.0f - TEMPLE_SHADE) * 0.45f);
+        for (int i = 0; i < landed_n; i++) if (landed[i].delay <= 0) char_draw_lying(r, landed[i].look, (int)lroundf(landed[i].x * tile) - cx, (int)lroundf(landed[i].y * tile) - cy, px);
+        char_set_darken(0);
+        SDL_RenderSetClipRect(r, NULL);
     }
     bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                            /* the other dead (story chunk 6) */
     props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                             /* the big rock (story chunk 7) */
