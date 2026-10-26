@@ -19,9 +19,18 @@ int main(int argc, char **argv) {
     float dy = argc > 2 ? atof(argv[2]) : 1.0f;
     float bty = argc > 1 ? atof(argv[1]) : 1.2f;
     float ox = argc > 3 ? atof(argv[3]) : 0.0f; float sx = getenv("SX") ? atof(getenv("SX")) : 0.0f; pxp = (ex + 0.5f + ox + sx) * tile; pyp = (ey + 0.5f + dy) * tile;
-    int bi = bodies_add(7, ex + 0.5f + ox, ey + 0.5f + bty, NULL);
+    int V1 = getenv("V1") != NULL;
+    if (V1) {   /* push Aonia (vessel 1) instead: put him where the other body would lie */
+        float a, b, c, d, hx, hy; if (!ritual_body_box(&a, &b, &c, &d)) { printf("RESULT skip(no vessel 1 box)\n"); return 0; }
+        ritual_home(&hx, &hy);
+        float bxc = (a + c) * 0.5f, byc = d;                            /* BODY_X, BODY_Y */
+        float tx = (ex + 0.5f + ox) * tile, ty = (ey + 0.5f + bty) * tile;
+        ritual_body_shift((tx - hx * tile) / px - bxc, (ty - hy * tile) / px - byc);
+        printf("vessel1 in list: %d\n", bodies_find(1) != NULL);
+    }
+    int bi = V1 ? 0 : bodies_add(7, ex + 0.5f + ox, ey + 0.5f + bty, NULL);
     if (getenv("V")) printf("body idx %d, player tile y %.2f, body y %.2f\n", bi, pyp / tile, ey + 0.5f + bty);
-    drag_pick(); if (drag_cand != 7) { printf("RESULT skip(cand %d)\n", drag_cand); return 0; }
+    drag_pick(); if (drag_cand != (V1 ? 1 : 7)) { printf("RESULT skip(cand %d)\n", drag_cand); return 0; }
     drag_toggle();
     kx = getenv("KX")?atof(getenv("KX")):0; ky = -(getenv("MAG")?atof(getenv("MAG")):1.0f); float DT = getenv("DT")?atof(getenv("DT")):0.016f;
     float aim = getenv("AIM") ? atof(getenv("AIM")) : 0.0f;

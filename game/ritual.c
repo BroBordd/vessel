@@ -21,6 +21,7 @@ static int   on, active, chime, chimed;
 static float st;
 static float cx_t, cy_t;
 static const Person *dead_who;
+static int   bgone;                    /* vessel 1 was pushed into the pit: he is no longer here */
 static float bdx, bdy;                   /* how far he has been pulled from where he fell, in cells */
 /* story chunk 13: THE SECOND CIRCLE. the first circle (home: vessel 1, the pool, the knife) never moves. the carvings of a second one lie on the far ledge (c2); once
  * the player has filled them with blood the next bodies wake THERE (arr_c2): cx_t/cy_t is always the circle the new body forms at. */
@@ -97,7 +98,7 @@ static float end_at(void)    { return form_at() + RITUAL_FORM_T + RITUAL_DISS_T 
 
 void  ritual_begin(float tile_x, float tile_y, const Person *dead) { lit = 0; build(); on = 1; active = 1; chime = chimed = 0; st = 0; arr_c2 = 0; cx_t = home_x = tile_x; cy_t = home_y = tile_y; dead_who = dead; }
 void  ritual_cancel(void) { on = 0; active = 0; chime = 0; }                       /* (vessel 1 keeps where he was pulled to: only ritual_body_reset, a new game, puts him back) */
-void  ritual_body_reset(void) { bdx = bdy = 0; arr_c2 = 0; c2_on = 0; c2_t = -1; home_x = home_y = 0; }
+void  ritual_body_reset(void) { bgone = 0; bdx = bdy = 0; arr_c2 = 0; c2_on = 0; c2_t = -1; home_x = home_y = 0; }
 void  ritual_home(float *tx, float *ty) { *tx = home_x; *ty = home_y; }
 void  ritual_c2_set(float tile_x, float tile_y) { c2_on = 1; c2_x = tile_x; c2_y = tile_y; }
 int   ritual_c2_on(void) { return c2_on; }
@@ -112,10 +113,11 @@ void  ritual_begin_c2(void) {                                 /* a body wakes at
     st = RITUAL_FLOW_AT + (float)maxd / RITUAL_FLOW_V;        /* = flow_end() */
 }
 int   ritual_body_box(float *x0, float *y0, float *x1, float *y1) {        /* he lies 12 cells long and 9 across: feet at (BODY_X, BODY_Y), head 12 cells to the left of the feet */
-    if (!on || active || !dead_who) return 0;
+    if (!on || active || !dead_who || bgone) return 0;
     *x0 = BODY_X + bdx - 6.0f; *x1 = BODY_X + bdx + 6.0f; *y0 = BODY_Y + bdy - 9.0f; *y1 = BODY_Y + bdy;
     return 1;
 }
+void  ritual_body_hide(void) { bgone = 1; }
 void  ritual_body_shift(float dx, float dy) { bdx += dx; bdy += dy; }
 void  ritual_body_off(float *dx, float *dy) { if (dx) *dx = bdx; if (dy) *dy = bdy; }
 int   ritual_scene(void) { return on; }
@@ -256,7 +258,7 @@ static void draw_circle(SDL_Renderer *r, int sx, int sy, int cell, float darken,
     }
 
     /* the dead vessel and his knife */
-    if (body && dead_who) {
+    if (body && dead_who && !bgone) {
         int ox = (int)lroundf(bdx * (float)cell), oy = (int)lroundf(bdy * (float)cell);     /* pulled: he (and his wounds) move, the pool stays */
         char_set_darken(darken);
         char_draw_lying(r, dead_who, sx + BODY_X * cell + ox, sy + BODY_Y * cell + oy, cell);

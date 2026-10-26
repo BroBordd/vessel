@@ -50,6 +50,7 @@ void  ritual_centre(float *tile_x, float *tile_y);
  * there is nothing to pull (no scene, no body, or the arrival is still running). ritual_body_shift moves him (the pool, the knife and the circle stay) */
 int   ritual_body_box(float *x0, float *y0, float *x1, float *y1);
 void  ritual_body_shift(float dx_cells, float dy_cells);
+void  ritual_body_hide(void);               /* vessel 1 fell into the pit: not drawn, not a box any more (until ritual_body_reset) */
 void  ritual_body_off(float *dx_cells, float *dy_cells);   /* how far he has been pulled from where he fell (the draw must follow him, not only the circle) */
 
 /* sx, sy: the circle's centre on screen (where the player's feet are) */

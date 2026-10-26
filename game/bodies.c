@@ -56,8 +56,9 @@ int bodies_give(unsigned vessel, int kind) {
     return n;
 }
 int bodies_remove(unsigned vessel) {
-    if (vessel == 1) return 0;
-    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) { memmove(&list[i], &list[i + 1], sizeof(Body) * (size_t)(n - i - 1)); n--; return 1; }
+    for (int i = 0; i < n; i++) if (list[i].vessel == vessel) {
+        if (vessel == 1 && !list[i].falling) return 0;                              /* vessel 1 only leaves the list by falling into the pit */
+        memmove(&list[i], &list[i + 1], sizeof(Body) * (size_t)(n - i - 1)); n--; return 1; }
     return 0;
 }
 int bodies_cut(unsigned vessel) { Body *b = (Body *)bodies_find(vessel); if (!b || b->cuts >= BODIES_CUTS) return 0; return ++b->cuts; }
@@ -119,7 +120,7 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
     }
     for (int i = 0; i < n; i++) {
         const Body *b = &list[i];
-        if (b->vessel == 1) continue;
+        if (b->vessel == 1 && !b->falling) continue;                                /* (vessel 1 is drawn by ritual.c until he goes over the edge) */
         int fx = (int)lroundf(b->tx * (float)tile) - cam_x, fy = (int)lroundf(b->ty * (float)tile) - cam_y;
         float d = darken;
         int clipped = 0;
@@ -178,6 +179,12 @@ void bodies_trail_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, 
     }
 }
 
+/* vessel 1 (Aonia) pushed over the edge: he takes his place from ritual.c (feet at tile_x, tile_y) and falls like any body */
+void bodies_fall_at(unsigned vessel, float tile_x, float tile_y, float dir_x, float dir_y) {
+    Body *b = (Body *)bodies_find(vessel);
+    if (!b || b->falling) return;
+    b->tx = tile_x; b->ty = tile_y; b->falling = 1; b->fall_t = 0; b->fall_dx = dir_x; b->fall_dy = dir_y;
+}
 void bodies_set_pit(int tx0, int ty0, int tx1, int ty1) { pit_t0 = tx0; pit_u0 = ty0; pit_t1 = tx1; pit_u1 = ty1; }
 void bodies_fall(unsigned vessel, float dir_x, float dir_y) {
     Body *b = (Body *)bodies_find(vessel);

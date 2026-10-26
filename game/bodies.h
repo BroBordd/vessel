@@ -51,6 +51,7 @@ void bodies_draw(SDL_Renderer *r, int cam_x, int cam_y, int px, int tile, float 
 #define BODIES_FALL_T 1.1f
 void bodies_set_pit(int tx0, int ty0, int tx1, int ty1);
 void bodies_fall(unsigned vessel, float dir_x, float dir_y);
+void bodies_fall_at(unsigned vessel, float tile_x, float tile_y, float dir_x, float dir_y);   /* the same for vessel 1 (Aonia): it also sets where he lies */
 void bodies_update(float dt, void (*gone)(unsigned vessel));
 
 /* chunk 7: any body can be dragged (world.c holds the rope). the box of a body in world px, like the one bodies_hit uses; 0 when that vessel has no body

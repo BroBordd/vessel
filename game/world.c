@@ -236,7 +236,7 @@ static int drag_blocked(float sx, float sy) {                               /* w
     if (!drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     float n0 = x0 + sx, m0 = y0 + sy, n1 = x1 + sx, m1 = y1 + sy;           /* the box where it would be */
     float wx1 = n1 - 1, wy1 = m1 - 1;
-    int over_ok = drag_id > 1;                                              /* a body (not the rock, not vessel 1) may hang out over the crack: it falls when it has no footing (pit_footing) */
+    int over_ok = drag_id >= 1;                                             /* a body (vessel 1 too, not the rock) may hang out over the crack: it falls when it has no footing (pit_footing) */
     for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {
         int tx_ = (int)floorf((n0 + (wx1 - n0) * 0.5f * i) / tile), ty_ = (int)floorf((m0 + (wy1 - m0) * 0.5f * j) / tile);
         if (solid_tile(tx_, ty_) && !(over_ok && tx_ >= 0 && ty_ >= 0 && tx_ < mw && ty_ < mh && map[ty_][tx_] == T_RPIT)) return 1;
@@ -311,7 +311,7 @@ static void drag_step(float dt) {                                           /* t
         {   float ax = (x0 + x1) * 0.5f - pxp, ay = (y0 + y1) * 0.5f - pyp, al = hypotf(ax, ay);        /* the rope only pulls: whatever part of its move would take it AWAY from us is dropped */
             if (al > 0.001f) { float dot = (mx * ax + my * ay) / al; if (dot > 0) { mx -= ax / al * dot; my -= ay / al * dot; } }
         }
-        if (!rock && drag_id != 1 && drag_id >= 0) {                        /* the hole is for pushing: the rope never draws a body further out over the crack (it may draw it back) */
+        if (drag_id >= 1) {                        /* the hole is for pushing: the rope never draws a body further out over the crack (it may draw it back) */
             float c0 = pit_cover(0, 0);
             if (mx != 0 && pit_cover(mx, 0) > c0) mx = 0;
             if (my != 0 && pit_cover(0, my) > c0) my = 0;
@@ -362,7 +362,7 @@ static int push_step(float vx, float vy) {
     if (!drag_on || (vx == 0 && vy == 0)) return 0;
     float nx = pxp + vx, ny = pyp + vy, x0, y0, x1, y1;
     int hang = 0;                                                                                   /* at the lip of the crack we cannot follow: the body goes on out over it, we stay (it falls once its middle is past the edge: pit_footing) */
-    if (wall_hits(nx, ny)) { if (drag_id > 1 && !wall_hits_np(nx, ny)) hang = 1; else return 0; }
+    if (wall_hits(nx, ny)) { if (drag_id >= 1 && !wall_hits_np(nx, ny)) hang = 1; else return 0; }
     if (hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     {   /* it must be the held thing in our way. at the lip (hang) we cannot follow it, so after the first step it is no longer touching us: our arms reach one tile further, so we keep pushing it out until its middle is past the edge */
         float reach = hang ? (float)tile : 0.0f;
@@ -382,10 +382,12 @@ static int push_step(float vx, float vy) {
 /* chunk 11: the body in our hands has no footing once its middle is past the edge of the crack: we let go, it goes (bodies.c plays the fall, then the story counts it) */
 static void pit_footing(void) {
     float x0, y0, x1, y1;
-    if (!drag_on || drag_id <= 1 || cur_map != MAP_TEMPLE || !drag_box_px(&x0, &y0, &x1, &y1)) return;
+    if (!drag_on || drag_id < 1 || cur_map != MAP_TEMPLE || !drag_box_px(&x0, &y0, &x1, &y1)) return;
     if (!pit_probe((x0 + x1) * 0.5f, (y0 + y1) * 0.5f)) return;
     float l = hypotf(last_push_x, last_push_y);
-    bodies_fall((unsigned)drag_id, l > 0 ? last_push_x / l : 0.0f, l > 0 ? last_push_y / l : 0.0f);
+    float fdx = l > 0 ? last_push_x / l : 0.0f, fdy = l > 0 ? last_push_y / l : 0.0f;
+    if (drag_id == 1) { bodies_fall_at(1, (x0 + x1) * 0.5f / (float)tile, y1 / (float)tile, fdx, fdy); ritual_body_hide(); }   /* Aonia goes over like any body: ritual.c lets him go, bodies.c plays the fall */
+    else bodies_fall((unsigned)drag_id, fdx, fdy);
     drag_on = 0; sfx_swoop();
 }
 static void drag_toggle(void) {
