@@ -296,11 +296,6 @@ static void pit_watch(float dt) {                                   /* every fra
         float qx, qy, ux, uy; ritual_c2_centre(&qx, &qy); world_player_tilef(&ux, &uy);
         if (hypotf(ux - qx, uy - qy) < 3.2f) event_fire(EV_FIND_CIRCLE2);
     }
-    if (!dying && world_pit_push_time() > 1.0f) {                   /* we walked into the crack: a fall. the body is not left lying (nothing of it is found) but it fills the pit */
-        world_pit_push_clear();
-        world_pit_add();
-        story_die(DEATH_PIT);
-    }
 }
 
 /* ---------- cutting bodies, the inventory's actions (chunks 8 and 9) ---------- */
@@ -366,16 +361,14 @@ static void stab_self_begin(void) {
     jukebox_scene_fade(0.6f); music_fade_out(0.6f);             /* the music goes first (custom music too); the next life's music starts again when the world comes back (game.c) */
     world_final_stab(stab_self_go);
 }
-/* JUMP: the arrow at the crack's edge (world.c). like STAB SELF the window asks first, and YES is the same fall as walking into the crack: our body fills the pit, we die (DEATH_PIT) */
+/* JUMP: the arrow at the crack's edge (world.c). like STAB SELF the window asks first, and YES: we go over the edge (the swoop, world_pit_jump), then we die (DEATH_PIT) and our body fills the pit. walking into the crack is NOT a fall: the crack is a barrier, only this button jumps */
+static void jump_done(void) { world_pit_add(); story_die(DEATH_PIT); }               /* we are gone: the body fills the pit, the next vessel wakes */
 static void jump_go(void) {
-    if (dying || cp_busy || world_final_active()) return;
-    world_pit_push_clear();
-    world_pit_add();
-    sfx_swoop();
-    story_die(DEATH_PIT);
+    if (dying || cp_busy || world_final_active() || world_pit_jumping()) return;
+    if (world_pit_jump(jump_done)) sfx_swoop();                                          /* slide out over the crack, drop into the dark, with the air rush */
 }
 static void story_jump(void) {
-    if (dying || cp_busy || world_final_active()) return;
+    if (dying || cp_busy || world_final_active() || world_pit_jumping()) return;
     confirm_ask("JUMP", "This will kill you. Sure?", "YES", "NO", jump_go);
 }
 static void story_action(int kind, int act) {

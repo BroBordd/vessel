@@ -40,14 +40,14 @@ void world_clear_items(void);
 
 /* story chunk 11: THE PIT. world_pit_add: a body went in (the bridge column gets one more floor tile; returns the crack tiles still open), world_pit_pile: how many
  * went in, world_pit_reset: a new game. the pile outlives the map. world_set_pit_cb: a dragged body was pushed over the edge (it is already out of the list).
- * world_pit_push_time: seconds we have been walking into the crack (about 1 s is a fall; the story kills us). world_swing_across: fly to the far ledge, then done runs */
+ * the crack is a barrier we cannot walk into (no fall by walking: only the JUMP button, world_pit_jump). world_swing_across: fly to the far ledge, then done runs */
 void world_pit_reset(void);
 int  world_pit_pile(void);
 int  world_pit_left(void);
 int  world_pit_add(void);
 void world_set_pit_cb(void (*cb)(unsigned vessel));
-float world_pit_push_time(void);
-void world_pit_push_clear(void);
+int  world_pit_jump(void (*done)(void));   /* the JUMP: we go over the edge (slide, a beat, drop into the dark); done runs when we are gone. 0 = not at the edge */
+int  world_pit_jumping(void);
 int  world_swing_across(void (*done)(void));
 /* the ruins' pit (gen.c): tiles from the player to the nearest pit tile (1e9: none on this map), and the spots on either side of it */
 float world_dist_to_pit(void);

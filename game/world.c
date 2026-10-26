@@ -92,6 +92,7 @@ static int   hbx, hby, hbr;               /* the hand button: centre and radius 
 static int   near_pit, jump_down, jump_inside;   /* the JUMP button: at the crack's edge (JUMP_REACH tiles) an arrow button shows above the interact button; a TAP calls jump_cb (story.c asks first) */
 static int   jbx, jby, jbr;               /* the jump button: centre and radius */
 static void (*jump_cb)(void);
+static int   pfall_on; static float pfall_t, pfall_dx, pfall_dy; static void (*pfall_cb)(void);   /* the JUMP: we go over the edge (BODIES_FALL_T s): slide out over the crack, hang a beat, drop into the dark; then pfall_cb (the death) */
 #define JUMP_REACH 2.2f                   /* tiles from the nearest crack tile (centre to feet) */
 static int   mm_down;                     /* a finger went down on the minimap: let go on it and the map window opens */
 static float ui;                    /* screen px per ui unit (screen width / 360) */
@@ -591,7 +592,7 @@ static void load_map(void) {
     ritual_cancel(); ritual_cb = NULL;           /* the circle is part of the map */
     item_reset(px, tile); pick_on = 0;           /* what lay on the old map is gone; the pockets stay */
     near_drag = drag_on = 0; drag_cand = drag_id = -1; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0;
-    near_pit = jump_down = jump_inside = 0;
+    near_pit = jump_down = jump_inside = 0; pfall_on = 0; pfall_cb = NULL;
     btn_down = btn_inside = 0;
     pxp = (temple_sx + 0.5f) * tile; pyp = (temple_sy + 0.5f) * tile;   /* the first room's middle */
     {                                            /* dev: VESSEL_AT=edge | far puts us on the near ledge of the pit / on the far ledge (screenshots, tests) */
@@ -843,6 +844,25 @@ float world_dist_to_pit(void) {
     }
     return best;
 }
+/* the JUMP (story.c asks first): we slide out over the nearest crack tile, hang a beat, then drop faster and faster into the dark (darker, clipped to the crack), the
+ * same swoop as a body's fall (bodies.c). done runs when we are gone. 0 when we are not at the edge */
+int world_pit_jump(void (*done)(void)) {
+    if (pfall_on || cur_map != MAP_TEMPLE || pit_x0 < 0 || world_dist_to_pit() >= JUMP_REACH) return 0;
+    float best = 1e9f, bx = 0, by = 0, fx = pxp / tile, fy = pyp / tile;
+    for (int y = pit_y0; y <= pit_y1; y++) for (int x = pit_x0; x <= pit_x1; x++) {
+        if (map[y][x] != T_RPIT) continue;
+        float dx = fx - (x + 0.5f), dy = fy - (y + 0.5f), d = sqrtf(dx * dx + dy * dy);
+        if (d < best) { best = d; bx = x + 0.5f; by = y + 0.5f; }
+    }
+    float dx = bx - fx, dy = by - fy, l = hypotf(dx, dy);
+    if (l < 0.001f) { dx = 0; dy = -1; l = 1; }
+    pfall_dx = dx / l * best * (float)TILE_U; pfall_dy = dy / l * best * (float)TILE_U;      /* in pixel units: out to the middle of that crack tile */
+    pfall_on = 1; pfall_t = 0; pfall_cb = done;
+    drag_on = 0; world_set_controls_visible(0);
+    if (fabsf(dx) > fabsf(dy)) facing = dx < 0 ? FACE_LEFT : FACE_RIGHT; else facing = dy < 0 ? FACE_UP : FACE_DOWN;
+    return 1;
+}
+int world_pit_jumping(void) { return pfall_on; }
 /* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
 /* ---- story chunk 11: the pit ---- */
 void world_pit_reset(void) { pit_pile = 0; }
@@ -854,9 +874,6 @@ int  world_pit_left(void) {                                                 /* c
     return n;
 }
 int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_fill_one(); return world_pit_left(); }
-static float pit_push_t;
-float world_pit_push_time(void) { return pit_push_t; }
-void  world_pit_push_clear(void) { pit_push_t = 0; }
 /* (declared above, before the drag code uses it) */
 void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
 /* THE SWING across the crack: the player flies from here to the far ledge in an arc of time (controls off), then done runs. 0 = there is no far ledge */
@@ -1121,6 +1138,10 @@ void world_update(float dt) {
 
     if (drag_on && (dialog_active() || !controls_visible)) drag_on = 0;   /* he is let go of when anything takes our hands */
     if (dialog_active()) { kx = ky = 0; stick_on = 0; }                  /* frozen while talking */
+    if (pfall_on) {                                                      /* the jump: no steering; when the fall is over the story kills us */
+        kx = ky = 0; stick_on = 0; pfall_t += dt;
+        if (pfall_t >= BODIES_FALL_T) { pfall_on = 0; void (*d)(void) = pfall_cb; pfall_cb = NULL; if (d) d(); }
+    }
     float mag = sqrtf(kx * kx + ky * ky);
     moving = mag > 0.15f;
     push_dx = push_dy = 0;
@@ -1171,13 +1192,6 @@ void world_update(float dt) {
         pxp = swing_sx + (swing_ex - swing_sx) * e; pyp = swing_sy + (swing_ey - swing_sy) * e;
         moving = 1;
         if (swing_t >= 1.0f) { swing_on = 0; moving = 0; world_set_controls_visible(1); if (swing_done) { void (*d)(void) = swing_done; swing_done = NULL; d(); } }
-    }
-    {   int push = 0;                                                    /* chunk 11: walking into the crack for a moment is a fall */
-        if (cur_map == MAP_TEMPLE && !swing_on && controls_visible && (fabsf(kx) > 0.3f || fabsf(ky) > 0.3f)) {
-            float dx = kx > 0.3f ? 1.0f : kx < -0.3f ? -1.0f : 0.0f, dy = ky > 0.3f ? 1.0f : ky < -0.3f ? -1.0f : 0.0f;
-            push = pit_probe(pxp + dx * 0.6f * tile, pyp + dy * 0.6f * tile);
-        }
-        if (push) pit_push_t += dt; else pit_push_t = 0;
     }
     if (cur_map == MAP_TEMPLE && edge_tx >= 0 && !props_rock_placed()) rock_place();
     near_item = !dialog_active() && item_in_reach(pxp, pyp);      /* chunk 68: the hand shows near an item; nothing is taken by walking */
@@ -1312,6 +1326,19 @@ static void draw_interact_button(SDL_Renderer *r) {
 }
 
 /* everything that lives on the map (tiles, bodies, characters) seen from a camera at (camx, camy) */
+static void pfall_draw(SDL_Renderer *r, int sx0, int sy0, int cx, int cy) {     /* the jump, like bodies.c's fall: slide out, a beat in the air, then down into the dark under the lips of the crack */
+    float u = pfall_t / BODIES_FALL_T; if (u > 1.0f) u = 1.0f;
+    float v = (u - 0.12f) / 0.88f; if (v < 0) v = 0;
+    float slide = 1.0f - (1.0f - u) * (1.0f - u);
+    int ox = (int)lroundf((pfall_dx * slide + sinf(pfall_t * 17.0f) * 0.7f * v) * (float)px);
+    int oy = (int)lroundf((pfall_dy * slide + 38.0f * v * v) * (float)px);
+    int clip = v > 0 && pit_x0 >= 0;                                                  /* (once we drop we are inside the crack: it hides what is below its lips) */
+    if (clip) { SDL_Rect cl = { pit_x0 * tile - cx, pit_y0 * tile - cy, (pit_x1 - pit_x0 + 1) * tile, (pit_y1 - pit_y0 + 1) * tile }; SDL_RenderSetClipRect(r, &cl); }
+    char_set_darken(TEMPLE_SHADE + (1.0f - TEMPLE_SHADE) * 0.92f * v);
+    char_draw(r, player_look, sx0 + ox, sy0 + oy, facing, 0, 0.0f, px);
+    char_set_darken(TEMPLE_SHADE);
+    if (clip) SDL_RenderSetClipRect(r, NULL);
+}
 static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     int cx = (int)camx, cy = (int)camy;
     int tx0 = cx / tile, ty0 = cy / tile;
@@ -1391,6 +1418,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         } else { int hk = item_equipped(); char_set_held(hk, hk >= 0 ? item_draw_icon_dark : NULL); }   /* what is in the hand shows in the right hand */
         if ((fin_on && fin_t >= FIN_EYES) || fin_lying) char_set_strain(1);        /* the eyes close, and stay shut until the next life */
         if (fin_lying) char_draw_lying(r, player_look, sx0, sy0, px);          /* the red cut: the body lies down (the sleeping sprite) */
+        else if (pfall_on) pfall_draw(r, sx0, sy0, cx, cy);
         else char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
         char_set_stab(0, 0, 0, 0, 0);
         char_set_held(-1, NULL);
