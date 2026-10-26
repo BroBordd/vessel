@@ -292,7 +292,7 @@ typedef struct { int kind, tx, ty, gs_x, gs_y, gs_seen; float drop_t; } Ground; 
 static Ground gnd[GROUND_MAX]; static int ng;
 static int have[ITEM_COUNT];
 static float new_t = 99.0f;                 /* seconds since the last pickup LANDED in the bag (the slot flashes, the badge ticks); negative while the icon is still flying */
-static int   newest = -1;                   /* chunk 70: the kind that came last (gold frame) */
+static int   newest = -1;                   /* chunk 70: the kind that came last (the bag opens on it; no persistent frame: only the landing flash and the badge tick mark a new thing) */
 static float fly_t = 99.0f; static int fly_kind, fly_x, fly_y;      /* chunk 70: the icon flying from the ground to the bag */
 #define INV_FLY_T   0.4f
 #define INV_EASE_T  0.25f
@@ -1109,7 +1109,6 @@ static void chest_draw(SDL_Renderer *r) {
             int sx = cs_x(s, i), sy = cs_y(s, i), k = kind_on(s, i);
             if (k < 0) { box(r, sx, sy, csl, csl, 40, 46, 70, 10, 12, 26, 255); continue; }
             int br = 122, bg = 130, bb = 156;
-            if (s == 1 && k == newest) { br = 236; bg = 190; bb = 78; }
             if (s == chest_side && k == ui_sel) { br = 206; bg = 214; bb = 232; }
             box(r, sx, sy, csl, csl, br, bg, bb, 20, 24, 46, 255);
             item_draw_icon(r, k, sx + (csl - ITEM_ICON_CELLS * cpc) / 2, sy + (csl - ITEM_ICON_CELLS * cpc) / 2, cpc);
@@ -1239,8 +1238,7 @@ static void window_draw(SDL_Renderer *r) {
         int sx = slot_x(i), sy = slot_y(i), k = kind_at_slot(i);
         if (k < 0) { if (!sel_ok() && i == ui_cell) box(r, sx, sy, sl, sl, 206, 214, 232, 10, 12, 26, 255); else box(r, sx, sy, sl, sl, 40, 46, 70, 10, 12, 26, 255); continue; }   /* an empty slot (light frame when it is the selected one) */
         int br = 122, bg = 130, bb = 156;
-        if (k == newest) { br = 236; bg = 190; bb = 78; }
-        if (k == ui_sel && ui_csel < 0) { br = 206; bg = 214; bb = 232; if (k == newest) { br = 255; bg = 238; bb = 170; } }
+        if (k == ui_sel && ui_csel < 0) { br = 206; bg = 214; bb = 232; }
         box(r, sx, sy, sl, sl, br, bg, bb, 20, 24, 46, 255);
         item_draw_icon(r, k, sx + (sl - ITEM_ICON_CELLS * pcell) / 2, sy + (sl - ITEM_ICON_CELLS * pcell) / 2, pcell);
         if (k == item_equipped()) { SDL_SetRenderDrawColor(r, 120, 230, 150, 255); SDL_Rect g = { sx + bt + qs / 2, sy + bt + qs / 2, 3 * qs, 3 * qs }; SDL_RenderFillRect(r, &g); }   /* in hand */
