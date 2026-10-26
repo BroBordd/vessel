@@ -181,9 +181,8 @@ void sfx_thought(void) {
     SDL_UnlockAudioDevice(dev);
 }
 
-/* ---------- the dialog "deek": one short, clean tick per letter, like a modern text-box blip ----------
- * a pure sine at a steady pitch (no square wave, no pitch slide: nothing to make it buzzy or noisy),
- * with a quick attack and a smooth fade so it never clicks.
+/* ---------- the dialog "pop": one short, round bubble pop per letter (a chat message pop) ----------
+ * a sine that glides up fast (the bubble) with a soft touch of its octave, a quick round decay and a smooth attack and fade so it never clicks.
  * its own voice, so it never cuts off the coin ding (and the coin never cuts off a deek). */
 /* TWO voices, taken in turns. the old code restarted its one voice on every letter: a new blip began (phase 0, envelope 0) while the last one was still
  * ringing, which is a hard jump in the waveform = a click, and typing is fast enough to do that on most letters. now a new blip takes the other voice and
@@ -193,9 +192,9 @@ void sfx_thought(void) {
 static int   blip_on, blip_next;                 /* blip_on: any voice alive (the mixer's cheap switch) */
 static int   bv_pos[BLIP_VOICES];                /* -1 = free */
 static float bv_phase[BLIP_VOICES], bv_f[BLIP_VOICES];
-#define BLIP_T    0.070f                       /* seconds per deek */
-#define BLIP_HZ   440.0f                       /* base pitch at pitch 1.0 (A4: a small phone speaker plays this cleanly, 256 Hz made it buzz and crunch) */
-#define BLIP_GAIN 0.17f                        /* peak level, fraction of full scale (was 0.50: with the music under it that clipped) */
+#define BLIP_T    0.080f                       /* seconds per pop */
+#define BLIP_HZ   360.0f                       /* where the pop starts at pitch 1.0 (it glides up to about twice that in a few ms; a small phone speaker plays this range cleanly) */
+#define BLIP_GAIN 0.19f                        /* peak level, fraction of full scale (was 0.50: with the music under it that clipped) */
 
 void sfx_blip(float pitch) {
     if (!dev) return;
@@ -228,12 +227,14 @@ static void blip_mix(Sint16 *out, int frames) {
             float tt = (float)bv_pos[k] / (float)OUT_RATE;
             if (tt >= BLIP_T) { bv_pos[k] = -1; continue; }
             alive = 1;
-            float env = expf(-tt * 26.0f);                               /* soft decay: a tick, not a ring */
-            if (tt < 0.010f) { float a = tt / 0.010f; env *= 0.5f - 0.5f * cosf(3.1415927f * a); }   /* raised-cosine attack: no click, no pop on a small speaker */
-            if (tt > BLIP_T - 0.025f) { float a = (BLIP_T - tt) / 0.025f; env *= a * a; }            /* smooth way out */
-            bv_phase[k] += bv_f[k] / (float)OUT_RATE;
+            float env = expf(-tt * 48.0f);                               /* a quick round decay: a pop, not a ring */
+            if (tt < 0.003f) { float a = tt / 0.003f; env *= 0.5f - 0.5f * cosf(3.1415927f * a); }   /* raised-cosine attack: no click on a small speaker */
+            if (tt > BLIP_T - 0.020f) { float a = (BLIP_T - tt) / 0.020f; env *= a * a; }            /* smooth way out */
+            float f = bv_f[k] * (1.0f + 1.1f * (1.0f - expf(-tt * 120.0f)));   /* the bubble: the pitch glides up ~2x in the first ~15 ms */
+            bv_phase[k] += f / (float)OUT_RATE;
             if (bv_phase[k] >= 1.0f) bv_phase[k] -= 1.0f;
-            sum += sinf(6.2831853f * bv_phase[k]) * env;
+            float ph = 6.2831853f * bv_phase[k];
+            sum += (sinf(ph) + 0.22f * sinf(2.0f * ph)) * env;      /* the note and a soft touch of its octave: warm, round */
             bv_pos[k]++;
         }
         if (!alive) { blip_on = 0; return; }
@@ -434,31 +435,30 @@ static void hint_mix(Sint16 *out, int frames) {
     }
 }
 
-/* ---------- the tap: a UI button was pressed. a CLICK, not a note: a few milliseconds of high-passed noise with a very fast fall (the plastic of a switch), and under it
- * a tiny, dull knock (a low sine, 2 ms attack, gone in 12 ms) so it is not a bare hiss. nothing pitched sweeps. ---------- */
+/* ---------- the tap: a UI button was pressed. a soft wooden "tock": a short sine body that sinks from ~640 Hz to ~380 Hz (the knock), a very short bright tick on top
+ * (2.3 kHz, gone in a few ms) for the touch of the finger, 1 ms in and a smooth out so it never clicks. pure tones, no noise: clean on a small phone speaker. ~60 ms ---------- */
 static int   tap_on, tap_pos;
-static float tap_lp;                                            /* the one-pole filter state: noise minus its low part = the bright "tick" */
-static unsigned tap_seed = 4242u;
-#define TAP_T     0.030f
-#define TAP_GAIN  0.30f
+static float tap_ph1, tap_ph2;
+#define TAP_T     0.060f
+#define TAP_GAIN  0.34f
 void sfx_tap(void) {
     if (!dev) return;
     SDL_LockAudioDevice(dev);
-    tap_on = 1; tap_pos = 0; tap_lp = 0.0f;
+    tap_on = 1; tap_pos = 0; tap_ph1 = tap_ph2 = 0.0f;
     SDL_UnlockAudioDevice(dev);
 }
 static void tap_mix(Sint16 *out, int frames) {
     for (int i = 0; i < frames; i++) {
         float tt = (float)tap_pos / (float)OUT_RATE;
         if (tt >= TAP_T) { tap_on = 0; return; }
-        tap_seed = tap_seed * 1664525u + 1013904223u;
-        float nz = (float)(tap_seed >> 16) / 32768.0f - 1.0f;
-        tap_lp += (nz - tap_lp) * 0.35f;                                         /* the low part of the noise ... */
-        float hp = nz - tap_lp;                                                  /* ... taken away: the bright tick */
-        float env_t = expf(-tt / 0.0022f);                                       /* the tick: gone in ~8 ms */
-        float env_k = expf(-tt / 0.0035f) * (tt < 0.0015f ? tt / 0.0015f : 1.0f); /* the knock under it, with a 1.5 ms attack */
-        float knock = sinf(6.2831853f * 190.0f * tt) * env_k * 0.55f;
-        int v = (int)((hp * env_t * 0.9f + knock) * TAP_GAIN * 32767.0f);
+        float at = tt < 0.001f ? tt / 0.001f : 1.0f;                             /* ~1 ms in: no click */
+        float out_k = tt > TAP_T - 0.012f ? (TAP_T - tt) / 0.012f : 1.0f; out_k *= out_k;   /* a smooth way out */
+        float f1 = 640.0f - 260.0f * (1.0f - expf(-tt / 0.010f));                /* the knock sinks */
+        tap_ph1 += f1 / (float)OUT_RATE; if (tap_ph1 >= 1.0f) tap_ph1 -= 1.0f;
+        tap_ph2 += 2300.0f / (float)OUT_RATE; if (tap_ph2 >= 1.0f) tap_ph2 -= 1.0f;
+        float body = sinf(6.2831853f * tap_ph1) * expf(-tt / 0.016f);
+        float tick = sinf(6.2831853f * tap_ph2) * expf(-tt / 0.004f) * 0.45f;
+        int v = (int)((body + tick) * at * out_k * TAP_GAIN * 32767.0f);
         for (int ch = 0; ch < 2; ch++) {
             int o = out[i * 2 + ch] + v;
             out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);

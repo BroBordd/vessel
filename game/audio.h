@@ -79,7 +79,7 @@ void sfx_found(void);                   /* chunk 58: "You found ...": a bright t
 int  sfx_debug_coins(void);             /* tests: how many times sfx_coin was called */
 int  sfx_debug_found(void);             /* tests: how many times sfx_found was called */
 void sfx_thought(void);                 /* a thought arriving: soft, calm two-note chime (shares the coin's voice) */
-void sfx_blip(float pitch);             /* the clean "deek" for dialog letters. pitch ~0.7..1.4 (1.0 = 256.5 Hz), up to 3.0 */
+void sfx_blip(float pitch);             /* the round bubble "pop" for dialog letters (and the soft put-down sounds). pitch ~0.7..1.4 (1.0 starts at 360 Hz and glides up), up to 3.0 */
 void sfx_beep(void);                    /* the heart monitor's "peep" (death cutscene) */
 void sfx_flatline(void);                /* the long monitor tone, ~3 s, then it lets go (replaces a peep in progress) */
 void sfx_flatline_stop(void);           /* cut the flatline short (~60 ms release); nothing if it is not sounding */
@@ -99,7 +99,7 @@ int  sfx_debug_punches(void);             /* tests: how many times sfx_punch was
 void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
 void sfx_drag(float level);             /* a body sliding over stone: a calm friction hiss, as loud as he is fast. call it every frame with 0..1 (0 = quiet; it eases in and out by itself) */
 void sfx_swoop(void);                   /* a body goes over the edge of the pit: an air rush that falls away, ~1.1 s */
-void sfx_tap(void);                     /* a UI button was tapped: a short dry click (call it on the tap = the release on the button; not for the arcade controls) */
+void sfx_tap(void);                     /* a UI button was tapped: a soft wooden "tock" (call it on the tap = the release on the button; not for the arcade controls) */
 void sfx_hold_hint(void);               /* chunk 55: a tap on a hammer button (a hold is needed): a short soft rising "bup" */
 int  sfx_debug_hints(void);             /* tests: how many times sfx_hold_hint was called */
 int  sfx_debug_hits(void);              /* tests: how many times sfx_hit was called */            /* tests: how many times sfx_error was called */

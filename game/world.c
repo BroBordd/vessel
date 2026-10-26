@@ -330,12 +330,18 @@ static void drag_step(float dt) {                                           /* t
     }
 }
 /* PUSHING: we walk into what we hold and it goes ahead of us (the same step as ours). the one way a body goes into the hole: pushed over the edge (pit_cb). returns 1 when
- * we pushed it (we may take the step), 0 when it is not the held thing in our way, or it cannot move that way. a pushed body may hang out over the crack, where we cannot
+ * we pushed it (we may take the step), 2 when it moved but we may not (the crack's lip: we cannot follow), 0 when it is not the held thing in our way, or it cannot move that way. a pushed body may hang out over the crack, where we cannot
  * follow; its footing is pit_footing's business */
 static int wall_hits(float fx, float fy) {                                  /* the walls (solid tiles) under our feet box at (fx, fy) */
     float hw = 3.0f * px, hh = 1.5f * px;
     float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
     for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
+    return 0;
+}
+static int wall_hits_np(float fx, float fy) {                               /* the same, but the crack does not count (what we could not stand on is rock, not the pit) */                                  /* the walls (solid tiles) under our feet box at (fx, fy) */
+    float hw = 3.0f * px, hh = 1.5f * px;
+    float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
+    for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) { int tx_ = (int)floorf(xs[i] / tile), ty_ = (int)floorf(ys[j] / tile); if (solid_tile(tx_, ty_) && !(tx_ >= 0 && ty_ >= 0 && tx_ < mw && ty_ < mh && map[ty_][tx_] == T_RPIT)) return 1; }
     return 0;
 }
 static int hit_other(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on a body or the rock that is NOT the held one? */
@@ -353,7 +359,9 @@ static int hit_other(float fx, float fy) {                                  /* w
 static int push_step(float vx, float vy) {
     if (!drag_on || (vx == 0 && vy == 0)) return 0;
     float nx = pxp + vx, ny = pyp + vy, x0, y0, x1, y1;
-    if (wall_hits(nx, ny) || hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
+    int hang = 0;                                                                                   /* at the lip of the crack we cannot follow: the body goes on out over it, we stay (it falls once its middle is past the edge: pit_footing) */
+    if (wall_hits(nx, ny)) { if (drag_id > 1 && !wall_hits_np(nx, ny)) hang = 1; else return 0; }
+    if (hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
     if (!(nx + 3.0f * px > x0 && nx - 3.0f * px < x1 && ny > y0 && ny - 3.0f * px < y1)) return 0;     /* it is not the held thing that is in our way */
     int rock = drag_id == DRAG_ROCK;
     if (rock && smash_cd <= 0) {                                                                    /* chunk 9: the rock pushed into a body smashes it */
@@ -363,7 +371,7 @@ static int push_step(float vx, float vy) {
     if (drag_blocked(vx, vy)) return 0;                                                             /* a wall, another body, the rock behind it: it does not move, nor do we */
     drag_move(vx, vy);
     push_dx += vx; push_dy += vy; last_push_x = vx; last_push_y = vy;
-    return 1;
+    return hang ? 2 : 1;                                                                            /* 2: the body moved, we did not */
 }
 /* chunk 11: the body in our hands has no footing once its middle is past the edge of the crack: we let go, it goes (bodies.c plays the fall, then the story counts it) */
 static void pit_footing(void) {
