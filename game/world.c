@@ -283,36 +283,81 @@ static int drag_into_pit(float sx, float sy) {                              /* c
         if (pit_probe(n0 + (wx1 - n0) * 0.5f * i, m0 + (wy1 - m0) * 0.5f * j)) return 1;
     return 0;
 }
-static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack */
+static float push_dx, push_dy;                                              /* how far we pushed the held thing this frame (px): the walking code fills it, drag_step uses it (the scrape, the trail) */
+static void drag_step(float dt) {                                           /* the sandbag: it eases toward our hands, lazily, and stops when the rope goes slack. it is PULLED by the rope, never pushed by it (it does not creep away from us) */
     drag_spd = 0;
     float x0, y0, x1, y1;
     if (!drag_on || dt <= 0 || !drag_box_px(&x0, &y0, &x1, &y1)) return;
     float ex = pxp + drag_ox - (x0 + x1) * 0.5f, ey = pyp + drag_oy - (y0 + y1) * 0.5f, len = hypotf(ex, ey);
-    if (len < 0.001f) return;
     int rock = drag_id == DRAG_ROCK;
-    float eff = len - DRAG_SLACK * px; if (eff < 0) eff = 0;
-    float mv = eff * (1.0f - expf(-dt / (rock ? ROCK_TAU : DRAG_TAU)));
-    float lim = (rock ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
-    if (len - mv > lim) mv = len - lim;
-    float mx = ex / len * mv, my = ey / len * mv;
-    if (!rock && drag_id != 1 && drag_id >= 0 && mv > 0.2f * px && (drag_into_pit(mx, 0) || drag_into_pit(0, my))) {      /* chunk 11: pushed over the edge: it falls */
-        unsigned v = (unsigned)drag_id; drag_on = 0;
-        bodies_remove(v);
-        if (pit_cb) pit_cb(v);
-        return;
-    }
-    if (rock && mv > 0.3f * px && smash_cd <= 0) {                           /* chunk 9: the rock pushed into a body smashes it */
-        unsigned hit = rock_body_hit(mx, my);
-        if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
+    float mx = 0, my = 0;
+    if (len >= 0.001f) {
+        float eff = len - DRAG_SLACK * px; if (eff < 0) eff = 0;
+        float mv = eff * (1.0f - expf(-dt / (rock ? ROCK_TAU : DRAG_TAU)));
+        float lim = (rock ? ROCK_MAXLAG : DRAG_MAXLAG) * px;
+        if (len - mv > lim) mv = len - lim;
+        mx = ex / len * mv; my = ey / len * mv;
+        {   float ax = (x0 + x1) * 0.5f - pxp, ay = (y0 + y1) * 0.5f - pyp, al = hypotf(ax, ay);        /* the rope only pulls: whatever part of its move would take it AWAY from us is dropped */
+            if (al > 0.001f) { float dot = (mx * ax + my * ay) / al; if (dot > 0) { mx -= ax / al * dot; my -= ay / al * dot; } }
+        }
+        if (!rock && drag_id != 1 && drag_id >= 0) {                        /* the hole is for pushing: pulled along the crack a body stops at its edge */
+            if (mx != 0 && drag_into_pit(mx, 0)) mx = 0;
+            if (my != 0 && drag_into_pit(0, my)) my = 0;
+        }
+        if (rock && mv > 0.3f * px && smash_cd <= 0) {                       /* chunk 9: the rock run into a body smashes it */
+            unsigned hit = rock_body_hit(mx, my);
+            if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
+        }
     }
     if (smash_cd > 0) smash_cd -= dt;
-    if (drag_blocked(mx, 0)) mx = 0; else drag_move(mx, 0);
-    if (drag_blocked(0, my)) my = 0; else drag_move(0, my);
-    drag_spd = hypotf(mx, my) / dt / (float)px;
-    if (!rock && (mx != 0 || my != 0) && drag_box_px(&x0, &y0, &x1, &y1)) {      /* a body leaves a smear of blood every few cells (the rock leaves nothing) */
+    if (mx != 0 && drag_blocked(mx, 0)) mx = 0; else if (mx != 0) drag_move(mx, 0);
+    if (my != 0 && drag_blocked(0, my)) my = 0; else if (my != 0) drag_move(0, my);
+    drag_spd = hypotf(mx + push_dx, my + push_dy) / dt / (float)px;
+    if (!rock && (mx != 0 || my != 0 || push_dx != 0 || push_dy != 0) && drag_box_px(&x0, &y0, &x1, &y1)) {      /* a body leaves a smear of blood every few cells (the rock leaves nothing) */
         float bx = (x0 + x1) * 0.5f, by = (y0 + y1) * 0.5f;
         if (hypotf(bx - trail_lx, by - trail_ly) >= TRAIL_STEP * px) { bodies_trail_add(bx, by, tile); trail_lx = bx; trail_ly = by; }
     }
+}
+/* PUSHING: we walk into what we hold and it goes ahead of us (the same step as ours). the one way a body goes into the hole: pushed over the edge (pit_cb). returns 1 when
+ * we pushed it (we may take the step), 2 when it fell in (the hold is over), 0 when it is not the held thing in our way, or it cannot move that way */
+static int wall_hits(float fx, float fy) {                                  /* the walls (solid tiles) under our feet box at (fx, fy) */
+    float hw = 3.0f * px, hh = 1.5f * px;
+    float xs[2] = { fx - hw, fx + hw - 1 }, ys[2] = { fy - 2 * hh, fy - 1 };
+    for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) if (solid_tile((int)floorf(xs[i] / tile), (int)floorf(ys[j] / tile))) return 1;
+    return 0;
+}
+static int hit_other(float fx, float fy) {                                  /* would our feet box at (fx, fy) stand on a body or the rock that is NOT the held one? */
+    float x0, y0, x1, y1;
+    if (cur_map != MAP_TEMPLE) return 0;
+    for (int i = 0; i < bodies_count(); i++) {
+        const Body *b = bodies_get(i);
+        if (!b || b->vessel == 1 || (int)b->vessel == drag_id || !bodies_box(b->vessel, px, tile, &x0, &y0, &x1, &y1)) continue;
+        if (fx + 3.0f * px > x0 && fx - 3.0f * px < x1 && fy > y0 && fy - 3.0f * px < y1) return 1;
+    }
+    if (drag_id != 1 && v1_box_px(&x0, &y0, &x1, &y1) && fx + 3.0f * px > x0 && fx - 3.0f * px < x1 && fy > y0 && fy - 3.0f * px < y1) return 1;
+    if (drag_id != DRAG_ROCK && props_rock_hit(fx, fy, px, tile)) return 1;
+    return 0;
+}
+static int push_step(float vx, float vy) {
+    if (!drag_on || (vx == 0 && vy == 0)) return 0;
+    float nx = pxp + vx, ny = pyp + vy, x0, y0, x1, y1;
+    if (wall_hits(nx, ny) || hit_other(nx, ny) || !drag_box_px(&x0, &y0, &x1, &y1)) return 0;
+    if (!(nx + 3.0f * px > x0 && nx - 3.0f * px < x1 && ny > y0 && ny - 3.0f * px < y1)) return 0;     /* it is not the held thing that is in our way */
+    int rock = drag_id == DRAG_ROCK;
+    if (!rock && drag_id != 1 && drag_id >= 0 && drag_into_pit(vx, vy)) {                          /* chunk 11: pushed over the edge: it falls */
+        unsigned v = (unsigned)drag_id; drag_on = 0;
+        bodies_remove(v);
+        if (pit_cb) pit_cb(v);
+        return 2;
+    }
+    if (rock && smash_cd <= 0) {                                                                    /* chunk 9: the rock pushed into a body smashes it */
+        unsigned hit = rock_body_hit(vx, vy);
+        if (hit && smash_cb) { smash_cd = 1.2f; sfx_hit(); smash_cb(hit); }
+    }
+    if (drag_blocked(vx, vy)) return 0;                                                             /* a wall, another body, the rock behind it: it does not move, nor do we */
+    drag_move(vx, vy);
+    push_dx += vx; push_dy += vy;
+    return 1;
 }
 static void drag_toggle(void) {
     if (drag_on) { drag_on = 0; return; }
@@ -1038,12 +1083,15 @@ void world_update(float dt) {
     if (dialog_active()) { kx = ky = 0; stick_on = 0; }                  /* frozen while talking */
     float mag = sqrtf(kx * kx + ky * ky);
     moving = mag > 0.15f;
+    push_dx = push_dy = 0;
     if (moving) {
         float speed = WALK_TILES_PER_SEC * tile * (mag > 1 ? 1 : mag) * (drag_on ? (drag_id == DRAG_ROCK ? ROCK_SPEED : DRAG_SPEED) : 1.0f) * (item_medium_held() ? CARRY_SPEED_MEDIUM : 1.0f);
         float vx = kx / mag * speed * dt, vy = ky / mag * speed * dt;
         if (drag_on) {                                                      /* it trails behind us on a rope: we cannot outrun it (drag_step) */
             if (!blocked(pxp + vx, pyp) && !drag_taut(vx, 0)) pxp += vx;
+            else if (push_step(vx, 0) == 1) pxp += vx;                          /* we walk into it: it goes ahead of us */
             if (!blocked(pxp, pyp + vy) && !drag_taut(0, vy)) pyp += vy;
+            else if (push_step(0, vy) == 1) pyp += vy;
         } else {
             if (!blocked(pxp + vx, pyp)) pxp += vx;
             if (!blocked(pxp, pyp + vy)) pyp += vy;
@@ -1053,6 +1101,7 @@ void world_update(float dt) {
         walk += dt * 8.0f * (drag_on ? (drag_id == DRAG_ROCK ? 0.4f : 0.55f) : 1.0f);
     } else walk = 0;
     drag_step(dt);
+    push_dx = push_dy = 0;
     dragged_now = drag_spd > 0.8f;
     {   float gx0, gy0, gx1, gy1;                                        /* the hold: where the hands want to be, and how much of the way they are there */
         if (drag_on && !pick_on && drag_box_px(&gx0, &gy0, &gx1, &gy1)) {
