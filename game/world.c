@@ -506,11 +506,8 @@ static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y)
             rc(r, 26, 22, 36, k); fill(r, x, y + 4 * px, tile, px);
             rc(r, 16, 13, 24, k); for (int i = 0; i < 4; i++) fill(r, x + (int)((hh >> (i * 3)) % 8) * px, y + 2 * px, px, (2 + (int)((hh >> (i + 9)) % 3)) * px);   /* cracks in the face */
         }
-        if (!below_pit) {                                                            /* the south lip: crumbling chips of floor stick out over the edge */
-            for (int i = 0; i < 8; i++) {
-                int hgt = (int)((hh >> (i * 2)) % 4u);
-                if (hgt) { int v2 = 54 + (int)((hh >> 3) % 12u); rc(r, v2, v2 - 3, v2 + 10, k); fill(r, x + i * px, y + tile - hgt * px, px, hgt * px); }
-            }
+        if (!below_pit) {                                                            /* the south lip: a straight edge of floor (the body falls when its middle is past this line) */
+            rc(r, 62, 56, 74, k); fill(r, x, y + tile - px, tile, px);
         }
         return;
     }

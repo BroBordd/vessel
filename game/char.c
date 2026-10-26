@@ -234,12 +234,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             if (m > mx) { gdx[h] *= mx / m; gdy[h] *= mx / m; }
         }
     }
-    int hands_under = g_grip && g_hbehind && !g_stab && !g_aim && rows > 9;   /* the hands reach behind us: they go under the body, as the item does */
-    if (hands_under)
-        for (int x = 0; x < SPR_W; x += SPR_W - 1) {
-            if (cell_at(p, facing, x, 9) == '.') continue;
-            draw_hand_cell(r, p, ox, oy, s, flip ? SPR_W - 1 - x : x, 9, gdx, gdy);
-        }
+    int hands_under = g_grip && g_hbehind && !g_stab && !g_aim && rows > 9;   /* the hands reach behind us (north): our back is to the screen, so they are not drawn at all */
     for (int y = 0; y < rows; y++)
         for (int x = 0; x < SPR_W; x++) {
             char c = cell_at(p, facing, x, y);
@@ -251,7 +246,7 @@ static void draw_sprite(SDL_Renderer *r, const Person *p, int facing, int ox, in
             else setcell(r, p, c);
             int dx = flip ? SPR_W - 1 - x : x;
             if (y == 9 && (x == 0 || x == SPR_W - 1) && !g_aim) {              /* floating hands: lag + breathing, smooth */
-                if (!hands_under) draw_hand_cell(r, p, ox, oy, s, dx, dy, gdx, gdy);   /* (a hand behind us was drawn before the body) */
+                if (!hands_under) draw_hand_cell(r, p, ox, oy, s, dx, dy, gdx, gdy);   /* (a hand behind us is not drawn at all: our back is to the screen, the hands push away from us) */
                 continue;
             }
             fill(r, ox + dx * s, oy + dy * s, s, s);
