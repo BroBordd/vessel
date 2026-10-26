@@ -157,7 +157,6 @@ int mapwin_touch(int a, int x, int y) {
             return 1;
         }
         pressed = inside(close_r, x, y) ? 1 : inside(zin_r, x, y) ? 2 : inside(zout_r, x, y) ? 3 : inside(you_r, x, y) ? 4 : 0;
-        if (pressed) sfx_tap();
         drag = !pressed && inside(view, x, y); lx = x; ly = y; p2 = pinch = drag_pid = 0;
     } else if (a == 2 && drag) {
         if (pinch) { lx = x; ly = y; pinch_step(lx, ly, p2x, p2y); }
@@ -166,6 +165,7 @@ int mapwin_touch(int a, int x, int y) {
         pinch = 0; lx = p2x; ly = p2y; drag_pid = p2; pressed = 0;
     } else if (a == 1) {
         int p = pressed;
+        if ((p == 1 && inside(close_r, x, y)) || (p == 2 && inside(zin_r, x, y)) || (p == 3 && inside(zout_r, x, y)) || (p == 4 && inside(you_r, x, y))) sfx_tap();
         if (p == 1 && inside(close_r, x, y)) mapwin_close();
         else if (p == 2 && inside(zin_r, x, y)) zoom_by(ZOOM_STEP);
         else if (p == 3 && inside(zout_r, x, y)) zoom_by(1.0f / ZOOM_STEP);

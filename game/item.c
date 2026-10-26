@@ -243,7 +243,8 @@ static int in_recipe(int kind) {
     return 0;
 }
 static unsigned char ord[2][ITEM_COUNT]; static int ordn[2];                /* A3: the order of the slots, below (ord_norm) */
-static int cq[4] = { -1, -1, -1, -1 };                          /* B3: the four crafting squares (a kind each, or -1). they only point at things in the pockets: nothing moves until the result is tapped */
+static int cq[4] = { -1, -1, -1, -1 };                          /* B3: the four crafting squares (a kind each, or -1). what lies in them MOVED there from the grid (see cnt / placed): still ours, back in the grid when the window closes; the result is made when it is tapped */
+static int cpos[ITEM_COUNT];                                    /* the slot (+1) a kind had before it all went out to the craft cells: it comes back to it (0 = none) */
 static void (*craft_cb)(int a, int b);
 void item_set_craft_cb(void (*cb)(int a, int b)) { craft_cb = cb; }
 static int worn_[ITEM_COUNT];
@@ -332,7 +333,7 @@ static void (*full_cb)(void);
 void item_set_full_cb(void (*cb)(void)) { full_cb = cb; }
 void item_pack(unsigned char out[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) out[k] = (unsigned char)(have[k] > 0 ? have[k] : 0); }
 void item_unpack(const unsigned char in[ITEM_COUNT]) { for (int k = 0; k < ITEM_COUNT; k++) have[k] = in[k]; }
-void item_clear(void) { ui_csel = -1; ordn[1] = 0; for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; ui_cell = -1; act_menu = 0; held = -1; }
+void item_clear(void) { ui_csel = -1; memset(cpos, 0, sizeof cpos); ordn[1] = 0; for (int i = 0; i < 4; i++) cq[i] = -1; memset(have, 0, sizeof have); memset(worn_, 0, sizeof worn_); new_t = 99.0f; newest = -1; fly_t = 99.0f; ui_open = ui_down = 0; ui_p = 0; ui_sel = -1; ui_cell = -1; act_menu = 0; held = -1; }
 
 static int owned(void);
 void item_update(float dt) {
@@ -582,15 +583,29 @@ static int wrap(const char *text, int cell, int room, char out[DESC_LINES][64]) 
     }
     return out[0][0] ? n + 1 : 0;
 }
-static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel] > 0; }
 /* story chunk 19 (A3): THE ORDER OF THE SLOTS. a grid shows the kinds it holds in the order of a list (ord): kinds that came are put at the end, kinds that left drop out, and a drag
  * inside a grid moves a kind to another place of the list. side 0 = the body's pockets, 1 = ours. (before this the order was always the order of the enum) */
-static int cnt(int side, int k) { return side ? have[k] : bw_inv[k]; }
+static int placed(int k) { int n = 0; for (int i = 0; i < 4; i++) if (cq[i] == k) n++; return n; }
+/* the craft cells are like /tmp: what lies in them MOVED there (it is still ours, in `have`, and it comes back when the window closes), so the grid shows what is left:
+ * have minus what lies in the cells */
+static int cnt(int side, int k) { if (!side) return bw_inv[k]; int c = have[k] - placed(k); return c > 0 ? c : 0; }
+static int sel_ok(void) { return ui_sel >= 0 && ui_sel < ITEM_COUNT && have[ui_sel] > 0 && (ui_csel >= 0 ? cq[ui_csel] == ui_sel : cnt(1, ui_sel) > 0); }
 static void ord_norm(int side) {
     unsigned char tmp[ITEM_COUNT]; char seen[ITEM_COUNT]; int n = 0;
     memset(seen, 0, sizeof seen);
-    for (int i = 0; i < ordn[side]; i++) { int k = ord[side][i]; if (k < ITEM_COUNT && cnt(side, k) > 0 && !seen[k]) { tmp[n++] = (unsigned char)k; seen[k] = 1; } }
-    for (int k = 0; k < ITEM_COUNT; k++) if (cnt(side, k) > 0 && !seen[k]) tmp[n++] = (unsigned char)k;
+    for (int i = 0; i < ordn[side]; i++) {
+        int k = ord[side][i]; if (k >= ITEM_COUNT || seen[k]) continue;
+        if (cnt(side, k) > 0) { tmp[n++] = (unsigned char)k; seen[k] = 1; }
+        else if (side && have[k] > 0) { cpos[k] = n + 1; seen[k] = 1; }       /* it went out to the craft cells: remember its place */
+    }
+    for (int k = 0; k < ITEM_COUNT; k++) {
+        if (side && have[k] <= 0) cpos[k] = 0;
+        if (cnt(side, k) > 0 && !seen[k]) {
+            int at = n; if (side && cpos[k]) { at = cpos[k] - 1; if (at > n) at = n; cpos[k] = 0; }
+            for (int j = n; j > at; j--) tmp[j] = tmp[j - 1];
+            tmp[at] = (unsigned char)k; n++;
+        }
+    }
     memcpy(ord[side], tmp, (size_t)n); ordn[side] = n;
 }
 static int kind_on(int side, int i) { ord_norm(side); return i >= 0 && i < ordn[side] ? ord[side][i] : -1; }
@@ -802,7 +817,8 @@ static int craft_sq(int i, int *x, int *y, int *w, int *h) { if (bw_on) return 0
 static int res_sq(int *x, int *y, int *w, int *h) { if (bw_on) return 0; *x = tl_rx; *y = tl_y; *w = *h = tl_hs; return 1; }
 static int cq_result(int *ka, int *kb) {                        /* what the squares make, -1 when nothing (squares pointing at things we no longer have are emptied) */
     int k[2] = { -1, -1 }, n = 0;
-    for (int i = 0; i < 4; i++) { if (cq[i] >= 0 && have[cq[i]] <= 0) cq[i] = -1; if (cq[i] >= 0) { if (n < 2) k[n] = cq[i]; n++; } }
+    for (int q = 0; q < ITEM_COUNT; q++) while (placed(q) > have[q]) { for (int i = 3; i >= 0; i--) if (cq[i] == q) { cq[i] = -1; break; } }   /* (used up, or dropped: a cell cannot hold more than we have) */
+    for (int i = 0; i < 4; i++) if (cq[i] >= 0) { if (n < 2) k[n] = cq[i]; n++; }
     if (n != 2) return -1;
     int r = item_recipe(k[0], k[1]);
     if (r < 0 || (k[0] == k[1] && have[k[0]] < 2)) return -1;
@@ -832,7 +848,12 @@ static int bag_end(int x, int y) {                              /* 1 = it was a 
     int on_grid = in_rect(x, y, gx, gy, gw, grid_h() < gh ? grid_h() : gh);
     if (drag_side == 1) {
         if (on_hand && item_equipped() != drag_kind) { held = drag_kind; sfx_blip(0.5f); }                 /* onto the hand: held */
-        else if (ci >= 0) { cq[ci] = drag_kind; if (ui_csel == ci) ui_sel = drag_kind; sfx_blip(0.5f); }   /* onto a craft cell */
+        else if (ci >= 0 && (cq[ci] == drag_kind || cnt(1, drag_kind) > 0)) {                             /* onto a craft cell: it MOVES there (the grid shows one less) */
+            cq[ci] = drag_kind;
+            if (ui_csel == ci) ui_sel = drag_kind;
+            else if (ui_csel < 0 && ui_sel == drag_kind) { ui_csel = ci; ui_cell = -1; }                   /* the selection goes along with it */
+            sfx_blip(0.5f);
+        }
         else if (on_grid) {                                                                                /* A3: inside the grid: it takes the place under the finger */
             int at = ITEM_COUNT;
             for (int i = 0; i < rowsn * gcols; i++) if (in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) { at = i; break; }
@@ -841,7 +862,14 @@ static int bag_end(int x, int y) {                              /* 1 = it was a 
     } else if (drag_side == 2) {
         if (on_grid) { held = -1; sfx_blip(0.5f); }                                                        /* out onto the grid: put away */
     } else if (drag_side == 3) {
-        if (on_grid) { cq[drag_idx] = -1; if (ui_csel == drag_idx) ui_csel = -1; sfx_blip(0.5f); }          /* out onto the grid: back among the others (selected there, if it was selected here) */
+        if (on_grid) {                                                                                      /* out onto the grid: back among the others, at the slot under the finger (or where it was) */
+            int at = ITEM_COUNT;
+            cq[drag_idx] = -1;
+            for (int i = 0; i < rowsn * gcols; i++) if (in_rect(x, y, slot_x(i) - pad / 2, slot_y(i) - pad / 2, sl + pad, sl + pad)) { at = i; break; }
+            if (at < ITEM_COUNT) order_move(1, drag_kind, at);
+            if (ui_csel == drag_idx) { ui_csel = -1; ui_sel = drag_kind; ui_cell = -1; }
+            sfx_blip(0.5f);
+        }
         else if (ci >= 0 && ci != drag_idx) { int t = cq[ci]; cq[ci] = cq[drag_idx]; cq[drag_idx] = t; if (ui_csel == drag_idx) ui_csel = ci; else if (ui_csel == ci) ui_csel = drag_idx; sfx_blip(0.5f); }   /* onto another cell: they swap */
         else if (on_hand) { held = drag_kind; cq[drag_idx] = -1; if (ui_csel == drag_idx) ui_csel = -1; sfx_blip(0.5f); }
     }
@@ -923,7 +951,7 @@ static void win_tap(int x, int y) {                              /* a tap that b
     }
 }
 
-static int btn_under(int x, int y) {                           /* is there a working button under this point (the tap sound on touch-down)? */
+static int btn_under(int x, int y) {                           /* is there a working button under this point (the tap sound on release)? */
     if (act_menu && !bw_on) {
         int acts[4], na = act_n(acts), cx, cy, cw, ch; pop_close_rect(&cx, &cy, &cw, &ch);
         if (in_rect(x, y, cx, cy, cw, ch)) return 1;
@@ -947,14 +975,14 @@ int item_ui_touch(int a, int x, int y) {
     else if (a == 1 || a == 3) ptr_on = 0;
     if (ui_open) {                                               /* the window takes every touch */
         win_layout();
-        if (a == 0) { if (btn_under(x, y)) sfx_tap();
-                      if (act_menu && !bw_on) { ui_down = 2; return 1; }          /* the action window takes the touch wherever it is */
+        if (a == 0) { if (act_menu && !bw_on) { ui_down = 2; return 1; }          /* the action window takes the touch wherever it is */
                       ui_down = in_rect(x, y, wx, wy, ww, wh) ? 2 : 3; if (ui_down == 2) drag_press(x, y); return 1; }
         if (a == 2) { drag_move(x, y); return 1; }
         if (a == 1) {
             int d = ui_down; ui_down = 0;
-            if (act_menu && !bw_on && d == 2) { win_tap(x, y); return 1; }
+            if (act_menu && !bw_on && d == 2) { if (btn_under(x, y)) sfx_tap(); win_tap(x, y); return 1; }
             if (drag_end(x, y)) return 1;                        /* a drag: dropped, not a tap */
+            if (d == 2 && btn_under(x, y)) sfx_tap();             /* the tap sound is the tap (the release on a button), not the touch */
             if (d == 3 && !in_rect(x, y, wx, wy, ww, wh)) set_open(0);       /* a tap outside closes it */
             else if (d == 2 && in_rect(x, y, wx, wy, ww, wh)) win_tap(x, y);
             return 1;
@@ -962,9 +990,9 @@ int item_ui_touch(int a, int x, int y) {
         if (a == 3) { ui_down = 0; drag_on = 0; }
         return 1;
     }
-    if (a == 0) { if (hit_btn(x, y)) { sfx_tap(); ui_down = 1; return 1; } return 0; }
+    if (a == 0) { if (hit_btn(x, y)) { ui_down = 1; return 1; } return 0; }
     if (!ui_down) return 0;
-    if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) set_open(1); return 1; }
+    if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) { sfx_tap(); set_open(1); } return 1; }
     if (a == 3) ui_down = 0;
     return 1;                                                    /* a drag that began on a button stays its own */
 }
@@ -1167,12 +1195,10 @@ static void window_draw(SDL_Renderer *r) {
         box(r, sx, sy, sl, sl, br, bg, bb, 20, 24, 46, 255);
         item_draw_icon(r, k, sx + (sl - ITEM_ICON_CELLS * pcell) / 2, sy + (sl - ITEM_ICON_CELLS * pcell) / 2, pcell);
         if (k == item_equipped()) { SDL_SetRenderDrawColor(r, 120, 230, 150, 255); SDL_Rect g = { sx + bt + qs / 2, sy + bt + qs / 2, 3 * qs, 3 * qs }; SDL_RenderFillRect(r, &g); }   /* in hand */
-        if (have[k] > 1) {                                     /* more than one of a kind: the number in the corner */
-            char num[8]; snprintf(num, sizeof num, "%d", have[k]); int cc = dcell();
+        if (cnt(1, k) > 1) {                                   /* more than one of a kind left in the grid: the number in the corner */
+            char num[8]; snprintf(num, sizeof num, "%d", cnt(1, k)); int cc = dcell();
             txt(r, num, sx + sl - bt - font_width(num, cc) - qs, sy + sl - bt - font_height(cc) - qs, cc, 255, 238, 170);
         }
-        {   int out = 0; for (int q = 0; q < 4; q++) if (cq[q] == k) out++;                  /* every one of this kind lies out in the craft cells (/tmp): the slot is dimmed until they are back */
-            if (out > 0 && out >= have[k]) { SDL_SetRenderDrawColor(r, 6, 8, 20, 150); SDL_Rect dm = { sx, sy, sl, sl }; SDL_RenderFillRect(r, &dm); } }
     }
 
     /* the selected item */

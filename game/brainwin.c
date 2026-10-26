@@ -206,12 +206,12 @@ int brainwin_touch(int a, int x, int y) {
         else if (inside(auto_r, x, y)) grab = 2;
         else if (!inside(win, x, y)) grab = 3;
         else for (int i = 0; i < nth; i++) if (inside(pick_r[i], x, y)) { grab = 10 + i; break; }
-        if (grab == 1 || grab == 2 || grab >= 10) sfx_tap();
         return 1;
     }
     if (a == 1 || a == 3) {
         int gk = grab; grab = 0;
         if (a != 1) return 1;
+        if ((gk == 1 && inside(close_r, x, y)) || (gk == 2 && inside(auto_r, x, y)) || (gk >= 10 && gk - 10 < nth && inside(pick_r[gk - 10], x, y))) sfx_tap();
         if (gk == 1 && inside(close_r, x, y))  { is_open = 0; closing = 1; }
         else if (gk == 3 && !inside(win, x, y)) { is_open = 0; closing = 1; }
         else if (gk == 2 && inside(auto_r, x, y)) { if (auto_on) auto_on = 0; else { auto_on = 1; tm = 0; } }   /* a toggle */

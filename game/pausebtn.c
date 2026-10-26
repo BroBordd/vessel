@@ -38,24 +38,24 @@ int pausebtn_touch(int a, int x, int y) {
     if (!enabled) return 0;
     SDL_Rect b = btn_rect(), rs = resume_rect(), mr = menu_rect();
     if (a == 0) {
-        if (inside(b, x, y)) { pdown = 1; sfx_tap(); return 1; }
-        if (paused && inside(rs, x, y)) { rdown = 1; sfx_tap(); return 1; }
-        if (paused && inside(mr, x, y)) { mdown = 1; sfx_tap(); return 1; }
+        if (inside(b, x, y)) { pdown = 1; return 1; }
+        if (paused && inside(rs, x, y)) { rdown = 1; return 1; }
+        if (paused && inside(mr, x, y)) { mdown = 1; return 1; }
         return paused ? 1 : 0;                       /* paused: the world below does not get touches */
     }
     if (pdown) {
         if (a == 1 || a == 3) {
             pdown = 0;
-            if (a == 1 && inside(b, x, y)) { paused = !paused; return paused ? 2 : 1; }
+            if (a == 1 && inside(b, x, y)) { sfx_tap(); paused = !paused; return paused ? 2 : 1; }
         }
         return 1;
     }
     if (rdown) {
-        if (a == 1 || a == 3) { rdown = 0; if (a == 1 && inside(rs, x, y)) paused = 0; }
+        if (a == 1 || a == 3) { rdown = 0; if (a == 1 && inside(rs, x, y)) { sfx_tap(); paused = 0; } }
         return 1;
     }
     if (mdown) {
-        if (a == 1 || a == 3) { mdown = 0; if (a == 1 && inside(mr, x, y)) { menu_req = 1; paused = 0; } }
+        if (a == 1 || a == 3) { mdown = 0; if (a == 1 && inside(mr, x, y)) { sfx_tap(); menu_req = 1; paused = 0; } }
         return 1;
     }
     return paused ? 1 : 0;

@@ -79,11 +79,12 @@ void confirm_cancel(void) { on = 0; down = -1; yes_cb = NULL; }
 
 int confirm_touch(int a, int x, int y) {
     if (!on) return 0;
-    if (a == 0) { down = hit(x, y); if (down >= 0) sfx_tap(); return 1; }
+    if (a == 0) { down = hit(x, y); return 1; }
     if (a == 3) { down = -1; return 1; }
     if (a == 1) {
         int d = down; down = -1;
         if (d >= 0 && hit(x, y) == d) {
+            sfx_tap();
             void (*cb)(void) = d == 1 ? yes_cb : NULL;
             on = 0; yes_cb = NULL;                                   /* closed first: the callback may open the next window */
             if (cb) cb();

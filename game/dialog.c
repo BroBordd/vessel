@@ -213,12 +213,13 @@ void dialog_touch(int a, int x, int y) {
     if (talk_active()) { talk_touch(a, x, y); return; }
     if (reply_mode) {                           /* TALK / BYE buttons, once the text has finished typing */
         if (!typing_done()) return;
-        if (a == 0) { btn_press = btn_at(x, y); if (btn_press) sfx_tap(); }
+        if (a == 0) btn_press = btn_at(x, y);
         else if (a == 2) { if (btn_press && btn_at(x, y) != btn_press) btn_press = 0; }
         else if (a == 3) btn_press = 0;
         else if (a == 1) {
             int b = btn_press && btn_at(x, y) == btn_press ? btn_press : 0;
             btn_press = 0;
+            if (b) sfx_tap();
             if (b == 1) talk_open(lines[idx].who ? lines[idx].who->name : "", plain, sugg, nsugg, reply_mode == REPLY_REQUIRED, on_talk_result);
             else if (b == 2) do_reply(NULL);
         }
