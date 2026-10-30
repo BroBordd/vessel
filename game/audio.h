@@ -13,7 +13,7 @@ void music_fade_out(float seconds);
 /* master music volume 0..1, applied instantly (no smoothing). persists across tracks.
  * starts at MUSIC_DEFAULT_VOLUME (65%); nothing in the game changes it behind the player's back */
 #define MUSIC_DEFAULT_VOLUME 0.65f
-void  music_set_pitch(float semitones);   /* -12..12, 0 = as recorded. speed and pitch together. only the jukebox sets it */
+void  music_set_pitch(float semitones);   /* -20..20, 0 = as recorded. speed and pitch together. only the jukebox sets it */
 float music_pitch(void);
 void  music_set_volume(float v);   /* the app scales the music on its own AudioTrack (real time); the stream carries the music at full level */
 void  audio_send_volume(void);     /* (re)send the current volume to the app ("vol 0.6500" on stdout) */

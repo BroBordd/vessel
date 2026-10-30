@@ -29,7 +29,7 @@ void   jukebox_scene_p(const char *file, int loop, float semitones);
 /* ... and its own volume (0..1; the others use MUSIC_DEFAULT_VOLUME) */
 void   jukebox_scene_pv(const char *file, int loop, float semitones, float volume);
 
-/* the pitch slider of the music window. map mode: the map decides (the slider shows it, locked). custom mode: the player's, -12..12 in half steps, 0 default */
+/* the pitch slider of the music window. map mode: the map decides (the slider shows it, locked). custom mode: the player's, -20..20 in half steps, 0 default */
 float  jukebox_pitch(void);                      /* what is applied right now */
 int    jukebox_pitch_locked(void);               /* 1 = map mode */
 void   jukebox_set_pitch(float semitones);       /* custom mode only, ignored otherwise */

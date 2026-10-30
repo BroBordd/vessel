@@ -83,7 +83,7 @@ static int    rs_len, rs_idx;
 static volatile float pitch_mul = 1.0f;
 static float pitch_st;
 static int   last_fast = -1;                 /* which path the last read took (the resampler has to be primed again when it takes over from the fast path) */
-void  music_set_pitch(float st) { if (st < -12.0f) st = -12.0f; if (st > 12.0f) st = 12.0f; pitch_st = st; pitch_mul = exp2f(st / 12.0f); }
+void  music_set_pitch(float st) { if (st < -20.0f) st = -20.0f; if (st > 20.0f) st = 20.0f; pitch_st = st; pitch_mul = exp2f(st / 12.0f); }
 float music_pitch(void) { return pitch_st; }
 
 static void rs_reset(int rate) {

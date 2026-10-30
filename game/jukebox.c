@@ -58,7 +58,7 @@ float jukebox_pitch(void) { return mode == JB_CUSTOM ? custom_pitch : scene_pitc
 int   jukebox_pitch_locked(void) { return mode == JB_MAP; }
 void  jukebox_set_pitch(float st) {
     if (mode != JB_CUSTOM) return;
-    custom_pitch = st < -12.0f ? -12.0f : st > 12.0f ? 12.0f : st;
+    custom_pitch = st < -20.0f ? -20.0f : st > 20.0f ? 20.0f : st;
     apply_pitch();
 }
 

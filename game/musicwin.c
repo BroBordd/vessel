@@ -222,12 +222,12 @@ static void set_volume_from_x(int x) {                      /* the slider: the k
     float v = (float)(x - (vol_r.x + kw2 / 2)) / (float)(vol_r.w - kw2);
     jukebox_set_volume(v < 0 ? 0 : v > 1 ? 1 : v);          /* (ignored in map mode: the map's volume) */
 }
-static void set_pitch_from_x(int x) {                       /* -12..12 in half steps; map mode: locked, the map's own pitch is shown */
+static void set_pitch_from_x(int x) {                       /* -20..20 in half steps; map mode: locked, the map's own pitch is shown */
     if (jukebox_pitch_locked()) return;
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
     float f = (float)(x - (pitch_r.x + kw2 / 2)) / (float)(pitch_r.w - kw2);
     f = f < 0 ? 0 : f > 1 ? 1 : f;
-    jukebox_set_pitch(floorf((f * 24.0f - 12.0f) * 2.0f + 0.5f) / 2.0f);
+    jukebox_set_pitch(floorf((f * 40.0f - 20.0f) * 2.0f + 0.5f) / 2.0f);
 }
 static float seek_frac(int x) {                             /* the progress bar: the knob centre follows the finger */
     int kw2 = (int)(7 * u); if (kw2 < 4) kw2 = 4;
@@ -477,7 +477,7 @@ static void draw_volume(SDL_Renderer *r) {
     float st = jukebox_pitch();                                         /* no plus sign in the font: 0, 1.5, -3 */
     char pt[12];
     if (st == floorf(st)) snprintf(pt, sizeof pt, "%d", (int)st); else snprintf(pt, sizeof pt, "%.1f", st);
-    draw_slider(r, pitch_r, "PITCH", pt, (st + 12.0f) / 24.0f, 0.5f, grab == 11, jukebox_pitch_locked());
+    draw_slider(r, pitch_r, "PITCH", pt, (st + 20.0f) / 40.0f, 0.5f, grab == 11, jukebox_pitch_locked());
 }
 
 static void fmt_time(char *s, int cap, double sec) {
