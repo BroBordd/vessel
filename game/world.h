@@ -48,6 +48,15 @@ int  world_pit_add(void);
 void world_set_pit_cb(void (*cb)(unsigned vessel));
 int  world_pit_jump(void (*done)(void));   /* the JUMP: we go over the edge (slide, a beat, drop into the dark); done runs when we are gone. 0 = not at the edge */
 int  world_pit_jumping(void);
+/* THE CRUSHER (replaces the pit): a lever beside a plate. world_crush: we walk onto the plate, the heavy block falls and crushes us, then it rises; done runs
+ * after (the death). 0 = not at the lever. the BLOOD METER (a thermometer on screen) counts the deaths: world_blood_add one more, BLOOD_NEED (3) opens the gate;
+ * stepping into the open gate is the escape (world_set_escape_cb) */
+int  world_crush(void (*done)(void));
+void world_blood_reset(void);
+void world_blood_add(void);
+int  world_blood_count(void);
+int  world_blood_full(void);
+void world_set_escape_cb(void (*cb)(void));
 int  world_swing_across(void (*done)(void));
 /* the ruins' pit (gen.c): tiles from the player to the nearest pit tile (1e9: none on this map), and the spots on either side of it */
 float world_dist_to_pit(void);

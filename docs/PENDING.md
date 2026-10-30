@@ -47,3 +47,10 @@ Written from the chat with the owner. Each item is one small chunk: one push, ow
 - [ ] Hands are hidden whenever what we hold lies north of us, also when it touches our feet (before, the flag looked at its nearest point, which for a touching body is level with our feet).
 - [ ] Sounds: the dialog letter sound is now a round bubble POP (a sine gliding up, `sfx_blip`; it is also the soft put-down / throw sound at other pitches). Listen on the phone speaker: say what is still wrong (too loud, too long, too high) and I tune the numbers in `audio.c`.
 - [ ] Pit rules: (1) stand at the crack and push the stick into it: nothing happens, no fall, you just stop at the lip. (2) a dead body (not vessel 1, not the rock) can be pushed out over the crack where we cannot go; it falls once its middle is past the edge, with the swoop and the air rush. (3) the JUMP button's fall animation is the same swoop.
+
+## F. The crusher (replaces the pit), blood meter, escape (pushed, untested)
+- [ ] The pit is gone: the chamber is plain floor. A 4x3 hazard-striped plate lies in its middle, a lever stands at the plate's east edge (gen.c `crush_*`, `lever_*`; world.c `cr_*`).
+- [ ] Walk to the lever (about 2 tiles): a lever button shows above the interact button. Tap: "The block will crush you. Sure?" YES: we walk onto the plate, a shadow gathers, the block falls (shake, thud, blood), holds, rises slowly; then the next vessel wakes (`DEATH_CRUSH`). The crushed bodies lie on the plate, one slot per sacrifice.
+- [ ] BLOOD METER: a vertical thermometer on the left above the stick (`blood_meter_draw`). Every death (crusher, self-stab, anything) fills a third. The crusher's own fills at the moment of impact.
+- [ ] After 3 sacrifices the gate (north wall, behind the plate) opens and glows; next wake a toast says so. Walk up to it: white fade, "YOU ESCAPED" (`world_set_escape_cb`, `story_escaped`).
+- [ ] Knife and rocks untouched (decor). The old pit code is inert (`pit_x0 = -1`), the second circle is not placed any more.

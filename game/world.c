@@ -105,6 +105,24 @@ static void (*pit_cb)(unsigned vessel);   /* story chunk 11: a dragged body went
 static void fall_done(unsigned vessel) { if (pit_cb) pit_cb(vessel); }   /* the body has dropped out of sight (bodies_update): now the story counts it */
 static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's box (tiles), -1: none */
 #define PIT_HALF_BODIES 4
+/* THE CRUSHER + THE BLOOD METER + THE ESCAPE. the plate (cr_*) and the lever tile come from gen.c. cr_on: the lever was pulled (we slide onto the plate, wait, the block
+ * falls, holds, rises), cr_dead: we lie crushed (until the next map). blood_n: the sacrifices (every death), bm_disp: what the thermometer shows (it eases up) */
+#define BLOOD_NEED 3
+#define CR_SLIDE 0.55f
+#define CR_WAIT  0.30f
+#define CR_FALL  0.26f
+#define CR_HOLD  1.00f
+#define CR_RISE  1.60f
+#define CR_UP    46.0f
+static int   cr_x = -1, cr_y = -1, cr_w = 0, cr_h = 0, lever_tx = -1, lever_ty = -1;
+static int   cr_on, cr_hit, cr_dead; static float cr_t, cr_sx, cr_sy, cr_tx, cr_ty; static void (*cr_cb)(void);
+static int   blood_n; static float bm_disp, bm_flash;
+static float shk_x, shk_y;
+static int   esc_on; static float esc_t; static void (*esc_cb)(void);
+static void cr_slot(int k, float *x, float *y) {      /* where the k-th sacrifice lies on the plate (feet, tiles) */
+    static const float ox[3] = { 1.1f, 2.9f, 2.0f }, oy[3] = { 0.8f, 0.8f, 2.1f };
+    k = ((k % 3) + 3) % 3; *x = (float)cr_x + ox[k]; *y = (float)cr_y + oy[k];
+}
 static int pit_pile;
 #define LAND_MAX 32
 static struct { const Person *look; float x, y, delay; } landed[LAND_MAX];   /* feet (tiles); delay: seconds until it is down (the fall is still playing) */
@@ -188,6 +206,7 @@ static float rnd(int x, int y, uint32_t seed) { return (hash2(x, y, seed) & 0xFF
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
     uint8_t v = map[ty][tx];
+    if (tx == lever_tx && ty == lever_ty) return 1;                      /* the lever stands there */
     return v == T_RWALL || v == T_RPILLAR || v == T_RRUBBLE || v == T_RGATE || v == T_RVOID || v == T_RPIT;
 }
 
@@ -443,7 +462,7 @@ static void gen_temple_map(void) {
     GenInfo gi;
     static uint8_t g[MAP_MAX][MAP_MAX];
     if (!gen_temple(&g[0][0], MAP_MAX, MAP_MAX, temple_seed, &gi)) {                       /* (cannot happen with this size: a plain room is the fallback) */
-        memset(&gi, 0, sizeof gi); gi.w = gi.h = 20; gi.spawn_x = gi.spawn_y = 10; gi.gate_x = gi.gate_y = -1; gi.pit_x0 = gi.pit_y0 = gi.pit_x1 = gi.pit_y1 = gi.far_x = gi.far_y = gi.edge_x = gi.edge_y = -1;
+        memset(&gi, 0, sizeof gi); gi.w = gi.h = 20; gi.spawn_x = gi.spawn_y = 10; gi.gate_x = gi.gate_y = -1; gi.pit_x0 = gi.pit_y0 = gi.pit_x1 = gi.pit_y1 = gi.far_x = gi.far_y = gi.edge_x = gi.edge_y = -1; gi.crush_x = gi.crush_y = gi.lever_x = gi.lever_y = -1;
         for (int y = 0; y < 20; y++) for (int x = 0; x < 20; x++) g[y][x] = (x == 0 || y == 0 || x == 19 || y == 19) ? GEN_WALL : GEN_FLOOR;
     }
     mw = gi.w; mh = gi.h;
@@ -451,6 +470,8 @@ static void gen_temple_map(void) {
     for (int y = 0; y < MAP_MAX; y++) for (int x = 0; x < MAP_MAX; x++) map[y][x] = (y < mh && x < mw) ? to_tile[g[y][x]] : T_RVOID;
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
     pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
+    cr_x = gi.crush_x; cr_y = gi.crush_y; cr_w = gi.crush_w; cr_h = gi.crush_h; lever_tx = gi.lever_x; lever_ty = gi.lever_y;
+    if (blood_n >= BLOOD_NEED && temple_gx >= 0 && temple_gy >= 0) map[temple_gy][temple_gx] = T_RFLOOR;      /* the blood is enough: the gate is open */
     bodies_set_pit(pit_x0, pit_y0, pit_x1, pit_y1);
     pit_apply();                                                         /* story chunk 11: the bodies that went in before stay in */
 }
@@ -514,6 +535,11 @@ static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y)
     if (v == T_RVOID) { col(r, 0, 0, 0, 255); fill(r, x, y, tile, tile); return; }
     if (v == T_RFLOOR) {
         ruin_floor(r, tx, ty, x, y, k);
+        if (tx == temple_gx && ty == temple_gy && blood_n >= BLOOD_NEED) {            /* the open gate: light pours in */
+            float p = 0.5f + 0.5f * sinf(t * 3.0f);
+            col(r, 255, 236, 180, (int)(110 + 90 * p)); fill(r, x, y, tile, tile);
+            col(r, 255, 255, 240, (int)(150 + 90 * p)); fill(r, x + 2 * px, y, 4 * px, tile);
+        }
         if (pit_x0 >= 0 && tx == edge_tx && ty >= pit_y0 && ty <= pit_y1) {          /* the bridge column over the hole: the bodies, stacked to the brim, a raised block with a dark side */
             uint32_t hb = hash2(tx, ty, 91);
             SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
@@ -588,6 +614,85 @@ static void draw_ruin_tile(SDL_Renderer *r, int v, int tx, int ty, int x, int y)
     }
 }
 
+/* ---------- the crusher ---------- */
+static float cr_elev(void) {                               /* the block's height over the plate (pixel units): CR_UP = in the ceiling, 0 = down */
+    float tl = CR_SLIDE + CR_WAIT, tf = tl + CR_FALL, tr = tf + CR_HOLD;
+    if (cr_t < tl) return CR_UP;
+    if (cr_t < tf) { float u = (cr_t - tl) / CR_FALL; return CR_UP * (1.0f - u * u); }
+    if (cr_t < tr) return 0.0f;
+    float u = (cr_t - tr) / CR_RISE; if (u > 1.0f) u = 1.0f;
+    return CR_UP * u * u;                                  /* heavy: it lifts slowly at first */
+}
+static void cr_floor_draw(SDL_Renderer *r, int cx, int cy) {   /* the plate, the lever, the stains: on the floor, under bodies and us */
+    if (cr_w <= 0 || cur_map != MAP_TEMPLE) return;
+    int x = cr_x * tile - cx, y = cr_y * tile - cy, w = cr_w * tile, h = cr_h * tile;
+    if (x > W || y > H + 10 * tile || x + w < 0 || y + h < -tile * 2) return;
+    float k = ruin_k(cr_x + cr_w / 2, cr_y + cr_h / 2); if (k < 0.28f) k = 0.28f;
+    rc(r, 22, 19, 30, k); fill(r, x, y, w, h);
+    rc(r, 42, 37, 52, k); fill(r, x + 2 * px, y + 2 * px, w - 4 * px, h - 4 * px);
+    rc(r, 24, 20, 32, k);
+    for (int i = 1; i < cr_w; i++) fill(r, x + i * tile, y + 2 * px, px, h - 4 * px);
+    for (int j = 1; j < cr_h; j++) fill(r, x + 2 * px, y + j * tile, w - 4 * px, px);
+    float pulse = 0.65f + 0.35f * sinf(t * 3.0f);          /* hazard stripes round the rim */
+    for (int i = 0; i < w; i += 2 * px) { if ((i / (2 * px)) & 1) rc(r, 196, 152, 36, k * pulse); else rc(r, 30, 24, 20, k); fill(r, x + i, y, 2 * px, px); fill(r, x + i, y + h - px, 2 * px, px); }
+    for (int j = 0; j < h; j += 2 * px) { if ((j / (2 * px)) & 1) rc(r, 196, 152, 36, k * pulse); else rc(r, 30, 24, 20, k); fill(r, x, y + j, px, 2 * px); fill(r, x + w - px, y + j, px, 2 * px); }
+    for (int n = 0; n < blood_n && n < BLOOD_NEED; n++) {   /* a stain for every sacrifice */
+        float sx_, sy_; cr_slot(n, &sx_, &sy_);
+        int scx = (int)(sx_ * tile) - cx, scy = (int)(sy_ * tile) - cy - 2 * px;
+        col(r, 104, 12, 18, 215); pdisc(r, scx, scy, 9 * px, px);
+        col(r, 150, 22, 30, 205); pdisc(r, scx - 2 * px, scy - px, 5 * px, px);
+    }
+    if (cr_dead) {                                          /* the blood runs out from under the block */
+        float p = cr_on ? (cr_t - (CR_SLIDE + CR_WAIT + CR_FALL)) / 0.9f : 1.0f; p = p < 0 ? 0 : p > 1 ? 1 : p;
+        col(r, 120, 12, 20, 220); fill(r, x + 3 * px, y + h, w - 6 * px, (int)(8.0f * px * p));
+        col(r, 160, 26, 32, 200); fill(r, x + 6 * px, y + h, w - 12 * px, (int)(5.0f * px * p));
+    }
+    if (lever_tx >= 0) {                                    /* the lever: a stone stub and a stick with a red knob; pulled it lies over */
+        int lx = lever_tx * tile - cx, ly = lever_ty * tile - cy, pulled = cr_on || cr_dead;
+        float kl = ruin_k(lever_tx, lever_ty); if (kl < 0.35f) kl = 0.35f;
+        rc(r, 24, 20, 32, kl); fill(r, lx, ly + 3 * px, tile, 5 * px);
+        rc(r, 84, 78, 98, kl); fill(r, lx + px, ly + 3 * px, 6 * px, 4 * px);
+        rc(r, 52, 47, 64, kl); fill(r, lx + px, ly + 6 * px, 6 * px, px);
+        rc(r, 14, 12, 20, kl); fill(r, lx + 2 * px, ly + 4 * px, 4 * px, px);                   /* the slot */
+        rc(r, 170, 166, 182, kl);
+        if (!pulled) { fill(r, lx + 3 * px, ly - 2 * px, px, 7 * px); col(r, 214, 40, 48, 255); fill(r, lx + 2 * px, ly - 4 * px, 3 * px, 3 * px); col(r, 255, 130, 130, 255); fill(r, lx + 2 * px, ly - 4 * px, px, px); }
+        else { for (int i = 0; i < 6; i++) fill(r, lx + (2 + i) * px, ly + (4 - (i < 3 ? 0 : 0)) * px, px, px); col(r, 214, 40, 48, 255); fill(r, lx + 6 * px, ly + 3 * px, 3 * px, 3 * px); }
+    }
+}
+static void cr_block_draw(SDL_Renderer *r, int cx, int cy) {   /* the block, over everything (it falls from above) */
+    if (cr_w <= 0 || !cr_on) return;
+    float e = cr_elev();
+    int x = cr_x * tile - cx, y = cr_y * tile - cy, w = cr_w * tile, h = cr_h * tile;
+    float k = ruin_k(cr_x + cr_w / 2, cr_y + cr_h / 2); if (k < 0.42f) k = 0.42f;
+    float wsh = cr_t > CR_SLIDE ? (cr_t - CR_SLIDE) / CR_WAIT : 0.0f; wsh = wsh > 1.0f ? 0.3f : wsh * 0.3f;   /* a shadow gathers as it is about to drop */
+    float sdw = 1.0f - e / CR_UP; if (sdw < wsh) sdw = wsh;
+    col(r, 0, 0, 0, (int)(175.0f * sdw)); fill(r, x, y, w, h);
+    float vis = e < 0.75f * CR_UP ? 1.0f : e >= CR_UP ? 0.0f : (CR_UP - e) / (0.25f * CR_UP);
+    if (vis <= 0.0f) return;
+    int y0 = y - (int)(e * (float)px), FH = 6;
+    int aa = (int)(255.0f * vis);
+    int fx = x + px, fw = w - 2 * px;
+    SDL_SetRenderDrawColor(r, (Uint8)(96 * k), (Uint8)(92 * k), (Uint8)(110 * k), (Uint8)aa); fill(r, fx, y0 + px, fw, h - 2 * px);                  /* the top face */
+    SDL_SetRenderDrawColor(r, (Uint8)(62 * k), (Uint8)(58 * k), (Uint8)(76 * k), (Uint8)aa);
+    for (int j = 0; j < cr_h; j++) {
+        if (j > 0) fill(r, fx, y0 + j * tile, fw, px);
+        for (int i = 0; i < cr_w; i++) fill(r, x + i * tile + ((j & 1) ? 4 : 0) * px + px, y0 + j * tile + px, px, tile - px);
+    }
+    SDL_SetRenderDrawColor(r, (Uint8)(142 * k), (Uint8)(138 * k), (Uint8)(154 * k), (Uint8)aa); fill(r, fx, y0 + px, fw, px); fill(r, fx, y0 + px, px, h - 2 * px);   /* the lit rim */
+    SDL_SetRenderDrawColor(r, (Uint8)(44 * k), (Uint8)(40 * k), (Uint8)(56 * k), (Uint8)aa);
+    fill(r, fx + 2 * px, y0 + 3 * px, 2 * px, 2 * px); fill(r, fx + fw - 4 * px, y0 + 3 * px, 2 * px, 2 * px);                                          /* bolts */
+    fill(r, fx + 2 * px, y0 + h - 5 * px, 2 * px, 2 * px); fill(r, fx + fw - 4 * px, y0 + h - 5 * px, 2 * px, 2 * px);
+    SDL_SetRenderDrawColor(r, (Uint8)(58 * k), (Uint8)(54 * k), (Uint8)(70 * k), (Uint8)aa); fill(r, fx, y0 + h - px, fw, FH * px);                       /* the front face */
+    SDL_SetRenderDrawColor(r, (Uint8)(34 * k), (Uint8)(31 * k), (Uint8)(44 * k), (Uint8)aa); fill(r, fx, y0 + h + (FH - 2) * px, fw, px);
+    for (int i = 1; i < cr_w; i++) fill(r, x + i * tile, y0 + h - px, px, FH * px);
+    if (cr_hit) {                                           /* blood on the face and the edge, dripping */
+        SDL_SetRenderDrawColor(r, 132, 14, 22, (Uint8)(235.0f * vis));
+        fill(r, fx, y0 + h + (FH - 2) * px, fw, 2 * px);
+        for (int i = 0; i < fw / px; i += 2) { int dl = 1 + (int)(hash2(i, 5, 17) % 4u); fill(r, fx + i * px, y0 + h - px, px, dl * px); }
+        for (int i = 0; i < 5; i++) fill(r, fx + (int)(hash2(i, 9, 3) % (uint32_t)(fw / px)) * px, y0 + 2 * px + (int)(hash2(i, 2, 8) % 6u) * px, 2 * px, 2 * px);
+    }
+}
+
 /* FOG OF WAR on the minimap and the map window: a tile is drawn only once we have seen it (within REVEAL_R tiles with a clear line, walls stop the sight).
  * map_disp is what they get: the real tiles where seen, 255 (colour index off the palette = black) elsewhere. reset with every map */
 #define REVEAL_R 7
@@ -637,6 +742,7 @@ static void load_map(void) {
     item_reset(px, tile); pick_on = 0;           /* what lay on the old map is gone; the pockets stay */
     near_drag = drag_on = 0; drag_cand = drag_id = -1; strain_t = 0; near_item = near_inspect = hand_down = hand_inside = 0; mm_down = 0;
     near_pit = jump_down = jump_inside = 0; pfall_on = 0; pfall_cb = NULL;
+    cr_on = cr_hit = cr_dead = 0; cr_cb = NULL; shk_x = shk_y = 0; esc_on = 0;
     btn_down = btn_inside = 0;
     pxp = (temple_sx + 0.5f) * tile; pyp = (temple_sy + 0.5f) * tile;   /* the first room's middle */
     {                                            /* dev: VESSEL_AT=edge | far puts us on the near ledge of the pit / on the far ledge (screenshots, tests) */
@@ -907,7 +1013,7 @@ int world_pit_jump(void (*done)(void)) {
     if (fabsf(dx) > fabsf(dy)) facing = dx < 0 ? FACE_LEFT : FACE_RIGHT; else facing = dy < 0 ? FACE_UP : FACE_DOWN;
     return 1;
 }
-int world_pit_jumping(void) { return pfall_on; }
+int world_pit_jumping(void) { return pfall_on || cr_on; }
 /* story chunk 8: the body nearest to us within the magnifying glass's reach (the one a stab goes to): its vessel number (1 = Aonia), 0 when none lies close */
 /* ---- story chunk 11: the pit ---- */
 void world_pit_reset(void) { pit_pile = 0; landed_n = 0; }
@@ -922,6 +1028,26 @@ int  world_pit_add(void) { pit_pile++; if (cur_map == MAP_TEMPLE) pit_apply(); r
 /* (declared above, before the drag code uses it) */
 void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
 /* THE SWING across the crack: the player flies from here to the far ledge in an arc of time (controls off), then done runs. 0 = there is no far ledge */
+static float lever_dist(void) {                                              /* tiles from our feet to the lever */
+    if (cur_map != MAP_TEMPLE || lever_tx < 0) return 1e9f;
+    float dx = pxp / tile - (lever_tx + 0.5f), dy = pyp / tile - (lever_ty + 0.5f);
+    return sqrtf(dx * dx + dy * dy);
+}
+int world_crush(void (*done)(void)) {                                        /* the lever: we walk onto the plate and the block comes down (story.c asks first) */
+    if (cr_on || cr_dead || esc_on || cur_map != MAP_TEMPLE || cr_w <= 0 || lever_dist() >= JUMP_REACH) return 0;
+    float sx_, sy_; cr_slot(blood_n, &sx_, &sy_);
+    cr_sx = pxp; cr_sy = pyp; cr_tx = sx_ * (float)tile; cr_ty = sy_ * (float)tile;
+    cr_on = 1; cr_hit = 0; cr_t = 0; cr_cb = done;
+    drag_on = 0; stick_on = 0; kx = ky = 0; world_set_controls_visible(0);
+    float dx = cr_tx - cr_sx, dy = cr_ty - cr_sy;
+    if (fabsf(dx) > fabsf(dy)) facing = dx < 0 ? FACE_LEFT : FACE_RIGHT; else facing = dy < 0 ? FACE_UP : FACE_DOWN;
+    return 1;
+}
+void world_blood_reset(void) { blood_n = 0; bm_disp = 0; bm_flash = 0; esc_on = 0; }
+void world_blood_add(void) { if (blood_n < BLOOD_NEED) blood_n++; bm_flash = 1.0f; }
+int  world_blood_count(void) { return blood_n; }
+int  world_blood_full(void) { return blood_n >= BLOOD_NEED; }
+void world_set_escape_cb(void (*cb)(void)) { esc_cb = cb; }
 static int swing_on; static float swing_t, swing_sx, swing_sy, swing_ex, swing_ey; static void (*swing_done)(void);
 int world_swing_across(void (*done)(void)) {
     if (cur_map != MAP_TEMPLE || far_tx < 0 || swing_on) return 0;
@@ -1168,6 +1294,10 @@ void world_update(float dt) {
     dragged_now = 0;
     if (mapwin_active() && (dialog_active() || !controls_visible)) mapwin_close();   /* a talk or a cutscene starts: the window must not be in the way */
     t += dt;
+    {   float tg = (float)blood_n / (float)BLOOD_NEED;                          /* the thermometer eases up to the sacrifices */
+        if (bm_disp < tg) { bm_disp += dt * 0.5f; if (bm_disp > tg) bm_disp = tg; }
+        if (bm_flash > 0) bm_flash -= dt * 1.2f;
+    }
     if (ritual_take_chime()) sfx_summon();                                                                     /* the circle begins to charge */
     if (ritual_update(dt)) { void (*cb)(void) = ritual_cb; ritual_cb = NULL; world_set_controls_visible(1); if (cb) cb(); }   /* the new body has formed: the controls are back */
     if (blackout_t >= 0 && blackout_t < blackout_dur) {       /* fading to black (chunk 12): on_black runs on the frame it is dark */
@@ -1186,6 +1316,27 @@ void world_update(float dt) {
     if (pfall_on) {                                                      /* the jump: no steering; when the fall is over the story kills us */
         kx = ky = 0; stick_on = 0; pfall_t += dt;
         if (pfall_t >= BODIES_FALL_T) { pfall_on = 0; void (*d)(void) = pfall_cb; pfall_cb = NULL; if (d) d(); }
+    }
+    shk_x = shk_y = 0;
+    if (cr_on) {                                                         /* THE CRUSHER: slide onto the plate, wait, the block falls, holds, rises; then the story kills us */
+        const float tl = CR_SLIDE + CR_WAIT, tf = tl + CR_FALL;
+        float prev = cr_t;
+        kx = ky = 0; stick_on = 0; cr_t += dt;
+        if (cr_t < CR_SLIDE) { float k = cr_t / CR_SLIDE; k = k * k * (3.0f - 2.0f * k); pxp = cr_sx + (cr_tx - cr_sx) * k; pyp = cr_sy + (cr_ty - cr_sy) * k; }
+        else { pxp = cr_tx; pyp = cr_ty; facing = FACE_DOWN; }
+        if (prev < CR_SLIDE && cr_t >= CR_SLIDE) sfx_blip(0.5f);                       /* the stone stirs */
+        if (prev < tl && cr_t >= tl) sfx_swoop();                                       /* it drops */
+        if (cr_t > CR_SLIDE && cr_t < tl) { shk_x = sinf(cr_t * 90.0f) * 0.8f * px; shk_y = cosf(cr_t * 70.0f) * 0.6f * px; }
+        if (!cr_hit && cr_t >= tf) {                                                    /* IMPACT */
+            cr_hit = 1; cr_dead = 1; sfx_hit(); sfx_punch(); world_blood_add();
+        }
+        if (cr_hit && cr_t - tf < 0.45f) { float s = cr_t - tf, a = (1.0f - s / 0.45f) * 3.0f * px; shk_x = sinf(s * 95.0f) * a; shk_y = cosf(s * 73.0f) * a * 0.7f; }
+        if (cr_t >= tf + CR_HOLD + CR_RISE) { cr_on = 0; void (*d)(void) = cr_cb; cr_cb = NULL; if (d) d(); }
+    }
+    if (esc_on) { esc_t += dt; kx = ky = 0; stick_on = 0; }
+    else if (!cr_on && controls_visible && cur_map == MAP_TEMPLE && blood_n >= BLOOD_NEED && temple_gx >= 0 && !dialog_active()) {   /* the gate stands open: walk up to it */
+        float fx = pxp / tile - (temple_gx + 0.5f), fy = pyp / tile - (temple_gy + 1.0f);
+        if (fabsf(fx) < 1.0f && fy < 0.9f) { esc_on = 1; esc_t = 0; drag_on = 0; kx = ky = 0; stick_on = 0; world_set_controls_visible(0); if (esc_cb) esc_cb(); }
     }
     float mag = sqrtf(kx * kx + ky * ky);
     moving = mag > 0.15f;
@@ -1206,6 +1357,7 @@ void world_update(float dt) {
         else                       facing = ky < 0 ? FACE_UP : FACE_DOWN;
         walk += dt * 8.0f * (drag_on ? (drag_id == DRAG_ROCK ? 0.4f : 0.55f) : 1.0f);
     } else walk = 0;
+    if (cr_on && cr_t < CR_SLIDE) { moving = 1; walk += dt * 8.0f; }                  /* we walk onto the plate */
     for (int i = 0; i < landed_n; i++) if (landed[i].delay > 0) landed[i].delay -= dt;
     drag_step(dt);
     pit_footing();
@@ -1251,7 +1403,7 @@ void world_update(float dt) {
     drag_pick();
     near_drag = !dialog_active() && (drag_on || drag_cand >= 0);   /* a body or the rock lies in reach (or we hold one) */
     if (!near_drag) btn_down = btn_inside = 0;
-    near_pit = !dialog_active() && !drag_on && !pick_on && cur_map == MAP_TEMPLE && world_dist_to_pit() < JUMP_REACH;      /* hands free, at the crack: the jump arrow */
+    near_pit = !dialog_active() && !drag_on && !pick_on && !cr_on && !cr_dead && !esc_on && !pfall_on && cur_map == MAP_TEMPLE && cr_w > 0 && lever_dist() < JUMP_REACH;      /* hands free, at the lever: the lever button */
     if (!near_pit) jump_down = jump_inside = 0;
     {   float lv = drag_on ? fminf(drag_spd / 28.0f, 1.0f) : 0.0f; if (lv < 0.04f) lv = 0.0f;               /* the scrape: as loud as he is fast */
         if (lv > 0 || drag_snd > 0) sfx_drag(lv);
@@ -1331,13 +1483,14 @@ static void draw_jump_button(SDL_Renderer *r) {                  /* the same two
     pdisc(r, jbx, jby, jbr, ucell);
     col(r, 255, 255, 255, down ? 255 : pulse);
     pring(r, jbx, jby, jbr, 1, ucell);
-    int a = jbr / 7; if (a < 2) a = 2;
-    int bob = down ? a : (int)(sinf(t * 4.0f) * a * 0.5f);          /* it nods down, again and again */
-    col(r, 232, 84, 84, 255);
-    fill(r, jbx - a, jby - 4 * a + bob, 2 * a, 4 * a);              /* the shaft ... */
-    fill(r, jbx - 3 * a, jby + 0 * a + bob, 6 * a, a);              /* ... and the head: three rows, narrowing */
-    fill(r, jbx - 2 * a, jby + 1 * a + bob, 4 * a, a);
-    fill(r, jbx - a,     jby + 2 * a + bob, 2 * a, a);
+    int a = jbr / 7; if (a < 2) a = 2;                              /* the LEVER icon: a stub, a stick, a red knob; it leans over while pressed */
+    int lean = down ? 3 * a : (int)(sinf(t * 4.0f) * a * 0.5f) - a;
+    col(r, 120, 116, 140, 255); fill(r, jbx - 4 * a, jby + 2 * a, 8 * a, 2 * a);
+    col(r, 70, 66, 90, 255);    fill(r, jbx - 4 * a, jby + 4 * a - a / 2, 8 * a, a / 2 > 0 ? a / 2 : 1);
+    col(r, 200, 196, 212, 255);
+    for (int i = 0; i < 5; i++) fill(r, jbx + lean * i / 4 - a / 2, jby + 2 * a - i * a, a, a + 1);
+    col(r, 232, 84, 84, 255);   fill(r, jbx + lean - 3 * a / 2, jby - 5 * a, 3 * a, 3 * a);
+    col(r, 255, 170, 170, 255); fill(r, jbx + lean - 3 * a / 2, jby - 5 * a, a, a);
 }
 
 static void draw_interact_button(SDL_Renderer *r) {
@@ -1423,6 +1576,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         char_set_darken(0);
         SDL_RenderSetClipRect(r, NULL);
     }
+    cr_floor_draw(r, cx, cy);                                                                                                  /* the crusher's plate and lever, under the dead */
     bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                            /* the other dead (story chunk 6) */
     props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                             /* the big rock (story chunk 7) */
     item_draw_ground(r, cx, cy, t);                                                                                            /* lying on the floor: under the player */
@@ -1473,6 +1627,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         if ((fin_on && fin_t >= FIN_EYES) || fin_lying) char_set_strain(1);        /* the eyes close, and stay shut until the next life */
         if (fin_lying) char_draw_lying(r, player_look, sx0, sy0, px);          /* the red cut: the body lies down (the sleeping sprite) */
         else if (pfall_on) pfall_draw(r, sx0, sy0, cx, cy);
+        else if (cr_dead) { char_set_strain(1); char_draw_lying(r, player_look, sx0, sy0, px); }       /* crushed: we lie flat, eyes shut */
         else char_draw(r, player_look, sx0, sy0, facing, moving, walk, px);
         char_set_stab(0, 0, 0, 0, 0);
         char_set_held(-1, NULL);
@@ -1482,8 +1637,54 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     }
     char_set_darken(0);
     if (ritual_scene()) ritual_draw_over(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, player_look);
+    cr_block_draw(r, cx, cy);                                                                  /* the heavy block, over everything */
 }
 
+/* THE BLOOD METER: a vertical thermometer on the left, above the stick. every death fills it a third; full = the gate is open */
+static void blood_meter_draw(SDL_Renderer *r) {
+    float u = ui; int c = ucell;
+    int tw = 7 * c, brad = (int)(tw * 0.85f);
+    int cxm = (int)(14 * u) + brad + 2 * c;
+    int cym = sy - sr - (int)(16 * u) - brad - 2 * c;
+    int th = (int)(150 * u); if (th > cym - (int)(80 * u)) th = cym - (int)(80 * u); if (th < (int)(48 * u)) th = (int)(48 * u);
+    int tx = cxm - tw / 2, ttop = cym - th;
+    int full = blood_n >= BLOOD_NEED;
+    float pulse = 0.5f + 0.5f * sinf(t * 5.0f);
+    col(r, 8, 6, 16, 240); fill(r, tx - c, ttop - c, tw + 2 * c, th + c); pdisc(r, cxm, cym, brad + c, c);            /* the frame */
+    if (full) { col(r, 255, 206, 80, (int)(120 + 130 * pulse)); fill(r, tx - c, ttop - c, tw + 2 * c, c); fill(r, tx - c, ttop - c, c, th + c); fill(r, tx + tw, ttop - c, c, th + c); pdisc(r, cxm, cym, brad + c, c); col(r, 8, 6, 16, 255); pdisc(r, cxm, cym, brad, c); }
+    col(r, 44, 24, 38, 245); fill(r, tx, ttop, tw, th); pdisc(r, cxm, cym, brad, c);                                    /* the glass */
+    int fh = (int)(bm_disp * (float)th + 0.5f);
+    col(r, 150, 12, 22, 255); pdisc(r, cxm, cym, brad - c, c);                                                          /* the bulb is always red */
+    col(r, 214, 52, 60, 255); pdisc(r, cxm - brad / 3, cym - brad / 3, brad / 4, c);
+    if (fh > 0) {
+        col(r, 168, 16, 26, 255); fill(r, tx + c, cym - fh, tw - 2 * c, fh);
+        col(r, 214, 52, 60, 255); fill(r, tx + c, cym - fh, c, fh);
+        int wob = (int)(sinf(t * 4.0f) * (float)c * 0.4f);
+        col(r, 240, 90, 94, 255); fill(r, tx + c, cym - fh - (wob > 0 ? wob : 0), tw - 2 * c, c);                       /* the surface */
+        if (bm_flash > 0) { col(r, 255, 255, 255, (int)(170.0f * bm_flash)); fill(r, tx + c, cym - fh, tw - 2 * c, fh); pdisc(r, cxm, cym, brad - c, c); }
+    }
+    int fc = (int)(1.6f * u); if (fc < 1) fc = 1;
+    for (int k = 1; k <= BLOOD_NEED; k++) {                                                                             /* a notch for each sacrifice */
+        int yk = cym - th * k / BLOOD_NEED;
+        if (blood_n >= k) col(r, 255, 214, 96, 255); else col(r, 150, 140, 168, 255);
+        fill(r, tx + tw, yk - c / 2, 2 * c, c > 1 ? c / 2 + 1 : 1);
+        char nb[4]; snprintf(nb, sizeof nb, "%d", k);
+        font_draw(r, nb, tx + tw + 3 * c, yk - 3 * fc, fc);
+    }
+    char lab[16]; snprintf(lab, sizeof lab, full ? "FULL" : "%d/%d", blood_n, BLOOD_NEED);
+    int lw = font_width(lab, fc), lx = cxm - lw / 2; if (lx < 3) lx = 3;
+    col(r, 8, 6, 16, 255); font_draw(r, lab, lx + 1, ttop - 3 * c - 7 * fc + 1, fc);
+    if (full) col(r, 255, 214, 96, 255); else col(r, 240, 150, 156, 255);
+    font_draw(r, lab, lx, ttop - 3 * c - 7 * fc, fc);
+    const char *bl = "BLOOD"; int bw = font_width(bl, fc), bx = cxm - bw / 2; if (bx < 3) bx = 3;
+    col(r, 8, 6, 16, 255); font_draw(r, bl, bx + 1, ttop - 3 * c - 16 * fc + 1, fc);
+    col(r, 240, 150, 156, 255); font_draw(r, bl, bx, ttop - 3 * c - 16 * fc, fc);
+}
+static void esc_text(SDL_Renderer *r, const char *s, int y, int cell, int a) {
+    float u = ui; while (cell > 1 && font_width(s, cell) > W - (int)(24 * u)) cell--;
+    int tx = (W - font_width(s, cell)) / 2;
+    col(r, 60, 36, 48, a); font_draw(r, s, tx, y, cell);
+}
 void world_draw(SDL_Renderer *r) {
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
 
@@ -1505,14 +1706,14 @@ void world_draw(SDL_Renderer *r) {
             W = Wv; H = Hv;                                                      /* the scene is laid out for the bigger view ... */
             SDL_SetRenderTarget(r, atex);
             SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-            draw_scene(r, ccx, ccy);
+            draw_scene(r, ccx + shk_x, ccy + shk_y);
             SDL_SetRenderTarget(r, NULL);
             W = sw; H = sh;                                                      /* ... and the screen is the screen again */
             SDL_Rect src = { 0, 0, Wv, Hv };
             SDL_RenderCopy(r, atex, &src, NULL);
-        } else draw_scene(r, cam_x, cam_y);
+        } else draw_scene(r, cam_x + shk_x, cam_y + shk_y);
     } else {
-        draw_scene(r, cam_x, cam_y);
+        draw_scene(r, cam_x + shk_x, cam_y + shk_y);
     }
 
     if (controls_visible && !dialog_active()) {
@@ -1539,6 +1740,7 @@ void world_draw(SDL_Renderer *r) {
         toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
         hud_draw(r);                                              /* ID card, top-right */
     }
+    if (!fin_on && cur_map == MAP_TEMPLE) blood_meter_draw(r);     /* the blood meter: always there, so the filling is seen */
     if (controls_visible) item_ui_draw_window(r);                 /* story chunk 16: the inventory window, over the HUD */
 
     if (fin_on && fin_red) {                                      /* the final action, after the cut: the red filter over everything, the text, the button */
@@ -1560,6 +1762,17 @@ void world_draw(SDL_Renderer *r) {
         float a = blackout_t / blackout_dur; if (a > 1) a = 1;
         col(r, 0, 0, 0, (int)(255 * a));
         fill(r, 0, 0, W, H);
+    }
+    if (esc_on) {                                                 /* THE ESCAPE: the world goes white, the words come */
+        float a = esc_t / 2.5f; if (a > 1) a = 1;
+        col(r, 255, 250, 236, (int)(255 * a)); fill(r, 0, 0, W, H);
+        float ta = (esc_t - 2.0f) / 1.2f; ta = ta < 0 ? 0 : ta > 1 ? 1 : ta;
+        if (ta > 0) {
+            float u = ui; int c1 = (int)(4.0f * u), c2 = (int)(1.8f * u); if (c1 < 1) c1 = 1; if (c2 < 1) c2 = 1;
+            esc_text(r, "YOU ESCAPED", (int)(H * 0.34f), c1, (int)(255 * ta));
+            esc_text(r, "THE BLOOD WAS ENOUGH.", (int)(H * 0.34f) + 12 * c1, c2, (int)(255 * ta));
+            esc_text(r, "THE RUINS LET GO.", (int)(H * 0.34f) + 12 * c1 + 12 * c2, c2, (int)(255 * ta));
+        }
     }
     dialog_draw(r);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);

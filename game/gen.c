@@ -76,7 +76,7 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
         (void)gen_rand(); (void)gen_rand();                                              /* (the old ragged edge drew two numbers per column: keep the sequence, so the same seed makes the same rooms) */
         int top = 9, bot = 14;                                                          /* the crack is a straight band: 6 rows, the same in every column (a body falls when its middle is past a straight line) */
         for (int y = top; y <= bot; y++) {
-            AT(x, y) = GEN_PIT;
+            /* (no pit any more: the chamber stays floor, the crusher stands in it) */
             if (x < pit_x0) pit_x0 = x;
             if (x > pit_x1) pit_x1 = x;
             if (y < pit_y0) pit_y0 = y;
@@ -124,7 +124,10 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
 
     if (info) {
         info->w = TW; info->h = TH; info->spawn_x = sx; info->spawn_y = sy; info->gate_x = gx; info->gate_y = gy; info->rooms = 6;
-        info->pit_x0 = pit_x0; info->pit_y0 = pit_y0; info->pit_x1 = pit_x1; info->pit_y1 = pit_y1;
+        (void)pit_x0; (void)pit_y0; (void)pit_x1; (void)pit_y1;
+        info->pit_x0 = info->pit_y0 = info->pit_x1 = info->pit_y1 = -1;                  /* no pit: the crusher replaced it */
+        info->crush_x = cx - 2; info->crush_y = 10; info->crush_w = 4; info->crush_h = 3;   /* the plate, in the middle of the chamber */
+        info->lever_x = cx + 2; info->lever_y = 11;                                         /* the lever, at the plate's east edge */
         info->far_x = cx; info->far_y = 7;                  /* the far ledge: where the second circle's carvings will be (chunk 13) */
         info->edge_x = cx; info->edge_y = south_y;          /* the south ledge's middle */
     }

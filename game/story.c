@@ -155,6 +155,7 @@ static const char *const DEATH_LINE[DEATH_CAUSES] = {
     [DEATH_SELF]   = "Again. Fine.",
     [DEATH_PIT]    = "I didn't plan that one.",
     [DEATH_CIRCLE] = "One life, one circle. Fair price.",
+    [DEATH_CRUSH]  = "Flat. But the stone drank.",
 };
 static int dying, enter_pending;
 static DeathCause death_cause;
@@ -202,6 +203,7 @@ static void died_black(void) { enter_pending = 1; }            /* the world is b
 void story_die(DeathCause cause) {
     if (dying || cause < 0 || cause >= DEATH_CAUSES) return;
     dying = 1; death_cause = cause;
+    if (cause != DEATH_CRUSH) world_blood_add();               /* every death feeds the blood meter (the crusher's own was counted when the block hit) */
     world_player_tilef(&die_tx, &die_ty);
     world_set_controls_visible(0);
     world_fade_to_black(1.2f, died_black);
@@ -362,14 +364,14 @@ static void stab_self_begin(void) {
     world_final_stab(stab_self_go);
 }
 /* JUMP: the arrow at the crack's edge (world.c). like STAB SELF the window asks first, and YES: we go over the edge (the swoop, world_pit_jump), then we die (DEATH_PIT) and our body fills the pit. walking into the crack is NOT a fall: the crack is a barrier, only this button jumps */
-static void jump_done(void) { world_pit_add(); story_die(DEATH_PIT); }               /* we are gone: the body fills the pit, the next vessel wakes */
+static void jump_done(void) { story_die(DEATH_CRUSH); }               /* we are gone: the body fills the pit, the next vessel wakes */
 static void jump_go(void) {
     if (dying || cp_busy || world_final_active() || world_pit_jumping()) return;
-    if (world_pit_jump(jump_done)) sfx_swoop();                                          /* slide out over the crack, drop into the dark, with the air rush */
+    world_crush(jump_done);                                                              /* we walk onto the plate, the block falls and crushes us (world.c) */
 }
 static void story_jump(void) {
     if (dying || cp_busy || world_final_active() || world_pit_jumping()) return;
-    confirm_ask("JUMP", "This will kill you. Sure?", "YES", "NO", jump_go);
+    confirm_ask("PULL THE LEVER", "The block will crush you. Sure?", "YES", "NO", jump_go);
 }
 static void story_action(int kind, int act) {
     if (dying || world_final_active()) return;
@@ -469,8 +471,14 @@ static void secrets_watch(float dt) {
 }
 
 /* ---------- the world starts ---------- */
+static int gate_told;
+static void story_escaped(void) {                               /* we walked into the open gate: free */
+    jukebox_scene_fade(2.5f); music_fade_out(2.5f);
+    if (task_escape >= 0) { mission_complete(task_escape); task_escape = -1; }
+}
 static void story_woke(void) {                                 /* the new body has formed in the circle */
     hummed = 0; still_t = 0;
+    if (world_blood_full() && !gate_told) { gate_told = 1; toast_info("THE GATE IS OPEN", "The blood meter is full. Go."); }
     if (cp_reached && !cp_told) {                               /* chunk 13: the first wake at the second circle: part one is over */
         cp_told = 1;
         if (task_escape >= 0) { mission_complete(task_escape); task_escape = -1; }
@@ -482,7 +490,8 @@ static void story_woke(void) {                                 /* the new body h
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1; task_escape = -1; cp_busy = cp_reached = cp_told = 0;
+    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1; task_escape = -1; cp_busy = cp_reached = cp_told = 0; gate_told = 0;
+    world_blood_reset(); world_set_escape_cb(story_escaped);
     card_show_vas();                            /* the card says Vas until the note is read */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     item_clear();

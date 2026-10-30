@@ -25,6 +25,8 @@ typedef struct {
     int pit_x0, pit_y0, pit_x1, pit_y1;   /* the bounding box of the pit (tiles) */
     int far_x, far_y;           /* a floor tile on the far ledge, past the pit (the second circle's spot) */
     int edge_x, edge_y;         /* a floor tile on the near ledge, in front of the pit */
+    int crush_x, crush_y, crush_w, crush_h;   /* THE CRUSHER's plate (tiles): the heavy block falls on it */
+    int lever_x, lever_y;       /* the lever tile (solid), beside the plate */
 } GenInfo;
 
 /* the seeded random numbers (a small xorshift: the same on every device, unlike rand()) */
