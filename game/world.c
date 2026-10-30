@@ -1090,7 +1090,7 @@ void world_set_pit_cb(void (*cb)(unsigned vessel)) { pit_cb = cb; }
 static float lever_dist(void) {                                              /* 0 when our feet stand on the plate (where the lever is pulled from), else far */
     if (cur_map != MAP_TEMPLE || cr_w <= 0) return 1e9f;
     float fx = pxp / tile, fy = pyp / tile;
-    return (fx >= cr_x + 0.2f && fx < cr_x + cr_w - 0.2f && fy >= cr_y + 0.3f && fy < cr_y + cr_h + 0.2f) ? 0.0f : 1e9f;
+    return (fx >= cr_x + 0.2f && fx < cr_x + cr_w - 0.2f && fy >= cr_y + 0.9f && fy < cr_y + cr_h + 0.2f) ? 0.0f : 1e9f;
 }
 int world_crush(void (*done)(void)) {                                        /* the lever: we walk onto the plate and the block comes down (story.c asks first) */
     if (cr_on || cr_dead || esc_on || cur_map != MAP_TEMPLE || cr_w <= 0 || lever_dist() >= JUMP_REACH) return 0;

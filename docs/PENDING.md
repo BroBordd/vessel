@@ -50,7 +50,7 @@ Written from the chat with the owner. Each item is one small chunk: one push, ow
 
 ## F. The crusher (replaces the pit), blood meter, escape (pushed, untested)
 - [ ] The pit is gone: the chamber is plain floor. A 4x3 hazard-striped plate lies in its middle, a lever stands at the plate's east edge (gen.c `crush_*`, `lever_*`; world.c `cr_*`).
-- [ ] The lever stands IN the plate (top row). Stand on the plate: the lever button shows. Tap, confirm: the block falls where you stand (no moving). Blood: a stain grows under the block where you stood (clipped to the plate), then runs along a carved gutter west to the stone, and only then the stone's groove fills (`bm_delay`). Next wake: bodies lie where they were crushed.
+- [ ] The lever stands just north of the plate (so a crushed body never overlaps it). Stand on the plate: the lever button shows. Tap, confirm: the block falls where you stand (no moving). Blood: a stain grows under the block where you stood (clipped to the plate), then runs along a carved gutter west to the stone, and only then the stone's groove fills (`bm_delay`). Next wake: bodies lie where they were crushed.
 - [ ] BLOOD METER is now a carved stone pillar west of the plate (`cr_meter_draw`, solid tile `mtr_tx`): a groove fills with blood per death, notches turn red, the stone glows when full.
 - [ ] After 3 sacrifices the gate (north wall, behind the plate) opens and glows; next wake a toast says so. Walk up to it: white fade, "YOU ESCAPED" (`world_set_escape_cb`, `story_escaped`).
 - [ ] Knife and rocks untouched (decor). The old pit code is inert (`pit_x0 = -1`), the second circle is not placed any more.

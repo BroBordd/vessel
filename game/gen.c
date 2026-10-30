@@ -127,7 +127,7 @@ int gen_temple(uint8_t *grid, int stride, int max, uint32_t seed, GenInfo *info)
         (void)pit_x0; (void)pit_y0; (void)pit_x1; (void)pit_y1;
         info->pit_x0 = info->pit_y0 = info->pit_x1 = info->pit_y1 = -1;                  /* no pit: the crusher replaced it */
         info->crush_x = cx - 2; info->crush_y = 10; info->crush_w = 4; info->crush_h = 3;   /* the plate, in the middle of the chamber */
-        info->lever_x = cx; info->lever_y = 10;                                             /* the lever stands IN the plate (top row): we pull it standing on the plate */
+        info->lever_x = cx; info->lever_y = 9;                                              /* the lever stands just NORTH of the plate (not on it: a body lying on the plate must never overlap it) */
         info->far_x = cx; info->far_y = 7;                  /* the far ledge: where the second circle's carvings will be (chunk 13) */
         info->edge_x = cx; info->edge_y = south_y;          /* the south ledge's middle */
     }
