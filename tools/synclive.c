@@ -27,12 +27,12 @@ static void sleep_until(double t) { double d; while ((d = t - sync_now()) > 0) u
 
 static void *producer(void *a) {
     (void)a;
-    static Sint16 buf[2048];
+    static Sint16 buf[4096];
     const double dt = 1024.0 / SYNC_RATE;
     double t0 = sync_now(); t_play0 = t0 + HW0;
     for (long k = 0; run; k++) {
         if (k >= K0) sleep_until(t0 + (double)(k - K0 + 1) * dt);
-        SDL_LockAudioDevice(dev); audio_cb(NULL, (Uint8 *)buf, 4096); SDL_UnlockAudioDevice(dev);
+        SDL_LockAudioDevice(dev); audio_cb(NULL, (Uint8 *)buf, 8192); SDL_UnlockAudioDevice(dev);
     }
     return NULL;
 }

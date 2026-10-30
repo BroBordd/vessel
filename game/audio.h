@@ -15,7 +15,8 @@ void music_fade_out(float seconds);
 #define MUSIC_DEFAULT_VOLUME 0.65f
 void  music_set_pitch(float semitones);   /* -12..12, 0 = as recorded. speed and pitch together. only the jukebox sets it */
 float music_pitch(void);
-void  music_set_volume(float v);
+void  music_set_volume(float v);   /* the app scales the music on its own AudioTrack (real time); the stream carries the music at full level */
+void  audio_send_volume(void);     /* (re)send the current volume to the app ("vol 0.6500" on stdout) */
 float music_volume(void);
 /* pause / resume the music (the stream keeps its place; a ~30 ms ramp avoids a click). stays paused across
  * track changes until resumed, so a new map's music does not blast over someone who paused it */

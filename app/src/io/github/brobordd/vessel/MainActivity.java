@@ -239,32 +239,54 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         new Thread(new Runnable() {
             public void run() {
-                AudioTrack at = null;
+                AudioTrack at = null, fx = null;
                 try {
                     int min = AudioTrack.getMinBufferSize(RATE,
                             AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
                     // 2x the minimum (was 4x): less sound queued up = less delay between the game
                     // mixing a sound and you hearing it (the dialog blips line up with the letters)
+                    // TWO tracks, identical, fed in step from one stream (8 bytes a frame: music L R, effects L R).
+                    // the music track carries the volume knob (AudioTrack.setVolume acts at the end of the pipeline: heard at once);
+                    // the effects ignore it, as before.
                     at = new AudioTrack(AudioManager.STREAM_MUSIC, RATE,
                             AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
                             min * 2, AudioTrack.MODE_STREAM);
+                    fx = new AudioTrack(AudioManager.STREAM_MUSIC, RATE,
+                            AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
+                            min * 2, AudioTrack.MODE_STREAM);
+                    at.setVolume(musicVol);
+                    musicTrack = at;
                     at.play();
+                    fx.play();
                     FileInputStream in = new FileInputStream(fifo); // blocks until game opens it
                     byte[] buf = new byte[4096];
+                    byte[] bm = new byte[2048], bf = new byte[2048];
+                    int have = 0;                          // bytes of an unfinished frame kept from the last read
                     int n;
                     // the speaker's own clock: AudioTrack says "frame F was at the speaker at time T" (System.nanoTime clock). the game
                     // uses it to show the music window for what is HEARD (a guess at the delay is never right). 25 times a second is plenty.
                     AudioTimestamp ts = new AudioTimestamp();
                     long lastStampAt = 0, lastStampNs = 0;
-                    while (running && (n = in.read(buf)) > 0) {
+                    while (running && (n = in.read(buf, have, buf.length - have)) > 0) {
                         if (paused) {                      // in the background: stop consuming, the game's audio then waits on the pipe
-                            at.pause();
+                            at.pause(); fx.pause();
                             while (paused && running) {
                                 try { Thread.sleep(40); } catch (InterruptedException ie) { break; }
                             }
-                            if (running) at.play();
+                            if (running) { at.play(); fx.play(); }
                         }
-                        at.write(buf, 0, n);
+                        int total = have + n, frames = total / 8;
+                        for (int i = 0; i < frames; i++) {
+                            int s = i * 8, d = i * 4;
+                            bm[d] = buf[s]; bm[d + 1] = buf[s + 1]; bm[d + 2] = buf[s + 2]; bm[d + 3] = buf[s + 3];
+                            bf[d] = buf[s + 4]; bf[d + 1] = buf[s + 5]; bf[d + 2] = buf[s + 6]; bf[d + 3] = buf[s + 7];
+                        }
+                        have = total - frames * 8;
+                        for (int i = 0; i < have; i++) buf[i] = buf[frames * 8 + i];
+                        if (frames > 0) {
+                            at.write(bm, 0, frames * 4);
+                            fx.write(bf, 0, frames * 4);
+                        }
                         long nowNs = System.nanoTime();
                         if (nowNs - lastStampAt >= 40000000L) {
                             lastStampAt = nowNs;
@@ -280,10 +302,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 } catch (Exception e) {
                     Log.e("game", "audio", e);
                 } finally {
+                    musicTrack = null;
                     if (at != null) { at.stop(); at.release(); }
+                    if (fx != null) { fx.stop(); fx.release(); }
                 }
             }
         }).start();
+    }
+
+    // the music volume (0..1), told by the game ("vol 0.65"): put straight on the music track
+    volatile float musicVol = 0.65f;
+    volatile AudioTrack musicTrack;
+    void setMusicVol(float v) {
+        if (v < 0f) v = 0f;
+        if (v > 1f) v = 1f;
+        musicVol = v;
+        AudioTrack t = musicTrack;
+        if (t != null) { try { t.setVolume(v); } catch (Exception ignored) {} }
     }
 
     File gameBinary() {
@@ -306,6 +341,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                             new InputStreamReader(p.getInputStream()));
                     String l;
                     while ((l = r.readLine()) != null) {
+                        if (l.startsWith("vol ")) {                  // the music volume: onto the music track at once (not logged)
+                            try { setMusicVol(Float.parseFloat(l.substring(4).trim())); } catch (Exception ignored) {}
+                            continue;
+                        }
                         Log.i("game", l);
                         if (l.equals("back: unhandled")) {           // the game had nothing for the back button to do: go to the home screen
                             runOnUiThread(new Runnable() { public void run() { moveTaskToBack(true); } });

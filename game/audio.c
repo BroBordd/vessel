@@ -852,7 +852,14 @@ static double view_frame(void);
 static void trim_load(void);
 
 /* the bars show what is on the speaker at the moment this picture reaches the eye (see view_frame) */
-void music_spectrum(float *bands) { sync_spectrum_at(view_frame(), bands); }
+void music_spectrum(float *bands) {
+    sync_spectrum_at(view_frame(), bands);
+    float g = master;                              /* the bars hold the song at full level; the knob is applied now, as the speaker does */
+    if (g < 1.0f) {
+        float d = g <= 0.0f ? -1.0f : 20.0f * log10f(g) / 58.0f;
+        for (int i = 0; i < MUSIC_BANDS; i++) { bands[i] += d; if (bands[i] < 0.0f) bands[i] = 0.0f; }
+    }
+}
 const char *music_title(void) { return title; }
 unsigned music_serial(void) { return serial; }
 
@@ -964,10 +971,17 @@ static void seek_locked(double fr) {
     pg = 0.0f;
 }
 
+#define AUDIO_MAXF 8192
 static void audio_cb(void *ud, Uint8 *stream, int len) {
     (void)ud;
-    Sint16 *out = (Sint16 *)stream;
-    int frames = len / 4;     /* stereo S16 */
+    /* the stream is 4 channels: 0-1 the MUSIC (full level: the app scales it with the AudioTrack's own volume, so the volume knob is heard
+     * at once, not after the whole pipeline), 2-3 everything else (effects, piano keys: they ignore the music volume). 8 bytes a frame */
+    static Sint16 mbuf[AUDIO_MAXF * 2], sbuf[AUDIO_MAXF * 2];
+    Sint16 *out = mbuf;
+    int frames = len / 8;
+    if (frames > AUDIO_MAXF) frames = AUDIO_MAXF;
+    memset(stream, 0, (size_t)len);
+    memset(sbuf, 0, (size_t)frames * 4);
     int done = 0;
     double t_cb = sync_now();
     if (!t_first) t_first = SDL_GetPerformanceCounter();
@@ -1023,24 +1037,34 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
         }
     }
     an_feed(out, done);                               /* drums / notes for the music window: the song only, before master volume */
-    if (master != 1.0f)
-        for (int i = 0; i < done * 2; i++) out[i] = (Sint16)(out[i] * master);
     if (done < frames) memset(out + done * 2, 0, (size_t)(frames - done) * 4);
-    voices_mix(out, frames);                          /* the piano keys the player plays */
-    spectrum_feed(out, frames);                       /* the equalizer: song after the volume knob + the piano keys (not the ding / blips) */
-    if (sfx_on) sfx_mix(out, frames);
-    if (blip_on) blip_mix(out, frames);
-    if (mon_on) mon_mix(out, frames);
-    if (err_on) err_mix(out, frames);
-    if (hit_on) hit_mix(out, frames);
-    if (hint_on) hint_mix(out, frames);
-    if (swoop_on) swoop_mix(out, frames);
-    if (drag_on) drag_mix(out, frames);
-    if (pfft_on) pfft_mix(out, frames);
-    if (bf_on) bf_mix(out, frames);
-    if (sp_on) sp_mix(out, frames);
-    if (pn_on) pn_mix(out, frames);
-    if (sum_on) sum_mix(out, frames);
+    voices_mix(sbuf, frames);                         /* the piano keys the player plays */
+    if (frames >= FFT_N) {                            /* the equalizer: the song at full level (the volume knob is applied when the bars are looked up, so it is in step with the sound) + the piano keys (not the ding / blips) */
+        static Sint16 tmp[FFT_N * 2];
+        const Sint16 *m = out + (frames - FFT_N) * 2, *v = sbuf + (frames - FFT_N) * 2;
+        for (int i = 0; i < FFT_N * 2; i++) { int o = m[i] + v[i]; tmp[i] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o); }
+        spectrum_feed(tmp, FFT_N);
+    } else spectrum_feed(out, frames);
+    if (sfx_on) sfx_mix(sbuf, frames);
+    if (blip_on) blip_mix(sbuf, frames);
+    if (mon_on) mon_mix(sbuf, frames);
+    if (err_on) err_mix(sbuf, frames);
+    if (hit_on) hit_mix(sbuf, frames);
+    if (hint_on) hint_mix(sbuf, frames);
+    if (swoop_on) swoop_mix(sbuf, frames);
+    if (drag_on) drag_mix(sbuf, frames);
+    if (pfft_on) pfft_mix(sbuf, frames);
+    if (bf_on) bf_mix(sbuf, frames);
+    if (sp_on) sp_mix(sbuf, frames);
+    if (pn_on) pn_mix(sbuf, frames);
+    if (sum_on) sum_mix(sbuf, frames);
+    {   /* interleave: L R of the music, then L R of the effects */
+        Sint16 *st = (Sint16 *)stream;
+        for (int i = 0; i < frames; i++) {
+            st[i * 4] = out[i * 2]; st[i * 4 + 1] = out[i * 2 + 1];
+            st[i * 4 + 2] = sbuf[i * 2]; st[i * 4 + 3] = sbuf[i * 2 + 1];
+        }
+    }
     sync_push(&cur_chunk);                            /* the chunk is complete: what the screen can look up once it is heard */
     /* our own estimate of the clock, for apps that do not send the speaker's timestamps: at this moment the speaker is at the frame
      * (everything produced - the pipeline depth we measure), plus what we can not measure (Android's mixer, the hardware) */
@@ -1056,14 +1080,15 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
 int audio_init(void) {
     SDL_AudioSpec want, have;
     SDL_zero(want);
-    want.freq = OUT_RATE; want.format = AUDIO_S16SYS; want.channels = 2;
+    want.freq = OUT_RATE; want.format = AUDIO_S16SYS; want.channels = 4;   /* music L R + effects L R: see audio_cb */
     want.samples = 1024; want.callback = audio_cb;      /* 23 ms chunks (was 46) */
     /* blocks until the app opens the read end of the FIFO */
     dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (!dev) { printf("audio: %s\n", SDL_GetError()); fflush(stdout); return -1; }
     printf("audio %dHz ch%d fmt%x\n", have.freq, have.channels, have.format);
     fflush(stdout);
-    {   /* shrink the FIFO from 64 KB (~370 ms of sound) to one page (~23 ms): less sound waiting in line = less lag */
+    audio_send_volume();                                 /* (the app puts it on the music track) */
+    {   /* shrink the FIFO from 64 KB (~370 ms of sound) to one page: less sound waiting in line = less lag */
         int fd = open("audio.pcm", O_WRONLY | O_NONBLOCK);
         if (fd >= 0) {
             int got = fcntl(fd, F_SETPIPE_SZ, 4096);
@@ -1349,13 +1374,17 @@ int music_scan(void) {
 
 const char *music_scan_file(int i) { return i >= 0 && i < ntracks ? tracks[i] : ""; }
 
+/* the app scales the music track itself (AudioTrack.setVolume: applied at the end of the pipeline, heard at once). one line on stdout, the app's
+ * reader picks it up: "vol 0.6500". sent whenever it changes, and once when the audio device opens */
+void audio_send_volume(void) { printf("vol %.4f\n", master); fflush(stdout); }
 void music_set_volume(float v) {
     if (v < 0.0f) v = 0.0f;
     if (v > 1.0f) v = 1.0f;
     if (!dev) { master = v; return; }
     SDL_LockAudioDevice(dev);
-    master = v;                                  /* takes effect on the very next buffer, no ramp */
+    master = v;
     SDL_UnlockAudioDevice(dev);
+    audio_send_volume();
 }
 
 void music_fade_out(float seconds) {
