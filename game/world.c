@@ -117,6 +117,7 @@ static int pit_x0 = -1, pit_y0 = -1, pit_x1 = -1, pit_y1 = -1;   /* the pit's bo
 static int   cr_x = -1, cr_y = -1, cr_w = 0, cr_h = 0, lever_tx = -1, lever_ty = -1;
 static int   cr_on, cr_hit, cr_dead; static float cr_t, cr_sx, cr_sy, cr_tx, cr_ty; static void (*cr_cb)(void);
 static int   blood_n; static float bm_disp, bm_flash;
+static int   mtr_tx = -1, mtr_ty = -1;                 /* the blood stone (the meter): a solid tile west of the plate */
 static float shk_x, shk_y;
 static int   esc_on; static float esc_t; static void (*esc_cb)(void);
 static void cr_slot(int k, float *x, float *y) {      /* where the k-th sacrifice lies on the plate (feet, tiles) */
@@ -206,7 +207,8 @@ static float rnd(int x, int y, uint32_t seed) { return (hash2(x, y, seed) & 0xFF
 static int solid_tile(int tx, int ty) {
     if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) return 1;
     uint8_t v = map[ty][tx];
-    if (tx == lever_tx && ty == lever_ty) return 1;                      /* the lever stands there */
+    if (tx == lever_tx && ty == lever_ty) return 1;
+    if (tx == mtr_tx && ty == mtr_ty) return 1;                      /* the lever stands there */
     return v == T_RWALL || v == T_RPILLAR || v == T_RRUBBLE || v == T_RGATE || v == T_RVOID || v == T_RPIT;
 }
 
@@ -471,6 +473,7 @@ static void gen_temple_map(void) {
     temple_sx = gi.spawn_x; temple_sy = gi.spawn_y; temple_gx = gi.gate_x; temple_gy = gi.gate_y;
     pit_x0 = gi.pit_x0; pit_y0 = gi.pit_y0; pit_x1 = gi.pit_x1; pit_y1 = gi.pit_y1; far_tx = gi.far_x; far_ty = gi.far_y; edge_tx = gi.edge_x; edge_ty = gi.edge_y;
     cr_x = gi.crush_x; cr_y = gi.crush_y; cr_w = gi.crush_w; cr_h = gi.crush_h; lever_tx = gi.lever_x; lever_ty = gi.lever_y;
+    mtr_tx = cr_w > 0 ? cr_x - 2 : -1; mtr_ty = cr_w > 0 ? cr_y + 1 : -1;
     if (blood_n >= BLOOD_NEED && temple_gx >= 0 && temple_gy >= 0) map[temple_gy][temple_gx] = T_RFLOOR;      /* the blood is enough: the gate is open */
     bodies_set_pit(pit_x0, pit_y0, pit_x1, pit_y1);
     pit_apply();                                                         /* story chunk 11: the bodies that went in before stay in */
@@ -657,6 +660,48 @@ static void cr_floor_draw(SDL_Renderer *r, int cx, int cy) {   /* the plate, the
         rc(r, 170, 166, 182, kl);
         if (!pulled) { fill(r, lx + 3 * px, ly - 2 * px, px, 7 * px); col(r, 214, 40, 48, 255); fill(r, lx + 2 * px, ly - 4 * px, 3 * px, 3 * px); col(r, 255, 130, 130, 255); fill(r, lx + 2 * px, ly - 4 * px, px, px); }
         else { for (int i = 0; i < 6; i++) fill(r, lx + (2 + i) * px, ly + (4 - (i < 3 ? 0 : 0)) * px, px, px); col(r, 214, 40, 48, 255); fill(r, lx + 6 * px, ly + 3 * px, 3 * px, 3 * px); }
+    }
+}
+static void cr_meter_draw(SDL_Renderer *r, int cx, int cy, int over) {   /* THE BLOOD STONE: a carved pillar next to the plate, a groove in it that fills with blood. over: the pass after the player (we stand north of it) */
+    if (mtr_tx < 0 || cur_map != MAP_TEMPLE) return;
+    int behind = pyp < (float)(mtr_ty * tile + tile / 2);
+    if (over != behind) return;
+    int x = mtr_tx * tile - cx, yb = (mtr_ty + 1) * tile - cy;           /* the base's bottom edge */
+    if (x > W || x + tile < 0 || yb < 0 || yb - 5 * tile > H) return;
+    float k = ruin_k(mtr_tx, mtr_ty); if (k < 0.45f) k = 0.45f;
+    int top = yb - 26 * px;                                               /* the column rises about three tiles */
+    col(r, 0, 0, 0, 90); fill(r, x, yb - 2 * px, tile + 2 * px, 3 * px);                                    /* its shadow on the floor */
+    rc(r, 70, 64, 84, k);  fill(r, x - px, yb - 5 * px, tile + 2 * px, 5 * px);                              /* the plinth */
+    rc(r, 104, 98, 118, k); fill(r, x - px, yb - 5 * px, tile + 2 * px, px);
+    rc(r, 88, 82, 102, k); fill(r, x + px, top + 3 * px, 6 * px, 21 * px);                                   /* the shaft */
+    rc(r, 118, 112, 132, k); fill(r, x + px, top + 3 * px, px, 21 * px);                                     /* lit edge */
+    rc(r, 56, 51, 68, k);  fill(r, x + 6 * px, top + 3 * px, px, 21 * px);                                   /* dark edge */
+    rc(r, 64, 59, 78, k);                                                                                    /* stone course joints */
+    for (int j = 0; j < 5; j++) { int jy = top + (6 + j * 4) * px; fill(r, x + px, jy, 6 * px, 1); fill(r, x + (j & 1 ? 3 : 5) * px, jy, 1, 4 * px); }
+    rc(r, 104, 98, 118, k); fill(r, x, top, 8 * px, 3 * px);                                                 /* the capital */
+    rc(r, 130, 124, 144, k); fill(r, x, top, 8 * px, px);
+    rc(r, 56, 51, 68, k);  fill(r, x, top + 2 * px, 8 * px, px);
+    int gx = x + 3 * px, gtop = top + 6 * px, gbot = yb - 8 * px, gl = gbot - gtop;           /* the carved groove: 2 px wide, dark, deep */
+    rc(r, 16, 10, 16, 1.0f); fill(r, gx - 1, gtop - px, 2 * px + 2, gl + 2 * px);
+    rc(r, 30, 20, 30, 1.0f); fill(r, gx, gtop, 2 * px, gl);
+    float f = bm_disp; if (f > 1.0f) f = 1.0f;
+    int fh = (int)(f * (float)gl + 0.5f);
+    for (int n = 1; n <= BLOOD_NEED; n++) {                                                                  /* a carved notch per sacrifice, on both sides, red once reached */
+        int ny = gbot - gl * n / BLOOD_NEED + (n == BLOOD_NEED ? px : 0);
+        if (blood_n >= n && fh >= gl * n / BLOOD_NEED - 1) rc(r, 200, 40, 44, 1.0f); else rc(r, 22, 15, 24, 1.0f);
+        fill(r, x + 2 * px, ny, px, px); fill(r, x + 5 * px, ny, px, px);
+    }
+    if (fh > 0) {
+        float kb = k < 0.7f ? 0.7f : k;
+        rc(r, 150, 12, 22, kb); fill(r, gx, gbot - fh, 2 * px, fh);
+        rc(r, 214, 50, 56, kb); fill(r, gx, gbot - fh, px, fh);
+        rc(r, 240, 96, 100, kb); fill(r, gx, gbot - fh, 2 * px, px);                                        /* the wet surface */
+        if (bm_flash > 0) { col(r, 255, 200, 200, (int)(200.0f * bm_flash)); fill(r, gx - px, gbot - fh - px, 4 * px, fh + 2 * px); }
+    }
+    if (blood_n >= BLOOD_NEED) {                                                                              /* full: the stone glows */
+        float p = 0.5f + 0.5f * sinf(t * 4.0f);
+        col(r, 255, 70, 60, (int)(50 + 80 * p)); fill(r, x - px, top - 2 * px, 10 * px, 30 * px);
+        col(r, 255, 210, 120, (int)(150 + 100 * p)); fill(r, x + 3 * px, top + px, 2 * px, px);
     }
 }
 static void cr_block_draw(SDL_Renderer *r, int cx, int cy) {   /* the block, over everything (it falls from above) */
@@ -1577,6 +1622,7 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
         SDL_RenderSetClipRect(r, NULL);
     }
     cr_floor_draw(r, cx, cy);                                                                                                  /* the crusher's plate and lever, under the dead */
+    cr_meter_draw(r, cx, cy, 0);                                                                                               /* the blood stone, when we stand south of it */
     bodies_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                            /* the other dead (story chunk 6) */
     props_draw(r, cx, cy, px, tile, TEMPLE_SHADE);                                                                             /* the big rock (story chunk 7) */
     item_draw_ground(r, cx, cy, t);                                                                                            /* lying on the floor: under the player */
@@ -1637,49 +1683,10 @@ static void draw_scene(SDL_Renderer *r, float camx, float camy) {
     }
     char_set_darken(0);
     if (ritual_scene()) ritual_draw_over(r, (int)(rit_tx * tile) - cx, (int)(rit_ty * tile) - cy, px, player_look);
+    cr_meter_draw(r, cx, cy, 1);                                                               /* the blood stone, when we stand north of it */
     cr_block_draw(r, cx, cy);                                                                  /* the heavy block, over everything */
 }
 
-/* THE BLOOD METER: a vertical thermometer on the left, above the stick. every death fills it a third; full = the gate is open */
-static void blood_meter_draw(SDL_Renderer *r) {
-    float u = ui; int c = ucell;
-    int tw = 7 * c, brad = (int)(tw * 0.85f);
-    int cxm = (int)(14 * u) + brad + 2 * c;
-    int cym = sy - sr - (int)(16 * u) - brad - 2 * c;
-    int th = (int)(150 * u); if (th > cym - (int)(80 * u)) th = cym - (int)(80 * u); if (th < (int)(48 * u)) th = (int)(48 * u);
-    int tx = cxm - tw / 2, ttop = cym - th;
-    int full = blood_n >= BLOOD_NEED;
-    float pulse = 0.5f + 0.5f * sinf(t * 5.0f);
-    col(r, 8, 6, 16, 240); fill(r, tx - c, ttop - c, tw + 2 * c, th + c); pdisc(r, cxm, cym, brad + c, c);            /* the frame */
-    if (full) { col(r, 255, 206, 80, (int)(120 + 130 * pulse)); fill(r, tx - c, ttop - c, tw + 2 * c, c); fill(r, tx - c, ttop - c, c, th + c); fill(r, tx + tw, ttop - c, c, th + c); pdisc(r, cxm, cym, brad + c, c); col(r, 8, 6, 16, 255); pdisc(r, cxm, cym, brad, c); }
-    col(r, 44, 24, 38, 245); fill(r, tx, ttop, tw, th); pdisc(r, cxm, cym, brad, c);                                    /* the glass */
-    int fh = (int)(bm_disp * (float)th + 0.5f);
-    col(r, 150, 12, 22, 255); pdisc(r, cxm, cym, brad - c, c);                                                          /* the bulb is always red */
-    col(r, 214, 52, 60, 255); pdisc(r, cxm - brad / 3, cym - brad / 3, brad / 4, c);
-    if (fh > 0) {
-        col(r, 168, 16, 26, 255); fill(r, tx + c, cym - fh, tw - 2 * c, fh);
-        col(r, 214, 52, 60, 255); fill(r, tx + c, cym - fh, c, fh);
-        int wob = (int)(sinf(t * 4.0f) * (float)c * 0.4f);
-        col(r, 240, 90, 94, 255); fill(r, tx + c, cym - fh - (wob > 0 ? wob : 0), tw - 2 * c, c);                       /* the surface */
-        if (bm_flash > 0) { col(r, 255, 255, 255, (int)(170.0f * bm_flash)); fill(r, tx + c, cym - fh, tw - 2 * c, fh); pdisc(r, cxm, cym, brad - c, c); }
-    }
-    int fc = (int)(1.6f * u); if (fc < 1) fc = 1;
-    for (int k = 1; k <= BLOOD_NEED; k++) {                                                                             /* a notch for each sacrifice */
-        int yk = cym - th * k / BLOOD_NEED;
-        if (blood_n >= k) col(r, 255, 214, 96, 255); else col(r, 150, 140, 168, 255);
-        fill(r, tx + tw, yk - c / 2, 2 * c, c > 1 ? c / 2 + 1 : 1);
-        char nb[4]; snprintf(nb, sizeof nb, "%d", k);
-        font_draw(r, nb, tx + tw + 3 * c, yk - 3 * fc, fc);
-    }
-    char lab[16]; snprintf(lab, sizeof lab, full ? "FULL" : "%d/%d", blood_n, BLOOD_NEED);
-    int lw = font_width(lab, fc), lx = cxm - lw / 2; if (lx < 3) lx = 3;
-    col(r, 8, 6, 16, 255); font_draw(r, lab, lx + 1, ttop - 3 * c - 7 * fc + 1, fc);
-    if (full) col(r, 255, 214, 96, 255); else col(r, 240, 150, 156, 255);
-    font_draw(r, lab, lx, ttop - 3 * c - 7 * fc, fc);
-    const char *bl = "BLOOD"; int bw = font_width(bl, fc), bx = cxm - bw / 2; if (bx < 3) bx = 3;
-    col(r, 8, 6, 16, 255); font_draw(r, bl, bx + 1, ttop - 3 * c - 16 * fc + 1, fc);
-    col(r, 240, 150, 156, 255); font_draw(r, bl, bx, ttop - 3 * c - 16 * fc, fc);
-}
 static void esc_text(SDL_Renderer *r, const char *s, int y, int cell, int a) {
     float u = ui; while (cell > 1 && font_width(s, cell) > W - (int)(24 * u)) cell--;
     int tx = (W - font_width(s, cell)) / 2;
@@ -1740,7 +1747,6 @@ void world_draw(SDL_Renderer *r) {
         toast_draw(r, (int)(10 * (W < H ? W : H) / 360.0f), missions_bottom() + (int)(4 * (W < H ? W : H) / 360.0f));   /* "New task added", under the list */
         hud_draw(r);                                              /* ID card, top-right */
     }
-    if (!fin_on && cur_map == MAP_TEMPLE) blood_meter_draw(r);     /* the blood meter: always there, so the filling is seen */
     if (controls_visible) item_ui_draw_window(r);                 /* story chunk 16: the inventory window, over the HUD */
 
     if (fin_on && fin_red) {                                      /* the final action, after the cut: the red filter over everything, the text, the button */
