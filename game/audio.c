@@ -435,38 +435,6 @@ static void hint_mix(Sint16 *out, int frames) {
     }
 }
 
-/* ---------- the tap: a UI button was pressed. a soft wooden "tock": a short sine body that sinks from ~640 Hz to ~380 Hz (the knock), a very short bright tick on top
- * (2.3 kHz, gone in a few ms) for the touch of the finger, 1 ms in and a smooth out so it never clicks. pure tones, no noise: clean on a small phone speaker. ~60 ms ---------- */
-static int   tap_on, tap_pos;
-static float tap_ph1, tap_ph2;
-#define TAP_T     0.060f
-#define TAP_GAIN  0.34f
-void sfx_tap(void) {
-    if (!dev) return;
-    SDL_LockAudioDevice(dev);
-    tap_on = 1; tap_pos = 0; tap_ph1 = tap_ph2 = 0.0f;
-    SDL_UnlockAudioDevice(dev);
-}
-static void tap_mix(Sint16 *out, int frames) {
-    for (int i = 0; i < frames; i++) {
-        float tt = (float)tap_pos / (float)OUT_RATE;
-        if (tt >= TAP_T) { tap_on = 0; return; }
-        float at = tt < 0.001f ? tt / 0.001f : 1.0f;                             /* ~1 ms in: no click */
-        float out_k = tt > TAP_T - 0.012f ? (TAP_T - tt) / 0.012f : 1.0f; out_k *= out_k;   /* a smooth way out */
-        float f1 = 640.0f - 260.0f * (1.0f - expf(-tt / 0.010f));                /* the knock sinks */
-        tap_ph1 += f1 / (float)OUT_RATE; if (tap_ph1 >= 1.0f) tap_ph1 -= 1.0f;
-        tap_ph2 += 2300.0f / (float)OUT_RATE; if (tap_ph2 >= 1.0f) tap_ph2 -= 1.0f;
-        float body = sinf(6.2831853f * tap_ph1) * expf(-tt / 0.016f);
-        float tick = sinf(6.2831853f * tap_ph2) * expf(-tt / 0.004f) * 0.45f;
-        int v = (int)((body + tick) * at * out_k * TAP_GAIN * 32767.0f);
-        for (int ch = 0; ch < 2; ch++) {
-            int o = out[i * 2 + ch] + v;
-            out[i * 2 + ch] = (Sint16)(o > 32767 ? 32767 : o < -32768 ? -32768 : o);
-        }
-        tap_pos++;
-    }
-}
-
 /* ---------- the swoop: something goes over the edge of the pit. an air rush falling away: noise through a low-pass whose cutoff sinks from ~1.8 kHz to ~140 Hz, the level
  * swelling for a moment then dying with the fall (~1.1 s, the length of the body's fall animation) ---------- */
 static int   swoop_on, swoop_pos;
@@ -1066,7 +1034,6 @@ static void audio_cb(void *ud, Uint8 *stream, int len) {
     if (err_on) err_mix(out, frames);
     if (hit_on) hit_mix(out, frames);
     if (hint_on) hint_mix(out, frames);
-    if (tap_on) tap_mix(out, frames);
     if (swoop_on) swoop_mix(out, frames);
     if (drag_on) drag_mix(out, frames);
     if (pfft_on) pfft_mix(out, frames);

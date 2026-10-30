@@ -99,7 +99,6 @@ int  sfx_debug_punches(void);             /* tests: how many times sfx_punch was
 void sfx_hit(void);                     /* chunk 36: a hammer hit: a dull low thump with a short crack on top */
 void sfx_drag(float level);             /* a body sliding over stone: a calm friction hiss, as loud as he is fast. call it every frame with 0..1 (0 = quiet; it eases in and out by itself) */
 void sfx_swoop(void);                   /* a body goes over the edge of the pit: an air rush that falls away, ~1.1 s */
-void sfx_tap(void);                     /* a UI button was tapped: a soft wooden "tock" (call it on the tap = the release on the button; not for the arcade controls) */
 void sfx_hold_hint(void);               /* chunk 55: a tap on a hammer button (a hold is needed): a short soft rising "bup" */
 int  sfx_debug_hints(void);             /* tests: how many times sfx_hold_hint was called */
 int  sfx_debug_hits(void);              /* tests: how many times sfx_hit was called */            /* tests: how many times sfx_error was called */

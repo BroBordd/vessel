@@ -210,7 +210,7 @@ int thought_touch(int a, int tx, int ty) {
     if (!enabled) return 0;
     if (a == 0) { if (on_card(tx, ty)) { pdown = 1; return 1; } return 0; }
     if (!pdown) return 0;
-    if (a == 1) { pdown = 0; if (on_card(tx, ty) && !(active && cur.wrath)) { sfx_tap(); brainwin_open(); } return 1; }   /* Dia's card cannot be opened */
+    if (a == 1) { pdown = 0; if (on_card(tx, ty) && !(active && cur.wrath)) { brainwin_open(); } return 1; }   /* Dia's card cannot be opened */
     if (a == 3) pdown = 0;
     return 1;
 }

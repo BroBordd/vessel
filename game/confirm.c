@@ -84,7 +84,6 @@ int confirm_touch(int a, int x, int y) {
     if (a == 1) {
         int d = down; down = -1;
         if (d >= 0 && hit(x, y) == d) {
-            sfx_tap();
             void (*cb)(void) = d == 1 ? yes_cb : NULL;
             on = 0; yes_cb = NULL;                                   /* closed first: the callback may open the next window */
             if (cb) cb();

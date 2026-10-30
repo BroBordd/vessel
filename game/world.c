@@ -830,7 +830,7 @@ static void fin_continue(void) {                                   /* the tap: t
 static void final_touch(int a, int x, int y) {
     if (a == 0) fin_down = fin_btn_a() > 0.5f && fin_btn_hit(x, y);
     else if (a == 3) fin_down = 0;
-    else if (a == 1) { int d = fin_down; fin_down = 0; if (d && fin_btn_hit(x, y)) { sfx_tap(); fin_continue(); } }
+    else if (a == 1) { int d = fin_down; fin_down = 0; if (d && fin_btn_hit(x, y)) { fin_continue(); } }
 }
 
 void world_final_stab(void (*done)(void)) {

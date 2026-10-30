@@ -97,7 +97,7 @@ int notewin_touch(int a, int x, int y) {
     Lay L; layout(&L);
     if (a == 0) down = in_btn(&L, x, y);
     else if (a == 3) down = 0;
-    else if (a == 1) { int d = down; down = 0; if (d && in_btn(&L, x, y)) { sfx_tap(); notewin_close(); } }
+    else if (a == 1) { int d = down; down = 0; if (d && in_btn(&L, x, y)) { notewin_close(); } }
     return 1;                                                        /* modal: every touch is ours while it is open */
 }
 void notewin_update(float dt) { if (on) t += dt; }

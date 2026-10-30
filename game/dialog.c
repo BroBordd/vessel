@@ -219,7 +219,6 @@ void dialog_touch(int a, int x, int y) {
         else if (a == 1) {
             int b = btn_press && btn_at(x, y) == btn_press ? btn_press : 0;
             btn_press = 0;
-            if (b) sfx_tap();
             if (b == 1) talk_open(lines[idx].who ? lines[idx].who->name : "", plain, sugg, nsugg, reply_mode == REPLY_REQUIRED, on_talk_result);
             else if (b == 2) do_reply(NULL);
         }

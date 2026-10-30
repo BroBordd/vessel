@@ -183,7 +183,7 @@ static int on_card(int tx, int ty) { return tx >= left && tx < left + cur_w() &&
 int nowplaying_touch(int a, int tx, int ty) {
     if (a == 0) { if (on_card(tx, ty)) { pdown = 1; return 1; } return 0; }
     if (!pdown) return 0;
-    if (a == 1) { pdown = 0; if (on_card(tx, ty)) { sfx_tap(); musicwin_open(); } return 1; }
+    if (a == 1) { pdown = 0; if (on_card(tx, ty)) { musicwin_open(); } return 1; }
     if (a == 3) pdown = 0;
     return 1;
 }

@@ -69,7 +69,6 @@ MenuAction menu_touch(int a, int x, int y) {
     case 1: {                                   /* up: fire if released on the same button */
         int p = pressed, ok = pressed >= 0 && hit(x, y) == pressed;
         pressed = -1; inside = 0;
-        if (ok) sfx_tap();
         if (ok) return p == B_PLAY ? MENU_PLAY : p == B_LOAD ? MENU_LOAD : MENU_EXIT;
         break;
     }

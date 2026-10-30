@@ -46,16 +46,16 @@ int pausebtn_touch(int a, int x, int y) {
     if (pdown) {
         if (a == 1 || a == 3) {
             pdown = 0;
-            if (a == 1 && inside(b, x, y)) { sfx_tap(); paused = !paused; return paused ? 2 : 1; }
+            if (a == 1 && inside(b, x, y)) { paused = !paused; return paused ? 2 : 1; }
         }
         return 1;
     }
     if (rdown) {
-        if (a == 1 || a == 3) { rdown = 0; if (a == 1 && inside(rs, x, y)) { sfx_tap(); paused = 0; } }
+        if (a == 1 || a == 3) { rdown = 0; if (a == 1 && inside(rs, x, y)) { paused = 0; } }
         return 1;
     }
     if (mdown) {
-        if (a == 1 || a == 3) { mdown = 0; if (a == 1 && inside(mr, x, y)) { sfx_tap(); menu_req = 1; paused = 0; } }
+        if (a == 1 || a == 3) { mdown = 0; if (a == 1 && inside(mr, x, y)) { menu_req = 1; paused = 0; } }
         return 1;
     }
     return paused ? 1 : 0;

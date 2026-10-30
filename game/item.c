@@ -1029,9 +1029,8 @@ int item_ui_touch(int a, int x, int y) {
         if (a == 2) { drag_move(x, y); return 1; }
         if (a == 1) {
             int d = ui_down; ui_down = 0;
-            if (act_menu && !bw_on && d == 2) { if (btn_under(x, y)) sfx_tap(); win_tap(x, y); return 1; }
+            if (act_menu && !bw_on && d == 2) { win_tap(x, y); return 1; }
             if (drag_end(x, y)) return 1;                        /* a drag: dropped, not a tap */
-            if (d == 2 && btn_under(x, y)) sfx_tap();             /* the tap sound is the tap (the release on a button), not the touch */
             if (d == 3 && !in_rect(x, y, wx, wy, ww, wh)) set_open(0);       /* a tap outside closes it */
             else if (d == 2 && in_rect(x, y, wx, wy, ww, wh)) win_tap(x, y);
             return 1;
@@ -1041,7 +1040,7 @@ int item_ui_touch(int a, int x, int y) {
     }
     if (a == 0) { if (hit_btn(x, y)) { ui_down = 1; return 1; } return 0; }
     if (!ui_down) return 0;
-    if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) { sfx_tap(); set_open(1); } return 1; }
+    if (a == 1) { int d = ui_down; ui_down = 0; if (d == 1 && hit_btn(x, y)) { set_open(1); } return 1; }
     if (a == 3) ui_down = 0;
     return 1;                                                    /* a drag that began on a button stays its own */
 }

@@ -297,7 +297,6 @@ int musicwin_touch(int a, int x, int y) {
         return 1;
     }
     if (a == 1 || a == 3) {
-        if (a == 1 && ((grab == 2 && inside(close_r, x, y)) || (grab == 4 && inside(pause_r, x, y)) || (grab == 6 && inside(mode_r[0], x, y)) || (grab == 7 && inside(mode_r[1], x, y)) || (grab == 10 && inside(loop_r, x, y)))) sfx_tap();
         if (grab == 1) release();
         else if (grab == 9) {                                   /* the finger lifts: play on from where it is */
             double sec = (double)seek_frac(x) * music_duration();
