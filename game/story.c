@@ -15,7 +15,6 @@
 #include "props.h"
 #include "toast.h"
 #include "confirm.h"
-#include "notewin.h"
 #include "audio.h"
 #include <stdio.h>
 #include "missions.h"
@@ -27,7 +26,7 @@
 #include <stdlib.h>
 
 static void story_woke(void);                    /* the new body has formed in the circle (defined with story_start) */
-static int note_read, task_note = -1, task_escape = -1;            /* the note (chunk 5): it has been read (or can never be), and the id of the task "Read the note" */
+static int walked, task_walk = -1, task_escape = -1;               /* the first task: "Walk around" (done once we have walked ~10 tiles, or died), and the id of the task */
 
 #define VESSEL_NAME  "Aonia"
 #define VESSEL2_NAME "Doia"
@@ -78,8 +77,10 @@ void story_after(float seconds, void (*fn)(void)) {
 }
 
 static void pit_watch(float dt);
+static void walk_watch(void);
 static void secrets_watch(float dt);
 void story_update(float dt) {
+    walk_watch();                               /* the first task */
     pit_watch(dt);                              /* chunk 11 */
     secrets_watch(dt);                          /* chunk 12 */
     events_update(dt);                          /* the event thoughts: watches the world, thinks what was fired (events.c) */
@@ -168,7 +169,7 @@ static void arrival_centre(float *x, float *y) { if (cp_reached || death_cause =
 static void death_woke(void) {
     unsigned dead = story_vessel_index();
     int gk[16], gx[16], gy[16], gn = 0;                         /* chunk 8: what lay on the floor (rocks, a thrown rock) lies there still after the map is made again. the paper does not come back */
-    for (int i = 0; i < item_ground_count() && gn < 16; i++) { int k, x, y; if (item_ground_get(i, &k, &x, &y) && k != ITEM_PAPER) { gk[gn] = k; gx[gn] = x; gy[gn] = y; gn++; } }
+    for (int i = 0; i < item_ground_count() && gn < 16; i++) { int k, x, y; if (item_ground_get(i, &k, &x, &y)) { gk[gn] = k; gx[gn] = x; gy[gn] = y; gn++; } }
     if (death_cause != DEATH_PIT) {                             /* the body stays where it fell (a fall into the pit leaves nothing on the floor: chunk 11 keeps that pile) */
         unsigned char inv[ITEM_COUNT]; item_pack(inv);          /* ... with what it carried */
         float cx, cy; arrival_centre(&cx, &cy);
@@ -182,8 +183,8 @@ static void death_woke(void) {
     cp_busy = 0;
     story_vessel_next();                                        /* the soul wakes in the next body (its look comes from its number) */
     hud_reset(story_vessel_look(story_vessel_index()), 0);      /* a body that is not the first knows its name from the moment it wakes: no flash, no toast */
-    item_clear(); note_read = 1;                                /* the pockets are empty; the note belongs to vessel 2 alone */
-    if (task_note >= 0) { mission_complete(task_note); task_note = -1; task_escape = mission_add("Escape the ruins"); }
+    item_clear(); walked = 1;                                   /* the pockets are empty */
+    if (task_walk >= 0) { mission_complete(task_walk); task_walk = -1; task_escape = mission_add("Escape the ruins"); }
     world_reload_ruins();                                      /* the ruins again (the same map), the blackout lifted */
     if (cp_reached) {                                           /* the second circle: we are put on it, its grooves are full, the body forms there */
         float qx, qy; ritual_c2_centre(&qx, &qy);
@@ -221,24 +222,24 @@ static void dev_die(void) {
     story_die(!strcmp(e, "pit") ? DEATH_PIT : !strcmp(e, "circle") ? DEATH_CIRCLE : DEATH_SELF);
 }
 
-/* ---------- the note (chunk 5, reworked) ---------- */
-/* a paper lies by Aonia. TAKING it (the hand button, item.c) only puts it in the pockets. its action READ opens the note window (notewin.c): a pixel-art page written in
- * blood. the FIRST read completes the task "Read the note" at once; when the window is closed the card flips from Vas to the vessel's real name (hud_set_person) and the
- * task "Escape the ruins" comes. the paper stays in the pockets (read it again any time) until we die. only vessel 2 can read it for the first time: it is addressed to
- * Doia, and a later body wakes with no paper on the floor (the map is made again and nothing puts it back). */
+/* ---------- the first task: walk around ---------- */
+/* the card says Vas until we have walked about 10 tiles; then the task is done, the card flips to the real name (hud_set_person) and "Escape the ruins" comes. */
 static Person card_vas;                                         /* the card before the note: this body's face under the plain name Vas */
 static void card_show_vas(void) { card_vas = *story_vessel_look(story_vessel_index()); card_vas.name = VESSEL_LATIN; hud_reset(&card_vas, 0); }
 
-static void note_done(void) {                                   /* the window is closed after the first read */
-    hud_set_person(story_vessel_look(story_vessel_index()));    /* Doia: the card flashes and the coin dings */
+static float walk_acc, walk_lx, walk_ly; static int walk_has;
+static void walk_done(void) {
+    walked = 1;
+    if (task_walk >= 0) { mission_complete(task_walk); task_walk = -1; }
+    hud_set_person(story_vessel_look(story_vessel_index()));    /* the card flashes and the coin dings */
     task_escape = mission_add("Escape the ruins");
-    event_fire(EV_READ_NOTE);
 }
-static void note_read_action(void) {
-    int first = !note_read;
-    note_read = 1;
-    if (first) { if (task_note >= 0) mission_complete(task_note); task_note = -1; }   /* the task is done the moment we read */
-    notewin_open(first ? note_done : NULL);
+static void walk_watch(void) {                                  /* every frame: add up the tiles we walk (only while the task is open) */
+    if (walked || task_walk < 0 || !world_controls_on()) { walk_has = 0; return; }
+    float x, y; world_player_tilef(&x, &y);
+    if (walk_has) { float d = hypotf(x - walk_lx, y - walk_ly); if (d < 1.5f) walk_acc += d; }
+    walk_lx = x; walk_ly = y; walk_has = 1;
+    if (walk_acc >= 10.0f) walk_done();
 }
 
 /* ---------- inspecting a body (chunk 6, its own window in chunk 17) ---------- */
@@ -377,7 +378,6 @@ static void story_action(int kind, int act) {
     if (dying || world_final_active()) return;
     switch (act) {
     case ACT_READ:
-        if (kind == ITEM_PAPER && item_has(ITEM_PAPER)) note_read_action();
         return;
     case ACT_STAB_SELF:
         if (cp_busy) return;
@@ -485,14 +485,14 @@ static void story_woke(void) {                                 /* the new body h
         toast_info("THE SECOND CIRCLE", "The ruins are behind you.");
     }
     event_fire(EV_WAKE);
-    if (!note_read && task_note < 0 && story_vessel_index() == START_VESSEL) task_note = mission_add("Read the note");
+    if (!walked && task_walk < 0 && story_vessel_index() == START_VESSEL) { task_walk = mission_add("Walk around"); walk_acc = 0; walk_has = 0; }
 }
 void story_start(void) {
     memset(timers, 0, sizeof timers);
     { const char *e = getenv("VESSEL_INDEX"); story_vessel_set(e && atoi(e) > 0 ? (unsigned)atoi(e) : START_VESSEL); }   /* a new game starts in vessel 2, drawn by vessel_gen(2); dev: VESSEL_INDEX=n starts in vessel n */
-    events_reset(); dying = 0; enter_pending = 0; note_read = 0; task_note = -1; task_escape = -1; cp_busy = cp_reached = cp_told = 0; gate_told = 0;
+    events_reset(); dying = 0; enter_pending = 0; walked = 0; task_walk = -1; task_escape = -1; walk_acc = 0; walk_has = 0; cp_busy = cp_reached = cp_told = 0; gate_told = 0;
     world_blood_reset(); world_set_escape_cb(story_escaped);
-    card_show_vas();                            /* the card says Vas until the note is read */
+    card_show_vas();                            /* the card says Vas until we have walked around */
     if (getenv("VESSEL_DIE")) story_after(6.0f, dev_die);
     item_clear();
     if (getenv("VESSEL_KNIFE")) item_give(ITEM_KNIFE);          /* dev: a knife in the pockets from the start (to try the second circle) */
@@ -507,7 +507,6 @@ void story_start(void) {
       if (!world_body_tile(1, &bx, &by)) { float cx, cy; ritual_centre(&cx, &cy); bx = cx - 2.2f; by = cy; }
       if (world_free_tile_near(bx, by - 1.5f, &kx, &ky)) world_place_item(ITEM_KNIFE, kx, ky); }
     { int fx, fy; if (world_pit_spots(&fx, &fy, NULL, NULL)) ritual_c2_set(fx + 0.5f, fy + 0.5f); }    /* chunk 13: the empty carvings of the second circle lie on the far ledge */
-    { float cx, cy; ritual_centre(&cx, &cy); world_place_item(ITEM_PAPER, (int)floorf(cx - 2.2f), (int)floorf(cy + 1.6f)); }    /* the paper lies below Aonia, who is left of the circle */
     { float cx, cy; ritual_centre(&cx, &cy);                                                      /* chunk 15: two small rocks lie at random places round the room, off the circle and Aonia (they sparkle now and then: they can be taken) */
       static unsigned long long seed;
       seed = seed * 6364136223846793005ULL + (unsigned long long)SDL_GetTicks() + 1442695040888963407ULL;
